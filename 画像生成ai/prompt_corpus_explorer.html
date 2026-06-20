@@ -1,0 +1,4348 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Prompt Corpus">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiUHJvbXB0IENvcnB1cyBFeHBsb3JlciIsInNob3J0X25hbWUiOiJQcm9tcHQgQ29ycHVzIiwiZGVzY3JpcHRpb24iOiJOb3ZlbEFJL0ExMTExIOODl+ODreODs+ODl+ODiOOCkuOCpOODs+ODh+ODg+OCr+OCueWMluOAgeOCv+OCsOmgu+W6puOBqOWFsei1t+OCkuWIhuaekCIsInN0YXJ0X3VybCI6Ii4vIiwic2NvcGUiOiIuLyIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwib3JpZW50YXRpb24iOiJwb3J0cmFpdCIsImJhY2tncm91bmRfY29sb3IiOiIjZjdmNGVkIiwidGhlbWVfY29sb3IiOiIjMWYxZDFhIiwibGFuZyI6ImphIiwiaWNvbnMiOlt7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIWnBaWGRDYjNnOUlqQWdNQ0ExTVRJZ05URXlJajQ4Y21WamRDQjNhV1IwYUQwaU5URXlJaUJvWldsbmFIUTlJalV4TWlJZ1ptbHNiRDBpSXpGbU1XUXhZU0l2UGp4amFYSmpiR1VnWTNnOUlqSTFOaUlnWTNrOUlqSTFOaUlnY2owaU1UY3dJaUJtYVd4c1BTSWpNbUUyWWpSaElpOCtQSFJsZUhRZ2VEMGlNalUySWlCNVBTSXpORFlpSUhSbGVIUXRZVzVqYUc5eVBTSnRhV1JrYkdVaUlHWnZiblF0Wm1GdGFXeDVQU0pIWlc5eVoybGhMSE5sY21sbUlpQm1iMjUwTFhOcGVtVTlJakkyTUNJZ1ptOXVkQzEzWldsbmFIUTlJamN3TUNJZ1ptbHNiRDBpSTJZM1pqUmxaQ0krVUR3dmRHVjRkRDQ4TDNOMlp6ND0iLCJzaXplcyI6ImFueSIsInR5cGUiOiJpbWFnZS9zdmcreG1sIiwicHVycG9zZSI6ImFueSJ9LHsic3JjIjoiZGF0YTppbWFnZS9zdmcreG1sO2Jhc2U2NCxQSE4yWnlCNGJXeHVjejBpYUhSMGNEb3ZMM2QzZHk1M015NXZjbWN2TWpBd01DOXpkbWNpSUhacFpYZENiM2c5SWpBZ01DQTFNVElnTlRFeUlqNDhjbVZqZENCM2FXUjBhRDBpTlRFeUlpQm9aV2xuYUhROUlqVXhNaUlnWm1sc2JEMGlJekZtTVdReFlTSXZQanhqYVhKamJHVWdZM2c5SWpJMU5pSWdZM2s5SWpJMU5pSWdjajBpTVRjd0lpQm1hV3hzUFNJak1tRTJZalJoSWk4K1BIUmxlSFFnZUQwaU1qVTJJaUI1UFNJek5EWWlJSFJsZUhRdFlXNWphRzl5UFNKdGFXUmtiR1VpSUdadmJuUXRabUZ0YVd4NVBTSkhaVzl5WjJsaExITmxjbWxtSWlCbWIyNTBMWE5wZW1VOUlqSTJNQ0lnWm05dWRDMTNaV2xuYUhROUlqY3dNQ0lnWm1sc2JEMGlJMlkzWmpSbFpDSStVRHd2ZEdWNGRENDhMM04yWno0PSIsInNpemVzIjoiYW55IiwidHlwZSI6ImltYWdlL3N2Zyt4bWwiLCJwdXJwb3NlIjoibWFza2FibGUifV19">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzFmMWQxYSIvPjxjaXJjbGUgY3g9IjI1NiIgY3k9IjI1NiIgcj0iMTcwIiBmaWxsPSIjMmE2YjRhIi8+PHRleHQgeD0iMjU2IiB5PSIzNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjI2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2Y3ZjRlZCI+UDwvdGV4dD48L3N2Zz4=">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzFmMWQxYSIvPjxjaXJjbGUgY3g9IjI1NiIgY3k9IjI1NiIgcj0iMTcwIiBmaWxsPSIjMmE2YjRhIi8+PHRleHQgeD0iMjU2IiB5PSIzNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjI2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2Y3ZjRlZCI+UDwvdGV4dD48L3N2Zz4=">
+<title>Prompt Corpus Explorer</title>
+<style>
+  :root {
+    --ink: #1f1d1a;
+    --paper: #f7f4ed;
+    --muted: #8b8275;
+    --line: #d4ccbe;
+    --soft: #ece6d6;
+    --accent: #b04a2e;
+    --good: #2a6b4a;
+    --warn: #9c2b2b;
+    --hi: #fff;
+    --hover: rgba(255,255,255,0.5);
+  }
+
+  /* === #14: dark mode === */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e4da;
+      --paper: #181613;
+      --muted: #97907f;
+      --line: #3e382e;
+      --soft: #26221b;
+      --accent: #d97a55;
+      --good: #6cb893;
+      --warn: #e07070;
+      --hi: #211e18;
+      --hover: rgba(255,255,255,0.04);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem;
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  .header-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 0.15rem;
+  }
+  h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.02em;
+  }
+  #btn-settings {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    font-size: 1rem;
+    padding: 0.2rem 0.4rem;
+    cursor: pointer;
+    letter-spacing: 0;
+    transition: color 0.12s;
+  }
+  #btn-settings:hover { color: var(--ink); background: transparent; border-color: transparent; }
+  .sub { color: var(--muted); font-size: 0.78rem; margin: 0 0 1.5rem 0; }
+
+  .tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-bottom: 2px solid transparent;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0.6rem 1rem;
+    margin-bottom: -1px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  .mode-quick, .mode-library, .mode-gacha, .mode-import, .mode-analyze, .mode-suggest, .mode-bridge { display: none; }
+  body[data-mode="quick"]   .mode-quick   { display: block; }
+  body[data-mode="library"] .mode-library { display: block; }
+  body[data-mode="gacha"]   .mode-gacha   { display: block; }
+  body[data-mode="import"]  .mode-import  { display: block; }
+  body[data-mode="analyze"] .mode-analyze { display: block; }
+  body[data-mode="suggest"] .mode-suggest { display: block; }
+  body[data-mode="bridge"]  .mode-bridge  { display: block; }
+
+  /* === Import tab === */
+
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(3, auto) 1fr;
+    gap: 1.5rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--soft);
+    margin-bottom: 1rem;
+    border-left: 3px solid var(--accent);
+  }
+  .stat { display: flex; flex-direction: column; }
+  .stat-num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .stat-actions { display: flex; gap: 0.5rem; justify-self: end; flex-wrap: wrap; }
+
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0.45rem 0.9rem;
+    background: var(--ink);
+    color: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+  button:disabled { background: var(--muted); border-color: var(--muted); cursor: not-allowed; }
+  button.danger:hover:not(:disabled) { background: var(--warn); border-color: var(--warn); }
+  button.danger[data-confirm-pending="1"] {
+    background: var(--warn);
+    border-color: var(--warn);
+    color: var(--paper);
+  }
+  button.ghost {
+    background: transparent;
+    color: var(--ink);
+    border-color: var(--line);
+  }
+  button.ghost:hover:not(:disabled) {
+    background: var(--soft);
+    border-color: var(--line);
+    color: var(--ink);
+  }
+
+  .drop-zone {
+    border: 2px dashed var(--line);
+    background: var(--hi);
+    padding: 2rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    margin-bottom: 1rem;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: var(--soft);
+  }
+  .drop-text { color: var(--ink); font-size: 0.95rem; }
+  .drop-text strong { color: var(--accent); }
+  .drop-sub { font-size: 0.75rem; color: var(--muted); }
+
+  .paste-area { margin-bottom: 1rem; }
+  .paste-area label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.3rem;
+  }
+  textarea {
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+    resize: vertical;
+    transition: border-color 0.12s;
+  }
+  textarea:focus { border-color: var(--accent); }
+  .paste-area .paste-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .status-area {
+    min-height: 1.6rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0.5rem 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+    line-height: 1.55;
+  }
+  .status-area.error { color: var(--warn); }
+  .status-area.success { color: var(--good); }
+
+  /* === Analyze tab === */
+
+  .empty-state {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--muted);
+    background: var(--soft);
+    font-size: 0.85rem;
+  }
+
+  .filter-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .filter-bar input[type="text"] {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.12s;
+  }
+  .filter-bar input[type="text"]:focus { border-color: var(--accent); }
+  .filter-bar select {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+  }
+
+  .normalize-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .normalize-toggle input[type="checkbox"] {
+    margin: 0;
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .normalize-toggle code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--soft);
+    padding: 0 0.25rem;
+    font-size: 0.72rem;
+  }
+  .normalize-toggle.global-setting {
+    padding: 0.4rem 0.6rem;
+    background: var(--soft);
+    border-left: 3px solid var(--line);
+    margin: -0.5rem 0 1.25rem 0;
+  }
+
+  .tag-table-wrap {
+    max-height: 50vh;
+    overflow: auto;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    margin-bottom: 1rem;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--soft);
+    position: sticky;
+    top: 0;
+  }
+  thead th.num { text-align: right; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { color: var(--ink); }
+  tbody td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--soft);
+    vertical-align: top;
+  }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--soft); }
+  tbody tr.selected { background: var(--soft); color: var(--accent); font-weight: 600; }
+
+  td.tag-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+  td.count {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  td.rate {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  td.copy {
+    text-align: right;
+    color: var(--muted);
+    font-size: 1rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  td.copy:hover { color: var(--accent); }
+  td.copy.copied { color: var(--good); }
+
+  td.actions {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .action-btn {
+    display: inline-block;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    cursor: pointer;
+    padding: 0.1rem 0.3rem;
+    margin-left: 0.15rem;
+    transition: color 0.12s, background 0.12s;
+  }
+  .action-btn:hover { color: var(--accent); background: var(--soft); }
+  .action-btn.copied { color: var(--good); font-weight: 700; }
+
+  #tag-detail {
+    background: var(--hi);
+    border: 1px solid var(--line);
+    padding: 1rem;
+    margin-top: 1rem;
+    overflow-x: auto;
+  }
+  .detail-header { margin-bottom: 1rem; }
+  .detail-header h3 {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.3rem 0;
+    word-break: break-all;
+  }
+  .detail-header .detail-stats {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  #tag-detail h4 {
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin: 1rem 0 0.5rem 0;
+  }
+
+  details.prompts-section { margin-top: 0.5rem; }
+  details.prompts-section summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.3rem 0;
+  }
+  details.prompts-section summary:hover { color: var(--ink); }
+  #prompts-list {
+    margin-top: 0.5rem;
+    max-height: 40vh;
+    overflow: auto;
+  }
+  .prompt-item {
+    border-bottom: 1px solid var(--soft);
+    padding: 0.5rem 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .prompt-item .prompt-source {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-bottom: 0.2rem;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  .prompt-item .prompt-text { color: var(--ink); }
+  .prompt-item .prompt-negative {
+    color: var(--warn);
+    font-size: 11px;
+    margin-top: 0.2rem;
+  }
+  .prompt-item .prompt-negative::before { content: "UC: "; color: var(--muted); }
+
+  /* === Suggest tab === */
+
+  .suggest-label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.3rem;
+  }
+
+  #suggest-input {
+    margin-bottom: 0.5rem;
+  }
+
+  .suggest-controls {
+    display: flex;
+    align-items: end;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+  .suggest-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .suggest-controls input[type="number"] {
+    width: 5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    outline: none;
+  }
+  .suggest-controls input[type="number"]:focus { border-color: var(--accent); }
+  .suggest-controls select {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+  }
+
+  .suggest-hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-style: italic;
+    margin: 0.25rem 0 0.5rem 0;
+    line-height: 1.5;
+  }
+
+  #suggest-results {
+    margin-top: 0.5rem;
+  }
+
+  .suggest-card {
+    background: var(--hi);
+    border: 1px solid var(--line);
+    margin-bottom: 0.75rem;
+    padding: 0.8rem 1rem;
+    overflow-x: auto;
+  }
+  .suggest-card.empty {
+    background: var(--soft);
+    border-color: var(--soft);
+  }
+  .suggest-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.6rem 1rem;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--soft);
+  }
+  .suggest-card.empty .suggest-card-header {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+  .suggest-focus {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--accent);
+    word-break: break-all;
+    background: transparent;
+    padding: 0;
+  }
+  .suggest-match-info {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .suggest-match-info.error { color: var(--warn); }
+
+  .suggest-card table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .suggest-card thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.3rem 0.5rem;
+    background: transparent;
+    border-bottom: 1px solid var(--soft);
+    position: static;
+  }
+  .suggest-card thead th.num { text-align: right; }
+  .suggest-card tbody td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--soft);
+    vertical-align: top;
+  }
+  .suggest-card tbody tr:last-child td { border-bottom: none; }
+  .suggest-card tbody tr:hover { background: var(--soft); }
+
+  /* === Bridge tab === */
+
+  .bridge-section { margin-bottom: 1rem; }
+  .bridge-section-label {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+  }
+  .bridge-section-label.warn { color: var(--warn); }
+
+  .bridge-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .bridge-chip {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 0.35rem 0.65rem;
+    background: var(--soft);
+    color: var(--ink);
+    border: 1px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+    letter-spacing: 0;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .bridge-chip:hover:not(.selected) { border-color: var(--accent); background: var(--hi); }
+  .bridge-chip.selected {
+    background: var(--accent);
+    color: var(--paper);
+    border-color: var(--accent);
+  }
+  .bridge-chip.selected:hover { background: var(--ink); border-color: var(--ink); }
+  .bridge-chip.more-toggle {
+    background: transparent;
+    border: 1px dashed var(--line);
+    color: var(--muted);
+    font-family: inherit;
+  }
+  .bridge-chip.more-toggle:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
+
+  /* Rarity coloring (overridden by .selected) */
+  .bridge-chip[data-rarity="zero"] {
+    opacity: 0.45;
+    text-decoration: line-through;
+  }
+  .bridge-chip[data-rarity="rare"]   { color: var(--accent); font-weight: 600; }
+  .bridge-chip[data-rarity="common"] { color: var(--muted); }
+
+  .bridge-auto-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .bridge-auto-n {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .bridge-auto-n input[type="number"] {
+    width: 4rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    outline: none;
+  }
+  .bridge-auto-n input[type="number"]:focus { border-color: var(--accent); }
+
+  .bridge-auto-hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-style: italic;
+    margin: 0 0 1rem 0;
+    line-height: 1.5;
+  }
+
+  .bridge-url-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--accent);
+    word-break: break-all;
+    background: var(--hi);
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    line-height: 1.45;
+    min-height: 1.4rem;
+  }
+  .bridge-url-preview.empty { color: var(--muted); }
+
+  #btn-bridge-open { padding: 0.7rem 1.4rem; }
+
+  /* === Quick tab === */
+  .quick-card {
+    background: var(--hi);
+    border: 1px solid var(--line);
+    margin-bottom: 0.75rem;
+    padding: 0.8rem 1rem;
+  }
+  .quick-card-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.4rem 1rem;
+    margin-bottom: 0.6rem;
+  }
+  .quick-card-title {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ink);
+    word-break: break-all;
+  }
+  .quick-card-meta {
+    font-size: 0.68rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .quick-block { margin-bottom: 0.6rem; }
+  .quick-block-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+  }
+  .quick-copy-btn {
+    font-family: inherit;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.6rem;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .quick-copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .quick-copy-btn.copied { color: var(--good); border-color: var(--good); }
+  .quick-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--soft);
+    padding: 0.5rem 0.65rem;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    max-height: 9rem;
+    overflow-y: auto;
+    cursor: pointer;
+  }
+  .quick-text:hover { outline: 1px solid var(--accent); }
+  .quick-text.uc { color: var(--warn); }
+  .quick-card-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .quick-card-actions button { padding: 0.35rem 0.8rem; font-size: 0.75rem; }
+
+  .bridge-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .bridge-actions button { padding: 0.7rem 1.4rem; }
+
+  /* Touch device adjustments */
+  /* === Library tab === */
+  .lib-toolbar {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .lib-toolbar input[type="text"] {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    outline: none;
+  }
+  .lib-toolbar input[type="text"]:focus { border-color: var(--accent); }
+  .lib-toolbar select {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0.45rem 0.5rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+  }
+  .lib-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .lib-card {
+    background: var(--hi);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.12s;
+    display: flex;
+    flex-direction: column;
+  }
+  .lib-card:hover { border-color: var(--accent); }
+  .lib-card.selected { border-color: var(--accent); border-width: 2px; }
+  .lib-thumb {
+    width: 100%;
+    aspect-ratio: 2/3;
+    background: var(--soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--muted);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .lib-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-body { padding: 0.45rem 0.5rem; flex: 1; }
+  .lib-stars-sm {
+    display: flex;
+    gap: 0.1rem;
+    margin-bottom: 0.2rem;
+  }
+  .lib-star-sm {
+    font-size: 0.7rem;
+    color: var(--line);
+    cursor: pointer;
+    transition: color 0.1s;
+  }
+  .lib-star-sm.on { color: var(--accent); }
+  .lib-date { font-size: 0.65rem; color: var(--muted); margin-bottom: 0.25rem; }
+  .lib-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem;
+    margin-bottom: 0.25rem;
+  }
+  .lib-tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    padding: 0.1rem 0.3rem;
+    background: var(--soft);
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .lib-memo-sm {
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Library detail panel */
+  .lib-detail {
+    background: var(--hi);
+    border: 1px solid var(--line);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  .lib-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .lib-detail-source {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .lib-stars-lg {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+  }
+  .lib-star-lg {
+    font-size: 1.2rem;
+    color: var(--line);
+    cursor: pointer;
+    transition: color 0.1s;
+    line-height: 1;
+  }
+  .lib-star-lg.on { color: var(--accent); }
+  .lib-detail-meta {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+  .lib-memo-input {
+    width: 100%;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--soft);
+    color: var(--ink);
+    resize: none;
+    outline: none;
+    margin-bottom: 0.75rem;
+    border-radius: 0;
+  }
+  .lib-memo-input:focus { border-color: var(--accent); background: var(--hi); }
+  .lib-detail-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+  /* Settings overlay */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 999;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: max(2rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
+  .settings-overlay[hidden] { display: none; }
+  .settings-panel {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    width: 100%;
+    max-width: 480px;
+    padding: 1.25rem;
+  }
+  .settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 0.75rem;
+  }
+  .settings-header h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .settings-close {
+    background: transparent;
+    border: none;
+    font-size: 1.1rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.1rem 0.4rem;
+  }
+  .settings-close:hover { color: var(--ink); background: transparent; }
+  .settings-section {
+    margin-bottom: 1.25rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--soft);
+  }
+  .settings-section:last-child { border-bottom: none; margin-bottom: 0; }
+  .settings-section h3 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.75rem 0;
+  }
+  .settings-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+  }
+  .settings-label input {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+  }
+  .settings-label input:focus { border-color: var(--accent); }
+  .settings-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .drive-status-line {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    background: var(--soft);
+  }
+  .drive-status-line.ok { color: var(--good); }
+  .drive-status-line.err { color: var(--warn); }
+  .settings-guide {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-top: 0.5rem;
+  }
+  .settings-guide summary { cursor: pointer; color: var(--accent); }
+  .settings-note {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: 0 0 0.75rem 0;
+    line-height: 1.5;
+  }
+  .settings-guide ol { margin: 0.5rem 0 0 1.2rem; padding: 0; }
+  .settings-guide li { margin-bottom: 0.3rem; }
+  .settings-guide code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: var(--soft);
+    padding: 0 0.3rem;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+
+  /* Quick tab extras */
+  .quick-autosave-row {
+    margin-bottom: 0.75rem;
+  }
+  .quick-text-section {
+    margin-bottom: 0.75rem;
+    border: 1px dashed var(--line);
+    padding: 0.75rem;
+  }
+  .quick-text-section summary {
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .quick-text-section summary:hover { color: var(--ink); }
+  .quick-text-section .inner {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .quick-text-section textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    resize: vertical;
+    border-radius: 0;
+    outline: none;
+  }
+  .quick-text-section textarea:focus { border-color: var(--accent); }
+  .quick-text-lbl {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+  }
+
+  @media (max-width: 640px) {
+    .lib-grid { grid-template-columns: repeat(2, 1fr); }
+    .lib-toolbar { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 380px) {
+    .lib-grid { grid-template-columns: 1fr; }
+  }
+
+  /* === Gacha tab === */
+  .gacha-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: end;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--soft);
+  }
+  .gacha-ctrl { display: flex; flex-direction: column; gap: 0.25rem; }
+  .gacha-ctrl label {
+    font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .gacha-ctrl input[type="number"], .gacha-ctrl select {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; padding: 0.4rem 0.5rem; border: 1px solid var(--line);
+    background: var(--hi); color: var(--ink); border-radius: 0; outline: none; width: 5rem;
+  }
+  .gacha-ctrl select { width: auto; font-family: inherit; }
+  .gacha-toggle-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.78rem; color: var(--muted); cursor: pointer; user-select: none;
+  }
+  .gacha-toggle-row input { width: auto; }
+
+  .gacha-cats { margin-bottom: 1rem; }
+  .gacha-cat {
+    border: 1px solid var(--line);
+    margin-bottom: 0.5rem;
+    background: var(--hi);
+  }
+  .gacha-cat-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 1px solid var(--soft);
+  }
+  .gacha-cat-head.collapsed { border-bottom: none; }
+  .gacha-cat-name {
+    font-size: 0.82rem; font-weight: 600; color: var(--ink); flex: 1;
+  }
+  .gacha-cat-count { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .gacha-cat-draw {
+    display: flex; align-items: center; gap: 0.3rem;
+    font-size: 0.7rem; color: var(--muted);
+  }
+  .gacha-cat-draw input {
+    width: 3rem; font-family: ui-monospace, monospace; font-size: 12px;
+    padding: 0.25rem 0.35rem; border: 1px solid var(--line);
+    background: var(--hi); color: var(--ink); outline: none;
+  }
+  .gacha-cat-draw input:focus { border-color: var(--accent); }
+  .gacha-cat-toggle {
+    font-size: 1rem; cursor: pointer; color: var(--muted); user-select: none;
+    background: none; border: none; padding: 0.1rem 0.3rem;
+  }
+  .gacha-cat-toggle:hover { color: var(--accent); background: none; }
+  .gacha-cat-tags {
+    padding: 0.5rem 0.7rem; display: flex; flex-wrap: wrap; gap: 0.3rem;
+    max-height: 8rem; overflow-y: auto;
+  }
+  .gacha-cat-tags.hidden { display: none; }
+  .gacha-mini-tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; padding: 0.15rem 0.4rem; background: var(--soft); color: var(--muted);
+    white-space: nowrap;
+  }
+  .gacha-mini-tag .ct { opacity: 0.6; }
+
+  .gacha-roll-btn {
+    width: 100%; padding: 0.9rem; font-size: 1rem; font-weight: 600;
+    letter-spacing: 0.1em; margin-bottom: 1rem;
+  }
+
+  .gacha-result {
+    background: var(--hi); border: 1px solid var(--line); padding: 1rem; margin-bottom: 1rem;
+  }
+  .gacha-result-prompt {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.7; color: var(--ink); margin-bottom: 0.75rem;
+  }
+  .gacha-slot {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    margin: 0.1rem 0.15rem;
+  }
+  .gacha-token {
+    padding: 0.2rem 0.5rem; background: var(--soft); cursor: pointer;
+    border: 1px solid transparent; transition: border-color 0.12s;
+  }
+  .gacha-token:hover { border-color: var(--accent); }
+  .gacha-token.locked {
+    background: var(--accent); color: var(--paper); border-color: var(--accent);
+  }
+  .gacha-token .cat-badge {
+    font-size: 9px; opacity: 0.6; margin-right: 0.3rem; text-transform: uppercase;
+  }
+  .gacha-result-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .gacha-empty {
+    padding: 1.5rem; text-align: center; color: var(--muted);
+    background: var(--soft); font-size: 0.85rem; margin-bottom: 1rem;
+  }
+  .gacha-lock-hint { font-size: 0.7rem; color: var(--muted); font-style: italic; margin-bottom: 0.75rem; }
+
+  .gacha-discovery-ctrl input[type="range"] { width: 9rem; accent-color: var(--accent); cursor: pointer; }
+  .gacha-new-inline {
+    font-size: 9px; background: var(--good); color: var(--paper);
+    padding: 0.05rem 0.3rem; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .gacha-token.discovery {
+    border-style: dashed; border-color: var(--good);
+  }
+  .gacha-token.discovery .new-badge {
+    font-size: 9px; background: var(--good); color: var(--paper);
+    padding: 0 0.25rem; margin-left: 0.3rem; text-transform: uppercase;
+  }
+  .gacha-token.discovery.locked { background: var(--good); border-color: var(--good); }
+  .gacha-mini-tag.discovery { color: var(--good); border: 1px solid var(--good); }
+  .gacha-cat-disco-count { font-size: 0.65rem; color: var(--good); margin-left: 0.3rem; }
+
+  @media (hover: none) and (pointer: coarse) {
+    tbody td { padding: 0.65rem 0.6rem; }
+    button { padding: 0.65rem 1.2rem; min-height: 44px; }
+    .tab { padding: 0.7rem 1rem; min-height: 44px; }
+    input, textarea, select { font-size: 16px; padding: 0.65rem 0.7rem; }
+    td.copy { font-size: 1.2rem; }
+    /* 指で押せるよう小さな操作要素のタップ領域を拡大 */
+    .action-btn {
+      min-height: 44px; padding: 0 0.55rem;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .gacha-cat-toggle, .settings-close, .quick-copy-btn, .bridge-chip {
+      min-height: 44px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .lib-star-sm { font-size: 1.05rem; }
+    .lib-star-lg { font-size: 1.5rem; }
+  }
+
+  @media (max-width: 640px) {
+    .stats-bar {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+    .stat-actions { grid-column: 1 / -1; justify-self: stretch; }
+    .stat-actions button { flex: 1; }
+    .filter-bar { grid-template-columns: 1fr; }
+    /* iOS: 16px未満の入力はフォーカス時に自動ズームするため、狭幅では強制16px */
+    input, textarea, select { font-size: 16px !important; }
+  }
+</style>
+</head>
+<body data-mode="quick">
+<div class="wrap">
+  <div class="header-row">
+    <h1>Prompt Corpus Explorer</h1>
+    <button type="button" id="btn-settings" title="設定 / Drive同期">⚙</button>
+  </div>
+  <p class="sub">NovelAI/A1111 プロンプトを取り込み、タグ頻度と共起を分析</p>
+
+  <nav class="tabs">
+    <button type="button" class="tab active" data-mode="quick">Quick</button>
+    <button type="button" class="tab" data-mode="library">Library</button>
+    <button type="button" class="tab" data-mode="gacha">Gacha</button>
+    <button type="button" class="tab" data-mode="import">Import</button>
+    <button type="button" class="tab" data-mode="analyze">Analyze</button>
+    <button type="button" class="tab" data-mode="suggest">Suggest</button>
+    <button type="button" class="tab" data-mode="bridge">Bridge</button>
+  </nav>
+
+  <label class="normalize-toggle global-setting" for="normalize-toggle" title="Analyze / Suggest / Bridge 全てに適用">
+    <input type="checkbox" id="normalize-toggle">
+    <span>タグ正規化 (全タブ共通): <code>{tag}</code> <code>(tag:1.2)</code> 大小文字を統合</span>
+  </label>
+
+  <!-- QUICK -->
+  <div class="mode-quick">
+    <div class="drop-zone" id="quick-drop-zone">
+      <div class="drop-text">
+        <strong>タップしてPNGを選択 / ドロップ / Ctrl+V</strong>
+        <br><span class="drop-sub">プロンプトを即表示。NovelAI のサブウィンドウ用 (コーパスには追加されない)</span>
+      </div>
+      <input type="file" id="quick-file-input" multiple accept=".png,image/png" hidden>
+    </div>
+    <label class="normalize-toggle quick-autosave-row" for="quick-autosave">
+      <input type="checkbox" id="quick-autosave">
+      <span>表示と同時にコーパスへ自動保存</span>
+    </label>
+
+    <details class="quick-text-section">
+      <summary>テキスト入力 (スマホ向け)</summary>
+      <div class="inner">
+        <div>
+          <div class="quick-text-lbl">Prompt</div>
+          <textarea id="quick-text-prompt" rows="5" placeholder="1girl, solo, ..."></textarea>
+        </div>
+        <div>
+          <div class="quick-text-lbl">Undesired Content</div>
+          <textarea id="quick-text-uc" rows="2" placeholder="lowres, bad anatomy, ..."></textarea>
+        </div>
+        <button type="button" id="btn-quick-text-add">追加して表示</button>
+      </div>
+    </details>
+
+    <div id="quick-status" class="status-area"></div>
+    <div id="quick-cards"></div>
+  </div>
+
+  <!-- LIBRARY -->
+  <div class="mode-library">
+    <div id="lib-empty" class="empty-state" hidden>
+      コーパスが空です。Quick または Import タブからプロンプトを追加してください。
+    </div>
+    <div id="lib-content" hidden>
+      <div class="lib-toolbar">
+        <input type="text" id="lib-search" placeholder="キーワード・タグ検索" autocomplete="off">
+        <select id="lib-min-rating">
+          <option value="0">★ all</option>
+          <option value="1">★1以上</option>
+          <option value="2">★2以上</option>
+          <option value="3">★3以上</option>
+          <option value="4">★4以上</option>
+          <option value="5">★5のみ</option>
+        </select>
+        <select id="lib-sort">
+          <option value="date-desc">日付 (新→古)</option>
+          <option value="date-asc">日付 (古→新)</option>
+          <option value="rating-desc">★ (高→低)</option>
+          <option value="rating-asc">★ (低→高)</option>
+        </select>
+      </div>
+      <div class="lib-grid" id="lib-grid"></div>
+      <div class="lib-detail" id="lib-detail" hidden></div>
+    </div>
+  </div>
+
+  <!-- SETTINGS OVERLAY -->
+  <div class="settings-overlay" id="settings-overlay" hidden>
+    <div class="settings-panel">
+      <div class="settings-header">
+        <h2>設定</h2>
+        <button type="button" class="settings-close" id="btn-settings-close">✕</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>バックアップ / 別端末へ移す</h3>
+        <p class="settings-note">プロンプトは端末内（ブラウザ）に保存されます。スマホ⇄PC で移すには、ファイルで持ち運びます。</p>
+        <ol style="margin: 0.6rem 0 0 1.2rem; padding: 0; font-size: 0.85rem; line-height: 1.7;">
+          <li><strong>Import</strong> タブの <strong>「Export JSON」</strong> でファイルに書き出し</li>
+          <li>そのファイルを メール / OneDrive / AirDrop 等で別端末へ</li>
+          <li>別端末の <strong>Import</strong> タブで読み込み</li>
+        </ol>
+        <p class="settings-note" style="margin-top: 0.9rem;">※ Google Drive 自動同期は未対応です。上の手動エクスポートで同じことができます。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- GACHA -->
+  <div class="mode-gacha">
+    <div id="gacha-empty" class="gacha-empty" hidden>
+      コーパスが空です。Quick または Import タブからプロンプトを追加してください。
+    </div>
+    <div id="gacha-content" hidden>
+      <div class="gacha-controls">
+        <div class="gacha-ctrl">
+          <label>最低★</label>
+          <select id="gacha-min-rating">
+            <option value="0">all</option>
+            <option value="1">★1+</option>
+            <option value="2">★2+</option>
+            <option value="3">★3+</option>
+            <option value="4">★4+</option>
+            <option value="5">★5</option>
+          </select>
+        </div>
+        <label class="gacha-toggle-row" for="gacha-weighted">
+          <input type="checkbox" id="gacha-weighted" checked>
+          <span>出現頻度で重み付け</span>
+        </label>
+        <div class="gacha-ctrl gacha-discovery-ctrl">
+          <label>発見モード <span id="gacha-discovery-val">0%</span></label>
+          <input type="range" id="gacha-discovery" min="0" max="100" value="0" step="10">
+        </div>
+        <button type="button" id="btn-gacha-classify" class="ghost">Danbooru分類で精密化</button>
+        <button type="button" id="btn-gacha-discover" class="ghost">関連語を取得</button>
+        <button type="button" id="btn-gacha-rebuild" class="ghost">部品箱を再構築</button>
+      </div>
+
+      <p class="gacha-lock-hint">部品箱から各カテゴリの抽選数を指定。発見モードを上げると、自分の頻出タグと共起するが未使用の語彙(<span class="gacha-new-inline">new</span>)が混ざる。先に「関連語を取得」を押す。</p>
+
+      <div class="gacha-cats" id="gacha-cats"></div>
+
+      <button type="button" id="btn-gacha-roll" class="gacha-roll-btn">🎲 引く</button>
+
+      <div id="gacha-result-empty" class="gacha-empty">まだ引いていません</div>
+      <div id="gacha-result" class="gacha-result" hidden></div>
+    </div>
+  </div>
+
+  <!-- IMPORT -->
+
+  <div class="mode-import">
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-num" id="stat-prompts">0</span>
+        <span class="stat-label">prompts</span>
+      </div>
+      <div class="stat">
+        <span class="stat-num" id="stat-tags">0</span>
+        <span class="stat-label">unique tags</span>
+      </div>
+      <div class="stat">
+        <span class="stat-num" id="stat-storage">0 KB</span>
+        <span class="stat-label">storage</span>
+      </div>
+      <div class="stat-actions">
+        <button type="button" id="btn-export" class="ghost">Export JSON</button>
+        <button type="button" id="btn-clear" class="ghost danger">Clear all</button>
+      </div>
+    </div>
+
+    <div class="drop-zone" id="drop-zone">
+      <div class="drop-text">
+        <strong>PNG / TXT / JSON</strong> をドロップ
+        <br><span class="drop-sub">またはクリックして選択 (複数可)</span>
+      </div>
+      <input type="file" id="file-input" multiple accept=".png,.txt,.json,image/png,application/json,text/plain" hidden>
+    </div>
+
+    <label class="normalize-toggle" for="lean-toggle">
+      <input type="checkbox" id="lean-toggle" checked>
+      <span>軽量モード: メタデータ (steps/sampler/seed等) を保存しない — 容量を50%以上節約</span>
+    </label>
+
+    <div class="paste-area">
+      <label for="paste-text">またはプロンプトをペースト</label>
+      <textarea id="paste-text" rows="6" placeholder="一行に一つ、またはA1111形式 (`Negative prompt: ...` を含む複数ブロック)、またはJSONの配列"></textarea>
+      <div class="paste-actions">
+        <button type="button" id="btn-paste-add">追加</button>
+        <button type="button" id="btn-paste-clear" class="ghost">クリア</button>
+      </div>
+    </div>
+
+    <div id="import-status" class="status-area"></div>
+  </div>
+
+  <!-- ANALYZE -->
+  <div class="mode-analyze">
+    <div id="empty-corpus" class="empty-state" hidden>
+      コーパスが空です。Import タブからプロンプトを追加してください。
+    </div>
+
+    <div id="analyze-content" hidden>
+      <div class="filter-bar">
+        <input type="text" id="tag-filter" placeholder="タグ絞り込み (部分一致)" autocomplete="off">
+        <select id="tag-sort">
+          <option value="freq">frequency 降順</option>
+          <option value="alpha">alphabetical</option>
+        </select>
+      </div>
+
+      <div class="tag-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-sort="alpha" id="th-tag" class="sortable">tag</th>
+              <th data-sort="freq" id="th-count" class="num sortable">count ▼</th>
+              <th class="num">%</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tag-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tag-detail" hidden>
+        <div class="detail-header">
+          <h3 id="detail-tag-name"></h3>
+          <div class="detail-stats" id="detail-tag-stats"></div>
+        </div>
+
+        <h4>共起タグ TOP 30 (条件付き率 P(共起|このタグ) 降順)</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>tag</th>
+              <th class="num">count</th>
+              <th class="num">rate</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cooc-tbody"></tbody>
+        </table>
+
+        <details class="prompts-section">
+          <summary>このタグを含むプロンプト (<span id="prompts-count">0</span>)</summary>
+          <div id="prompts-list"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUGGEST -->
+  <div class="mode-suggest">
+    <div id="suggest-empty-corpus" class="empty-state" hidden>
+      コーパスが空です。Import タブからプロンプトを追加してください。
+    </div>
+
+    <div id="suggest-content" hidden>
+      <label class="suggest-label" for="suggest-input">
+        ベースプロンプト (カンマ区切り)
+      </label>
+      <textarea id="suggest-input" rows="4" placeholder="1girl, solo, blue_eyes, long_hair, indoor"></textarea>
+
+      <div class="suggest-controls">
+        <label>mode
+          <select id="suggest-mode">
+            <option value="replace">代替 (このタグの代わり)</option>
+            <option value="add">追加 (一緒に使うタグ)</option>
+          </select>
+        </label>
+        <label>top
+          <input type="number" id="suggest-topn" value="10" min="1" max="50">
+        </label>
+        <label>min count
+          <input type="number" id="suggest-min" value="2" min="1">
+        </label>
+        <button type="button" id="btn-suggest">提案を出す</button>
+      </div>
+
+      <p class="suggest-hint" id="suggest-hint-replace">
+        代替モード: 各タグについて、それ以外のタグが全部含まれるプロンプトから、よく出てくる他タグTOP Nを提示。
+      </p>
+      <p class="suggest-hint" id="suggest-hint-add" hidden>
+        追加モード: 入力タグを全部含むプロンプトから、まだ入力に無いタグを頻度順にTOP N提示。
+      </p>
+
+      <div id="suggest-status" class="status-area"></div>
+
+      <div id="suggest-results"></div>
+    </div>
+  </div>
+
+  <!-- BRIDGE -->
+  <div class="mode-bridge">
+    <div class="drop-zone" id="bridge-drop-zone">
+      <div class="drop-text">
+        <strong>PNG をドロップ</strong>
+        <br><span class="drop-sub">プロンプトを抽出して Danbooru 検索URLを生成 (PNGはコーパスに追加されない)</span>
+      </div>
+      <input type="file" id="bridge-file-input" accept=".png,image/png" hidden>
+    </div>
+
+    <div class="paste-area">
+      <label for="bridge-paste">またはプロンプトをペースト</label>
+      <textarea id="bridge-paste" rows="3" placeholder="1girl, solo, blue_eyes, long_hair, indoor"></textarea>
+      <div class="paste-actions">
+        <button type="button" id="btn-bridge-paste-extract">タグ抽出</button>
+        <button type="button" id="btn-bridge-clear" class="ghost">クリア</button>
+      </div>
+    </div>
+
+    <div id="bridge-status" class="status-area"></div>
+
+    <div id="bridge-result" hidden>
+      <div class="bridge-section">
+        <div class="bridge-section-label">抽出タグ (クリックで選択切替、自動 normalize 済み)</div>
+        <div class="bridge-chips" id="bridge-chips"></div>
+      </div>
+
+      <div class="bridge-auto-row">
+        <button type="button" id="btn-bridge-auto" class="ghost">特異タグ自動選択 (post数取得)</button>
+        <label class="bridge-auto-n">top
+          <input type="number" id="bridge-auto-n" value="2" min="1" max="10">
+        </label>
+        <label class="bridge-auto-n">min post
+          <input type="number" id="bridge-auto-min" value="100" min="0">
+        </label>
+        <label class="bridge-auto-n">max post
+          <input type="number" id="bridge-auto-max" value="100000" min="0">
+        </label>
+      </div>
+      <p class="bridge-auto-hint">範囲外のタグは候補から除外。max=0 で上限なし。post数 0 (Danbooru未登録) は常に除外。</p>
+
+      <div class="bridge-section">
+        <div class="bridge-section-label" id="bridge-selected-label">0 タグ 選択中</div>
+        <div class="bridge-url-preview" id="bridge-url">タグを選択してください</div>
+      </div>
+
+      <div class="bridge-actions">
+        <button type="button" id="btn-bridge-open" disabled>Danbooru 検索で開く ↗</button>
+        <button type="button" id="btn-bridge-artist" class="ghost" disabled>アーティスト集計で開く ↗</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// === Constants ===
+const STORAGE_KEY = 'prompt-corpus-v1';
+const MAX_PROMPTS_WARN = 3000;
+
+// === State ===
+let corpus = [];
+let analysisCache = null;
+let selectedTag = null;
+let storageOk = true;
+let normalizeMode = false;
+let bridgeTags = [];
+let bridgeSelected = new Set();
+let bridgeCounts = new Map(); // tag -> post_count (number) or null (fetch failed)
+let bridgeChipsExpanded = false;
+const BRIDGE_CHIP_COLLAPSE_AT = 24;
+const BRIDGE_CHIP_SHOW = 18;
+let tagSortKey = 'freq';
+let tagSortDir = -1; // -1: desc, 1: asc
+
+// === DOM ===
+const $ = (id) => document.getElementById(id);
+const importStatus = $('import-status');
+
+// === Utilities ===
+
+function dedupKey(text, negative) {
+  const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+  return norm(text) + '|||' + norm(negative);
+}
+
+function parseTags(text) {
+  return String(text || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function normalizeTag(raw) {
+  let t = String(raw || '').trim();
+  // Strip outer brackets recursively (multiple layers)
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (t.length >= 2 && (
+      (t.startsWith('{') && t.endsWith('}')) ||
+      (t.startsWith('[') && t.endsWith(']')) ||
+      (t.startsWith('(') && t.endsWith(')'))
+    )) {
+      t = t.slice(1, -1).trim();
+      changed = true;
+    }
+  }
+  // Strip :weight suffix
+  t = t.replace(/:\s*-?\d+(\.\d+)?$/, '');
+  // Normalize whitespace
+  t = t.trim().replace(/\s+/g, ' ');
+  // Lowercase
+  t = t.toLowerCase();
+  return t;
+}
+
+function setImportStatus(msg, type) {
+  importStatus.textContent = msg;
+  importStatus.className = 'status-area' + (type ? ' ' + type : '');
+}
+
+function bytesToKB(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+// === Storage ===
+
+function checkStorage() {
+  try {
+    localStorage.setItem('__test__', '1');
+    localStorage.removeItem('__test__');
+    return true;
+  } catch (_) { return false; }
+}
+
+function loadCorpus() {
+  if (!storageOk) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const arr = Array.isArray(data) ? data : (Array.isArray(data && data.prompts) ? data.prompts : []);
+    corpus = arr.map((p) => ({
+      id: p.id || dedupKey(p.text, p.negative),
+      text: String(p.text || ''),
+      negative: String(p.negative || ''),
+      tags: Array.isArray(p.tags) ? p.tags : parseTags(p.text || ''),
+      source: String(p.source || 'unknown'),
+      meta: p.meta && typeof p.meta === 'object' ? p.meta : {},
+      addedAt: Number(p.addedAt) || 0,
+      rating: Number(p.rating) || 0,
+      memo: String(p.memo || '')
+    }));
+  } catch (e) {
+    corpus = [];
+    console.warn('Corpus load failed:', e);
+  }
+}
+
+function saveCorpus() {
+  if (!storageOk) return false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(corpus));
+    return true;
+  } catch (e) {
+    setImportStatus('保存失敗(容量制限の可能性)。Export して整理してください', 'error');
+    return false;
+  }
+}
+
+function getStorageBytes() {
+  if (!storageOk) return 0;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY) || '';
+    return new Blob([raw]).size;
+  } catch (_) { return 0; }
+}
+
+// === Add prompts ===
+
+function addPrompts(items, sourceLabel) {
+  const lean = !!(document.getElementById('lean-toggle') || {}).checked;
+  const existing = new Set(corpus.map((p) => p.id));
+  let added = 0, skipped = 0;
+  for (const item of items) {
+    const text = String(item.text || '').trim();
+    const negative = String(item.negative || '').trim();
+    if (!text) { skipped++; continue; }
+    const id = dedupKey(text, negative);
+    if (existing.has(id)) { skipped++; continue; }
+    existing.add(id);
+    corpus.push({
+      id,
+      text,
+      negative,
+      tags: parseTags(text),
+      source: String(item.source || sourceLabel || 'unknown'),
+      meta: lean ? {} : (item.meta && typeof item.meta === 'object' ? item.meta : {}),
+      addedAt: Date.now(),
+      rating: Number(item.rating) || 0,
+      memo: String(item.memo || '')
+    });
+    added++;
+  }
+  if (added > 0) {
+    invalidateAnalysis();
+    saveCorpus();
+  }
+  return { added, skipped };
+}
+
+// === PNG metadata extraction ===
+
+async function extractPngChunks(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+
+  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  for (let i = 0; i < 8; i++) {
+    if (bytes[i] !== sig[i]) throw new Error('not a PNG');
+  }
+
+  const chunks = {};
+  let offset = 8;
+
+  while (offset + 12 <= bytes.length) {
+    const len =
+      ((bytes[offset] << 24) >>> 0) +
+      (bytes[offset + 1] << 16) +
+      (bytes[offset + 2] << 8) +
+      bytes[offset + 3];
+    const type = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + len;
+    if (dataEnd > bytes.length) break;
+
+    if (type === 'tEXt') {
+      const data = bytes.subarray(dataStart, dataEnd);
+      let keyEnd = 0;
+      while (keyEnd < data.length && data[keyEnd] !== 0) keyEnd++;
+      const keyword = new TextDecoder('latin1').decode(data.subarray(0, keyEnd));
+      const value = new TextDecoder('utf-8').decode(data.subarray(keyEnd + 1));
+      chunks[keyword] = value;
+    } else if (type === 'iTXt') {
+      const data = bytes.subarray(dataStart, dataEnd);
+      let p = 0;
+      while (p < data.length && data[p] !== 0) p++;
+      const keyword = new TextDecoder('latin1').decode(data.subarray(0, p));
+      p++;
+      if (p + 2 > data.length) {
+        if (type === 'IEND') break;
+        offset = dataEnd + 4;
+        continue;
+      }
+      const compressionFlag = data[p]; p++;
+      p++; // compression method
+      while (p < data.length && data[p] !== 0) p++; p++; // language tag
+      while (p < data.length && data[p] !== 0) p++; p++; // translated keyword
+      if (compressionFlag === 0 && p < data.length) {
+        chunks[keyword] = new TextDecoder('utf-8').decode(data.subarray(p));
+      }
+      // compressed iTXt: skipped for v1
+    }
+
+    if (type === 'IEND') break;
+    offset = dataEnd + 4;
+  }
+
+  return chunks;
+}
+
+function parsePromptFromChunks(chunks, filename) {
+  let text = '', negative = '', meta = {};
+
+  // NAI: Description + Comment JSON
+  if (chunks['Description']) text = chunks['Description'];
+  if (chunks['Comment']) {
+    try {
+      const j = JSON.parse(chunks['Comment']);
+      if (j && typeof j === 'object') {
+        if (!text && j.prompt) text = String(j.prompt);
+        if (j.uc) negative = String(j.uc);
+        meta = Object.assign({}, j);
+        delete meta.prompt; delete meta.uc;
+      }
+    } catch (_) {}
+  }
+
+  // A1111: parameters chunk
+  if (!text && chunks['parameters']) {
+    const params = chunks['parameters'];
+    const negIdx = params.indexOf('Negative prompt:');
+    if (negIdx >= 0) {
+      text = params.slice(0, negIdx).trim();
+      const rest = params.slice(negIdx + 'Negative prompt:'.length);
+      const settingsMatch = rest.match(/\n(Steps|Sampler|CFG scale):/);
+      if (settingsMatch) {
+        negative = rest.slice(0, settingsMatch.index).trim();
+        meta = { settings: rest.slice(settingsMatch.index).trim() };
+      } else {
+        negative = rest.trim();
+      }
+    } else {
+      const stepsIdx = params.indexOf('\nSteps:');
+      if (stepsIdx >= 0) {
+        text = params.slice(0, stepsIdx).trim();
+        meta = { settings: params.slice(stepsIdx).trim() };
+      } else {
+        text = params;
+      }
+    }
+  }
+
+  if (chunks['Software']) {
+    meta.software = chunks['Software'];
+  }
+
+  return { text, negative, meta, source: filename };
+}
+
+// === Text paste parsing ===
+
+function parseTextPaste(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  // JSON
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      const j = JSON.parse(trimmed);
+      const arr = Array.isArray(j) ? j : (j && Array.isArray(j.prompts) ? j.prompts : null);
+      if (arr) {
+        return arr.map((item) => ({
+          text: String(item.text || item.prompt || ''),
+          negative: String(item.negative || item.uc || ''),
+          source: String(item.source || 'json-paste'),
+          meta: item.meta && typeof item.meta === 'object' ? item.meta : {}
+        }));
+      }
+    } catch (_) {}
+  }
+
+  // Multi-block with A1111 separators
+  if (trimmed.includes('Negative prompt:')) {
+    const blocks = trimmed.split(/\n\s*\n+/).map((b) => b.trim()).filter((b) => b);
+    return blocks.map((block) => {
+      const negIdx = block.indexOf('Negative prompt:');
+      if (negIdx >= 0) {
+        const promptText = block.slice(0, negIdx).trim();
+        const rest = block.slice(negIdx + 'Negative prompt:'.length);
+        const settingsMatch = rest.match(/\n(Steps|Sampler|CFG scale):/);
+        const neg = settingsMatch
+          ? rest.slice(0, settingsMatch.index).trim()
+          : rest.trim();
+        return { text: promptText, negative: neg, source: 'paste' };
+      }
+      return { text: block, negative: '', source: 'paste' };
+    });
+  }
+
+  // One prompt per line
+  return trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => ({ text: line, negative: '', source: 'paste' }));
+}
+
+// === Analysis ===
+
+let corpusSetsCache = null;
+
+function invalidateAnalysis() {
+  analysisCache = null;
+  corpusSetsCache = null;
+}
+
+// Shared: per-prompt tag Sets (transformed per current normalizeMode).
+// Used by Suggest; cached until corpus or normalizeMode changes.
+function getCorpusSets() {
+  if (!corpusSetsCache) {
+    const transform = normalizeMode ? normalizeTag : (t) => t;
+    corpusSetsCache = corpus.map((p) => ({
+      id: p.id,
+      tags: new Set(p.tags.map(transform).filter((t) => t.length > 0))
+    }));
+  }
+  return corpusSetsCache;
+}
+
+function computeAnalysis() {
+  const tagCounts = new Map();
+  const tagPromptIds = new Map();
+  const coCounts = new Map();
+  const transform = normalizeMode ? normalizeTag : (t) => t;
+
+  for (const p of corpus) {
+    const transformed = p.tags.map(transform).filter((t) => t.length > 0);
+    const uniqueTags = [...new Set(transformed)];
+    for (const tag of uniqueTags) {
+      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+      if (!tagPromptIds.has(tag)) tagPromptIds.set(tag, []);
+      tagPromptIds.get(tag).push(p.id);
+    }
+    for (let i = 0; i < uniqueTags.length; i++) {
+      const a = uniqueTags[i];
+      if (!coCounts.has(a)) coCounts.set(a, new Map());
+      const m = coCounts.get(a);
+      for (let j = 0; j < uniqueTags.length; j++) {
+        if (i === j) continue;
+        const b = uniqueTags[j];
+        m.set(b, (m.get(b) || 0) + 1);
+      }
+    }
+  }
+
+  return { tagCounts, tagPromptIds, coCounts };
+}
+
+function getAnalysis() {
+  if (!analysisCache) analysisCache = computeAnalysis();
+  return analysisCache;
+}
+
+// === Rendering: stats bar ===
+
+function renderStatsBar() {
+  $('stat-prompts').textContent = corpus.length.toLocaleString();
+  const a = corpus.length > 0 ? getAnalysis() : { tagCounts: new Map() };
+  $('stat-tags').textContent = a.tagCounts.size.toLocaleString();
+  $('stat-storage').textContent = bytesToKB(getStorageBytes());
+}
+
+// === Rendering: tag table ===
+
+function renderTagTable() {
+  const tbody = $('tag-tbody');
+  tbody.replaceChildren();
+  if (corpus.length === 0) return;
+
+  const { tagCounts } = getAnalysis();
+  const filterText = $('tag-filter').value.trim().toLowerCase();
+  const total = corpus.length;
+
+  let entries = [...tagCounts.entries()];
+  if (filterText) {
+    entries = entries.filter(([tag]) => tag.toLowerCase().includes(filterText));
+  }
+  entries.sort((a, b) => {
+    const cmp = tagSortKey === 'alpha'
+      ? a[0].localeCompare(b[0])
+      : (a[1] - b[1] || a[0].localeCompare(b[0]));
+    return cmp * tagSortDir;
+  });
+  updateSortIndicators();
+
+  const frag = document.createDocumentFragment();
+  for (const [tag, count] of entries) {
+    const tr = document.createElement('tr');
+    tr.dataset.tag = tag;
+    if (tag === selectedTag) tr.classList.add('selected');
+
+    const tdTag = document.createElement('td');
+    tdTag.className = 'tag-name';
+    tdTag.textContent = tag;
+
+    const tdCount = document.createElement('td');
+    tdCount.className = 'count';
+    tdCount.textContent = String(count);
+
+    const tdRate = document.createElement('td');
+    tdRate.className = 'rate';
+    tdRate.textContent = ((count / total) * 100).toFixed(1) + '%';
+
+    const tdActions = makeActionsCell(tag);
+
+    tr.append(tdTag, tdCount, tdRate, tdActions);
+    tr.addEventListener('click', () => selectTag(tag));
+    frag.appendChild(tr);
+  }
+  tbody.appendChild(frag);
+}
+
+// === Rendering: tag detail (co-occurrence + prompts) ===
+
+function selectTag(tag) {
+  selectedTag = tag;
+  document.querySelectorAll('#tag-tbody tr').forEach((tr) => {
+    tr.classList.toggle('selected', tr.dataset.tag === tag);
+  });
+  renderTagDetail();
+}
+
+function renderTagDetail() {
+  if (!selectedTag) {
+    $('tag-detail').hidden = true;
+    return;
+  }
+  const { tagCounts, tagPromptIds, coCounts } = getAnalysis();
+  const count = tagCounts.get(selectedTag) || 0;
+  const pct = corpus.length > 0 ? ((count / corpus.length) * 100).toFixed(1) : '0.0';
+
+  $('detail-tag-name').textContent = selectedTag;
+  $('detail-tag-stats').textContent = `${count} prompts (${pct}% of corpus)`;
+
+  const coc = coCounts.get(selectedTag);
+  const coTbody = $('cooc-tbody');
+  coTbody.replaceChildren();
+
+  if (coc && count > 0) {
+    const entries = [...coc.entries()]
+      .map(([t, c]) => ({ tag: t, count: c, rate: c / count }))
+      .sort((a, b) => b.rate - a.rate || b.count - a.count)
+      .slice(0, 30);
+
+    const frag = document.createDocumentFragment();
+    for (const { tag, count: c, rate } of entries) {
+      const tr = document.createElement('tr');
+      tr.dataset.tag = tag;
+
+      const tdTag = document.createElement('td');
+      tdTag.className = 'tag-name';
+      tdTag.textContent = tag;
+
+      const tdCount = document.createElement('td');
+      tdCount.className = 'count';
+      tdCount.textContent = String(c);
+
+      const tdRate = document.createElement('td');
+      tdRate.className = 'rate';
+      tdRate.textContent = (rate * 100).toFixed(0) + '%';
+
+      const tdActions = makeActionsCell(tag);
+
+      tr.addEventListener('click', () => {
+        selectTag(tag);
+        // scroll to detail
+        $('tag-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      tr.append(tdTag, tdCount, tdRate, tdActions);
+      frag.appendChild(tr);
+    }
+    coTbody.appendChild(frag);
+  }
+
+  // Render prompts using this tag
+  const ids = tagPromptIds.get(selectedTag) || [];
+  $('prompts-count').textContent = ids.length;
+  const idSet = new Set(ids);
+  const list = $('prompts-list');
+  list.replaceChildren();
+  const matched = corpus.filter((p) => idSet.has(p.id));
+  const frag2 = document.createDocumentFragment();
+  for (const p of matched) {
+    const div = document.createElement('div');
+    div.className = 'prompt-item';
+    const src = document.createElement('div');
+    src.className = 'prompt-source';
+    src.textContent = p.source || 'unknown';
+    const txt = document.createElement('div');
+    txt.className = 'prompt-text';
+    txt.textContent = p.text;
+    div.append(src, txt);
+    if (p.negative) {
+      const neg = document.createElement('div');
+      neg.className = 'prompt-negative';
+      neg.textContent = p.negative;
+      div.appendChild(neg);
+    }
+    frag2.appendChild(div);
+  }
+  list.appendChild(frag2);
+
+  $('tag-detail').hidden = false;
+}
+
+
+// === Library tab ===
+
+let libSelected = null;
+
+function refreshLibrary() {
+  const emptyEl = document.getElementById('lib-empty');
+  const contentEl = document.getElementById('lib-content');
+  if (!emptyEl || !contentEl) return;
+  const empty = corpus.length === 0;
+  emptyEl.hidden = !empty;
+  contentEl.hidden = empty;
+  if (empty) { libSelected = null; return; }
+  renderLibGrid();
+}
+
+function libGetFiltered() {
+  const searchEl = document.getElementById('lib-search');
+  const ratingEl = document.getElementById('lib-min-rating');
+  const sortEl = document.getElementById('lib-sort');
+  const q = (searchEl ? searchEl.value : '').toLowerCase().trim();
+  const minR = Number(ratingEl ? ratingEl.value : 0) || 0;
+  const sort = sortEl ? sortEl.value : 'date-desc';
+
+  let entries = corpus.filter((p) => {
+    if (p.rating < minR) return false;
+    if (!q) return true;
+    const haystack = [p.text, p.negative, p.memo || '', p.source, ...(p.tags || [])].join(' ').toLowerCase();
+    return q.split(/\s+/).every((w) => haystack.includes(w));
+  });
+
+  entries.sort((a, b) => {
+    if (sort === 'date-desc') return b.addedAt - a.addedAt;
+    if (sort === 'date-asc')  return a.addedAt - b.addedAt;
+    if (sort === 'rating-desc') return (b.rating - a.rating) || (b.addedAt - a.addedAt);
+    return (a.rating - b.rating) || (b.addedAt - a.addedAt);
+  });
+  return entries;
+}
+
+function renderLibGrid() {
+  const grid = document.getElementById('lib-grid');
+  if (!grid) return;
+  grid.replaceChildren();
+  const entries = libGetFiltered();
+  if (entries.length === 0) {
+    const msg = document.createElement('p');
+    msg.style.cssText = 'color:var(--muted);font-size:0.85rem;padding:1rem 0;grid-column:1/-1;';
+    msg.textContent = '条件に一致するプロンプトがありません';
+    grid.appendChild(msg);
+    document.getElementById('lib-detail').hidden = true;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  for (const entry of entries) {
+    const card = document.createElement('div');
+    card.className = 'lib-card' + (entry.id === libSelected ? ' selected' : '');
+
+    const thumbEl = document.createElement('div');
+    thumbEl.className = 'lib-thumb';
+    const thumbData = loadThumb(entry.id);
+    if (thumbData) {
+      const img = document.createElement('img');
+      img.src = thumbData;
+      img.loading = 'lazy';
+      thumbEl.appendChild(img);
+    } else {
+      thumbEl.textContent = '\uD83D\uDDBC';
+    }
+    card.appendChild(thumbEl);
+
+    const body = document.createElement('div');
+    body.className = 'lib-body';
+
+    const stars = document.createElement('div');
+    stars.className = 'lib-stars-sm';
+    for (let i = 1; i <= 5; i++) {
+      const s = document.createElement('span');
+      s.className = 'lib-star-sm' + (i <= (entry.rating || 0) ? ' on' : '');
+      s.textContent = '\u2605';
+      const si = i;
+      s.addEventListener('click', (e) => { e.stopPropagation(); setLibRating(entry.id, si); });
+      stars.appendChild(s);
+    }
+    body.appendChild(stars);
+
+    const date = document.createElement('div');
+    date.className = 'lib-date';
+    date.textContent = new Date(entry.addedAt || 0).toLocaleDateString('ja-JP');
+    body.appendChild(date);
+
+    const tags = document.createElement('div');
+    tags.className = 'lib-tags';
+    const dispTags = (entry.tags || []).slice(0, 5);
+    for (const t of dispTags) {
+      const chip = document.createElement('span');
+      chip.className = 'lib-tag';
+      chip.textContent = t;
+      tags.appendChild(chip);
+    }
+    if ((entry.tags || []).length > 5) {
+      const more = document.createElement('span');
+      more.className = 'lib-tag';
+      more.style.color = 'var(--muted)';
+      more.textContent = '+' + ((entry.tags || []).length - 5);
+      tags.appendChild(more);
+    }
+    body.appendChild(tags);
+
+    if (entry.memo) {
+      const memoEl = document.createElement('div');
+      memoEl.className = 'lib-memo-sm';
+      memoEl.textContent = entry.memo;
+      body.appendChild(memoEl);
+    }
+
+    card.appendChild(body);
+    card.addEventListener('click', () => {
+      libSelected = entry.id;
+      renderLibGrid();
+      renderLibDetail(entry);
+    });
+    frag.appendChild(card);
+  }
+  grid.appendChild(frag);
+
+  if (libSelected) {
+    const sel = corpus.find((p) => p.id === libSelected);
+    if (sel) renderLibDetail(sel);
+    else document.getElementById('lib-detail').hidden = true;
+  } else {
+    document.getElementById('lib-detail').hidden = true;
+  }
+}
+
+function renderLibDetail(entry) {
+  const det = document.getElementById('lib-detail');
+  if (!det) return;
+  det.replaceChildren();
+  det.hidden = false;
+
+  const hdr = document.createElement('div');
+  hdr.className = 'lib-detail-header';
+
+  const src = document.createElement('span');
+  src.className = 'lib-detail-source';
+  src.textContent = entry.source;
+  hdr.appendChild(src);
+
+  const starsLg = document.createElement('div');
+  starsLg.className = 'lib-stars-lg';
+  for (let i = 1; i <= 5; i++) {
+    const s = document.createElement('span');
+    s.className = 'lib-star-lg' + (i <= (entry.rating || 0) ? ' on' : '');
+    s.textContent = '\u2605';
+    const si = i;
+    s.addEventListener('click', () => setLibRating(entry.id, si));
+    starsLg.appendChild(s);
+  }
+  hdr.appendChild(starsLg);
+  det.appendChild(hdr);
+
+  const metaEl = document.createElement('div');
+  metaEl.className = 'lib-detail-meta';
+  const metaLine = quickMetaLine(entry.meta || {});
+  metaEl.textContent = [new Date(entry.addedAt || 0).toLocaleString('ja-JP'), metaLine].filter(Boolean).join('  /  ');
+  det.appendChild(metaEl);
+
+  const pairs = [['Prompt', entry.text, ''], ['UC', entry.negative, 'uc']];
+  for (const [label, text, cls] of pairs) {
+    if (!text) continue;
+    const block = document.createElement('div');
+    block.className = 'quick-block';
+    const lbl = document.createElement('div');
+    lbl.className = 'quick-block-label';
+    lbl.appendChild(document.createTextNode(label));
+    const captured = text;
+    lbl.appendChild(makeQuickCopyBtn('\u30B3\u30D4\u30FC', () => captured));
+    const txt = document.createElement('div');
+    txt.className = 'quick-text' + (cls ? ' ' + cls : '');
+    txt.textContent = text;
+    txt.title = '\u30AF\u30EA\u30C3\u30AF\u3067\u30B3\u30D4\u30FC';
+    txt.addEventListener('click', () => copyPlain(captured));
+    block.append(lbl, txt);
+    det.appendChild(block);
+  }
+
+  const memoLbl = document.createElement('div');
+  memoLbl.className = 'quick-block-label';
+  memoLbl.textContent = '\u30E1\u30E2';
+  det.appendChild(memoLbl);
+  const memoTa = document.createElement('textarea');
+  memoTa.className = 'lib-memo-input';
+  memoTa.rows = 2;
+  memoTa.placeholder = '\u30E1\u30E2\u3092\u5165\u529B...';
+  memoTa.value = entry.memo || '';
+  memoTa.addEventListener('change', () => setLibMemo(entry.id, memoTa.value));
+  det.appendChild(memoTa);
+
+  const actions = document.createElement('div');
+  actions.className = 'lib-detail-actions';
+  const delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'ghost danger';
+  delBtn.textContent = '\u30B3\u30FC\u30D1\u30B9\u304B\u3089\u524A\u9664';
+  delBtn.addEventListener('click', () => {
+    const idx = corpus.findIndex((p) => p.id === entry.id);
+    if (idx < 0) return;
+    corpus.splice(idx, 1);
+    try { localStorage.removeItem('thumb-' + entry.id); } catch (_) {}
+    invalidateAnalysis();
+    saveCorpus();
+    renderStatsBar();
+    libSelected = null;
+    refreshLibrary();
+  });
+  actions.appendChild(delBtn);
+  det.appendChild(actions);
+  det.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function setLibRating(id, rating) {
+  const entry = corpus.find((p) => p.id === id);
+  if (!entry) return;
+  entry.rating = entry.rating === rating ? 0 : rating;
+  saveCorpus();
+  renderLibGrid();
+}
+
+function setLibMemo(id, memo) {
+  const entry = corpus.find((p) => p.id === id);
+  if (!entry) return;
+  entry.memo = memo;
+  saveCorpus();
+}
+
+function setupLibraryControls() {
+  const s = document.getElementById('lib-search');
+  const r = document.getElementById('lib-min-rating');
+  const o = document.getElementById('lib-sort');
+  if (s) s.addEventListener('input', renderLibGrid);
+  if (r) r.addEventListener('change', renderLibGrid);
+  if (o) o.addEventListener('change', renderLibGrid);
+}
+
+// === Google Drive sync ===
+
+const DRIVE_FILENAME = 'novelai-corpus.json';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+// === Google Drive OAuth スタブ（同期機能は未実装のため無効化） ===
+// 元コードは driveHandleCallback / driveGetToken / driveFindFile /
+// driveAuthorize / driveClientId / isDriveConnected の6関数を未定義のまま
+// init() から呼んでおり、起動時に ReferenceError となって全機能（タブ切替・
+// ドロップ・各ボタン）が停止していた。Drive同期だけを安全に無効化し、本体
+// 機能（取り込み・分析・Gacha・Library・Suggest・Bridge）を復活させるための
+// スタブ。将来 OAuth を実装する場合はこの6関数を本実装に置き換える。
+const DRIVE_SYNC_AVAILABLE = false;
+function isDriveConnected() { return false; }
+function driveClientId() { return localStorage.getItem('drive-client-id') || ''; }
+async function driveHandleCallback() { return false; }
+async function driveGetToken() { return null; }
+async function driveFindFile() { return null; }
+function driveAuthorize() {
+  driveSetStatus('Google Drive 同期はこのビルドでは未実装です。', 'err');
+}
+
+// === AES-256-GCM encryption ===
+
+function driveSyncPassword() {
+  return localStorage.getItem('drive-sync-password') || '';
+}
+
+async function cryptoKey(password, salt) {
+  const raw = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' },
+    raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptPayload(plaintext, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await cryptoKey(password, salt);
+  const enc  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
+  const out  = new Uint8Array(16 + 12 + enc.byteLength);
+  out.set(salt, 0); out.set(iv, 16); out.set(new Uint8Array(enc), 28);
+  return btoa(String.fromCharCode(...out));
+}
+
+async function decryptPayload(b64, password) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const key = await cryptoKey(password, bytes.slice(0, 16));
+  const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(16, 28) }, key, bytes.slice(28));
+  return new TextDecoder().decode(dec);
+}
+
+async function driveSaveCorpus() {
+  driveSetStatus('保存中...', '');
+  const token = await driveGetToken();
+  if (!token) { driveSetStatus('認証エラー。再接続してください', 'err'); return; }
+
+  const thumbs = {};
+  for (const p of corpus) {
+    const t = loadThumb(p.id);
+    if (t) thumbs[p.id] = t;
+  }
+
+  const bundle = JSON.stringify({
+    version: 2, exportedAt: new Date().toISOString(), count: corpus.length,
+    prompts: corpus.map((p) => ({
+      id: p.id, text: p.text, negative: p.negative, tags: p.tags,
+      source: p.source, addedAt: p.addedAt, rating: p.rating || 0, memo: p.memo || ''
+    })),
+    thumbs
+  });
+
+  const password = driveSyncPassword();
+  let uploadBody;
+  if (password) {
+    const ciphertext = await encryptPayload(bundle, password);
+    uploadBody = JSON.stringify({ encrypted: true, v: 1, data: ciphertext });
+  } else {
+    uploadBody = bundle;
+  }
+
+  const meta = JSON.stringify({ name: DRIVE_FILENAME, mimeType: 'application/json' });
+  const boundary = 'X_corpus_boundary_X';
+  const body = '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
+    meta + '\r\n--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
+    uploadBody + '\r\n--' + boundary + '--';
+
+  try {
+    let fileId = await driveFindFile(token);
+    const url = fileId
+      ? 'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=multipart'
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+    const resp = await fetch(url, {
+      method: fileId ? 'PATCH' : 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/related; boundary=' + boundary },
+      body
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.id) localStorage.setItem('drive-file-id', data.id);
+    const thumbCount = Object.keys(thumbs).length;
+    const encNote = password ? ' 🔒' : '';
+    driveSetStatus('保存完了 (' + new Date().toLocaleTimeString('ja-JP') + ')' + encNote +
+      ' corpus ' + corpus.length + '件 + サムネ ' + thumbCount + '枚', 'ok');
+  } catch (e) { driveSetStatus('保存失敗: ' + (e.message || String(e)), 'err'); }
+}
+
+async function driveLoadCorpus() {
+  driveSetStatus('読込中...', '');
+  const token = await driveGetToken();
+  if (!token) { driveSetStatus('認証エラー。再接続してください', 'err'); return; }
+  try {
+    const fileId = await driveFindFile(token);
+    if (!fileId) { driveSetStatus('Driveにファイルがありません。先に保存してください', 'err'); return; }
+    const resp = await fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    let raw = await resp.text();
+    let parsed;
+    try {
+      const check = JSON.parse(raw);
+      if (check.encrypted) {
+        const password = driveSyncPassword();
+        if (!password) { driveSetStatus('暗号化されたデータです。パスワードを入力してください', 'err'); return; }
+        try {
+          raw = await decryptPayload(check.data, password);
+        } catch (_) {
+          driveSetStatus('復号失敗。パスワードが違う可能性があります', 'err'); return;
+        }
+      }
+      parsed = JSON.parse(raw);
+    } catch (e) { throw new Error('データ解析失敗: ' + e.message); }
+
+    const remote = Array.isArray(parsed.prompts) ? parsed.prompts : [];
+    const remoteThumbs = (parsed.thumbs && typeof parsed.thumbs === 'object') ? parsed.thumbs : {};
+
+    const byId = new Map(corpus.map((p) => [p.id, p]));
+    let added = 0;
+    for (const rp of remote) {
+      if (!rp.id || !rp.text) continue;
+      if (byId.has(rp.id)) {
+        const local = byId.get(rp.id);
+        if (!local.rating && rp.rating) local.rating = rp.rating;
+        if (!local.memo && rp.memo) local.memo = rp.memo;
+      } else {
+        corpus.push({
+          id: rp.id, text: String(rp.text || ''), negative: String(rp.negative || ''),
+          tags: Array.isArray(rp.tags) ? rp.tags : parseTags(rp.text || ''),
+          source: String(rp.source || 'drive'), meta: {},
+          addedAt: Number(rp.addedAt) || 0,
+          rating: Number(rp.rating) || 0, memo: String(rp.memo || '')
+        });
+        added++;
+      }
+    }
+
+    let thumbsRestored = 0;
+    for (const [id, dataUrl] of Object.entries(remoteThumbs)) {
+      if (!localStorage.getItem('thumb-' + id)) { saveThumb(id, dataUrl); thumbsRestored++; }
+    }
+
+    invalidateAnalysis();
+    saveCorpus();
+    renderStatsBar();
+    refreshLibrary();
+    driveSetStatus('読込完了 (' + new Date().toLocaleTimeString('ja-JP') + ') / ' +
+      added + '件追加 + サムネ ' + thumbsRestored + '枚復元', 'ok');
+  } catch (e) { driveSetStatus('読込失敗: ' + (e.message || String(e)), 'err'); }
+}
+
+function driveDisconnect() {
+  ['drive-access-token','drive-token-expiry','drive-refresh-token','drive-file-id'].forEach((k) => localStorage.removeItem(k));
+  updateDriveUI();
+}
+
+function driveSetStatus(msg, type) {
+  const el = document.getElementById('drive-status-text');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'drive-status-line' + (type ? ' ' + type : '');
+}
+
+function updateDriveUI() {
+  const connected = isDriveConnected();
+  const disc = document.getElementById('drive-panel-disconnected');
+  const conn = document.getElementById('drive-panel-connected');
+  if (disc) disc.hidden = connected;
+  if (conn) conn.hidden = !connected;
+  if (connected && document.getElementById('drive-status-text')) driveSetStatus('接続済み', 'ok');
+  const pwEl = document.getElementById('drive-password');
+  if (pwEl) pwEl.value = driveSyncPassword();
+  const inp = document.getElementById('drive-client-id-input');
+  if (inp) inp.value = driveClientId();
+}
+
+function setupSettingsControls() {
+  const btnOpen = document.getElementById('btn-settings');
+  const overlay = document.getElementById('settings-overlay');
+  const btnClose = document.getElementById('btn-settings-close');
+  const btnConn = document.getElementById('btn-drive-connect');
+  const btnPush = document.getElementById('btn-drive-push');
+  const btnPull = document.getElementById('btn-drive-pull');
+  const btnDisc = document.getElementById('btn-drive-disconnect');
+
+  if (btnOpen) btnOpen.addEventListener('click', () => { if (overlay) { overlay.hidden = false; updateDriveUI(); } });
+  if (btnClose) btnClose.addEventListener('click', () => { if (overlay) overlay.hidden = true; });
+  if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.hidden = true; });
+  if (btnConn) btnConn.addEventListener('click', () => {
+    const inp = document.getElementById('drive-client-id-input');
+    const id = inp ? inp.value.trim() : '';
+    if (!id) { driveSetStatus('Client ID \u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044', 'err'); return; }
+    localStorage.setItem('drive-client-id', id);
+    driveAuthorize();
+  });
+  if (btnPush) btnPush.addEventListener('click', () => {
+    const pw = document.getElementById('drive-password');
+    if (pw) localStorage.setItem('drive-sync-password', pw.value);
+    driveSaveCorpus();
+  });
+  if (btnPull) btnPull.addEventListener('click', () => {
+    const pw = document.getElementById('drive-password');
+    if (pw) localStorage.setItem('drive-sync-password', pw.value);
+    driveLoadCorpus();
+  });
+  if (btnDisc) btnDisc.addEventListener('click', driveDisconnect);
+}
+
+
+
+// === Gacha tab ===
+
+// Heuristic tag categorization
+const GACHA_HAIR_PAT = /(_hair|_bangs|ponytail|twintails|braid|bun|ahoge|hime_cut|bob_cut|hair_)/;
+const GACHA_CLOTHES_PAT = /(dress|shirt|skirt|uniform|jacket|coat|sweater|hoodie|kimono|swimsuit|bikini|costume|outfit|cape|cloak|armor|lingerie|pantyhose|thighhighs|stockings|socks|gloves|hat|cap|helmet|shoes|boots|necktie|scarf|apron|leotard|robe|cardigan|blazer|vest|shorts|pants|jeans|_wear|clothes|attire|frills|ribbon|bowtie|collar|corset|garter|veil|tiara|crown|_legwear|_sleeves)/;
+const GACHA_COMPOSITION = new Set([
+  'masterpiece','best_quality','high_quality','highres','absurdres','ultra-detailed','detailed',
+  'looking_at_viewer','looking_back','looking_away','looking_to_the_side','from_above','from_below',
+  'from_side','from_behind','dutch_angle','close-up','portrait','upper_body','full_body','cowboy_shot',
+  'wide_shot','depth_of_field','blurry_background','bokeh','dynamic_pose','dynamic_angle','sitting',
+  'standing','lying','kneeling','solo','solo_focus','1girl','1boy','2girls','2boys','multiple_girls',
+  'simple_background','white_background','transparent_background','gradient_background','outdoors','indoors',
+  'cinematic_lighting','rim_lighting','backlighting','sidelighting','stage_lighting','spotlight',
+  'lens_flare','chromatic_aberration','film_grain','vignette','volumetric_lighting','god_rays',
+  'wallpaper','official_art','sketch','monochrome','greyscale','flat_color','cel_shading'
+]);
+
+const GACHA_CATEGORIES = ['artist', 'character', 'copyright', 'clothes', 'hair', 'composition', 'other'];
+const GACHA_CAT_LABELS = {
+  artist: '絵師', character: 'キャラ', copyright: '作品',
+  clothes: '服装', hair: '髪型', composition: '構図・ポーズ', other: 'その他'
+};
+const GACHA_DEFAULT_DRAW = {
+  artist: 1, character: 0, copyright: 0, clothes: 2, hair: 1, composition: 3, other: 4
+};
+
+let gachaPool = {};        // category -> Map(tag -> weight)
+let gachaDrawCounts = {};  // category -> int
+let gachaEnabled = {};     // category -> bool
+let gachaCollapsed = {};   // category -> bool
+let gachaLocked = {};      // category -> array of locked tags (persist across rolls)
+let gachaLastResult = null; // { category -> [tags] }
+let gachaResultDiscovery = {}; // category -> Set of discovery tags
+let gachaApiCategories = null; // tag -> danbooru category number (when classified)
+let gachaDiscoveryPool = {};   // category -> Map(tag -> {score, fromTag})  (related tags not in corpus)
+const GACHA_DISCO_CACHE_KEY = 'gacha-related-cache';
+let gachaRelatedCache = loadGachaRelatedCache();
+
+function loadGachaRelatedCache() {
+  try {
+    const raw = localStorage.getItem(GACHA_DISCO_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) { return {}; }
+}
+function saveGachaRelatedCache() {
+  try { localStorage.setItem(GACHA_DISCO_CACHE_KEY, JSON.stringify(gachaRelatedCache)); } catch (_) {}
+}
+
+function heuristicCategory(tag) {
+  const t = tag.toLowerCase();
+  if (GACHA_COMPOSITION.has(t)) return 'composition';
+  if (GACHA_HAIR_PAT.test(t)) return 'hair';
+  if (GACHA_CLOTHES_PAT.test(t)) return 'clothes';
+  return 'other';
+}
+
+function categorizeTag(tag) {
+  // If API classification available, use it for artist/character/copyright
+  if (gachaApiCategories && gachaApiCategories.has(tag)) {
+    const cat = gachaApiCategories.get(tag);
+    if (cat === 1) return 'artist';
+    if (cat === 4) return 'character';
+    if (cat === 3) return 'copyright';
+    // category 0 (general) or 5 (meta) -> fall through to heuristic
+  }
+  return heuristicCategory(tag);
+}
+
+function buildGachaPool() {
+  const minRatingEl = document.getElementById('gacha-min-rating');
+  const minR = Number(minRatingEl ? minRatingEl.value : 0) || 0;
+  const transform = normalizeMode ? normalizeTag : (t) => t;
+
+  const pool = {};
+  for (const c of GACHA_CATEGORIES) pool[c] = new Map();
+
+  for (const p of corpus) {
+    if ((p.rating || 0) < minR) continue;
+    const seen = new Set();
+    for (const rawTag of p.tags) {
+      const tag = transform(rawTag);
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      const cat = categorizeTag(tag);
+      const m = pool[cat];
+      m.set(tag, (m.get(tag) || 0) + 1);
+    }
+  }
+  gachaPool = pool;
+}
+
+function weightedPick(map, count, weighted, exclude) {
+  const entries = [...map.entries()].filter(([t]) => !exclude.has(t));
+  if (entries.length === 0) return [];
+  const picked = [];
+  const avail = entries.slice();
+  for (let i = 0; i < count && avail.length > 0; i++) {
+    let idx;
+    if (weighted) {
+      const total = avail.reduce((s, [, w]) => s + w, 0);
+      let r = Math.random() * total;
+      idx = 0;
+      for (let j = 0; j < avail.length; j++) {
+        r -= avail[j][1];
+        if (r <= 0) { idx = j; break; }
+      }
+    } else {
+      idx = Math.floor(Math.random() * avail.length);
+    }
+    picked.push(avail[idx][0]);
+    avail.splice(idx, 1);
+  }
+  return picked;
+}
+
+function rollGacha() {
+  const weightedEl = document.getElementById('gacha-weighted');
+  const weighted = weightedEl ? weightedEl.checked : true;
+  const discoEl = document.getElementById('gacha-discovery');
+  const discoRate = (discoEl ? Number(discoEl.value) : 0) / 100;
+
+  const result = {};
+  gachaResultDiscovery = {}; // track which picked tags are discovery
+  for (const cat of GACHA_CATEGORIES) {
+    if (!gachaEnabled[cat]) { result[cat] = []; gachaResultDiscovery[cat] = new Set(); continue; }
+    const locked = gachaLocked[cat] || [];
+    const drawN = gachaDrawCounts[cat] || 0;
+    const remaining = Math.max(0, drawN - locked.length);
+    const exclude = new Set(locked);
+    const discoSet = new Set();
+    const fresh = [];
+
+    const discoPool = gachaDiscoveryPool[cat] || new Map();
+    const normalPool = gachaPool[cat] || new Map();
+
+    for (let i = 0; i < remaining; i++) {
+      const useDisco = discoRate > 0 && discoPool.size > 0 && Math.random() < discoRate;
+      if (useDisco) {
+        // pick from discovery pool, weighted by score
+        const scoreMap = new Map([...discoPool.entries()].map(([t, v]) => [t, Math.max(0.01, v.score)]));
+        const picked = weightedPick(scoreMap, 1, true, exclude);
+        if (picked.length > 0) {
+          fresh.push(picked[0]);
+          exclude.add(picked[0]);
+          discoSet.add(picked[0]);
+          continue;
+        }
+      }
+      // normal pick
+      const picked = weightedPick(normalPool, 1, weighted, exclude);
+      if (picked.length > 0) {
+        fresh.push(picked[0]);
+        exclude.add(picked[0]);
+      }
+    }
+    result[cat] = [...locked, ...fresh];
+    gachaResultDiscovery[cat] = discoSet;
+  }
+  gachaLastResult = result;
+  renderGachaResult();
+}
+
+function gachaResultToPrompt() {
+  if (!gachaLastResult) return '';
+  const parts = [];
+  for (const cat of GACHA_CATEGORIES) {
+    if (gachaLastResult[cat]) parts.push(...gachaLastResult[cat]);
+  }
+  return parts.join(', ');
+}
+
+function renderGachaResult() {
+  const empty = document.getElementById('gacha-result-empty');
+  const box = document.getElementById('gacha-result');
+  if (!gachaLastResult) { if (empty) empty.hidden = false; if (box) box.hidden = true; return; }
+  if (empty) empty.hidden = true;
+  if (!box) return;
+  box.hidden = false;
+  box.replaceChildren();
+
+  const promptDiv = document.createElement('div');
+  promptDiv.className = 'gacha-result-prompt';
+
+  let anyToken = false;
+  for (const cat of GACHA_CATEGORIES) {
+    const tags = gachaLastResult[cat] || [];
+    for (const tag of tags) {
+      anyToken = true;
+      const slot = document.createElement('span');
+      slot.className = 'gacha-slot';
+      const token = document.createElement('span');
+      const isLocked = (gachaLocked[cat] || []).includes(tag);
+      const isDisco = (gachaResultDiscovery[cat] || new Set()).has(tag);
+      token.className = 'gacha-token' + (isLocked ? ' locked' : '') + (isDisco ? ' discovery' : '');
+      token.title = isLocked ? 'クリックでロック解除' : 'クリックでロック (再ガチャで固定)';
+
+      const badge = document.createElement('span');
+      badge.className = 'cat-badge';
+      badge.textContent = GACHA_CAT_LABELS[cat];
+      token.appendChild(badge);
+      token.appendChild(document.createTextNode(tag));
+      if (isDisco) {
+        const nb = document.createElement('span');
+        nb.className = 'new-badge';
+        nb.textContent = 'new';
+        token.appendChild(nb);
+      }
+
+      token.addEventListener('click', () => toggleGachaLock(cat, tag));
+      slot.appendChild(token);
+      promptDiv.appendChild(slot);
+    }
+  }
+
+  if (!anyToken) {
+    promptDiv.textContent = '抽選結果が空です。カテゴリを有効にするか抽選数を増やしてください。';
+  }
+  box.appendChild(promptDiv);
+
+  const actions = document.createElement('div');
+  actions.className = 'gacha-result-actions';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.textContent = 'プロンプトをコピー';
+  copyBtn.addEventListener('click', async () => {
+    const ok = await copyPlain(gachaResultToPrompt());
+    if (ok) { copyBtn.textContent = '✓ コピー済み'; setTimeout(() => copyBtn.textContent = 'プロンプトをコピー', 800); }
+  });
+  actions.appendChild(copyBtn);
+
+  const rerollBtn = document.createElement('button');
+  rerollBtn.type = 'button';
+  rerollBtn.className = 'ghost';
+  rerollBtn.textContent = '🎲 ロック以外を再抽選';
+  rerollBtn.addEventListener('click', rollGacha);
+  actions.appendChild(rerollBtn);
+
+  const sendBtn = document.createElement('button');
+  sendBtn.type = 'button';
+  sendBtn.className = 'ghost';
+  sendBtn.textContent = '→ Suggestへ';
+  sendBtn.addEventListener('click', () => {
+    const ta = document.getElementById('suggest-input');
+    if (ta) ta.value = gachaResultToPrompt();
+    document.querySelector('.tab[data-mode="suggest"]').click();
+  });
+  actions.appendChild(sendBtn);
+
+  box.appendChild(actions);
+}
+
+function toggleGachaLock(cat, tag) {
+  if (!gachaLocked[cat]) gachaLocked[cat] = [];
+  const idx = gachaLocked[cat].indexOf(tag);
+  if (idx >= 0) gachaLocked[cat].splice(idx, 1);
+  else gachaLocked[cat].push(tag);
+  renderGachaResult();
+}
+
+function renderGachaCats() {
+  const container = document.getElementById('gacha-cats');
+  if (!container) return;
+  container.replaceChildren();
+
+  for (const cat of GACHA_CATEGORIES) {
+    const pool = gachaPool[cat] || new Map();
+    const card = document.createElement('div');
+    card.className = 'gacha-cat';
+
+    const head = document.createElement('div');
+    head.className = 'gacha-cat-head' + (gachaCollapsed[cat] ? ' collapsed' : '');
+
+    const enableCb = document.createElement('input');
+    enableCb.type = 'checkbox';
+    enableCb.checked = gachaEnabled[cat] !== false && pool.size > 0;
+    enableCb.disabled = pool.size === 0;
+    enableCb.addEventListener('change', () => { gachaEnabled[cat] = enableCb.checked; });
+    head.appendChild(enableCb);
+
+    const name = document.createElement('span');
+    name.className = 'gacha-cat-name';
+    name.textContent = GACHA_CAT_LABELS[cat];
+    head.appendChild(name);
+
+    const count = document.createElement('span');
+    count.className = 'gacha-cat-count';
+    count.textContent = pool.size + ' tags';
+    const discoSize = (gachaDiscoveryPool[cat] || new Map()).size;
+    if (discoSize > 0) {
+      const dc = document.createElement('span');
+      dc.className = 'gacha-cat-disco-count';
+      dc.textContent = '+' + discoSize + ' new';
+      count.appendChild(dc);
+    }
+    head.appendChild(count);
+
+    const drawWrap = document.createElement('span');
+    drawWrap.className = 'gacha-cat-draw';
+    drawWrap.appendChild(document.createTextNode('引く'));
+    const drawInput = document.createElement('input');
+    drawInput.type = 'number';
+    drawInput.min = '0';
+    drawInput.max = '20';
+    drawInput.value = String(gachaDrawCounts[cat] != null ? gachaDrawCounts[cat] : 0);
+    drawInput.addEventListener('change', () => {
+      gachaDrawCounts[cat] = Math.max(0, Math.min(20, Number(drawInput.value) || 0));
+    });
+    drawWrap.appendChild(drawInput);
+    head.appendChild(drawWrap);
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'gacha-cat-toggle';
+    toggleBtn.textContent = gachaCollapsed[cat] ? '▸' : '▾';
+    toggleBtn.title = 'タグ一覧を展開/折りたたみ';
+    toggleBtn.addEventListener('click', () => { gachaCollapsed[cat] = !gachaCollapsed[cat]; renderGachaCats(); });
+    head.appendChild(toggleBtn);
+
+    card.appendChild(head);
+
+    const tagsWrap = document.createElement('div');
+    tagsWrap.className = 'gacha-cat-tags' + (gachaCollapsed[cat] ? ' hidden' : '');
+    const sorted = [...pool.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [tag, w] of sorted.slice(0, 60)) {
+      const chip = document.createElement('span');
+      chip.className = 'gacha-mini-tag';
+      chip.appendChild(document.createTextNode(tag + ' '));
+      const ct = document.createElement('span');
+      ct.className = 'ct';
+      ct.textContent = w;
+      chip.appendChild(ct);
+      tagsWrap.appendChild(chip);
+    }
+    if (sorted.length > 60) {
+      const more = document.createElement('span');
+      more.className = 'gacha-mini-tag';
+      more.textContent = '+' + (sorted.length - 60) + ' more';
+      tagsWrap.appendChild(more);
+    }
+    card.appendChild(tagsWrap);
+    container.appendChild(card);
+  }
+}
+
+async function gachaClassifyViaApi() {
+  const btn = document.getElementById('btn-gacha-classify');
+  if (btn) btn.disabled = true;
+  // Collect all unique tags across pool
+  const allTags = new Set();
+  for (const cat of GACHA_CATEGORIES) {
+    for (const tag of (gachaPool[cat] || new Map()).keys()) allTags.add(tag);
+  }
+  const tags = [...allTags];
+  if (tags.length === 0) { if (btn) btn.disabled = false; return; }
+
+  if (!gachaApiCategories) gachaApiCategories = new Map();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    let done = 0;
+    for (let i = 0; i < tags.length; i += 100) {
+      if (controller.signal.aborted) break;
+      const batch = tags.slice(i, i + 100);
+      const params = new URLSearchParams();
+      params.append('search[name_comma]', batch.map((t) => t.replace(/\s+/g, '_')).join(','));
+      params.append('limit', '1000');
+      const resp = await fetch('https://danbooru.donmai.us/tags.json?' + params.toString(), {
+        signal: controller.signal, headers: { 'Accept': 'application/json' }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data)) {
+          for (const t of data) {
+            // map underscore-name back; store by normalized form too
+            gachaApiCategories.set(String(t.name), Number(t.category));
+            gachaApiCategories.set(String(t.name).replace(/_/g, ' '), Number(t.category));
+          }
+        }
+      }
+      done += batch.length;
+      const rb = document.getElementById('btn-gacha-classify');
+      if (rb) rb.textContent = 'Danbooru分類 ' + done + '/' + tags.length;
+    }
+    buildGachaPool();
+    initGachaDefaults();
+    renderGachaCats();
+    const rb = document.getElementById('btn-gacha-classify');
+    if (rb) rb.textContent = '✓ 分類済み (再実行可)';
+  } catch (_) {
+    const rb = document.getElementById('btn-gacha-classify');
+    if (rb) rb.textContent = 'Danbooru分類で精密化';
+  } finally {
+    clearTimeout(timer);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function initGachaDefaults() {
+  for (const cat of GACHA_CATEGORIES) {
+    const has = (gachaPool[cat] || new Map()).size > 0;
+    if (gachaEnabled[cat] === undefined) gachaEnabled[cat] = has;
+    if (gachaDrawCounts[cat] === undefined) gachaDrawCounts[cat] = has ? GACHA_DEFAULT_DRAW[cat] : 0;
+    if (gachaCollapsed[cat] === undefined) gachaCollapsed[cat] = true;
+    if (gachaLocked[cat] === undefined) gachaLocked[cat] = [];
+  }
+}
+
+// Build the set of tags the user already has (normalized)
+function gachaCorpusTagSet() {
+  const transform = normalizeMode ? normalizeTag : (t) => t;
+  const set = new Set();
+  for (const p of corpus) {
+    for (const t of p.tags) {
+      const n = transform(t);
+      if (n) set.add(n);
+    }
+  }
+  return set;
+}
+
+// Fetch related tags for the user's top tags via Danbooru related_tag API
+async function gachaFetchRelated() {
+  const btn = document.getElementById('btn-gacha-discover');
+  if (btn) btn.disabled = true;
+
+  // Pick top N frequent tags from the current pool as seeds (across all cats)
+  const allTags = new Map();
+  for (const cat of GACHA_CATEGORIES) {
+    for (const [tag, w] of (gachaPool[cat] || new Map())) {
+      allTags.set(tag, (allTags.get(tag) || 0) + w);
+    }
+  }
+  const seeds = [...allTags.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25)
+    .map(([t]) => t);
+
+  if (seeds.length === 0) { if (btn) btn.disabled = false; return; }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    let done = 0;
+    for (const seed of seeds) {
+      if (controller.signal.aborted) break;
+      // Skip if cached
+      if (!gachaRelatedCache[seed]) {
+        const underscored = seed.replace(/\s+/g, '_');
+        const params = new URLSearchParams();
+        params.append('search[query]', underscored);
+        params.append('limit', '20');
+        try {
+          const resp = await fetch('https://danbooru.donmai.us/related_tag.json?' + params.toString(), {
+            signal: controller.signal, headers: { 'Accept': 'application/json' }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const related = [];
+            // API returns { related_tags: [{ tag: {name, category, post_count}, cosine_similarity|frequency }] }
+            const list = (data && data.related_tags) || [];
+            for (const item of list) {
+              const tagObj = item.tag || {};
+              const name = String(tagObj.name || '');
+              if (!name) continue;
+              related.push({
+                name,
+                category: Number(tagObj.category) || 0,
+                score: Number(item.cosine_similarity || item.frequency || item.jaccard_similarity || 0)
+              });
+            }
+            gachaRelatedCache[seed] = related;
+          }
+        } catch (e) {
+          if (e.name === 'AbortError') throw e;
+        }
+      }
+      done++;
+      if (btn) btn.textContent = '関連語取得 ' + done + '/' + seeds.length;
+    }
+    saveGachaRelatedCache();
+    buildDiscoveryPool();
+    renderGachaCats();
+    if (btn) btn.textContent = '✓ 関連語取得済み (再取得可)';
+  } catch (_) {
+    if (btn) btn.textContent = '関連語を取得';
+  } finally {
+    clearTimeout(timer);
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Build discovery pool: related tags NOT already in user's corpus
+function buildDiscoveryPool() {
+  const corpusTags = gachaCorpusTagSet();
+  const disco = {};
+  for (const c of GACHA_CATEGORIES) disco[c] = new Map();
+
+  for (const seed of Object.keys(gachaRelatedCache)) {
+    const related = gachaRelatedCache[seed] || [];
+    for (const r of related) {
+      const name = normalizeMode ? normalizeTag(r.name) : r.name;
+      if (!name || corpusTags.has(name)) continue; // skip tags user already has
+      // categorize: prefer API category from related data
+      let cat;
+      if (r.category === 1) cat = 'artist';
+      else if (r.category === 4) cat = 'character';
+      else if (r.category === 3) cat = 'copyright';
+      else cat = heuristicCategory(name);
+      // keep highest score if seen from multiple seeds
+      const existing = disco[cat].get(name);
+      if (!existing || r.score > existing.score) {
+        disco[cat].set(name, { score: r.score, fromTag: seed });
+      }
+    }
+  }
+  gachaDiscoveryPool = disco;
+}
+
+function refreshGacha() {
+  const empty = corpus.length === 0;
+  const emptyEl = document.getElementById('gacha-empty');
+  const contentEl = document.getElementById('gacha-content');
+  if (emptyEl) emptyEl.hidden = !empty;
+  if (contentEl) contentEl.hidden = empty;
+  if (empty) return;
+  buildGachaPool();
+  buildDiscoveryPool();
+  initGachaDefaults();
+  renderGachaCats();
+}
+
+function setupGachaControls() {
+  const rebuildBtn = document.getElementById('btn-gacha-rebuild');
+  if (rebuildBtn) rebuildBtn.addEventListener('click', () => { buildGachaPool(); buildDiscoveryPool(); renderGachaCats(); });
+  const minRating = document.getElementById('gacha-min-rating');
+  if (minRating) minRating.addEventListener('change', () => { buildGachaPool(); renderGachaCats(); });
+  const rollBtn = document.getElementById('btn-gacha-roll');
+  if (rollBtn) rollBtn.addEventListener('click', () => {
+    // Clear locks on a fresh full roll? No - keep locks. Just roll.
+    rollGacha();
+  });
+  const classifyBtn = document.getElementById('btn-gacha-classify');
+  if (classifyBtn) classifyBtn.addEventListener('click', gachaClassifyViaApi);
+  const discoSlider = document.getElementById('gacha-discovery');
+  const discoVal = document.getElementById('gacha-discovery-val');
+  if (discoSlider && discoVal) {
+    discoSlider.addEventListener('input', () => { discoVal.textContent = discoSlider.value + '%'; });
+  }
+  const discoBtn = document.getElementById('btn-gacha-discover');
+  if (discoBtn) discoBtn.addEventListener('click', gachaFetchRelated);
+}
+
+// === Analyze tab refresh ===
+
+function refreshAnalyze() {
+  const empty = corpus.length === 0;
+  $('empty-corpus').hidden = !empty;
+  $('analyze-content').hidden = empty;
+  if (empty) {
+    selectedTag = null;
+    return;
+  }
+  renderTagTable();
+  if (selectedTag) {
+    const { tagCounts } = getAnalysis();
+    if (!tagCounts.has(selectedTag)) {
+      selectedTag = null;
+      $('tag-detail').hidden = true;
+    } else {
+      renderTagDetail();
+    }
+  } else {
+    $('tag-detail').hidden = true;
+  }
+}
+
+// === Suggest tab ===
+
+function setSuggestStatus(msg, type) {
+  const s = $('suggest-status');
+  s.textContent = msg;
+  s.className = 'status-area' + (type ? ' ' + type : '');
+}
+
+function refreshSuggest() {
+  const empty = corpus.length === 0;
+  $('suggest-empty-corpus').hidden = !empty;
+  $('suggest-content').hidden = empty;
+}
+
+function runSuggester() {
+  if (corpus.length === 0) {
+    setSuggestStatus('コーパスが空です', 'error');
+    return;
+  }
+  const inputText = $('suggest-input').value;
+  if (!inputText.trim()) {
+    setSuggestStatus('プロンプトを入力してください', 'error');
+    return;
+  }
+  const mode = $('suggest-mode').value;
+  const topN = Math.max(1, Math.min(50, Number($('suggest-topn').value) || 10));
+  const minCount = Math.max(1, Number($('suggest-min').value) || 2);
+
+  const transform = normalizeMode ? normalizeTag : (t) => t;
+  const inputRaw = parseTags(inputText);
+  const inputTransformed = inputRaw.map(transform).filter((t) => t.length > 0);
+  const uniqueInput = [...new Set(inputTransformed)];
+
+  if (uniqueInput.length === 0) {
+    setSuggestStatus('有効なタグがありません', 'error');
+    return;
+  }
+  if (uniqueInput.length > 30) {
+    setSuggestStatus('入力タグが多すぎます (30個まで)', 'error');
+    return;
+  }
+
+  // Use shared cached tag sets (rebuilt only when corpus/normalizeMode changes)
+  const corpusSets = getCorpusSets();
+  const inputSet = new Set(uniqueInput);
+
+  if (mode === 'add') {
+    // ADD mode: prompts containing ALL input tags -> most frequent unused tags
+    const matching = corpusSets.filter((p) => uniqueInput.every((t) => p.tags.has(t)));
+    const candidates = new Map();
+    for (const p of matching) {
+      for (const t of p.tags) {
+        if (inputSet.has(t)) continue;
+        candidates.set(t, (candidates.get(t) || 0) + 1);
+      }
+    }
+    const sorted = [...candidates.entries()]
+      .filter(([_, c]) => c >= minCount)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, topN);
+
+    renderSuggestResults([{
+      focusTag: '+ 追加候補 (全タグ共起)',
+      matchCount: matching.length,
+      focusInMatching: matching.length,
+      candidates: sorted,
+      isAddMode: true
+    }]);
+    setSuggestStatus(
+      `追加モード: ${matching.length} 件マッチ${normalizeMode ? ' (正規化ON)' : ' (正規化OFF)'}`,
+      ''
+    );
+    return;
+  }
+
+  // REPLACE mode (default)
+  const results = [];
+
+  for (const focusTag of uniqueInput) {
+    const contextTags = uniqueInput.filter((t) => t !== focusTag);
+
+    // Find prompts matching all context tags
+    const matching = corpusSets.filter((p) => contextTags.every((t) => p.tags.has(t)));
+    let focusInMatching = 0;
+    const candidates = new Map();
+    for (const p of matching) {
+      if (p.tags.has(focusTag)) focusInMatching++;
+      for (const t of p.tags) {
+        if (inputSet.has(t)) continue;
+        candidates.set(t, (candidates.get(t) || 0) + 1);
+      }
+    }
+
+    const sorted = [...candidates.entries()]
+      .filter(([_, c]) => c >= minCount)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, topN);
+
+    results.push({
+      focusTag,
+      matchCount: matching.length,
+      focusInMatching,
+      candidates: sorted
+    });
+  }
+
+  renderSuggestResults(results);
+  setSuggestStatus(
+    `代替モード: ${uniqueInput.length} タグ について提案${normalizeMode ? ' (正規化ON)' : ' (正規化OFF — 完全一致のみ)'}`,
+    ''
+  );
+}
+
+function renderSuggestResults(results) {
+  const container = $('suggest-results');
+  container.replaceChildren();
+  const frag = document.createDocumentFragment();
+
+  for (const r of results) {
+    const card = document.createElement('div');
+    card.className = 'suggest-card' + (r.candidates.length === 0 ? ' empty' : '');
+
+    const header = document.createElement('div');
+    header.className = 'suggest-card-header';
+
+    const focus = document.createElement('code');
+    focus.className = 'suggest-focus';
+    focus.textContent = r.focusTag;
+    header.appendChild(focus);
+
+    const info = document.createElement('span');
+    info.className = 'suggest-match-info';
+    if (r.matchCount === 0) {
+      info.classList.add('error');
+      info.textContent = r.isAddMode ? '全タグを含むプロンプトなし' : '残りタグに一致するプロンプトなし';
+    } else if (r.isAddMode) {
+      info.textContent = `${r.matchCount} 件マッチ (入力タグ全部を含むプロンプト)`;
+    } else {
+      const pctInMatching = ((r.focusInMatching / r.matchCount) * 100).toFixed(0);
+      info.textContent = `${r.matchCount} 件マッチ / うち ${r.focusInMatching} 件でこのタグ使用 (${pctInMatching}%)`;
+    }
+    header.appendChild(info);
+    card.appendChild(header);
+
+    if (r.candidates.length > 0) {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>candidate</th><th class="num">count</th><th class="num">rate</th><th></th></tr>';
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      for (const [tag, count] of r.candidates) {
+        const tr = document.createElement('tr');
+        const tdTag = document.createElement('td');
+        tdTag.className = 'tag-name';
+        tdTag.textContent = tag;
+
+        const tdCount = document.createElement('td');
+        tdCount.className = 'count';
+        tdCount.textContent = String(count);
+
+        const tdRate = document.createElement('td');
+        tdRate.className = 'rate';
+        const rate = r.matchCount > 0 ? (count / r.matchCount) * 100 : 0;
+        tdRate.textContent = rate.toFixed(0) + '%';
+
+        const tdActions = makeActionsCell(tag);
+
+        tr.append(tdTag, tdCount, tdRate, tdActions);
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      card.appendChild(table);
+    } else if (r.matchCount > 0) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size: 0.72rem; color: var(--muted); margin-top: 0.3rem;';
+      note.textContent = 'min count を下回るため候補なし';
+      card.appendChild(note);
+    }
+
+    frag.appendChild(card);
+  }
+  container.appendChild(frag);
+}
+
+// === Bridge tab ===
+
+const DANBOORU_POSTS_URL = 'https://danbooru.donmai.us/posts';
+
+function setBridgeStatus(msg, type) {
+  const s = $('bridge-status');
+  s.textContent = msg;
+  s.className = 'status-area' + (type ? ' ' + type : '');
+}
+
+function bridgeTagsFromText(text) {
+  const raw = parseTags(text);
+  const normalized = raw.map(normalizeTag).filter((t) => t.length > 0);
+  // Preserve first-occurrence order while dedup
+  const seen = new Set();
+  const ordered = [];
+  for (const t of normalized) {
+    if (seen.has(t)) continue;
+    seen.add(t);
+    ordered.push(t);
+  }
+  return ordered;
+}
+
+function bridgeBuildSearchUrl(tags) {
+  // Danbooru uses underscores; convert spaces inside tags to underscores
+  const encoded = tags
+    .map((t) => t.replace(/\s+/g, '_'))
+    .map(encodeURIComponent)
+    .join('+');
+  return `${DANBOORU_POSTS_URL}?tags=${encoded}`;
+}
+
+function renderBridge() {
+  const result = $('bridge-result');
+  if (bridgeTags.length === 0) {
+    result.hidden = true;
+    return;
+  }
+  result.hidden = false;
+
+  // Chips (collapsible when many)
+  const chipsEl = $('bridge-chips');
+  chipsEl.replaceChildren();
+  const frag = document.createDocumentFragment();
+  const collapsed = !bridgeChipsExpanded && bridgeTags.length > BRIDGE_CHIP_COLLAPSE_AT;
+  const visibleTags = collapsed ? bridgeTags.slice(0, BRIDGE_CHIP_SHOW) : bridgeTags;
+  for (const tag of visibleTags) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'bridge-chip' + (bridgeSelected.has(tag) ? ' selected' : '');
+
+    const count = bridgeCounts.get(tag);
+    let label = tag;
+    if (count != null) {
+      let display;
+      if (count >= 100000)      display = Math.round(count / 1000) + 'k';
+      else if (count >= 10000)  display = Math.round(count / 1000) + 'k';
+      else if (count >= 1000)   display = (count / 1000).toFixed(1) + 'k';
+      else                       display = String(count);
+      label = `${tag} (${display})`;
+
+      if (count === 0)         btn.dataset.rarity = 'zero';
+      else if (count < 500)    btn.dataset.rarity = 'rare';
+      else if (count > 50000)  btn.dataset.rarity = 'common';
+    } else if (bridgeCounts.has(tag)) {
+      // null = fetch failed
+      label = `${tag} (?)`;
+    }
+    btn.textContent = label;
+
+    btn.addEventListener('click', () => {
+      if (bridgeSelected.has(tag)) bridgeSelected.delete(tag);
+      else bridgeSelected.add(tag);
+      renderBridge();
+    });
+    frag.appendChild(btn);
+  }
+  if (bridgeTags.length > BRIDGE_CHIP_COLLAPSE_AT) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'bridge-chip more-toggle';
+    toggle.textContent = collapsed
+      ? `+ 残り ${bridgeTags.length - BRIDGE_CHIP_SHOW} 件を表示`
+      : '折りたたむ';
+    toggle.addEventListener('click', () => {
+      bridgeChipsExpanded = !bridgeChipsExpanded;
+      renderBridge();
+    });
+    frag.appendChild(toggle);
+  }
+  chipsEl.appendChild(frag);
+
+  // Selection info
+  const count = bridgeSelected.size;
+  const label = $('bridge-selected-label');
+  if (count > 2) {
+    label.textContent = `${count} タグ 選択中 ⚠ 匿名ユーザーは2タグまで (ログイン済みなら無視可)`;
+    label.classList.add('warn');
+  } else {
+    label.textContent = `${count} タグ 選択中`;
+    label.classList.remove('warn');
+  }
+
+  // URL preview
+  const urlEl = $('bridge-url');
+  if (count === 0) {
+    urlEl.textContent = 'タグを選択してください';
+    urlEl.classList.add('empty');
+  } else {
+    urlEl.textContent = bridgeBuildSearchUrl([...bridgeSelected]);
+    urlEl.classList.remove('empty');
+  }
+
+  // Button
+  $('btn-bridge-open').disabled = count === 0;
+  $('btn-bridge-artist').disabled = count === 0;
+}
+
+async function bridgeHandleFile(file) {
+  setBridgeStatus(`PNG処理中: ${file.name}`, '');
+  try {
+    const chunks = await extractPngChunks(file);
+    const parsed = parsePromptFromChunks(chunks, file.name);
+    if (!parsed.text) {
+      setBridgeStatus(`プロンプト未検出: ${file.name}`, 'error');
+      bridgeTags = [];
+      bridgeSelected = new Set();
+      renderBridge();
+      return;
+    }
+    bridgeTags = bridgeTagsFromText(parsed.text);
+    bridgeSelected = new Set();
+    bridgeCounts = new Map();
+    bridgeChipsExpanded = false;
+    if (bridgeTags.length === 0) {
+      setBridgeStatus(`プロンプト抽出済みだがタグ0件: ${file.name}`, 'error');
+    } else {
+      setBridgeStatus(`${bridgeTags.length} タグ 抽出 from ${file.name}`, 'success');
+    }
+    renderBridge();
+  } catch (e) {
+    setBridgeStatus(`PNG読込失敗: ${e.message}`, 'error');
+  }
+}
+
+function bridgeHandlePasteExtract() {
+  const text = $('bridge-paste').value;
+  if (!text.trim()) {
+    setBridgeStatus('テキストを入力してください', 'error');
+    return;
+  }
+  bridgeTags = bridgeTagsFromText(text);
+  bridgeSelected = new Set();
+  bridgeCounts = new Map();
+  bridgeChipsExpanded = false;
+  if (bridgeTags.length === 0) {
+    setBridgeStatus('有効なタグが見つかりませんでした', 'error');
+    renderBridge();
+    return;
+  }
+  setBridgeStatus(`${bridgeTags.length} タグ 抽出`, 'success');
+  renderBridge();
+}
+
+function bridgeClear() {
+  bridgeTags = [];
+  bridgeSelected = new Set();
+  bridgeCounts = new Map();
+  bridgeChipsExpanded = false;
+  $('bridge-paste').value = '';
+  setBridgeStatus('', '');
+  renderBridge();
+}
+
+function bridgeOpenSearch() {
+  if (bridgeSelected.size === 0) return;
+  const url = bridgeBuildSearchUrl([...bridgeSelected]);
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function bridgeOpenArtistMode() {
+  if (bridgeSelected.size === 0) return;
+  const tags = [...bridgeSelected].map((t) => t.replace(/\s+/g, '_'));
+  const q = tags.map(encodeURIComponent).join('+');
+  const url = `danbooru_tag_search.html?mode=artist&q=${q}&autorun=1`;
+  const win = window.open(url, '_blank', 'noopener,noreferrer');
+  if (window.location.protocol === 'file:') {
+    setBridgeStatus('⚠ file:// 環境ではツール間連携が動かない場合あり。両ファイルを同一フォルダに置くか、https でホスティング推奨', 'error');
+  } else if (!win) {
+    setBridgeStatus('ポップアップがブロックされました。ブラウザの設定を確認してください', 'error');
+  }
+}
+
+const DANBOORU_TAGS_API = 'https://danbooru.donmai.us/tags.json';
+const BRIDGE_BATCH_SIZE = 100; // tags per request via name_comma
+
+// Fetch counts for many tags in one request.
+// Returns Map(tag -> count). Tags absent from response = 0 (not on Danbooru).
+// Throws on network/HTTP error so caller can mark batch as failed (null).
+async function bridgeFetchCountsBatch(tags, signal) {
+  const params = new URLSearchParams();
+  params.append('search[name_comma]', tags.map((t) => t.replace(/\s+/g, '_')).join(','));
+  params.append('limit', String(Math.max(tags.length, 20)));
+  const resp = await fetch(`${DANBOORU_TAGS_API}?${params.toString()}`, {
+    signal,
+    headers: { 'Accept': 'application/json' }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const data = await resp.json();
+  if (!Array.isArray(data)) throw new Error('unexpected response');
+
+  const byName = new Map();
+  for (const t of data) {
+    byName.set(String(t.name), Number(t.post_count) || 0);
+  }
+  const result = new Map();
+  for (const tag of tags) {
+    const key = tag.replace(/\s+/g, '_');
+    result.set(tag, byName.has(key) ? byName.get(key) : 0);
+  }
+  return result;
+}
+
+async function bridgeAutoSelect() {
+  if (bridgeTags.length === 0) {
+    setBridgeStatus('タグが空です', 'error');
+    return;
+  }
+  const n = Math.max(1, Math.min(10, Number($('bridge-auto-n').value) || 2));
+  const minRaw = Number($('bridge-auto-min').value);
+  const maxRaw = Number($('bridge-auto-max').value);
+  const minThreshold = Number.isFinite(minRaw) && minRaw > 0 ? minRaw : 1;
+  const maxThreshold = Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : Infinity;
+
+  if (minThreshold > maxThreshold) {
+    setBridgeStatus(`min (${minThreshold}) が max (${maxThreshold}) を超えています`, 'error');
+    return;
+  }
+
+  const btn = $('btn-bridge-auto');
+  btn.disabled = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    // Retry policy: fetch tags never fetched OR previously failed (null)
+    const toFetch = bridgeTags.filter((t) => !bridgeCounts.has(t) || bridgeCounts.get(t) === null);
+    const total = toFetch.length;
+
+    if (total > 0) {
+      let done = 0;
+      for (let i = 0; i < toFetch.length; i += BRIDGE_BATCH_SIZE) {
+        if (controller.signal.aborted) throw new DOMException('aborted', 'AbortError');
+        const batch = toFetch.slice(i, i + BRIDGE_BATCH_SIZE);
+        setBridgeStatus(`post数取得中... ${done}/${total}`, '');
+        try {
+          const counts = await bridgeFetchCountsBatch(batch, controller.signal);
+          for (const [tag, count] of counts) bridgeCounts.set(tag, count);
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw e;
+          // Mark whole batch as failed; retryable on next run
+          for (const tag of batch) {
+            if (!bridgeCounts.has(tag)) bridgeCounts.set(tag, null);
+          }
+        }
+        done += batch.length;
+        renderBridge();
+      }
+    }
+
+    // Filter: valid count, within threshold range
+    const valid = bridgeTags
+      .map((t) => ({ tag: t, count: bridgeCounts.get(t) }))
+      .filter((x) => typeof x.count === 'number' && x.count > 0)
+      .filter((x) => x.count >= minThreshold && x.count <= maxThreshold);
+    valid.sort((a, b) => a.count - b.count || a.tag.localeCompare(b.tag));
+    const chosen = valid.slice(0, n).map((x) => x.tag);
+    bridgeSelected = new Set(chosen);
+
+    renderBridge();
+
+    if (chosen.length === 0) {
+      // Diagnostic: why nothing was chosen
+      const allValid = bridgeTags.filter((t) => {
+        const c = bridgeCounts.get(t);
+        return typeof c === 'number' && c > 0;
+      });
+      let reason;
+      if (allValid.length === 0) {
+        reason = '全てのタグがDanbooru未登録 or 取得失敗';
+      } else {
+        const inRange = allValid.filter((t) => {
+          const c = bridgeCounts.get(t);
+          return c >= minThreshold && c <= maxThreshold;
+        });
+        reason = inRange.length === 0
+          ? `範囲外 (有効${allValid.length}件すべてが ${minThreshold}-${maxThreshold === Infinity ? '∞' : maxThreshold} の範囲外)`
+          : '不明';
+      }
+      setBridgeStatus(`該当タグなし: ${reason}`, 'error');
+    } else {
+      const detail = chosen.map((t) => `${t}(${bridgeCounts.get(t)})`).join(', ');
+      const nullCount = [...bridgeCounts.values()].filter((v) => v === null).length;
+      const rangeNote = ` [範囲 ${minThreshold}-${maxThreshold === Infinity ? '∞' : maxThreshold}]`;
+      const failNote = nullCount > 0 ? `, ${nullCount}件取得失敗 (再実行でリトライ)` : '';
+      setBridgeStatus(`${chosen.length}タグ 自動選択${rangeNote}: ${detail}${failNote}`, 'success');
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      setBridgeStatus('タイムアウトまたは中断', 'error');
+    } else {
+      setBridgeStatus(`エラー: ${err && err.message ? err.message : String(err)}`, 'error');
+    }
+  } finally {
+    clearTimeout(timer);
+    btn.disabled = false;
+  }
+}
+
+// === Copy text ===
+
+async function copyText(text, cell) {
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  } catch (_) { ok = false; }
+  if (ok) {
+    cell.classList.add('copied');
+    const orig = cell.textContent;
+    cell.textContent = '✓';
+    setTimeout(() => {
+      cell.textContent = orig;
+      cell.classList.remove('copied');
+    }, 700);
+  }
+}
+
+// === Cross-tab tag transfer (#8) ===
+
+function appendTagToTextarea(textareaId, tag) {
+  const ta = $(textareaId);
+  const current = ta.value.trim();
+  const existing = new Set(parseTags(current).map((t) => t.toLowerCase()));
+  if (existing.has(tag.toLowerCase())) return false;
+  ta.value = current ? current.replace(/,\s*$/, '') + ', ' + tag : tag;
+  return true;
+}
+
+function sendTagToSuggest(tag, cell) {
+  const added = appendTagToTextarea('suggest-input', tag);
+  flashSendFeedback(cell, added ? 'S✓' : 'S=');
+}
+
+function sendTagToBridge(tag, cell) {
+  const added = appendTagToTextarea('bridge-paste', tag);
+  if (bridgeTags.length > 0 && !bridgeTags.includes(tag)) {
+    bridgeTags.push(tag);
+    renderBridge();
+  }
+  flashSendFeedback(cell, added ? 'B✓' : 'B=');
+}
+
+function flashSendFeedback(cell, label) {
+  const orig = cell.textContent;
+  cell.classList.add('copied');
+  cell.textContent = label;
+  setTimeout(() => {
+    cell.textContent = orig;
+    cell.classList.remove('copied');
+  }, 700);
+}
+
+// Standard action cell: copy / →S / →B
+function makeActionsCell(tag) {
+  const td = document.createElement('td');
+  td.className = 'actions';
+
+  const mk = (label, title, fn) => {
+    const span = document.createElement('span');
+    span.className = 'action-btn';
+    span.textContent = label;
+    span.title = title;
+    span.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fn(tag, span);
+    });
+    return span;
+  };
+
+  td.appendChild(mk('⧉', 'コピー', copyText));
+  td.appendChild(mk('→S', 'Suggest 入力に追加', sendTagToSuggest));
+  td.appendChild(mk('→B', 'Bridge 入力に追加', sendTagToBridge));
+  return td;
+}
+
+// === Quick tab (instant prompt viewer) ===
+
+const QUICK_HISTORY_MAX = 10;
+let quickHistory = []; // session-only, newest first
+
+function setQuickStatus(msg, type) {
+  const s = $('quick-status');
+  s.textContent = msg;
+  s.className = 'status-area' + (type ? ' ' + type : '');
+}
+
+async function quickHandleFiles(files) {
+  if (!files || files.length === 0) return;
+  let ok = 0, fail = 0;
+  for (const f of files) {
+    const isPng = f.name ? f.name.toLowerCase().endsWith('.png') : (f.type === 'image/png');
+    if (!isPng && f.type !== 'image/png') { fail++; continue; }
+    try {
+      const chunks = await extractPngChunks(f);
+      const parsed = parsePromptFromChunks(chunks, f.name || 'clipboard.png');
+      if (!parsed.text) { fail++; continue; }
+      const thumb = await generateThumb(f);
+      const item = {
+        source: f.name || 'clipboard',
+        text: parsed.text,
+        negative: parsed.negative || '',
+        meta: parsed.meta || {},
+        at: Date.now()
+      };
+      quickHistory.unshift(item);
+      if (thumb) saveThumb(dedupKey(parsed.text, parsed.negative || ''), thumb);
+      const autoSaveEl = document.getElementById('quick-autosave');
+      if (autoSaveEl && autoSaveEl.checked) {
+        addPrompts([{ text: parsed.text, negative: parsed.negative || '', meta: parsed.meta || {}, source: f.name || 'clipboard' }], 'quick');
+        renderStatsBar();
+      }
+      ok++;
+    } catch (_) { fail++; }
+  }
+  if (quickHistory.length > QUICK_HISTORY_MAX) {
+    quickHistory.length = QUICK_HISTORY_MAX;
+  }
+  renderQuickCards();
+  if (ok > 0 && fail === 0) setQuickStatus(`${ok}件 表示`, 'success');
+  else if (ok > 0) setQuickStatus(`${ok}件 表示 / ${fail}件 失敗 (プロンプト無し or 非PNG)`, '');
+  else setQuickStatus('プロンプトを抽出できませんでした (NAI/A1111 メタデータ入りPNGが必要)', 'error');
+}
+
+function quickMetaLine(meta) {
+  const parts = [];
+  // NAI-style fields
+  if (meta.steps != null) parts.push('steps ' + meta.steps);
+  if (meta.sampler) parts.push(String(meta.sampler));
+  if (meta.scale != null) parts.push('scale ' + meta.scale);
+  if (meta.seed != null) parts.push('seed ' + meta.seed);
+  if (meta.width && meta.height) parts.push(meta.width + '×' + meta.height);
+  // A1111 settings string (truncated)
+  if (parts.length === 0 && meta.settings) {
+    return String(meta.settings).slice(0, 90);
+  }
+  return parts.join(' / ');
+}
+
+
+// Thumbnail generation
+async function generateThumb(file) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxW = 160;
+        const scale = Math.min(maxW / img.width, maxW * 1.5 / img.height, 1);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.25));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    } catch (_) { resolve(null); }
+  });
+}
+function saveThumb(id, dataUrl) {
+  if (!dataUrl) return;
+  try { localStorage.setItem('thumb-' + id, dataUrl); } catch (_) {}
+}
+function loadThumb(id) {
+  try { return localStorage.getItem('thumb-' + id); } catch (_) { return null; }
+}
+
+function makeQuickCopyBtn(label, getText) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'quick-copy-btn';
+  btn.textContent = label;
+  btn.addEventListener('click', async () => {
+    const ok2 = await copyPlain(getText());
+    if (ok2) {
+      btn.classList.add('copied');
+      const orig = btn.textContent;
+      btn.textContent = '✓ コピー済み';
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 800);
+    }
+  });
+  return btn;
+}
+
+// Clipboard write without cell-flash side effects (returns bool)
+async function copyPlain(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) { return false; }
+}
+
+function renderQuickCards() {
+  const container = $('quick-cards');
+  container.replaceChildren();
+  const frag = document.createDocumentFragment();
+
+  for (let i = 0; i < quickHistory.length; i++) {
+    const item = quickHistory[i];
+    const card = document.createElement('div');
+    card.className = 'quick-card';
+
+    const header = document.createElement('div');
+    header.className = 'quick-card-header';
+    const title = document.createElement('span');
+    title.className = 'quick-card-title';
+    title.textContent = item.source;
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'quick-card-meta';
+    metaSpan.textContent = quickMetaLine(item.meta);
+    header.append(title, metaSpan);
+    card.appendChild(header);
+
+    // Prompt block
+    const pBlock = document.createElement('div');
+    pBlock.className = 'quick-block';
+    const pLabel = document.createElement('div');
+    pLabel.className = 'quick-block-label';
+    pLabel.appendChild(document.createTextNode('prompt'));
+    pLabel.appendChild(makeQuickCopyBtn('コピー', () => item.text));
+    const pText = document.createElement('div');
+    pText.className = 'quick-text';
+    pText.textContent = item.text;
+    pText.title = 'クリックでコピー';
+    pText.addEventListener('click', async () => {
+      if (await copyPlain(item.text)) {
+        setQuickStatus('prompt をコピーしました', 'success');
+      }
+    });
+    pBlock.append(pLabel, pText);
+    card.appendChild(pBlock);
+
+    // UC block (only if present)
+    if (item.negative) {
+      const uBlock = document.createElement('div');
+      uBlock.className = 'quick-block';
+      const uLabel = document.createElement('div');
+      uLabel.className = 'quick-block-label';
+      uLabel.appendChild(document.createTextNode('undesired content'));
+      uLabel.appendChild(makeQuickCopyBtn('コピー', () => item.negative));
+      const uText = document.createElement('div');
+      uText.className = 'quick-text uc';
+      uText.textContent = item.negative;
+      uText.title = 'クリックでコピー';
+      uText.addEventListener('click', async () => {
+        if (await copyPlain(item.negative)) {
+          setQuickStatus('UC をコピーしました', 'success');
+        }
+      });
+      uBlock.append(uLabel, uText);
+      card.appendChild(uBlock);
+    }
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'quick-card-actions';
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'ghost';
+    addBtn.textContent = 'コーパスに追加';
+    addBtn.addEventListener('click', () => {
+      const r = addPrompts([{ text: item.text, negative: item.negative, meta: item.meta, source: item.source }], 'quick');
+      renderStatsBar();
+      setQuickStatus(r.added > 0 ? 'コーパスに追加しました' : '既にコーパスに存在します', r.added > 0 ? 'success' : '');
+      addBtn.disabled = true;
+      addBtn.textContent = r.added > 0 ? '✓ 追加済み' : '✓ 登録済み';
+    });
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button';
+    rmBtn.className = 'ghost';
+    rmBtn.textContent = '削除';
+    rmBtn.addEventListener('click', () => {
+      quickHistory.splice(quickHistory.indexOf(item), 1);
+      renderQuickCards();
+    });
+    actions.append(addBtn, rmBtn);
+    card.appendChild(actions);
+
+    frag.appendChild(card);
+  }
+  container.appendChild(frag);
+}
+
+
+function quickAddFromText() {
+  const promptEl = document.getElementById('quick-text-prompt');
+  const ucEl = document.getElementById('quick-text-uc');
+  const prompt = promptEl ? promptEl.value.trim() : '';
+  const uc = ucEl ? ucEl.value.trim() : '';
+  if (!prompt) { setQuickStatus('Prompt を入力してください', 'error'); return; }
+  const item = { source: 'text-input', text: prompt, negative: uc, meta: {}, at: Date.now() };
+  quickHistory.unshift(item);
+  if (quickHistory.length > QUICK_HISTORY_MAX) quickHistory.length = QUICK_HISTORY_MAX;
+  const autoSaveEl = document.getElementById('quick-autosave');
+  if (autoSaveEl && autoSaveEl.checked) {
+    addPrompts([{ text: item.text, negative: item.negative, meta: {}, source: 'text-input' }], 'quick');
+    renderStatsBar();
+  }
+  renderQuickCards();
+  setQuickStatus('追加しました', 'success');
+}
+
+function setupQuickControls() {
+  const dropZone = $('quick-drop-zone');
+  const fileInput = $('quick-file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    quickHandleFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('dragover');
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) quickHandleFiles(files);
+  });
+
+  const textAddBtn = document.getElementById('btn-quick-text-add');
+  if (textAddBtn) textAddBtn.addEventListener('click', quickAddFromText);
+
+  // Paste support: works anywhere while Quick tab is active
+  document.addEventListener('paste', (e) => {
+    if (document.body.dataset.mode !== 'quick') return;
+    const files = [];
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === 'file') {
+        const f = it.getAsFile();
+        if (f && (f.type === 'image/png' || (f.name && f.name.toLowerCase().endsWith('.png')))) {
+          files.push(f);
+        }
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      quickHandleFiles(files);
+    }
+  });
+}
+
+// === Import flow ===
+
+async function importFiles(files) {
+  if (!files || files.length === 0) return;
+  setImportStatus(`${files.length}件 処理中...`, '');
+
+  const allItems = [];
+  let pngOk = 0, pngFail = 0, textOk = 0, jsonOk = 0, otherFail = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    setImportStatus(`${i + 1}/${files.length} 処理中: ${f.name}`, '');
+    try {
+      const lower = f.name.toLowerCase();
+      if (lower.endsWith('.png') || f.type === 'image/png') {
+        const chunks = await extractPngChunks(f);
+        const parsed = parsePromptFromChunks(chunks, f.name);
+        if (parsed.text) { allItems.push(parsed); pngOk++; }
+        else { pngFail++; }
+      } else if (lower.endsWith('.json') || f.type === 'application/json') {
+        const txt = await f.text();
+        const items = parseTextPaste(txt);
+        for (const it of items) it.source = it.source || f.name;
+        allItems.push(...items);
+        jsonOk++;
+      } else if (lower.endsWith('.txt') || f.type === 'text/plain') {
+        const txt = await f.text();
+        const items = parseTextPaste(txt);
+        for (const it of items) it.source = it.source || f.name;
+        allItems.push(...items);
+        textOk++;
+      } else {
+        otherFail++;
+      }
+    } catch (e) {
+      console.warn('File failed:', f.name, e);
+      if (f.name.toLowerCase().endsWith('.png')) pngFail++;
+      else otherFail++;
+    }
+  }
+
+  const result = addPrompts(allItems);
+  const parts = [];
+  if (pngOk) parts.push(`PNG: ${pngOk}件取り込み`);
+  if (pngFail) parts.push(`PNG失敗: ${pngFail}件`);
+  if (textOk) parts.push(`TXT: ${textOk}ファイル`);
+  if (jsonOk) parts.push(`JSON: ${jsonOk}ファイル`);
+  if (otherFail) parts.push(`未対応: ${otherFail}件`);
+  parts.push(`→ 追加 ${result.added}件 / 重複スキップ ${result.skipped}件`);
+
+  if (corpus.length > MAX_PROMPTS_WARN) {
+    parts.push(`⚠ コーパスが${MAX_PROMPTS_WARN}件超え、動作が重くなる可能性`);
+  }
+
+  setImportStatus(parts.join(' / '), result.added > 0 ? 'success' : 'error');
+  renderStatsBar();
+  refreshAnalyze();
+}
+
+function importPasteText() {
+  const text = $('paste-text').value;
+  if (!text.trim()) {
+    setImportStatus('ペースト欄が空です', 'error');
+    return;
+  }
+  const items = parseTextPaste(text);
+  if (items.length === 0) {
+    setImportStatus('パース失敗、内容を確認してください', 'error');
+    return;
+  }
+  const result = addPrompts(items, 'paste');
+  setImportStatus(`${items.length}件パース → 追加 ${result.added} / 重複スキップ ${result.skipped}`, result.added > 0 ? 'success' : 'error');
+  renderStatsBar();
+  refreshAnalyze();
+}
+
+function exportJson() {
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    count: corpus.length,
+    prompts: corpus
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `prompt-corpus-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setImportStatus(`${corpus.length}件 をJSONエクスポート`, 'success');
+}
+
+function clearCorpus() {
+  const btn = $('btn-clear');
+  if (btn.dataset.confirmPending === '1') {
+    // Second click: execute
+    clearTimeout(btn._confirmTimer);
+    btn.dataset.confirmPending = '0';
+    btn.textContent = 'Clear all';
+
+    corpus = [];
+    selectedTag = null;
+    invalidateAnalysis();
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    renderStatsBar();
+    refreshAnalyze();
+    refreshSuggest();
+    setImportStatus('コーパスを削除しました', '');
+  } else {
+    // First click: arm
+    if (corpus.length === 0) {
+      setImportStatus('コーパスは既に空です', '');
+      return;
+    }
+    btn.dataset.confirmPending = '1';
+    btn.textContent = '⚠ もう一度押すと削除';
+    btn._confirmTimer = setTimeout(() => {
+      btn.dataset.confirmPending = '0';
+      btn.textContent = 'Clear all';
+    }, 3000);
+  }
+}
+
+// === Init ===
+
+function setupTabs() {
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach((t) => {
+    t.addEventListener('click', () => {
+      const mode = t.dataset.mode;
+      document.body.dataset.mode = mode;
+      tabs.forEach((x) => x.classList.toggle('active', x === t));
+      if (mode === 'library') refreshLibrary();
+      if (mode === 'library') refreshLibrary();
+      if (mode === 'library') refreshLibrary();
+      if (mode === 'gacha') refreshGacha();
+      if (mode === 'analyze') refreshAnalyze();
+      if (mode === 'suggest') refreshSuggest();
+    });
+  });
+}
+
+function setupImportControls() {
+  const dropZone = $('drop-zone');
+  const fileInput = $('file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    importFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('dragover');
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) importFiles(files);
+  });
+
+  $('btn-paste-add').addEventListener('click', importPasteText);
+  $('btn-paste-clear').addEventListener('click', () => {
+    $('paste-text').value = '';
+    setImportStatus('', '');
+  });
+  $('btn-export').addEventListener('click', exportJson);
+  $('btn-clear').addEventListener('click', clearCorpus);
+}
+
+function updateSortIndicators() {
+  const arrow = tagSortDir === -1 ? ' ▼' : ' ▲';
+  $('th-tag').textContent = 'tag' + (tagSortKey === 'alpha' ? arrow : '');
+  $('th-count').textContent = 'count' + (tagSortKey === 'freq' ? arrow : '');
+}
+
+function setupAnalyzeControls() {
+  $('tag-filter').addEventListener('input', renderTagTable);
+  $('tag-sort').addEventListener('change', (e) => {
+    tagSortKey = e.target.value;
+    tagSortDir = tagSortKey === 'alpha' ? 1 : -1;
+    renderTagTable();
+  });
+  $('th-tag').addEventListener('click', () => {
+    if (tagSortKey === 'alpha') tagSortDir *= -1;
+    else { tagSortKey = 'alpha'; tagSortDir = 1; }
+    $('tag-sort').value = 'alpha';
+    renderTagTable();
+  });
+  $('th-count').addEventListener('click', () => {
+    if (tagSortKey === 'freq') tagSortDir *= -1;
+    else { tagSortKey = 'freq'; tagSortDir = -1; }
+    $('tag-sort').value = 'freq';
+    renderTagTable();
+  });
+  $('normalize-toggle').addEventListener('change', (e) => {
+    normalizeMode = !!e.target.checked;
+    selectedTag = null;
+    invalidateAnalysis();
+    $('tag-detail').hidden = true;
+    renderStatsBar();
+    renderTagTable();
+  });
+}
+
+function setupSuggestControls() {
+  $('btn-suggest').addEventListener('click', runSuggester);
+  $('suggest-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      runSuggester();
+    }
+  });
+  $('suggest-mode').addEventListener('change', (e) => {
+    const isAdd = e.target.value === 'add';
+    $('suggest-hint-replace').hidden = isAdd;
+    $('suggest-hint-add').hidden = !isAdd;
+  });
+}
+
+function setupBridgeControls() {
+  const dropZone = $('bridge-drop-zone');
+  const fileInput = $('bridge-file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) bridgeHandleFile(f);
+    fileInput.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'drop'].forEach((ev) => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove('dragover');
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) bridgeHandleFile(files[0]);
+  });
+
+  $('btn-bridge-paste-extract').addEventListener('click', bridgeHandlePasteExtract);
+  $('btn-bridge-clear').addEventListener('click', bridgeClear);
+  $('btn-bridge-open').addEventListener('click', bridgeOpenSearch);
+  $('btn-bridge-artist').addEventListener('click', bridgeOpenArtistMode);
+  $('btn-bridge-auto').addEventListener('click', bridgeAutoSelect);
+}
+
+async function init() {
+  storageOk = checkStorage();
+  if (!storageOk) setImportStatus('localStorage \u4E0D\u53EF\u3002\u30EA\u30ED\u30FC\u30C9\u3067\u6D88\u3048\u307E\u3059', 'error');
+  loadCorpus();
+  const callbackOk = await driveHandleCallback();
+  setupTabs();
+  setupQuickControls();
+  setupLibraryControls();
+  setupGachaControls();
+  setupImportControls();
+  setupAnalyzeControls();
+  setupSuggestControls();
+  setupBridgeControls();
+  setupSettingsControls();
+  updateDriveUI();
+  renderStatsBar();
+  refreshAnalyze();
+  refreshSuggest();
+  if (callbackOk) {
+    const overlay = document.getElementById('settings-overlay');
+    if (overlay) { overlay.hidden = false; updateDriveUI(); }
+  }
+  const n = corpus.length;
+  if (n === 0) {
+    setImportStatus('PNG\u3092\u30C9\u30ED\u30C3\u30D7\u3059\u308B\u304B\u3001\u30C6\u30AD\u30B9\u30C8\u3092\u30DA\u30FC\u30B9\u30C8\u3057\u3066\u958B\u59CB', '');
+  } else {
+    setImportStatus(n + '\u4EF6 \u30ED\u30FC\u30C9\u6E08\u307F', '');
+  }
+}
+
+init();
+</script>
+</body>
+</html>

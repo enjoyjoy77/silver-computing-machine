@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF スライドビューア</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg: #0e0f14;
+    --surface: #16171e;
+    --surface2: #1e2029;
+    --border: #2a2c38;
+    --text: #e2e4ed;
+    --text-dim: #6b6f82;
+    --accent: #6c8aff;
+    --accent-glow: rgba(108, 138, 255, 0.15);
+    --radius: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  /* ─── Header ─── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+    gap: 12px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.3px;
+    white-space: nowrap;
+  }
+
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    border-radius: 7px;
+    display: grid; place-items: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .file-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 5px 12px;
+    border-radius: 6px;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .btn {
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    border-radius: 7px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: var(--border); }
+
+  .btn-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .btn-accent:hover { filter: brightness(1.15); background: var(--accent); }
+
+  .view-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .view-toggle button {
+    padding: 7px 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+
+  .view-toggle button.active {
+    background: var(--accent-glow);
+    color: var(--accent);
+  }
+
+  .page-info {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  /* ─── Drop Zone ─── */
+  .drop-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    margin: 24px;
+    transition: all .25s;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+
+  .drop-icon {
+    width: 72px; height: 72px;
+    border-radius: 20px;
+    background: var(--surface2);
+    display: grid; place-items: center;
+    font-size: 32px;
+  }
+
+  .drop-text {
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  .drop-sub {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* ─── Grid View ─── */
+  .grid-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .grid-container::-webkit-scrollbar { width: 6px; }
+  .grid-container::-webkit-scrollbar-track { background: transparent; }
+  .grid-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+
+  .thumb-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+  }
+
+  .thumb-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  .thumb-card canvas {
+    width: 100%;
+    display: block;
+    background: #fff;
+  }
+
+  .thumb-label {
+    padding: 8px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* ─── Single Slide View ─── */
+  .slide-view {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg);
+  }
+
+  .slide-view canvas {
+    max-width: 92%;
+    max-height: 88vh;
+    border-radius: 6px;
+    box-shadow: 0 12px 48px rgba(0,0,0,.5);
+    background: #fff;
+  }
+
+  .nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 18px;
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: all .15s;
+    z-index: 5;
+    opacity: .7;
+  }
+
+  .nav-btn:hover { opacity: 1; background: var(--surface2); }
+  .nav-btn.prev { left: 16px; }
+  .nav-btn.next { right: 16px; }
+
+  /* ─── Loading ─── */
+  .loading-bar {
+    position: fixed;
+    top: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), #a78bfa);
+    border-radius: 0 3px 3px 0;
+    transition: width .3s;
+    z-index: 100;
+  }
+
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .thumb-card { animation: fadeIn .3s ease both; }
+
+  input[type=file] { display: none; }
+
+  /* ─── Keyboard hint ─── */
+  .kb-hint {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--surface);
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    pointer-events: none;
+    opacity: .6;
+    z-index: 10;
+  }
+
+  kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    margin: 0 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <!-- Loading bar -->
+  <div class="loading-bar" id="loadingBar" style="width:0; display:none;"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📄</div>
+      <span>PDF Viewer</span>
+    </div>
+
+    <div id="fileInfo" style="display:none;">
+      <span class="file-name" id="fileName"></span>
+    </div>
+
+    <div class="header-actions">
+      <div class="view-toggle" id="viewToggle" style="display:none;">
+        <button id="gridBtn" class="active" onclick="setView('grid')">⊞ 一覧</button>
+        <button id="slideBtn" onclick="setView('slide')">⊡ スライド</button>
+      </div>
+      <span class="page-info" id="pageInfo" style="display:none;"></span>
+      <button class="btn btn-accent" onclick="fileInput.click()">ファイルを開く</button>
+    </div>
+  </header>
+
+  <!-- Drop zone (initial state) -->
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-icon">📑</div>
+    <div class="drop-text">PDFをドラッグ＆ドロップ</div>
+    <div class="drop-sub">またはクリックしてファイルを選択</div>
+  </div>
+
+  <!-- Grid view -->
+  <div class="grid-container" id="gridContainer" style="display:none;">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <!-- Slide view -->
+  <div class="slide-view" id="slideView" style="display:none;">
+    <canvas id="slideCanvas"></canvas>
+    <button class="nav-btn prev" onclick="navSlide(-1)">◂</button>
+    <button class="nav-btn next" onclick="navSlide(1)">▸</button>
+  </div>
+
+  <div class="kb-hint" id="kbHint" style="display:none;">
+    <kbd>←</kbd><kbd>→</kbd> ページ移動 &nbsp; <kbd>G</kbd> 一覧 &nbsp; <kbd>Esc</kbd> 戻る
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".pdf">
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  let pdfDoc = null;
+  let currentPage = 1;
+  let currentView = 'grid';
+  let thumbCanvases = [];
+
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const grid = document.getElementById('grid');
+  const gridContainer = document.getElementById('gridContainer');
+  const slideView = document.getElementById('slideView');
+  const slideCanvas = document.getElementById('slideCanvas');
+  const loadingBar = document.getElementById('loadingBar');
+  const viewToggle = document.getElementById('viewToggle');
+  const fileInfo = document.getElementById('fileInfo');
+  const fileName = document.getElementById('fileName');
+  const pageInfo = document.getElementById('pageInfo');
+  const kbHint = document.getElementById('kbHint');
+
+  // ─── Drag & Drop ───
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  });
+
+  ['dragleave', 'drop'].forEach(ev => {
+    dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('drag-over'); });
+  });
+
+  dropZone.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') loadPDF(file);
+  });
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) loadPDF(e.target.files[0]);
+  });
+
+  // Also allow drop on whole window once loaded
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') loadPDF(file);
+  });
+
+  // ─── Load PDF ───
+  async function loadPDF(file) {
+    loadingBar.style.display = 'block';
+    loadingBar.style.width = '10%';
+
+    const arrayBuffer = await file.arrayBuffer();
+    loadingBar.style.width = '25%';
+
+    pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    fileName.textContent = file.name;
+
+    loadingBar.style.width = '40%';
+
+    dropZone.style.display = 'none';
+    fileInfo.style.display = 'block';
+    viewToggle.style.display = 'flex';
+    pageInfo.style.display = 'inline';
+    kbHint.style.display = 'block';
+
+    await renderThumbnails();
+    setView('grid');
+
+    loadingBar.style.width = '100%';
+    setTimeout(() => { loadingBar.style.display = 'none'; loadingBar.style.width = '0'; }, 400);
+  }
+
+  // ─── Thumbnails ───
+  async function renderThumbnails() {
+    grid.innerHTML = '';
+    thumbCanvases = [];
+    const total = pdfDoc.numPages;
+    pageInfo.textContent = `${total} ページ`;
+
+    for (let i = 1; i <= total; i++) {
+      const page = await pdfDoc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      const scale = 300 / vp.width;
+      const viewport = page.getViewport({ scale });
+
+      const card = document.createElement('div');
+      card.className = 'thumb-card';
+      card.style.animationDelay = `${(i - 1) * 40}ms`;
+      card.onclick = () => { currentPage = i; setView('slide'); };
+
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      const label = document.createElement('div');
+      label.className = 'thumb-label';
+      label.innerHTML = `<span>ページ ${i}</span><span>${Math.round(vp.width)}×${Math.round(vp.height)}</span>`;
+
+      card.appendChild(canvas);
+      card.appendChild(label);
+      grid.appendChild(card);
+      thumbCanvases.push(canvas);
+
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      loadingBar.style.width = `${40 + (i / total) * 55}%`;
+    }
+  }
+
+  // ─── Slide View ───
+  async function renderSlide(pageNum) {
+    const page = await pdfDoc.getPage(pageNum);
+    const vp = page.getViewport({ scale: 1 });
+
+    const maxW = window.innerWidth * 0.88;
+    const maxH = window.innerHeight * 0.82;
+    const scale = Math.min(maxW / vp.width, maxH / vp.height, 2.5);
+    const viewport = page.getViewport({ scale });
+
+    slideCanvas.width = viewport.width;
+    slideCanvas.height = viewport.height;
+
+    const ctx = slideCanvas.getContext('2d');
+    ctx.clearRect(0, 0, viewport.width, viewport.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    pageInfo.textContent = `${pageNum} / ${pdfDoc.numPages}`;
+  }
+
+  function navSlide(dir) {
+    if (!pdfDoc) return;
+    const next = currentPage + dir;
+    if (next >= 1 && next <= pdfDoc.numPages) {
+      currentPage = next;
+      renderSlide(currentPage);
+    }
+  }
+
+  // ─── View Toggle ───
+  function setView(view) {
+    currentView = view;
+    gridBtn.classList.toggle('active', view === 'grid');
+    slideBtn.classList.toggle('active', view === 'slide');
+
+    if (view === 'grid') {
+      gridContainer.style.display = 'block';
+      slideView.style.display = 'none';
+      pageInfo.textContent = `${pdfDoc.numPages} ページ`;
+    } else {
+      gridContainer.style.display = 'none';
+      slideView.style.display = 'flex';
+      renderSlide(currentPage);
+    }
+  }
+
+  // ─── Keyboard ───
+  document.addEventListener('keydown', e => {
+    if (!pdfDoc) return;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (currentView === 'slide') navSlide(1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (currentView === 'slide') navSlide(-1);
+    } else if (e.key === 'g' || e.key === 'G') {
+      setView('grid');
+    } else if (e.key === 'Escape') {
+      if (currentView === 'slide') setView('grid');
+    } else if (e.key === 'Enter' && currentView === 'grid') {
+      setView('slide');
+    }
+  });
+</script>
+</body>
+</html>

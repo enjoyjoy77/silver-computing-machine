@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XLSX → XLSB 変換ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #faf6ef;
+    --bg-alt: #f3ecdd;
+    --panel: #fffdf7;
+    --border: #d8cdb4;
+    --border-soft: #e8dfc9;
+    --text: #3a3024;
+    --text-muted: #7a6d55;
+    --accent: #217346;
+    --accent-dark: #185f3a;
+    --accent-soft: #d6e8dc;
+    --danger: #b54a3a;
+    --warn: #b5832a;
+    --ok: #217346;
+    --shadow: 0 1px 2px rgba(58,48,36,.06), 0 2px 6px rgba(58,48,36,.04);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Yu Gothic UI", "Yu Gothic", "Meiryo UI", "Meiryo", "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 22px;
+  }
+  header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.02em;
+  }
+  header .sub {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 36px 20px;
+    text-align: center;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+  .drop-zone:hover,
+  .drop-zone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .drop-zone .icon {
+    font-size: 32px;
+    margin-bottom: 6px;
+    color: var(--accent);
+  }
+  .drop-zone .main-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .drop-zone .sub-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  input[type="file"] { display: none; }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin: 18px 0 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  button:hover:not(:disabled) {
+    background: var(--bg-alt);
+    border-color: #c0b393;
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-dark);
+    border-color: var(--accent-dark);
+  }
+  button.danger {
+    color: var(--danger);
+  }
+  button.danger:hover:not(:disabled) {
+    background: #f7e5e2;
+    border-color: var(--danger);
+  }
+  .counter {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .file-list {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .file-list:empty::before {
+    content: "ファイルをドロップするか選択してください";
+    display: block;
+    padding: 28px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .file-row {
+    display: grid;
+    grid-template-columns: 1fr 90px 110px 80px;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+  }
+  .file-row:last-child { border-bottom: none; }
+  .file-row:nth-child(even) { background: #fbf7ec; }
+  .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .file-size {
+    text-align: right;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    text-align: center;
+    border: 1px solid transparent;
+  }
+  .status.pending { color: var(--text-muted); background: var(--bg-alt); border-color: var(--border-soft); }
+  .status.processing { color: var(--warn); background: #fbf3dc; border-color: #eddba1; }
+  .status.done { color: var(--ok); background: var(--accent-soft); border-color: #b9d9c3; }
+  .status.error { color: var(--danger); background: #f7e5e2; border-color: #e8c3bd; }
+
+  .row-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+  .row-actions button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .info-box {
+    margin-top: 22px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+  .info-box strong { color: var(--text); }
+  .info-box code {
+    background: var(--bg-alt);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: "Consolas", "Menlo", monospace;
+    font-size: 11px;
+  }
+
+  .log {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #2a2319;
+    color: #e8dfc9;
+    border-radius: 6px;
+    font-family: "Consolas", "Menlo", monospace;
+    font-size: 11px;
+    max-height: 140px;
+    overflow-y: auto;
+    display: none;
+  }
+  .log.visible { display: block; }
+  .log .err { color: #e8a59b; }
+  .log .ok { color: #9dd4b0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>XLSX → XLSB 変換ツール</h1>
+    <span class="sub">Excelバイナリブック形式への一括変換</span>
+  </header>
+
+  <label class="drop-zone" id="dropZone" for="fileInput">
+    <div class="icon">📥</div>
+    <div class="main-text">ここに .xlsx ファイルをドロップ</div>
+    <div class="sub-text">またはクリックで選択（複数ファイル対応）</div>
+    <input type="file" id="fileInput" accept=".xlsx,.xlsm" multiple>
+  </label>
+
+  <div class="toolbar">
+    <button class="primary" id="convertBtn" disabled>すべて変換</button>
+    <button id="downloadAllBtn" disabled>変換済みをすべてダウンロード</button>
+    <button class="danger" id="clearBtn" disabled>リストをクリア</button>
+    <span class="counter" id="counter">0 件</span>
+  </div>
+
+  <div class="file-list" id="fileList"></div>
+
+  <div class="log" id="log"></div>
+
+  <div class="info-box">
+    <strong>このツールについて</strong><br>
+    ブラウザ内でXLSXファイルをXLSB（Excelバイナリブック）形式に変換します。ファイルはサーバーに送信されず、すべての処理はローカルで完結します。<br>
+    <strong>対応入力：</strong> <code>.xlsx</code> / <code>.xlsm</code>　<strong>出力：</strong> <code>.xlsb</code><br>
+    <strong>留意点：</strong> 数式・基本的な書式・複数シートは保持されますが、マクロ（VBA）・一部の高度な機能・外部参照は変換時に失われる可能性があります。重要なファイルは変換前にバックアップしてください。
+  </div>
+</div>
+
+<script>
+(function() {
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+  const convertBtn = document.getElementById('convertBtn');
+  const downloadAllBtn = document.getElementById('downloadAllBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const counter = document.getElementById('counter');
+  const log = document.getElementById('log');
+
+  const files = []; // { id, file, status, result, errorMsg }
+  let nextId = 1;
+
+  function logMsg(msg, cls) {
+    log.classList.add('visible');
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    const time = new Date().toTimeString().slice(0, 8);
+    line.textContent = `[${time}] ${msg}`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+  }
+
+  function updateUI() {
+    counter.textContent = `${files.length} 件`;
+    const pending = files.some(f => f.status === 'pending');
+    const done = files.some(f => f.status === 'done');
+    convertBtn.disabled = !pending;
+    downloadAllBtn.disabled = !done;
+    clearBtn.disabled = files.length === 0;
+  }
+
+  function render() {
+    fileList.innerHTML = '';
+    for (const f of files) {
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.dataset.id = f.id;
+
+      const name = document.createElement('div');
+      name.className = 'file-name';
+      name.title = f.file.name;
+      name.textContent = f.file.name;
+
+      const size = document.createElement('div');
+      size.className = 'file-size';
+      size.textContent = formatSize(f.file.size);
+
+      const status = document.createElement('div');
+      status.className = 'status ' + f.status;
+      const labels = { pending: '待機中', processing: '変換中…', done: '完了', error: 'エラー' };
+      status.textContent = labels[f.status] || f.status;
+      if (f.status === 'error' && f.errorMsg) status.title = f.errorMsg;
+
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+
+      if (f.status === 'done') {
+        const dl = document.createElement('button');
+        dl.textContent = '保存';
+        dl.onclick = () => downloadOne(f);
+        actions.appendChild(dl);
+      }
+      const rm = document.createElement('button');
+      rm.className = 'danger';
+      rm.textContent = '×';
+      rm.title = '削除';
+      rm.onclick = () => removeFile(f.id);
+      actions.appendChild(rm);
+
+      row.appendChild(name);
+      row.appendChild(size);
+      row.appendChild(status);
+      row.appendChild(actions);
+      fileList.appendChild(row);
+    }
+    updateUI();
+  }
+
+  function addFiles(newFiles) {
+    for (const file of newFiles) {
+      const lower = file.name.toLowerCase();
+      if (!lower.endsWith('.xlsx') && !lower.endsWith('.xlsm')) {
+        logMsg(`スキップ: ${file.name}（.xlsx/.xlsm ではありません）`, 'err');
+        continue;
+      }
+      files.push({
+        id: nextId++,
+        file: file,
+        status: 'pending',
+        result: null,
+        errorMsg: null
+      });
+    }
+    render();
+  }
+
+  function removeFile(id) {
+    const idx = files.findIndex(f => f.id === id);
+    if (idx >= 0) files.splice(idx, 1);
+    render();
+  }
+
+  async function convertOne(f) {
+    f.status = 'processing';
+    render();
+    try {
+      const buf = await f.file.arrayBuffer();
+      // cellStyles を保持、読み込み時は array 型で
+      const wb = XLSX.read(buf, { type: 'array', cellStyles: true, cellFormula: true, cellDates: true });
+      const out = XLSX.write(wb, { bookType: 'xlsb', type: 'array', compression: true });
+      f.result = new Uint8Array(out);
+      f.status = 'done';
+      logMsg(`変換成功: ${f.file.name} → ${formatSize(f.result.byteLength)}`, 'ok');
+    } catch (err) {
+      f.status = 'error';
+      f.errorMsg = err.message || String(err);
+      logMsg(`変換失敗: ${f.file.name} — ${f.errorMsg}`, 'err');
+    }
+    render();
+  }
+
+  async function convertAll() {
+    convertBtn.disabled = true;
+    const pending = files.filter(f => f.status === 'pending');
+    logMsg(`${pending.length} 件の変換を開始`);
+    for (const f of pending) {
+      await convertOne(f);
+      // UI が固まらないように小休止
+      await new Promise(r => setTimeout(r, 0));
+    }
+    logMsg('すべての変換処理が完了しました', 'ok');
+    updateUI();
+  }
+
+  function downloadBlob(data, filename) {
+    const blob = new Blob([data], { type: 'application/vnd.ms-excel.sheet.binary.macroEnabled.12' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function baseName(name) {
+    const idx = name.lastIndexOf('.');
+    return idx >= 0 ? name.slice(0, idx) : name;
+  }
+
+  function downloadOne(f) {
+    if (!f.result) return;
+    downloadBlob(f.result, baseName(f.file.name) + '.xlsb');
+  }
+
+  async function downloadAll() {
+    const done = files.filter(f => f.status === 'done');
+    for (let i = 0; i < done.length; i++) {
+      downloadOne(done[i]);
+      // ブラウザが複数DLをブロックしないように少し間隔を空ける
+      if (i < done.length - 1) await new Promise(r => setTimeout(r, 150));
+    }
+  }
+
+  function clearAll() {
+    if (!confirm('リストをすべてクリアしますか？')) return;
+    files.length = 0;
+    render();
+  }
+
+  // ドラッグ&ドロップ
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+  });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) addFiles(e.target.files);
+    e.target.value = ''; // 同じファイルを再選択できるようにリセット
+  });
+
+  convertBtn.addEventListener('click', convertAll);
+  downloadAllBtn.addEventListener('click', downloadAll);
+  clearBtn.addEventListener('click', clearAll);
+
+  // ページ全体でのドロップも受け付ける（ドロップゾーン外に落とした時の誤爆防止）
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+
+  // ライブラリの読み込み確認
+  window.addEventListener('load', () => {
+    if (typeof XLSX === 'undefined') {
+      logMsg('SheetJS ライブラリの読み込みに失敗しました。オフライン環境の場合は xlsx.full.min.js を同じフォルダに置いてください。', 'err');
+      dropZone.style.pointerEvents = 'none';
+      dropZone.style.opacity = '0.5';
+    } else {
+      logMsg(`準備完了 (SheetJS ${XLSX.version})`, 'ok');
+    }
+  });
+})();
+</script>
+</body>
+</html>

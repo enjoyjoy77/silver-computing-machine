@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ツール">
+<title>ツールボックス</title>
+<style>
+  :root {
+    --ink: #1f1d1a; --paper: #f7f4ed; --muted: #8b8275;
+    --line: #d4ccbe; --card: #fff; --accent: #b04a2e; --good: #2a6b4a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e4da; --paper: #181613; --muted: #97907f;
+      --line: #3e382e; --card: #211e18; --accent: #d97a55; --good: #6cb893;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 1.5rem 1rem;
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: 0.02em; }
+  .sub { color: var(--muted); font-size: 0.8rem; margin: 0 0 1.5rem; }
+  h2 {
+    font-size: 0.72rem; font-weight: 600; color: var(--muted);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin: 1.6rem 0 0.7rem; padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+  a.tool {
+    display: flex; flex-direction: column; gap: 0.25rem;
+    min-height: 76px; padding: 0.85rem 0.9rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    color: var(--ink); text-decoration: none;
+    transition: border-color 0.12s, transform 0.06s;
+  }
+  a.tool:active { transform: scale(0.98); }
+  a.tool:hover { border-color: var(--accent); }
+  .tool .name { font-size: 0.95rem; font-weight: 600; }
+  .tool .desc { font-size: 0.74rem; color: var(--muted); line-height: 1.4; }
+  .tool .badge {
+    align-self: flex-start; margin-top: 0.2rem;
+    font-size: 0.64rem; letter-spacing: 0.04em;
+    color: var(--accent); border: 1px solid var(--line);
+    border-radius: 999px; padding: 0.1rem 0.5rem;
+  }
+  .foot { margin-top: 2rem; font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ツールボックス</h1>
+  <p class="sub">スマホで使えるツール一覧。タップで開く。ホーム画面に追加するとアプリのように使えます。</p>
+
+  <h2>画像生成 AI</h2>
+  <div class="grid">
+    <a class="tool" href="画像生成ai/prompt_corpus_explorer.html">
+      <span class="name">プロンプトコーパス</span>
+      <span class="desc">プロンプトの取り込み・分析・ガチャ生成</span>
+    </a>
+    <a class="tool" href="画像生成ai/danbooru_tag_search.html">
+      <span class="name">Danbooru タグ検索</span>
+      <span class="desc">タグ一覧 / アーティスト集計</span>
+    </a>
+  </div>
+
+  <h2>画像加工</h2>
+  <div class="grid">
+    <a class="tool" href="画像加工/深度レリーフ工房/depth_relief_tool.html">
+      <span class="name">深度レリーフ工房</span>
+      <span class="desc">写真1枚からAIで立体化（回す3D）</span>
+      <span class="badge">初回モデルDLあり</span>
+    </a>
+    <a class="tool" href="画像加工/背景透明化/bg-remover%20(6).html">
+      <span class="name">背景透明化（キリトリ）</span>
+      <span class="desc">AIで背景を透明PNGに</span>
+      <span class="badge">初回モデルDLあり</span>
+    </a>
+    <a class="tool" href="画像加工/疑似3d/pseudo_3d_viewer.html">
+      <span class="name">疑似3Dビューア</span>
+      <span class="desc">画像＋深度マップで立体（深度は工房で作成）</span>
+    </a>
+  </div>
+
+  <h2>画像ビューア</h2>
+  <div class="grid">
+    <a class="tool" href="画像ビューア/rocket-viewer.html">
+      <span class="name">Rocket Viewer</span>
+      <span class="desc">対応サイトの画像を連続ビューア（ブックマークレット登録ページ）</span>
+    </a>
+  </div>
+
+  <h2>業務効率化</h2>
+  <div class="grid">
+    <a class="tool" href="業務効率化/PDFビューア/pdf-viewer.html">
+      <span class="name">PDFビューア</span>
+      <span class="desc">PDFをサムネ＋スライド表示</span>
+    </a>
+    <a class="tool" href="業務効率化/PDFビューア/ワード軽量エディタ.html">
+      <span class="name">ワード軽量エディタ</span>
+      <span class="desc">.docx をブラウザで編集・保存</span>
+    </a>
+    <a class="tool" href="業務効率化/xlsx-2-xlsb/xlsx_to_xlsb_converter.html">
+      <span class="name">xlsx → xlsb 変換</span>
+      <span class="desc">Excelをバイナリ形式に一括変換</span>
+    </a>
+    <a class="tool" href="業務効率化/phomemo印刷/phomemo-m02s-printer.html">
+      <span class="name">Phomemo M02S 印刷</span>
+      <span class="desc">サーマルプリンタに直接印刷</span>
+      <span class="badge">Android Chrome のみ</span>
+    </a>
+  </div>
+
+  <p class="foot">
+    ※ ミニエクセル / 名前匿名化 / エクセル串刺し検索 / File-2-Text は Windows 専用（PowerShell）のためスマホでは動きません。<br>
+    ※ 各ツールはすべて端末内で動作し、ファイルはサーバーに送信されません。
+  </p>
+</div>
+</body>
+</html>

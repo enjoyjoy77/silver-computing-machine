@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>M02S 印刷ツール</title>
+<style>
+  :root{
+    --bg:#15171c; --panel:#1c1f26; --panel2:#23262e; --line:#2c3038;
+    --ink:#e7e9ee; --dim:#969cab; --dim2:#6b7280;
+    --accent:#5b6fe0; --accent-soft:#2a3050;
+    --paper:#f3efe6; --paper-ink:#1b1916; --ok:#5fb878; --warn:#e0a04f; --bad:#e06b6b;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic",Meiryo,system-ui,sans-serif;
+    font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    padding:18px; max-width:1080px; margin:0 auto;
+  }
+  h1{font-size:17px; font-weight:650; margin:0; letter-spacing:.01em; display:flex; align-items:center; gap:9px}
+  h1 svg{opacity:.85}
+  .sub{color:var(--dim); font-size:12px; margin:2px 0 0 30px}
+
+  header{display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; justify-content:space-between; margin-bottom:16px}
+  .conn{display:flex; flex-wrap:wrap; align-items:center; gap:8px}
+  .pill{display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--dim);
+    background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:5px 11px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim2);flex:none}
+  .dot.on{background:var(--ok)} .dot.busy{background:var(--warn)} .dot.err{background:var(--bad)}
+
+  button{font:inherit; cursor:pointer; border-radius:9px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--ink); padding:8px 13px; transition:.12s}
+  button:hover{border-color:#3a3f4a; background:#262a33}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.45; cursor:not-allowed; transform:none}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  button.primary:hover{background:#6478e8}
+  button.ghost{background:transparent}
+  .checkbox{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+
+  .grid{display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,380px); gap:18px; align-items:start}
+  @media(max-width:760px){ .grid{grid-template-columns:1fr} body{padding:14px} }
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px}
+  .panel + .panel{margin-top:14px}
+  .panel h2{font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--dim); margin:0 0 12px}
+
+  .row{margin-bottom:14px}
+  .row:last-child{margin-bottom:0}
+  label.lbl{display:block; font-size:12.5px; color:var(--ink); margin-bottom:6px}
+  .hint{font-size:11.5px; color:var(--dim); margin-top:5px; line-height:1.5}
+  .between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .val{font-variant-numeric:tabular-nums; color:var(--accent); font-size:12.5px; font-weight:600}
+
+  select,textarea,input[type=text],input[type=number]{
+    width:100%; background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:9px; padding:9px 11px; font:inherit; outline:none}
+  select:focus,textarea:focus,input:focus{border-color:var(--accent)}
+  textarea{resize:vertical; min-height:96px; line-height:1.5}
+  input[type=range]{width:100%; accent-color:var(--accent); height:22px}
+
+  .seg{display:flex; gap:0; background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:3px}
+  .seg button{flex:1; border:none; background:transparent; border-radius:7px; padding:7px; color:var(--dim); font-size:12.5px}
+  .seg button.active{background:var(--accent); color:#fff; font-weight:600}
+  .seg button:hover:not(.active){background:#262a33; color:var(--ink)}
+
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .inline-btns{display:flex; gap:8px; flex-wrap:wrap}
+
+  /* preview paper — the one warm thing on a cool panel */
+  .stage{position:sticky; top:14px}
+  .paperwrap{background:#0f1115; border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px 18px; display:flex; flex-direction:column; align-items:center}
+  .paper{position:relative; background:var(--paper); border-radius:3px;
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 14px 30px rgba(0,0,0,.45);
+    padding:14px 0 18px; max-width:100%}
+  .paper::before{content:""; position:absolute; left:8px; right:8px; top:6px; height:0;
+    border-top:2px dotted rgba(0,0,0,.18)}
+  #previewCanvas{display:block; image-rendering:pixelated; image-rendering:crisp-edges;
+    max-width:100%; height:auto; margin:6px auto 0}
+  .cap{font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; font-size:11px;
+    color:var(--dim); margin-top:12px; letter-spacing:.02em}
+  .empty{color:var(--dim2); font-size:12.5px; padding:34px 18px; text-align:center}
+
+  .drop{border:1.5px dashed var(--line); border-radius:10px; padding:20px; text-align:center;
+    color:var(--dim); font-size:12.5px; transition:.12s; cursor:pointer}
+  .drop.over{border-color:var(--accent); background:var(--accent-soft); color:var(--ink)}
+  .filename{font-size:12px; color:var(--ink); margin-top:8px; word-break:break-all}
+
+  .progress{height:7px; background:var(--panel2); border-radius:999px; overflow:hidden; margin-top:12px; display:none}
+  .progress.show{display:block}
+  .bar{height:100%; width:0; background:var(--accent); transition:width .1s}
+  .status{font-size:12px; color:var(--dim); margin-top:9px; min-height:1.2em}
+  .status.err{color:var(--bad)} .status.ok{color:var(--ok)}
+
+  .banner{background:var(--accent-soft); border:1px solid #394072;
+    border-radius:10px; padding:11px 13px; font-size:12.5px; color:#cdd5ff; margin-bottom:14px; display:none}
+  .banner.show{display:block}
+  .banner.bad{background:#3a2326; border-color:#5e3338; color:#f0c9cb}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace; background:var(--panel2); padding:1px 5px; border-radius:5px; font-size:12px}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M7 17h10v4H7z"/><circle cx="17" cy="12.5" r="1" fill="currentColor" stroke="none"/>
+      </svg>
+      M02S 印刷ツール
+    </h1>
+    <p class="sub">公式アプリを使わず、ブラウザから直接印刷する</p>
+  </div>
+  <div class="conn">
+    <span class="pill"><span id="dot" class="dot"></span><span id="connText">未接続</span></span>
+    <button id="connectBtn" class="primary">プリンタに接続</button>
+    <button id="disconnectBtn" class="ghost hidden">切断</button>
+  </div>
+</header>
+
+<div id="banner" class="banner"></div>
+
+<div class="grid">
+  <!-- ===== controls ===== -->
+  <div>
+    <div class="panel">
+      <h2>プリンタ設定</h2>
+      <div class="row">
+        <label class="lbl" for="widthSel">印字幅</label>
+        <select id="widthSel">
+          <option value="384" selected>384 px ／ 48 バイト（M02・M02S・M02X 標準）</option>
+          <option value="512">512 px ／ 64 バイト（M02S 一部個体）</option>
+          <option value="576">576 px ／ 72 バイト（M02S 一部個体）</option>
+          <option value="624">624 px ／ 78 バイト（M02 Pro）</option>
+        </select>
+        <div class="hint">M02Sは個体・ロットで印字幅の情報が割れている。まず384のまま下の「幅チェック印刷」を押し、黒帯が紙の端まで出れば正解。細い／崩れる／何も出ない場合は512→576の順に変える。</div>
+        <div class="inline-btns" style="margin-top:9px">
+          <button id="widthCheckBtn">幅チェック印刷</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="between"><label class="lbl" for="density" style="margin:0">濃度（heat）</label><span class="val" id="densityVal">5</span></div>
+        <input type="range" id="density" min="1" max="8" step="1" value="5">
+        <div class="hint">薄ければ上げる。上げすぎると細部がつぶれて滲む。写真は4〜5、文字は5〜6あたり。</div>
+      </div>
+      <div class="row">
+        <div class="between"><label class="lbl" for="feed" style="margin:0">印刷後の紙送り</label><span class="val" id="feedVal">24 dots</span></div>
+        <input type="range" id="feed" min="0" max="120" step="4" value="24">
+        <div class="hint">切り取り用の余白。ロール紙の節約なら0近くまで下げてよい。</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>印刷する内容</h2>
+      <div class="seg" id="modeSeg" role="tablist">
+        <button data-mode="text" class="active">テキスト</button>
+        <button data-mode="image">画像</button>
+      </div>
+
+      <!-- text -->
+      <div id="textPanel" style="margin-top:14px">
+        <div class="row">
+          <textarea id="textInput" placeholder="ここに印刷したい文字を入力">サンプル印刷&#10;M02S テスト</textarea>
+        </div>
+        <div class="row two">
+          <div>
+            <label class="lbl" for="fontSel">書体</label>
+            <select id="fontSel">
+              <option value="'Yu Gothic','Hiragino Sans',Meiryo,sans-serif" selected>ゴシック</option>
+              <option value="'Yu Mincho','Hiragino Mincho ProN','MS Mincho',serif">明朝</option>
+              <option value="'BIZ UDPGothic','Yu Gothic',Meiryo,sans-serif">UDゴシック</option>
+              <option value="ui-monospace,'MS Gothic',Consolas,monospace">等幅</option>
+            </select>
+          </div>
+          <div>
+            <div class="between"><label class="lbl" for="fontSize" style="margin:0">サイズ</label><span class="val" id="fontSizeVal">32px</span></div>
+            <input type="range" id="fontSize" min="14" max="120" step="2" value="32">
+          </div>
+        </div>
+        <div class="row two">
+          <div>
+            <label class="lbl" for="alignSel">そろえ</label>
+            <select id="alignSel">
+              <option value="left" selected>左</option>
+              <option value="center">中央</option>
+              <option value="right">右</option>
+            </select>
+          </div>
+          <div>
+            <div class="between"><label class="lbl" for="lineHeight" style="margin:0">行間</label><span class="val" id="lineHeightVal">1.3</span></div>
+            <input type="range" id="lineHeight" min="1" max="2.2" step="0.05" value="1.3">
+          </div>
+        </div>
+        <div class="row">
+          <label class="checkbox"><input type="checkbox" id="boldChk"> 太字</label>
+        </div>
+      </div>
+
+      <!-- image -->
+      <div id="imagePanel" class="hidden" style="margin-top:14px">
+        <div class="row">
+          <div id="drop" class="drop">
+            画像をドラッグ＆ドロップ、またはクリックして選択
+            <div id="filename" class="filename"></div>
+          </div>
+          <input type="file" id="fileInput" accept="image/*" class="hidden">
+        </div>
+        <div class="row">
+          <label class="lbl" for="ditherSel">ディザリング</label>
+          <select id="ditherSel">
+            <option value="fs" selected>誤差拡散：フロイド-スタインバーグ</option>
+            <option value="atkinson">誤差拡散：アトキンソン</option>
+            <option value="sierra">誤差拡散：シエラ</option>
+            <option value="bayer">整列ディザ（Bayer 8×8）</option>
+            <option value="threshold">しきい値のみ（線画・ロゴ向き）</option>
+          </select>
+          <div class="hint">写真はフロイド-スタインバーグ。線が多い絵・漫画はアトキンソンが締まって見える。ロゴや文字主体はしきい値。</div>
+        </div>
+        <div class="row">
+          <div class="between"><label class="lbl" for="threshold" style="margin:0">黒み（しきい値）</label><span class="val" id="thresholdVal">128</span></div>
+          <input type="range" id="threshold" min="40" max="220" step="2" value="128">
+        </div>
+        <div class="row two">
+          <div>
+            <div class="between"><label class="lbl" for="brightness" style="margin:0">明るさ</label><span class="val" id="brightnessVal">0</span></div>
+            <input type="range" id="brightness" min="-100" max="100" step="2" value="0">
+          </div>
+          <div>
+            <div class="between"><label class="lbl" for="contrast" style="margin:0">コントラスト</label><span class="val" id="contrastVal">0</span></div>
+            <input type="range" id="contrast" min="-100" max="100" step="2" value="0">
+          </div>
+        </div>
+        <div class="row two">
+          <div>
+            <div class="between"><label class="lbl" for="gamma" style="margin:0">ガンマ</label><span class="val" id="gammaVal">1.0</span></div>
+            <input type="range" id="gamma" min="0.4" max="2.6" step="0.05" value="1">
+          </div>
+          <div>
+            <div class="between"><label class="lbl" for="sharpen" style="margin:0">シャープ</label><span class="val" id="sharpenVal">0</span></div>
+            <input type="range" id="sharpen" min="0" max="100" step="5" value="0">
+          </div>
+        </div>
+        <div class="row" style="display:flex;gap:16px;flex-wrap:wrap">
+          <label class="checkbox"><input type="checkbox" id="autoLevelChk" checked> 自動レベル補正</label>
+          <label class="checkbox"><input type="checkbox" id="invertChk"> 白黒反転</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== preview + print ===== -->
+  <div class="stage">
+    <div class="panel">
+      <h2>プレビュー（実際の印刷結果）</h2>
+      <div class="paperwrap">
+        <div class="paper" id="paper">
+          <canvas id="previewCanvas" width="1" height="1"></canvas>
+          <div id="emptyPreview" class="empty hidden">内容がありません</div>
+        </div>
+        <div class="cap" id="caption">—</div>
+      </div>
+      <button id="printBtn" class="primary" style="width:100%;margin-top:14px" disabled>印刷する</button>
+      <div class="progress" id="progress"><div class="bar" id="bar"></div></div>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Phomemo M02S — Web Bluetooth printing
+   プロトコル（M02系 / "m02"）:
+     1) プレフィックス  10 FF FE 01
+     2) 初期化         1B 40            (ESC @)
+     3) 濃度           1B 37 07 H 02    (ESC 7, H = heatTime)
+     4) ラスタヘッダ    1D 76 30 00 wbL wbH hL hH   (GS v 0, 16bit LE)
+     5) 画素データ      行ごと wb バイト, MSB先頭, bit=1→黒
+     6) 紙送り         1B 4A n          (ESC J)
+   BLE: service 0xff00 / write 0xff02 / notify 0xff03、128B/20ms送信
+   ========================================================================= */
+
+const BLE = {
+  SERVICE: 0xff00,
+  WRITE: 0xff02,
+  NOTIFY: 0xff03,
+  ALT_SERVICES: [0xff00, 0xffe0, '0000ff00-0000-1000-8000-00805f9b34fb',
+                 '49535343-fe7d-4ae5-8fa9-9fafd205e455'],
+  CHUNK: 128,
+  CHUNK_DELAY: 20,
+};
+const HEAT_TIMES = [40, 60, 80, 100, 120, 140, 160, 200]; // density 1..8
+
+const $ = s => document.querySelector(s);
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+const state = {
+  mode: 'text',
+  widthPx: 384,
+  density: 5,
+  feed: 24,
+  topPad: 8,
+  // text
+  text: '', fontFamily: "'Yu Gothic','Hiragino Sans',Meiryo,sans-serif",
+  fontSize: 32, align: 'left', lineHeight: 1.3, bold: false,
+  // image
+  img: null, fileName: '',
+  dither: 'fs', threshold: 128, brightness: 0, contrast: 0,
+  gamma: 1.0, sharpen: 0, autoLevel: true, invert: false,
+  // result cache
+  result: null, // {ink:Uint8Array, W, H}
+};
+
+/* ---------- BLE transport ---------- */
+const transport = {
+  device: null, server: null, service: null, writeChar: null, notifyChar: null,
+  connected: false, useWithResp: false,
+
+  available(){ return 'bluetooth' in navigator; },
+
+  async connect(showAll){
+    if(!this.available()) throw new Error('このブラウザは Web Bluetooth に対応していません');
+    const optionalServices = BLE.ALT_SERVICES;
+    if(showAll){
+      this.device = await navigator.bluetooth.requestDevice({ acceptAllDevices:true, optionalServices });
+    } else {
+      try{
+        this.device = await navigator.bluetooth.requestDevice({
+          filters:[{namePrefix:'M'},{namePrefix:'T'},{namePrefix:'Mr.in'},{namePrefix:'Phomemo'}],
+          optionalServices });
+      }catch(e){
+        if(e && e.name==='NotFoundError') throw e; // ユーザーがキャンセル / 該当なし
+        this.device = await navigator.bluetooth.requestDevice({ acceptAllDevices:true, optionalServices });
+      }
+    }
+    this.device.addEventListener('gattserverdisconnected', ()=>{ this._reset(); onDisconnected(); });
+    this.server = await this.device.gatt.connect();
+    await delay(120);
+
+    let svc=null, lastErr=null;
+    for(const u of BLE.ALT_SERVICES){
+      try{ svc = await this.server.getPrimaryService(u); break; }
+      catch(e){ lastErr=e; }
+    }
+    if(!svc) throw new Error('対応するBluetoothサービスが見つかりませんでした'+(lastErr?'：'+lastErr.message:''));
+    this.service = svc;
+    this.writeChar = await this.service.getCharacteristic(BLE.WRITE);
+    const p = this.writeChar.properties;
+    this.useWithResp = !p.writeWithoutResponse && p.write;
+
+    try{
+      this.notifyChar = await this.service.getCharacteristic(BLE.NOTIFY);
+      await this.notifyChar.startNotifications();
+      this.notifyChar.addEventListener('characteristicvaluechanged', e=>handleNotify(e));
+    }catch(e){ this.notifyChar=null; }
+
+    this.connected = true;
+    return this.device.name || 'M02S';
+  },
+
+  async disconnect(){
+    try{
+      if(this.notifyChar){ try{ await this.notifyChar.stopNotifications(); }catch(_){} }
+      if(this.device && this.device.gatt && this.device.gatt.connected) this.device.gatt.disconnect();
+    }finally{ this._reset(); }
+  },
+
+  _reset(){ this.connected=false; this.server=null; this.service=null;
+            this.writeChar=null; this.notifyChar=null; },
+
+  isConnected(){ return this.connected && this.device && this.device.gatt && this.device.gatt.connected && this.writeChar; },
+
+  async send(bytes){
+    if(!this.isConnected()) throw new Error('プリンタに接続されていません');
+    const buf = (bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes)).buffer;
+    if(this.useWithResp){ await this.writeChar.writeValue(buf); return; }
+    try{ await this.writeChar.writeValueWithoutResponse(buf); }
+    catch(e){ this.useWithResp=true; await this.writeChar.writeValue(buf); }
+  },
+};
+
+/* ---------- notifications (best effort: battery / paper) ---------- */
+let printerInfo = { battery:null, paper:null };
+function handleNotify(e){
+  const d = new Uint8Array(e.target.value.buffer);
+  if(d.length<3 || d[0]!==0x1A) return;
+  if(d[1]===0x04){ // battery
+    const m={0xA4:0,0xA3:3,0xA2:5,0xA1:10}; printerInfo.battery = (d[2] in m)?m[d[2]]:d[2];
+  } else if(d[1]===0x06){ // paper
+    printerInfo.paper = d[2]===0x88 ? 'out':'ok';
+  }
+  refreshConnText();
+}
+async function queryStatus(){
+  if(!transport.notifyChar) return;
+  try{ await transport.send([0x1F,0x11,0x08]); await delay(120);
+       await transport.send([0x1F,0x11,0x11]); }catch(_){}
+}
+
+/* ---------- image helpers ---------- */
+function downscaleTo(img, targetW){
+  let cw = img.naturalWidth || img.width, ch = img.naturalHeight || img.height;
+  let canvas = document.createElement('canvas'); canvas.width=cw; canvas.height=ch;
+  let ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(img,0,0);
+  while(cw > targetW*2){ // 段階的に半分ずつ縮小して折り返しノイズを抑える
+    const nw = Math.max(targetW, Math.round(cw/2));
+    const nh = Math.max(1, Math.round(ch*nw/cw));
+    const c2=document.createElement('canvas'); c2.width=nw; c2.height=nh;
+    const x2=c2.getContext('2d'); x2.imageSmoothingEnabled=true; x2.imageSmoothingQuality='high';
+    x2.drawImage(canvas,0,0,nw,nh);
+    canvas=c2; cw=nw; ch=nh;
+  }
+  const fH=Math.max(1, Math.round(ch*targetW/cw));
+  const fin=document.createElement('canvas'); fin.width=targetW; fin.height=fH;
+  const fx=fin.getContext('2d'); fx.imageSmoothingEnabled=true; fx.imageSmoothingQuality='high';
+  fx.drawImage(canvas,0,0,targetW,fH);
+  return fin;
+}
+function autoStretch(g){ // 1〜99パーセンタイルで伸長
+  const hist=new Uint32Array(256);
+  for(let i=0;i<g.length;i++) hist[Math.max(0,Math.min(255,g[i]|0))]++;
+  const total=g.length, lo=total*0.01, hi=total*0.99;
+  let acc=0, low=0, high=255;
+  for(let v=0;v<256;v++){ acc+=hist[v]; if(acc>=lo){low=v;break;} }
+  acc=0; for(let v=255;v>=0;v--){ acc+=hist[v]; if(acc>=total-hi){high=v;break;} }
+  if(high<=low) return;
+  const s=255/(high-low);
+  for(let i=0;i<g.length;i++) g[i]=(g[i]-low)*s;
+}
+function applyBCG(g,bri,con,gamma){
+  const f=(259*(con+255))/(255*(259-con)); // 標準コントラスト係数
+  const ig=1/gamma;
+  for(let i=0;i<g.length;i++){
+    let v=f*(g[i]-128)+128+bri;
+    if(v<0)v=0; else if(v>255)v=255;
+    if(gamma!==1) v=255*Math.pow(v/255, ig);
+    g[i]=v;
+  }
+}
+function unsharp(g,W,H,amount){ // 簡易アンシャープ（3x3ボックスぼかしとの差分）
+  const a=amount/100; if(a<=0) return;
+  const blur=new Float32Array(g.length);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    let s=0,c=0;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      const xx=x+dx, yy=y+dy;
+      if(xx>=0&&xx<W&&yy>=0&&yy<H){ s+=g[yy*W+xx]; c++; }
+    }
+    blur[y*W+x]=s/c;
+  }
+  for(let i=0;i<g.length;i++){
+    let v=g[i]+a*(g[i]-blur[i]);
+    g[i]=v<0?0:v>255?255:v;
+  }
+}
+
+const BAYER8=[
+   0,32, 8,40, 2,34,10,42, 48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38, 60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41, 51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37, 63,31,55,23,61,29,53,21
+];
+const KERNELS={
+  fs:       {div:16, k:[[1,0,7],[-1,1,3],[0,1,5],[1,1,1]]},
+  atkinson: {div:8,  k:[[1,0,1],[2,0,1],[-1,1,1],[0,1,1],[1,1,1],[0,2,1]]},
+  sierra:   {div:32, k:[[1,0,5],[2,0,3],[-2,1,2],[-1,1,4],[0,1,5],[1,1,4],[2,1,2],[-1,2,2],[0,2,3],[1,2,2]]},
+};
+
+/* grayfloat → ink(0/1), 1=黒 */
+function dither(gray, W, H){
+  const n=W*H;
+  const bias=128-state.threshold; // しきい値を全方式共通の「黒み」に
+  const L=new Float32Array(n);
+  for(let i=0;i<n;i++){ let v=state.invert?255-gray[i]:gray[i]; L[i]=v+bias; }
+  const ink=new Uint8Array(n);
+  if(state.dither==='threshold'){
+    for(let i=0;i<n;i++) ink[i]=L[i]<128?1:0;
+  } else if(state.dither==='bayer'){
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const m=(BAYER8[(y&7)*16+(x&7)]+0.5)/64*255;
+      ink[y*W+x]=L[y*W+x]<m?1:0;
+    }
+  } else {
+    const {div,k}=KERNELS[state.dither]||KERNELS.fs;
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const i=y*W+x, old=L[i], nw=old<128?0:255, err=old-nw; L[i]=nw;
+      for(let j=0;j<k.length;j++){
+        const xx=x+k[j][0], yy=y+k[j][1];
+        if(xx>=0&&xx<W&&yy>=0&&yy<H) L[yy*W+xx]+=err*k[j][2]/div;
+      }
+    }
+    for(let i=0;i<n;i++) ink[i]=L[i]<128?1:0;
+  }
+  return ink;
+}
+
+/* ---------- render the active content to {ink,W,H} ---------- */
+function wrapText(ctx, text, maxW){
+  const lines=[];
+  for(const para of (text||'').split('\n')){
+    if(para===''){ lines.push(''); continue; }
+    let cur='';
+    for(const ch of para){
+      const test=cur+ch;
+      if(ctx.measureText(test).width>maxW && cur!==''){ lines.push(cur); cur=ch; }
+      else cur=test;
+    }
+    lines.push(cur);
+  }
+  return lines;
+}
+function renderText(){
+  const W=state.widthPx, fs=state.fontSize;
+  const lh=Math.round(fs*state.lineHeight);
+  const mx=12, mt=state.topPad, mb=10;
+  const fontStr=(state.bold?'700 ':'')+fs+"px "+state.fontFamily;
+  const meas=document.createElement('canvas').getContext('2d'); meas.font=fontStr;
+  const lines=wrapText(meas, state.text, W-mx*2);
+  const H=Math.max(1, mt+lines.length*lh+mb);
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d');
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#000'; ctx.textBaseline='top'; ctx.font=fontStr;
+  let y=mt;
+  for(const line of lines){
+    const w=ctx.measureText(line).width;
+    let x=mx;
+    if(state.align==='center') x=Math.round((W-w)/2);
+    else if(state.align==='right') x=Math.round(W-mx-w);
+    ctx.fillText(line, x, y); y+=lh;
+  }
+  const id=ctx.getImageData(0,0,W,H), gray=new Float32Array(W*H);
+  for(let i=0;i<W*H;i++) gray[i]=0.299*id.data[i*4]+0.587*id.data[i*4+1]+0.114*id.data[i*4+2];
+  // テキストは原則しきい値（くっきり）。方式設定には依存させない。
+  const save={dither:state.dither, autoLevel:state.autoLevel, sharpen:state.sharpen,
+              brightness:state.brightness, contrast:state.contrast, gamma:state.gamma, invert:state.invert};
+  state.dither='threshold'; state.invert=false;
+  const ink=dither(gray,W,H);
+  Object.assign(state,save);
+  return {ink,W,H};
+}
+function renderImage(){
+  if(!state.img) return null;
+  const W=state.widthPx;
+  const sc=downscaleTo(state.img,W), H=sc.height;
+  const id=sc.getContext('2d').getImageData(0,0,W,H), n=W*H;
+  const gray=new Float32Array(n);
+  for(let i=0;i<n;i++) gray[i]=0.299*id.data[i*4]+0.587*id.data[i*4+1]+0.114*id.data[i*4+2];
+  if(state.autoLevel) autoStretch(gray);
+  applyBCG(gray, state.brightness, state.contrast, state.gamma);
+  if(state.sharpen>0) unsharp(gray,W,H,state.sharpen);
+  const ink=dither(gray,W,H);
+  // 先頭数ラインが出ないことがあるので、ディザ後に「無印字」の余白を上へ足す
+  const pad=state.topPad;
+  if(pad>0){
+    const padded=new Uint8Array(W*(H+pad)); // 0=無印字
+    padded.set(ink, W*pad);
+    return {ink:padded, W, H:H+pad};
+  }
+  return {ink,W,H};
+}
+function buildResult(){
+  state.result = state.mode==='text' ? renderText() : renderImage();
+  drawPreview();
+  $('#printBtn').disabled = !(state.result && transport.isConnected());
+}
+
+/* ---------- preview ---------- */
+function drawPreview(){
+  const cv=$('#previewCanvas'), empty=$('#emptyPreview');
+  const r=state.result;
+  const hasContent = r && r.H>0 && (state.mode==='text' ? (state.text.trim()!=='') : !!state.img);
+  if(!hasContent){
+    cv.classList.add('hidden'); empty.classList.remove('hidden');
+    $('#caption').textContent='—';
+    return;
+  }
+  cv.classList.remove('hidden'); empty.classList.add('hidden');
+  cv.width=r.W; cv.height=r.H;
+  const ctx=cv.getContext('2d');
+  const out=ctx.createImageData(r.W,r.H);
+  const PAPER=[243,239,230], INK=[27,25,22];
+  for(let i=0;i<r.W*r.H;i++){
+    const c=r.ink[i]?INK:PAPER;
+    out.data[i*4]=c[0]; out.data[i*4+1]=c[1]; out.data[i*4+2]=c[2]; out.data[i*4+3]=255;
+  }
+  ctx.putImageData(out,0,0);
+  // 紙幅に収まるよう表示倍率を制御（はみ出す高さは縦スクロール）
+  const mm=(r.W/ (state.widthPx>=512 && state.widthPx!==624 ? 304 : (state.widthPx===624?300:203)) *25.4).toFixed(0);
+  $('#caption').textContent = r.W+' × '+r.H+' px ・ 約'+mm+'mm幅';
+}
+
+/* ---------- printing ---------- */
+function packInk(ink,W,H){
+  const wb=W>>3, out=new Uint8Array(wb*H);
+  let p=0;
+  for(let y=0;y<H;y++){
+    const row=y*W;
+    for(let b=0;b<wb;b++){
+      let byte=0, base=row+b*8;
+      for(let bit=0;bit<8;bit++){ if(ink[base+bit]) byte|=(1<<(7-bit)); }
+      out[p++]=byte;
+    }
+  }
+  return out;
+}
+async function printBytes(data, W, H){
+  const wb=W>>3;
+  const heat=HEAT_TIMES[state.density-1];
+  setStatus('送信中…'); showProgress(true); setProgress(0);
+
+  await transport.send([0x10,0xFF,0xFE,0x01]); await delay(50);   // M02 prefix
+  await transport.send([0x1B,0x40]);          await delay(100);   // ESC @
+  await transport.send([0x1B,0x37,0x07,heat,0x02]); await delay(30); // ESC 7 heat
+  await transport.send([0x1D,0x76,0x30,0x00, wb&0xff,(wb>>8)&0xff, H&0xff,(H>>8)&0xff]); // GS v 0
+
+  for(let i=0;i<data.length;i+=BLE.CHUNK){
+    const chunk=data.subarray(i, Math.min(i+BLE.CHUNK, data.length));
+    await transport.send(chunk);
+    await delay(BLE.CHUNK_DELAY);
+    setProgress(Math.round((i+chunk.length)/data.length*100));
+  }
+  await delay(300);
+  await transport.send([0x1B,0x4A, state.feed&0xff]); // ESC J feed
+  await delay(500);
+
+  setProgress(100); showProgress(false);
+}
+
+async function doPrint(){
+  if(!state.result){ setStatus('印刷する内容がありません', 'err'); return; }
+  const {ink,W,H}=state.result;
+  if(H>8000){ setStatus('画像が縦に長すぎます（'+H+'px）。縮小してください', 'err'); return; }
+  $('#printBtn').disabled=true; $('#connectBtn').disabled=true;
+  try{
+    await printBytes(packInk(ink,W,H), W, H);
+    setStatus('印刷しました', 'ok');
+  }catch(e){
+    setStatus('印刷に失敗：'+e.message, 'err'); showProgress(false);
+  }finally{
+    $('#printBtn').disabled = !transport.isConnected();
+    $('#connectBtn').disabled=false;
+  }
+}
+
+async function widthCheck(){
+  if(!transport.isConnected()){ setStatus('先にプリンタへ接続してください','err'); return; }
+  const W=state.widthPx, H=72, wb=W>>3, ink=new Uint8Array(W*H);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    let v=0;
+    if(y<18) v=1;                              // 上部：全幅ベタ
+    else if(y>=22 && y<26) v=(x<2||x>=W-2)?1:0;// 左右端マーカー
+    else if(y>=30){ if(x%32<2) v=1; }          // 32px目盛り
+    ink[y*W+x]=v;
+  }
+  $('#widthCheckBtn').disabled=true;
+  try{ await printBytes(packInk(ink,W,H),W,H);
+       setStatus('幅チェックを印刷。黒帯が紙の端まで出ていれば '+W+'px が正解','ok'); }
+  catch(e){ setStatus('印刷に失敗：'+e.message,'err'); showProgress(false); }
+  finally{ $('#widthCheckBtn').disabled=false; }
+}
+
+/* ---------- UI plumbing ---------- */
+function setStatus(t,kind){ const el=$('#status'); el.textContent=t||''; el.className='status'+(kind?' '+kind:''); }
+function showProgress(on){ $('#progress').classList.toggle('show',on); }
+function setProgress(p){ $('#bar').style.width=p+'%'; }
+
+function refreshConnText(){
+  const t=$('#connText');
+  if(!transport.isConnected()){ t.textContent='未接続'; return; }
+  let s=transport.device.name||'M02S';
+  if(printerInfo.paper==='out') s+=' ・ 紙切れ';
+  else if(printerInfo.battery!=null) s+=' ・ 電池'+printerInfo.battery+(printerInfo.battery>10?'%':'');
+  t.textContent=s;
+}
+function onConnected(name){
+  $('#dot').className='dot on'; refreshConnText();
+  $('#connectBtn').classList.add('hidden'); $('#disconnectBtn').classList.remove('hidden');
+  $('#printBtn').disabled = !state.result;
+  setStatus('接続しました：'+name, 'ok');
+  // 機種名でProらしき個体なら幅を提案
+  if(/pro/i.test(name)){ state.widthPx=624; $('#widthSel').value='624'; buildResult(); }
+  queryStatus();
+}
+function onDisconnected(){
+  $('#dot').className='dot'; $('#connText').textContent='未接続';
+  $('#connectBtn').classList.remove('hidden'); $('#disconnectBtn').classList.add('hidden');
+  $('#printBtn').disabled=true; printerInfo={battery:null,paper:null};
+}
+
+function loadImageFile(file){
+  if(!file || !file.type.startsWith('image/')){ setStatus('画像ファイルを選んでください','err'); return; }
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{ state.img=img; state.fileName=file.name;
+    $('#filename').textContent=file.name+' ('+img.naturalWidth+'×'+img.naturalHeight+')';
+    URL.revokeObjectURL(url); buildResult(); setStatus(''); };
+  img.onerror=()=>{ setStatus('画像を読み込めませんでした','err'); URL.revokeObjectURL(url); };
+  img.src=url;
+}
+
+function wire(){
+  // banner: Bluetooth未対応 / 非セキュア
+  const b=$('#banner');
+  if(!transport.available()){
+    b.className='banner bad show';
+    b.innerHTML='このブラウザでは Web Bluetooth が使えません。<b>Chrome か Edge</b> で開いてください（このファイルをダウンロードしてローカルで開く想定です）。';
+  } else if(!window.isSecureContext){
+    b.className='banner show';
+    b.innerHTML='セキュアコンテキストでないため接続できない場合があります。ファイルを直接開いて動かないときは <code>python -m http.server</code> 等で <code>http://localhost</code> 経由で開いてください。';
+  }
+
+  // connection
+  $('#connectBtn').addEventListener('click', async (e)=>{
+    $('#dot').className='dot busy'; setStatus('デバイスを選択…');
+    try{ const name=await transport.connect(e.shiftKey); onConnected(name); }
+    catch(err){
+      $('#dot').className='dot';
+      if(err && err.name==='NotFoundError') setStatus('接続をキャンセルしました（または該当デバイスなし）');
+      else setStatus('接続できませんでした：'+err.message,'err');
+    }
+  });
+  $('#connectBtn').title='Shift+クリックで全Bluetoothデバイスを表示';
+  $('#disconnectBtn').addEventListener('click', ()=>transport.disconnect());
+
+  // printer settings
+  $('#widthSel').addEventListener('change', e=>{ state.widthPx=+e.target.value; buildResult(); });
+  $('#density').addEventListener('input', e=>{ state.density=+e.target.value; $('#densityVal').textContent=state.density; });
+  $('#feed').addEventListener('input', e=>{ state.feed=+e.target.value; $('#feedVal').textContent=state.feed+' dots'; });
+  $('#widthCheckBtn').addEventListener('click', widthCheck);
+
+  // mode
+  $('#modeSeg').addEventListener('click', e=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    state.mode=btn.dataset.mode;
+    [...$('#modeSeg').children].forEach(c=>c.classList.toggle('active', c===btn));
+    $('#textPanel').classList.toggle('hidden', state.mode!=='text');
+    $('#imagePanel').classList.toggle('hidden', state.mode!=='image');
+    buildResult();
+  });
+
+  // text controls
+  $('#textInput').addEventListener('input', e=>{ state.text=e.target.value; buildResult(); });
+  state.text=$('#textInput').value;
+  $('#fontSel').addEventListener('change', e=>{ state.fontFamily=e.target.value; buildResult(); });
+  $('#fontSize').addEventListener('input', e=>{ state.fontSize=+e.target.value; $('#fontSizeVal').textContent=state.fontSize+'px'; buildResult(); });
+  $('#alignSel').addEventListener('change', e=>{ state.align=e.target.value; buildResult(); });
+  $('#lineHeight').addEventListener('input', e=>{ state.lineHeight=+e.target.value; $('#lineHeightVal').textContent=(+e.target.value).toFixed(2); buildResult(); });
+  $('#boldChk').addEventListener('change', e=>{ state.bold=e.target.checked; buildResult(); });
+
+  // image controls
+  const drop=$('#drop'), fi=$('#fileInput');
+  drop.addEventListener('click', ()=>fi.click());
+  fi.addEventListener('change', e=>{ if(e.target.files[0]) loadImageFile(e.target.files[0]); });
+  ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev, e=>{ e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) loadImageFile(f); });
+  document.addEventListener('paste', e=>{
+    if(state.mode!=='image') return;
+    for(const it of (e.clipboardData||{}).items||[]) if(it.type.startsWith('image/')){ loadImageFile(it.getAsFile()); break; }
+  });
+
+  $('#ditherSel').addEventListener('change', e=>{ state.dither=e.target.value; buildResult(); });
+  $('#threshold').addEventListener('input', e=>{ state.threshold=+e.target.value; $('#thresholdVal').textContent=state.threshold; buildResult(); });
+  $('#brightness').addEventListener('input', e=>{ state.brightness=+e.target.value; $('#brightnessVal').textContent=state.brightness; buildResult(); });
+  $('#contrast').addEventListener('input', e=>{ state.contrast=+e.target.value; $('#contrastVal').textContent=state.contrast; buildResult(); });
+  $('#gamma').addEventListener('input', e=>{ state.gamma=+e.target.value; $('#gammaVal').textContent=(+e.target.value).toFixed(2); buildResult(); });
+  $('#sharpen').addEventListener('input', e=>{ state.sharpen=+e.target.value; $('#sharpenVal').textContent=state.sharpen; buildResult(); });
+  $('#autoLevelChk').addEventListener('change', e=>{ state.autoLevel=e.target.checked; buildResult(); });
+  $('#invertChk').addEventListener('change', e=>{ state.invert=e.target.checked; buildResult(); });
+
+  // print
+  $('#printBtn').addEventListener('click', doPrint);
+
+  buildResult();
+}
+document.addEventListener('DOMContentLoaded', wire);
+</script>
+</body>
+</html>

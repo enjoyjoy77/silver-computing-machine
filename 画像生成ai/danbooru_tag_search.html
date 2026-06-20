@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Danbooru">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiRGFuYm9vcnUg5qSc57SiIiwic2hvcnRfbmFtZSI6IkRhbmJvb3J1IiwiZGVzY3JpcHRpb24iOiLjgr/jgrDkuIDopqcgKyDjgrjjg6Pjg7Pjg6vliKXjgqLjg7zjg4bjgqPjgrnjg4jpm4boqIgiLCJzdGFydF91cmwiOiIuLyIsInNjb3BlIjoiLi8iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsIm9yaWVudGF0aW9uIjoicG9ydHJhaXQiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2Y3ZjRlZCIsInRoZW1lX2NvbG9yIjoiIzFmMWQxYSIsImxhbmciOiJqYSIsImljb25zIjpbeyJzcmMiOiJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUI0Yld4dWN6MGlhSFIwY0RvdkwzZDNkeTUzTXk1dmNtY3ZNakF3TUM5emRtY2lJSFpwWlhkQ2IzZzlJakFnTUNBMU1USWdOVEV5SWo0OGNtVmpkQ0IzYVdSMGFEMGlOVEV5SWlCb1pXbG5hSFE5SWpVeE1pSWdabWxzYkQwaUl6Rm1NV1F4WVNJdlBqeGphWEpqYkdVZ1kzZzlJakkxTmlJZ1kzazlJakkxTmlJZ2NqMGlNVGN3SWlCbWFXeHNQU0lqWWpBMFlUSmxJaTgrUEhSbGVIUWdlRDBpTWpVMklpQjVQU0l6TkRZaUlIUmxlSFF0WVc1amFHOXlQU0p0YVdSa2JHVWlJR1p2Ym5RdFptRnRhV3g1UFNKSFpXOXlaMmxoTEhObGNtbG1JaUJtYjI1MExYTnBlbVU5SWpJMk1DSWdabTl1ZEMxM1pXbG5hSFE5SWpjd01DSWdabWxzYkQwaUkyWTNaalJsWkNJK1JEd3ZkR1Y0ZEQ0OEwzTjJaejQ9Iiwic2l6ZXMiOiJhbnkiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCIsInB1cnBvc2UiOiJhbnkifSx7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIWnBaWGRDYjNnOUlqQWdNQ0ExTVRJZ05URXlJajQ4Y21WamRDQjNhV1IwYUQwaU5URXlJaUJvWldsbmFIUTlJalV4TWlJZ1ptbHNiRDBpSXpGbU1XUXhZU0l2UGp4amFYSmpiR1VnWTNnOUlqSTFOaUlnWTNrOUlqSTFOaUlnY2owaU1UY3dJaUJtYVd4c1BTSWpZakEwWVRKbElpOCtQSFJsZUhRZ2VEMGlNalUySWlCNVBTSXpORFlpSUhSbGVIUXRZVzVqYUc5eVBTSnRhV1JrYkdVaUlHWnZiblF0Wm1GdGFXeDVQU0pIWlc5eVoybGhMSE5sY21sbUlpQm1iMjUwTFhOcGVtVTlJakkyTUNJZ1ptOXVkQzEzWldsbmFIUTlJamN3TUNJZ1ptbHNiRDBpSTJZM1pqUmxaQ0krUkR3dmRHVjRkRDQ4TDNOMlp6ND0iLCJzaXplcyI6ImFueSIsInR5cGUiOiJpbWFnZS9zdmcreG1sIiwicHVycG9zZSI6Im1hc2thYmxlIn1dfQ==">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzFmMWQxYSIvPjxjaXJjbGUgY3g9IjI1NiIgY3k9IjI1NiIgcj0iMTcwIiBmaWxsPSIjYjA0YTJlIi8+PHRleHQgeD0iMjU2IiB5PSIzNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjI2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2Y3ZjRlZCI+RDwvdGV4dD48L3N2Zz4=">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzFmMWQxYSIvPjxjaXJjbGUgY3g9IjI1NiIgY3k9IjI1NiIgcj0iMTcwIiBmaWxsPSIjYjA0YTJlIi8+PHRleHQgeD0iMjU2IiB5PSIzNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjI2MCIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iI2Y3ZjRlZCI+RDwvdGV4dD48L3N2Zz4=">
+<title>Danbooru 検索</title>
+<style>
+  :root {
+    --ink: #1f1d1a;
+    --paper: #f7f4ed;
+    --muted: #8b8275;
+    --line: #d4ccbe;
+    --soft: #ece6d6;
+    --accent: #b04a2e;
+    --good: #2a6b4a;
+    --copyright: #6c3e9a;
+    --hi: #fff;
+    --hover: rgba(255,255,255,0.5);
+  }
+
+  /* === dark mode === */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e4da;
+      --paper: #181613;
+      --muted: #97907f;
+      --line: #3e382e;
+      --soft: #26221b;
+      --accent: #d97a55;
+      --good: #6cb893;
+      --copyright: #a87fd4;
+      --hi: #211e18;
+      --hover: rgba(255,255,255,0.04);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem;
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.15rem 0;
+    letter-spacing: 0.02em;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin: 0 0 1.5rem 0;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.6rem 1rem;
+    margin-bottom: -1px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+  }
+
+  /* Mode visibility */
+  body[data-mode="tag"]    .mode-artist { display: none; }
+  body[data-mode="artist"] .mode-tag    { display: none; }
+
+  form {
+    display: grid;
+    gap: 0.6rem;
+    align-items: end;
+    margin-bottom: 0.5rem;
+  }
+  #tag-form    { grid-template-columns: 1fr auto auto; }
+  #artist-form { grid-template-columns: 1fr auto auto auto; }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  input[type="text"], input[type="number"] {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--line);
+    background: var(--hi);
+    color: var(--ink);
+    border-radius: 0;
+    outline: none;
+    transition: border-color 0.12s;
+  }
+  input:focus { border-color: var(--accent); }
+  input[type="number"] { width: 5rem; }
+
+  button[type="submit"] {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 0.55rem 1.25rem;
+    background: var(--ink);
+    color: var(--paper);
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button[type="submit"]:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  button[type="submit"]:disabled {
+    background: var(--muted);
+    border-color: var(--muted);
+    cursor: not-allowed;
+  }
+
+  .examples, .hint {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0 0 1rem 0;
+  }
+  .hint { font-style: italic; }
+  .examples code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--soft);
+    padding: 0.1rem 0.4rem;
+    cursor: pointer;
+    margin-right: 0.3rem;
+    transition: color 0.12s, background 0.12s;
+  }
+  .examples code:hover { color: var(--accent); background: var(--hi); }
+
+  #status {
+    min-height: 1.4rem;
+    font-size: 0.78rem;
+    margin-bottom: 0.5rem;
+    color: var(--muted);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-line;
+    line-height: 1.55;
+  }
+  #status.error { color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th.num { text-align: right; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { color: var(--ink); }
+
+  tbody td {
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--soft);
+    vertical-align: top;
+  }
+  tbody tr:hover { background: var(--hover); }
+
+  td.tag-name {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    cursor: pointer;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+  td.tag-name:hover { color: var(--accent); }
+  td.tag-name.copied { color: var(--good); font-weight: 600; }
+
+  td.count {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  td.cat {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  td.cat.cat-character { color: var(--good); }
+  td.cat.cat-copyright { color: var(--copyright); }
+  td.cat.cat-artist    { color: var(--accent); }
+
+  td.link { white-space: nowrap; text-align: right; }
+  td.link a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.95rem;
+  }
+  td.link a:hover { color: var(--accent); }
+
+  /* Touch device adjustments */
+  @media (hover: none) and (pointer: coarse) {
+    .examples code {
+      display: inline-block;
+      padding: 0.4rem 0.7rem;
+      margin: 0.15rem 0.15rem 0.15rem 0;
+      font-size: 0.8rem;
+    }
+    tbody td { padding: 0.7rem 0.6rem; }
+    button[type="submit"] { padding: 0.7rem 1.5rem; min-height: 44px; }
+    .tab { padding: 0.7rem 1rem; min-height: 44px; }
+    input[type="text"], input[type="number"] {
+      padding: 0.7rem 0.7rem;
+      font-size: 16px;
+    }
+    td.link a { padding: 0.3rem 0.5rem; font-size: 1.1rem; }
+  }
+
+  @media (max-width: 600px) {
+    #tag-form, #artist-form { grid-template-columns: 1fr; }
+    input[type="number"] { width: 100%; }
+    /* iOS: 16px未満の入力はフォーカス時に自動ズームするため強制16px */
+    input[type="text"], input[type="number"] { font-size: 16px; }
+  }
+</style>
+</head>
+<body data-mode="tag">
+<div class="wrap">
+  <h1>Danbooru 検索</h1>
+  <p class="sub">タグ一覧 + ジャンル別アーティスト集計</p>
+
+  <nav class="tabs">
+    <button type="button" class="tab active" data-mode="tag">タグ検索</button>
+    <button type="button" class="tab" data-mode="artist">アーティスト集計</button>
+  </nav>
+
+  <!-- Tag pattern search -->
+  <div class="mode-tag">
+    <form id="tag-form">
+      <label>pattern
+        <input type="text" id="pattern" value="*_(cosplay)" autocomplete="off" spellcheck="false">
+      </label>
+      <label>min posts
+        <input type="number" id="min-count" value="70" min="0" step="10">
+      </label>
+      <button type="submit">検索</button>
+    </form>
+    <div class="examples">
+      例:
+      <code data-target="#pattern" data-ex="*_(cosplay)">*_(cosplay)</code>
+      <code data-target="#pattern" data-ex="*_(umamusume)">*_(umamusume)</code>
+      <code data-target="#pattern" data-ex="*_(blue_archive)">*_(blue_archive)</code>
+      <code data-target="#pattern" data-ex="*_uniform">*_uniform</code>
+      <code data-target="#pattern" data-ex="*_dress">*_dress</code>
+    </div>
+  </div>
+
+  <!-- Artist aggregation -->
+  <div class="mode-artist">
+    <form id="artist-form">
+      <label>query (スペース区切り、`-tag`で除外)
+        <input type="text" id="artist-query" value="realistic k-pop" autocomplete="off" spellcheck="false">
+      </label>
+      <label>pages
+        <input type="number" id="artist-pages" value="3" min="1" max="5">
+      </label>
+      <label>min count
+        <input type="number" id="artist-min" value="3" min="1">
+      </label>
+      <button type="submit">集計</button>
+    </form>
+    <p class="hint">先頭2タグでAPI検索 → 残りはローカル絞込。特異的なタグを先頭に置くと精度up</p>
+    <div class="examples">
+      例:
+      <code data-target="#artist-query" data-ex="realistic k-pop">realistic k-pop</code>
+      <code data-target="#artist-query" data-ex="realistic photorealistic">realistic photorealistic</code>
+      <code data-target="#artist-query" data-ex="cyberpunk neon city">cyberpunk neon city</code>
+      <code data-target="#artist-query" data-ex="oil_painting (medium) portrait">oil_painting_(medium) portrait</code>
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <!-- Tag mode results -->
+  <table class="mode-tag">
+    <thead>
+      <tr><th id="th-tag-name" class="sortable">タグ名</th><th id="th-tag-count" class="num sortable">posts ▼</th><th>category</th><th></th></tr>
+    </thead>
+    <tbody id="tag-tbody"></tbody>
+  </table>
+
+  <!-- Artist mode results -->
+  <table class="mode-artist">
+    <thead>
+      <tr><th id="th-artist-name" class="sortable">アーティスト</th><th id="th-artist-count" class="num sortable">count ▼</th><th></th></tr>
+    </thead>
+    <tbody id="artist-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+'use strict';
+
+const CATEGORY_NAMES = { 0: 'general', 1: 'artist', 3: 'copyright', 4: 'character', 5: 'meta' };
+const TAGS_API = 'https://danbooru.donmai.us/tags.json';
+const POSTS_API = 'https://danbooru.donmai.us/posts.json';
+const POSTS_URL = 'https://danbooru.donmai.us/posts';
+const TIMEOUT_MS = 30000;
+const TAGS_HARD_LIMIT = 1000;
+const POSTS_PER_PAGE = 200;
+const PAGE_DELAY_MS = 150;
+
+const statusDiv = document.getElementById('status');
+const tagForm = document.getElementById('tag-form');
+const tagTbody = document.getElementById('tag-tbody');
+const patternInput = document.getElementById('pattern');
+const minCountInput = document.getElementById('min-count');
+
+const artistForm = document.getElementById('artist-form');
+const artistTbody = document.getElementById('artist-tbody');
+const artistQueryInput = document.getElementById('artist-query');
+const artistPagesInput = document.getElementById('artist-pages');
+const artistMinInput = document.getElementById('artist-min');
+
+let activeController = null;
+let lastTagResults = [];
+let lastArtistResults = [];
+let tagResSort = { key: 'count', dir: -1 };
+let artistResSort = { key: 'count', dir: -1 };
+
+function abortActive() {
+  if (activeController) {
+    activeController.abort();
+    activeController = null;
+  }
+}
+
+// Mode switching
+const tabs = document.querySelectorAll('.tab');
+tabs.forEach((t) => {
+  t.addEventListener('click', () => {
+    abortActive();
+    setStatus('', false);
+    document.body.dataset.mode = t.dataset.mode;
+    tabs.forEach((x) => x.classList.toggle('active', x === t));
+  });
+});
+
+// Example chip clicks
+document.querySelectorAll('.examples code').forEach((c) => {
+  c.addEventListener('click', () => {
+    const input = document.querySelector(c.dataset.target);
+    if (input) {
+      input.value = c.dataset.ex;
+      input.focus();
+    }
+  });
+});
+
+// Form submit handlers
+tagForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  runTagSearch();
+});
+artistForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  runArtistAggregation();
+});
+
+// === Tag pattern search ===
+
+async function runTagSearch() {
+  const pattern = patternInput.value.trim();
+  const minCount = Number(minCountInput.value);
+
+  if (!pattern) { setStatus('パターンを入力してください', true); return; }
+  if (!Number.isFinite(minCount) || minCount < 0) {
+    setStatus('最低 post 数は 0 以上の数値を入れてください', true); return;
+  }
+
+  tagTbody.replaceChildren();
+  setStatus('検索中...', false);
+  setSubmitDisabled(true);
+
+  abortActive();
+  activeController = new AbortController();
+  const signal = activeController.signal;
+  const timer = setTimeout(() => activeController && activeController.abort(), TIMEOUT_MS);
+
+  try {
+    const params = new URLSearchParams();
+    params.append('search[name_matches]', pattern);
+    params.append('search[order]', 'count');
+    params.append('search[hide_empty]', 'yes');
+    params.append('limit', String(TAGS_HARD_LIMIT));
+
+    const resp = await fetch(`${TAGS_API}?${params.toString()}`, {
+      signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+
+    let data;
+    try { data = await resp.json(); }
+    catch (_) { throw new Error('JSON パース失敗'); }
+
+    if (!Array.isArray(data)) throw new Error('予期しない応答形式');
+
+    const filtered = data.filter((t) => (Number(t.post_count) || 0) >= minCount);
+
+    if (filtered.length === 0) {
+      setStatus(`該当なし (取得 ${data.length} 件、閾値 ${minCount} 以上は 0 件)`, false);
+      return;
+    }
+
+    lastTagResults = filtered;
+    tagResSort = { key: 'count', dir: -1 };
+    renderSortedTagResults();
+
+    const cap = data.length >= TAGS_HARD_LIMIT
+      ? `  ⚠ API 上限 ${TAGS_HARD_LIMIT} 件到達`
+      : '';
+    setStatus(`${filtered.length} 件 表示  /  ${data.length} 件 取得${cap}`, false);
+  } catch (err) {
+    handleError(err);
+  } finally {
+    clearTimeout(timer);
+    setSubmitDisabled(false);
+  }
+}
+
+function renderSortedTagResults() {
+  const arr = [...lastTagResults];
+  const { key, dir } = tagResSort;
+  arr.sort((a, b) => {
+    const cmp = key === 'name'
+      ? String(a.name || '').localeCompare(String(b.name || ''))
+      : ((Number(a.post_count) || 0) - (Number(b.post_count) || 0));
+    return cmp * dir;
+  });
+  const arrow = dir === -1 ? ' ▼' : ' ▲';
+  document.getElementById('th-tag-name').textContent = 'タグ名' + (key === 'name' ? arrow : '');
+  document.getElementById('th-tag-count').textContent = 'posts' + (key === 'count' ? arrow : '');
+  tagTbody.replaceChildren();
+  renderTagResults(arr);
+}
+
+function renderSortedArtistResults() {
+  const arr = [...lastArtistResults];
+  const { key, dir } = artistResSort;
+  arr.sort((a, b) => {
+    const cmp = key === 'name'
+      ? String(a[0]).localeCompare(String(b[0]))
+      : (a[1] - b[1]);
+    return cmp * dir;
+  });
+  const arrow = dir === -1 ? ' ▼' : ' ▲';
+  document.getElementById('th-artist-name').textContent = 'アーティスト' + (key === 'name' ? arrow : '');
+  document.getElementById('th-artist-count').textContent = 'count' + (key === 'count' ? arrow : '');
+  artistTbody.replaceChildren();
+  renderArtistResults(arr);
+}
+
+function setupResultSorting() {
+  const bind = (thId, sortState, sortKey, rerender) => {
+    document.getElementById(thId).addEventListener('click', () => {
+      if (sortState.key === sortKey) sortState.dir *= -1;
+      else { sortState.key = sortKey; sortState.dir = sortKey === 'name' ? 1 : -1; }
+      rerender();
+    });
+  };
+  bind('th-tag-name', tagResSort, 'name', renderSortedTagResults);
+  bind('th-tag-count', tagResSort, 'count', renderSortedTagResults);
+  bind('th-artist-name', artistResSort, 'name', renderSortedArtistResults);
+  bind('th-artist-count', artistResSort, 'count', renderSortedArtistResults);
+}
+setupResultSorting();
+
+function renderTagResults(tags) {
+  const frag = document.createDocumentFragment();
+  for (const t of tags) {
+    const tr = document.createElement('tr');
+    const name = String(t.name || '');
+    const count = Number(t.post_count) || 0;
+    const catName = CATEGORY_NAMES[t.category] || (t.category != null ? `cat${t.category}` : '—');
+
+    const tdName = makeTagNameCell(name);
+    const tdCount = document.createElement('td');
+    tdCount.className = 'count';
+    tdCount.textContent = count.toLocaleString();
+
+    const tdCat = document.createElement('td');
+    tdCat.className = `cat cat-${catName}`;
+    tdCat.textContent = catName;
+
+    const tdLink = makeLinkCell(name, 'Danbooru で開く');
+
+    tr.append(tdName, tdCount, tdCat, tdLink);
+    frag.appendChild(tr);
+  }
+  tagTbody.appendChild(frag);
+}
+
+// === Artist aggregation ===
+
+function parseTags(input) {
+  const raw = String(input || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const positive = [];
+  const negative = [];
+  for (const t of raw) {
+    if (t.startsWith('-') && t.length > 1) {
+      negative.push(t.slice(1));
+    } else {
+      positive.push(t);
+    }
+  }
+  return { positive, negative };
+}
+
+async function runArtistAggregation() {
+  const pages = Number(artistPagesInput.value);
+  const minCount = Number(artistMinInput.value);
+  const { positive, negative } = parseTags(artistQueryInput.value);
+
+  if (positive.length === 0) {
+    setStatus('1つ以上の通常タグ(非除外タグ)を入れてください', true); return;
+  }
+  if (!Number.isFinite(pages) || pages < 1 || pages > 5) {
+    setStatus('pages は 1〜5 の数値を入れてください', true); return;
+  }
+  if (!Number.isFinite(minCount) || minCount < 1) {
+    setStatus('min count は 1 以上の数値を入れてください', true); return;
+  }
+
+  artistTbody.replaceChildren();
+  setSubmitDisabled(true);
+
+  abortActive();
+  activeController = new AbortController();
+  const signal = activeController.signal;
+
+  // First 2 positive tags go to API (Danbooru anonymous limit)
+  const apiTags = positive.slice(0, 2).join(' ');
+  const filterPositive = positive.slice(2);
+
+  let totalFetched = 0;
+  let totalMatched = 0;
+  let pagesActuallyFetched = 0;
+  const counts = new Map();
+
+  try {
+    for (let p = 1; p <= pages; p++) {
+      if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+
+      setStatus(`${p}/${pages} ページ取得中...  (取得 ${totalFetched} / マッチ ${totalMatched})`, false);
+
+      const params = new URLSearchParams();
+      params.append('tags', apiTags);
+      params.append('limit', String(POSTS_PER_PAGE));
+      params.append('page', String(p));
+
+      const pageTimer = setTimeout(() => activeController && activeController.abort(), TIMEOUT_MS);
+
+      let posts = null;
+      try {
+        const resp = await fetch(`${POSTS_API}?${params.toString()}`, {
+          signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!resp.ok) {
+          // Don't abort, just skip this page
+          continue;
+        }
+        try { posts = await resp.json(); }
+        catch (_) { posts = null; }
+      } finally {
+        clearTimeout(pageTimer);
+      }
+
+      if (!Array.isArray(posts)) continue;
+      pagesActuallyFetched++;
+      totalFetched += posts.length;
+
+      for (const post of posts) {
+        const tagSet = new Set(String(post.tag_string || '').split(/\s+/).filter(Boolean));
+
+        if (!filterPositive.every((t) => tagSet.has(t))) continue;
+        if (negative.some((t) => tagSet.has(t))) continue;
+
+        totalMatched++;
+
+        const artistStr = String(post.tag_string_artist || '').trim();
+        if (!artistStr) continue;
+        for (const a of artistStr.split(/\s+/).filter(Boolean)) {
+          counts.set(a, (counts.get(a) || 0) + 1);
+        }
+      }
+
+      // Last page reached
+      if (posts.length < POSTS_PER_PAGE) break;
+
+      if (p < pages) await sleep(PAGE_DELAY_MS);
+    }
+
+    const sorted = [...counts.entries()]
+      .filter(([_, c]) => c >= minCount)
+      .sort((a, b) => b[1] - a[1]);
+
+    if (sorted.length === 0) {
+      setStatus(`該当アーティストなし (取得${totalFetched} / マッチ${totalMatched} / 閾値${minCount}以上は0)`, false);
+      return;
+    }
+
+    lastArtistResults = sorted;
+    artistResSort = { key: 'count', dir: -1 };
+    renderSortedArtistResults();
+    setStatus(
+      `${sorted.length} アーティスト  /  ${pagesActuallyFetched}ページ取得  /  ${totalFetched}件 → ${totalMatched}件マッチ`,
+      false
+    );
+  } catch (err) {
+    handleError(err);
+  } finally {
+    setSubmitDisabled(false);
+  }
+}
+
+function renderArtistResults(entries) {
+  const frag = document.createDocumentFragment();
+  for (const [name, count] of entries) {
+    const tr = document.createElement('tr');
+    const tdName = makeTagNameCell(name);
+    const tdCount = document.createElement('td');
+    tdCount.className = 'count';
+    tdCount.textContent = String(count);
+    const tdLink = makeLinkCell(name, `${name} の作品を見る`);
+
+    tr.append(tdName, tdCount, tdLink);
+    frag.appendChild(tr);
+  }
+  artistTbody.appendChild(frag);
+}
+
+// === Shared helpers ===
+
+function makeTagNameCell(name) {
+  const td = document.createElement('td');
+  td.className = 'tag-name';
+  td.textContent = name;
+  td.title = 'クリックでコピー';
+  td.addEventListener('click', () => copyText(name, td));
+  return td;
+}
+
+function makeLinkCell(name, title) {
+  const td = document.createElement('td');
+  td.className = 'link';
+  const a = document.createElement('a');
+  a.href = `${POSTS_URL}?tags=${encodeURIComponent(name)}`;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.textContent = '↗';
+  a.title = title;
+  td.appendChild(a);
+  return td;
+}
+
+async function copyText(text, cell) {
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  } catch (_) { ok = false; }
+
+  if (ok) {
+    const orig = cell.textContent;
+    cell.classList.add('copied');
+    cell.textContent = '✓ ' + orig;
+    setTimeout(() => {
+      cell.textContent = orig;
+      cell.classList.remove('copied');
+    }, 700);
+  } else {
+    setStatus('コピー失敗。手動で選択してください', true);
+  }
+}
+
+function handleError(err) {
+  if (err && err.name === 'AbortError') {
+    setStatus('中断またはタイムアウト', true);
+  } else {
+    const msg = err && err.message ? err.message : String(err);
+    setStatus(`エラー: ${msg}`, true);
+  }
+}
+
+function setStatus(msg, isError) {
+  statusDiv.textContent = msg;
+  statusDiv.className = isError ? 'error' : '';
+}
+
+function setSubmitDisabled(disabled) {
+  document.querySelectorAll('button[type="submit"]').forEach((b) => { b.disabled = disabled; });
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// === URL param handling (for cross-tool integration) ===
+// Accepts ?mode=tag|artist&q=tag1+tag2[+...]&autorun=1
+function applyUrlParams() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    const q = params.get('q');
+    const autorun = params.get('autorun') === '1';
+
+    if (mode !== 'artist' && mode !== 'tag') return;
+
+    const tab = document.querySelector('.tab[data-mode="' + mode + '"]');
+    if (tab) tab.click();
+
+    if (!q) return;
+    // URLSearchParams.get already decoded '+' as space, giving space-separated tags
+    if (mode === 'artist') {
+      const input = document.getElementById('artist-query');
+      if (input) input.value = q;
+      if (autorun) {
+        setTimeout(() => {
+          const btn = document.querySelector('#artist-form button[type="submit"]');
+          if (btn && !btn.disabled) btn.click();
+        }, 150);
+      }
+    } else if (mode === 'tag') {
+      const input = document.getElementById('pattern');
+      if (input) input.value = q.split(/\s+/)[0] || q; // tag mode uses single pattern
+      if (autorun) {
+        setTimeout(() => {
+          const btn = document.querySelector('#tag-form button[type="submit"]');
+          if (btn && !btn.disabled) btn.click();
+        }, 150);
+      }
+    }
+  } catch (e) {
+    console.warn('URL param handler error:', e);
+  }
+}
+
+applyUrlParams();
+</script>
+</body>
+</html>

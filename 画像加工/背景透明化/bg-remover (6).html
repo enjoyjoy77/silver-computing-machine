@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>背景透明化ツール — キリトリ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* カッティングマットの配色 */
+    --mat: #2c4a3e;
+    --mat-line: rgba(255,255,255,.055);
+    --mat-line-strong: rgba(255,255,255,.10);
+    --paper: #fcfbf8;
+    --paper-edge: #efece4;
+    --ink: #25281f;
+    --muted: #84887c;
+    --line: #e6e3da;
+    --accent: #2c4a3e;        /* マットと同系の深緑 */
+    --accent-bright: #3e6b59;
+    --accent-soft: #e9f0ec;
+    --mark: #f0b429;          /* マットの目盛りイエロー */
+    --danger: #b4402f;
+    --radius: 14px;
+    --shadow-sticker: 0 1px 2px rgba(20,30,25,.18), 0 6px 18px rgba(20,30,25,.22);
+    --shadow-sticker-sm: 0 1px 2px rgba(20,30,25,.14), 0 3px 10px rgba(20,30,25,.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+    font-weight: 500;
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 28px 16px 72px;
+    /* カッティングマット：細グリッド + 太グリッド */
+    background-color: var(--mat);
+    background-image:
+      linear-gradient(var(--mat-line-strong) 1px, transparent 1px),
+      linear-gradient(90deg, var(--mat-line-strong) 1px, transparent 1px),
+      linear-gradient(var(--mat-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--mat-line) 1px, transparent 1px);
+    background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+
+  button { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+
+  /* ============ ヘッダー：白いステッカー ============ */
+  header {
+    background: var(--paper);
+    border-radius: var(--radius);
+    padding: 26px 28px 22px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sticker);
+    position: relative;
+    transform: rotate(-.4deg);
+  }
+  /* ステッカーの白フチ */
+  header::before {
+    content: "";
+    position: absolute; inset: -5px;
+    border-radius: calc(var(--radius) + 5px);
+    background: #fff;
+    z-index: -1;
+    box-shadow: var(--shadow-sticker);
+  }
+  .title-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  h1 {
+    font-size: 26px; font-weight: 900; letter-spacing: .04em; line-height: 1.2;
+  }
+  h1 .scissors { font-weight: 500; margin-right: 6px; }
+  .title-en {
+    font-size: 11px; font-weight: 700; letter-spacing: .22em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .sub { font-size: 12.5px; color: var(--muted); margin-top: 10px; line-height: 1.8; }
+  .badges { display: flex; gap: 7px; margin-top: 14px; flex-wrap: wrap; }
+  .badge {
+    font-size: 11px; font-weight: 700; padding: 4px 11px; border-radius: 4px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid #d3e0d8;
+    letter-spacing: .02em;
+  }
+
+  /* ============ ステータスバー ============ */
+  #status-bar {
+    background: var(--paper); border-radius: 10px;
+    padding: 13px 18px; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 12px; font-size: 13px;
+    box-shadow: var(--shadow-sticker-sm);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #c9c7be; flex-shrink: 0; }
+  .dot.loading { background: var(--mark); animation: pulse 1s ease-in-out infinite; }
+  .dot.ready { background: var(--accent-bright); }
+  .dot.error { background: var(--danger); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .dot.loading { animation: none; }
+    * { transition-duration: .01ms !important; }
+  }
+  #status-text { flex: 1; line-height: 1.6; }
+  #backend-label { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  #model-progress {
+    height: 5px; background: var(--line); border-radius: 3px; overflow: hidden;
+    margin-top: 9px; display: none;
+  }
+  #model-progress .fill {
+    height: 100%; width: 0%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-bright), var(--mark));
+    transition: width .25s;
+  }
+
+  /* ============ 準備ボタン ============ */
+  #prepare-wrap { margin-bottom: 18px; }
+  #prepare-wrap.done { display: none; }
+  #model-select-wrap.done { display: none; }
+  #btn-prepare {
+    width: 100%;
+    padding: 18px 24px;
+    font-family: inherit; font-size: 15.5px; font-weight: 900; letter-spacing: .06em;
+    border-radius: 12px; border: none;
+    background: var(--paper); color: var(--accent);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    transition: transform .1s, box-shadow .15s;
+    box-shadow: var(--shadow-sticker);
+  }
+  #btn-prepare:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(20,30,25,.2), 0 10px 26px rgba(20,30,25,.3); }
+  #btn-prepare:active { transform: translateY(0) scale(.99); }
+  #btn-prepare:disabled {
+    color: var(--muted); cursor: default; transform: none;
+    box-shadow: var(--shadow-sticker-sm);
+  }
+  #btn-prepare .icon { font-size: 18px; }
+  .prepare-note {
+    font-size: 11.5px; color: rgba(255,255,255,.75);
+    margin-top: 10px; line-height: 1.8; text-align: center;
+  }
+
+  /* ============ ドロップゾーン：キリトリ線 ============ */
+  #dropzone {
+    position: relative;
+    border-radius: var(--radius);
+    background: var(--paper);
+    padding: 54px 24px 50px;
+    text-align: center; cursor: pointer;
+    transition: transform .12s, box-shadow .15s;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sticker-sm);
+  }
+  /* 内側のキリトリ破線 */
+  #dropzone::before {
+    content: "";
+    position: absolute; inset: 12px;
+    border: 2px dashed #b9b5a8;
+    border-radius: 9px;
+    pointer-events: none;
+    transition: border-color .15s;
+  }
+  /* ✂ キリトリ線マーク */
+  #dropzone::after {
+    content: "✂ ｷﾘﾄﾘ";
+    position: absolute; top: 4px; left: 34px;
+    font-size: 11px; letter-spacing: .12em; color: #b9b5a8;
+    background: var(--paper); padding: 0 8px;
+    transition: color .15s;
+  }
+  #dropzone:hover { transform: translateY(-1px); }
+  #dropzone.dragover { box-shadow: 0 0 0 4px var(--mark), var(--shadow-sticker); }
+  #dropzone.dragover::before { border-color: var(--mark); }
+  #dropzone.dragover::after { color: var(--mark); }
+  #dropzone.disabled { opacity: .55; pointer-events: none; }
+  #dropzone p { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+  #dropzone .hint { font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 9px; letter-spacing: .03em; }
+  #file-input { display: none; }
+
+  /* ============ グローバルアクション ============ */
+  #global-actions { display: none; margin-bottom: 16px; gap: 9px; }
+  #global-actions.show { display: flex; flex-wrap: wrap; }
+  #btn-save-all {
+    font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .03em;
+    padding: 11px 22px; border-radius: 9px;
+    border: none; background: var(--paper); color: var(--accent);
+    cursor: pointer; box-shadow: var(--shadow-sticker-sm);
+    transition: transform .1s;
+  }
+  #btn-save-all:hover { transform: translateY(-1px); }
+  #btn-clear {
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    padding: 11px 22px; border-radius: 9px;
+    border: 1px solid rgba(255,255,255,.25);
+    background: transparent; color: rgba(255,255,255,.85); cursor: pointer;
+    transition: background .12s;
+  }
+  #btn-clear:hover { background: rgba(255,255,255,.1); }
+
+  /* ============ 結果カード：ダイカットステッカー ============ */
+  .card {
+    background: var(--paper);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sticker);
+    position: relative;
+  }
+  .card::before {
+    content: "";
+    position: absolute; inset: -5px;
+    border-radius: calc(var(--radius) + 5px);
+    background: #fff;
+    z-index: -1;
+    box-shadow: var(--shadow-sticker);
+  }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 13px; gap: 12px;
+  }
+  .fname { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fmeta { font-size: 11px; color: var(--muted); margin-top: 2px; letter-spacing: .03em; }
+  .card-status {
+    font-size: 11.5px; font-weight: 700; flex-shrink: 0;
+    color: var(--muted); letter-spacing: .04em;
+    padding: 3px 10px; border-radius: 4px; background: #f1efe9;
+  }
+  .card-status.done { color: #fff; background: var(--accent-bright); }
+  .card-status.err { color: #fff; background: var(--danger); }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+  @media (max-width: 640px) { .pair { grid-template-columns: 1fr; } }
+  .pane { min-width: 0; }
+  .pane-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  .pane img, .pane canvas {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--line); border-radius: 9px;
+  }
+  .checker {
+    background-image:
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%),
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 8px 8px;
+    background-color: #f4f3ef;
+  }
+  .working {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 150px; color: var(--muted); font-size: 12.5px;
+    border: 1px dashed #cfccc2; border-radius: 9px; background: #f7f6f2;
+  }
+
+  /* ============ 保存ボタン（大） ============ */
+  .btn-save-wrap { margin-top: 15px; display: none; }
+  .btn-save-wrap.show { display: block; }
+  .btn-save {
+    width: 100%;
+    padding: 17px 24px;
+    font-family: inherit;
+    font-size: 16px; font-weight: 900; letter-spacing: .06em;
+    border-radius: 11px; border: none;
+    background: var(--accent); color: #fff;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    transition: background .12s, transform .08s;
+    box-shadow: 0 3px 10px rgba(44,74,62,.35);
+  }
+  .btn-save:hover { background: var(--accent-bright); }
+  .btn-save:active { transform: scale(.985); }
+  .btn-save .icon { font-size: 20px; line-height: 1; }
+
+  /* ============ サブアクション ============ */
+  .sub-actions { display: flex; gap: 8px; margin-top: 9px; }
+  .btn-sm {
+    font-family: inherit; font-size: 11.5px; font-weight: 500;
+    padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent;
+    color: var(--muted); cursor: pointer; transition: background .12s, color .12s;
+  }
+  .btn-sm:hover { background: #f1efe9; color: var(--ink); }
+
+  /* ============ モデル選択 ============ */
+  #model-select-wrap { margin-bottom: 14px; }
+  .model-select-label {
+    font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    color: rgba(255,255,255,.8); margin-bottom: 9px; padding-left: 2px;
+  }
+  .model-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+  @media (max-width: 560px) { .model-cards { grid-template-columns: 1fr; } }
+  .model-card {
+    background: var(--paper); border-radius: 10px;
+    padding: 13px 15px; cursor: pointer;
+    box-shadow: var(--shadow-sticker-sm);
+    border: 2px solid transparent;
+    transition: border-color .12s, transform .1s;
+    position: relative;
+  }
+  .model-card:hover { transform: translateY(-1px); }
+  .model-card.selected { border-color: var(--accent-bright); }
+  .model-card.selected::after {
+    content: "✓";
+    position: absolute; top: 9px; right: 11px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent-bright); color: #fff;
+    font-size: 11px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .model-name { font-size: 13.5px; font-weight: 900; letter-spacing: .02em; }
+  .model-tag {
+    display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+    padding: 2px 7px; border-radius: 3px; margin-top: 6px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .model-tag.heavy { background: #fbeee0; color: #b5781a; }
+  .model-tag.best { background: #e9f0ec; color: var(--accent); }
+  .model-desc { font-size: 10.5px; color: var(--muted); margin-top: 7px; line-height: 1.6; }
+  .model-warn {
+    font-size: 11px; color: #d98a2b; margin-top: 10px; line-height: 1.7;
+    padding: 9px 12px; background: #fdf4e8; border-radius: 7px;
+    display: none;
+  }
+  .model-warn.show { display: block; }
+
+  /* ============ エディタ（消しゴム） ============ */
+  .editor-wrap { margin-top: 15px; display: none; }
+  .editor-wrap.show { display: block; }
+  .editor-toggle {
+    width: 100%; padding: 12px;
+    font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .04em;
+    border-radius: 9px; border: 1px dashed #b9b5a8;
+    background: transparent; color: var(--accent); cursor: pointer;
+    transition: background .12s; margin-top: 10px;
+  }
+  .editor-toggle:hover { background: #f1efe9; }
+  .editor-panel { display: none; margin-top: 12px; }
+  .editor-panel.open { display: block; }
+  .editor-canvas-box {
+    position: relative; border-radius: 9px; overflow: hidden;
+    border: 1px solid var(--line);
+    background-image:
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%),
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px;
+    background-color: #f4f3ef;
+    touch-action: none;
+  }
+  .editor-canvas-box canvas {
+    width: 100%; height: auto; display: block; cursor: crosshair;
+    border: none; border-radius: 0;
+  }
+  .editor-tools {
+    display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; align-items: center;
+  }
+  .tool-btn {
+    font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: .03em;
+    padding: 8px 14px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--paper);
+    color: var(--muted); cursor: pointer; transition: all .12s;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .tool-btn.active { border-color: var(--accent-bright); color: var(--accent); background: var(--accent-soft); }
+  .tool-btn:hover { border-color: var(--accent-bright); }
+  .brush-control {
+    display: flex; align-items: center; gap: 9px; flex: 1; min-width: 160px;
+    font-size: 11.5px; color: var(--muted); font-weight: 700;
+  }
+  .brush-control input[type=range] {
+    flex: 1; accent-color: var(--accent-bright); cursor: pointer;
+  }
+  .brush-size-val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  .editor-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .editor-reset {
+    font-family: inherit; font-size: 11.5px; font-weight: 500;
+    padding: 7px 14px; border-radius: 7px;
+    border: 1px solid var(--line); background: transparent;
+    color: var(--muted); cursor: pointer; transition: background .12s;
+  }
+  .editor-reset:hover { background: #f1efe9; color: var(--ink); }
+  .editor-hint { font-size: 10.5px; color: var(--muted); margin-top: 9px; line-height: 1.6; }
+
+  /* ============ フッター ============ */
+  footer {
+    margin-top: 36px; font-size: 11px;
+    color: rgba(255,255,255,.65); line-height: 2;
+    letter-spacing: .02em;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <h1><span class="scissors">✂</span>背景透明化ツール</h1>
+      <span class="title-en">Kiritori — Local BG Remover</span>
+    </div>
+    <div class="sub">画像はこの端末の中だけで処理されます。サーバーへの送信なし・回数制限なし・PNG変換時にEXIF（位置情報・撮影日時）も自動除去。</div>
+    <div class="badges">
+      <span class="badge">ローカル推論（RMBG-1.4）</span>
+      <span class="badge">サーバー保存なし</span>
+      <span class="badge">EXIF自動除去</span>
+      <span class="badge" id="badge-backend">バックエンド検出中…</span>
+    </div>
+  </header>
+
+  <div id="status-bar">
+    <span class="dot" id="status-dot"></span>
+    <div style="flex:1">
+      <div id="status-text">下のボタンを押すとAIの準備を開始します。押すまで通信は発生しません。</div>
+      <div id="model-progress"><div class="fill" id="model-progress-fill"></div></div>
+    </div>
+    <span id="backend-label"></span>
+  </div>
+
+  <div id="model-select-wrap">
+    <div class="model-select-label">使うAIモデルを選ぶ</div>
+    <div class="model-cards">
+      <div class="model-card selected" data-model="rmbg">
+        <div class="model-name">RMBG-1.4</div>
+        <span class="model-tag">軽量・高速</span>
+        <div class="model-desc">PC約176MB / スマホ約44MB。日常使いに十分な精度。迷ったらこれ。</div>
+      </div>
+      <div class="model-card" data-model="birefnet_lite">
+        <div class="model-name">BiRefNet lite</div>
+        <span class="model-tag best">高精度・推奨</span>
+        <div class="model-desc">髪や複雑な輪郭に強い。RMBGより重いがPCなら快適。</div>
+      </div>
+      <div class="model-card" data-model="birefnet">
+        <div class="model-name">BiRefNet</div>
+        <span class="model-tag heavy">最高精度・重量</span>
+        <div class="model-desc">約973MB。最も精細だがダウンロードと処理が重い。PC・WebGPU向け。</div>
+      </div>
+    </div>
+    <div class="model-warn" id="model-warn">⚠ このモデルはサイズが大きく、スマホでは読み込みや処理に失敗することがあります。Wi-Fi接続を推奨します。</div>
+  </div>
+
+  <div id="prepare-wrap">
+    <button id="btn-prepare">
+      <span class="icon">⬇</span>
+      <span>このモデルで準備する（初回のみ取得）</span>
+    </button>
+    <p class="prepare-note">初回だけモデルをダウンロードします。2回目以降は同じモデルならキャッシュから即起動し、通信は発生しません。</p>
+  </div>
+
+  <div id="dropzone" class="disabled">
+    <p>ここに画像をドロップ　または　タップして選択</p>
+    <p class="hint">JPG / PNG / WebP ・ 複数ファイル対応 ・ 出力は透明背景PNG</p>
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple>
+  </div>
+
+  <div id="global-actions">
+    <button id="btn-save-all">すべて保存</button>
+    <button id="btn-clear">クリア</button>
+  </div>
+
+  <div id="results"></div>
+
+  <footer>
+    モデル: BRIA AI RMBG-1.4（非商用ライセンス）／ 推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）<br>
+    初回のみモデル取得のためインターネット接続が必要です。取得後はブラウザにキャッシュされます。<br>
+    大きい画像は推論用に内部で1024pxへ縮小されますが、出力PNGは元の解像度で生成されます。
+  </footer>
+</div>
+
+<script type="module">
+import { env, AutoModel, AutoProcessor, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
+
+env.allowLocalModels = false;
+// COEP なし環境では SharedArrayBuffer が使えないため WASM をシングルスレッドに固定。
+// WebGPU は COEP 不要なので高速パスはそちらが担う。
+env.backends.onnx.wasm.proxy = false;
+env.backends.onnx.wasm.numThreads = 1;
+
+const $ = id => document.getElementById(id);
+const statusDot  = $("status-dot");
+const statusText = $("status-text");
+const backendLabel  = $("backend-label");
+const badgeBackend  = $("badge-backend");
+const progressBar   = $("model-progress");
+const progressFill  = $("model-progress-fill");
+const dropzone  = $("dropzone");
+const fileInput = $("file-input");
+const results   = $("results");
+const globalActions = $("global-actions");
+
+// ---------- モデル定義 ----------
+// モデルごとに ID・入力キー・出力後処理が異なる
+const MODELS = {
+  rmbg: {
+    id: "briaai/RMBG-1.4",
+    label: "RMBG-1.4",
+    inputKey: "input",
+    sigmoid: false,            // 出力をそのままマスクに
+    modelType: "custom",
+    procConfig: {
+      do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
+      image_mean: [0.5, 0.5, 0.5], image_std: [1, 1, 1],
+      feature_extractor_type: "ImageFeatureExtractor",
+      resample: 2, rescale_factor: 0.00392156862745098,
+      size: { width: 1024, height: 1024 },
+    },
+  },
+  birefnet_lite: {
+    id: "onnx-community/BiRefNet_lite",
+    label: "BiRefNet lite",
+    inputKey: "input_image",
+    sigmoid: true,             // 出力に sigmoid をかける
+    modelType: null,           // configを渡さず自動判定
+    procConfig: null,
+    heavy: true,
+  },
+  birefnet: {
+    id: "onnx-community/BiRefNet-ONNX",
+    label: "BiRefNet",
+    inputKey: "input_image",
+    sigmoid: true,
+    modelType: null,
+    procConfig: null,
+    heavy: true,
+    veryHeavy: true,
+  },
+};
+let selectedModelKey = "rmbg";
+let activeModel = null;        // 準備完了したモデルのキー
+
+const MODEL_ID = "briaai/RMBG-1.4"; // 後方互換（未使用）
+const MAX_OUTPUT_SIDE = 4096;
+let model = null, processor = null;
+let backend = "wasm";
+let queue = [];
+let busy  = false;
+const doneItems = [];
+
+// ---------- iOS / iPadOS 判定 ----------
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+              (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+
+function saveLabel() {
+  return isIOS ? "写真アプリに保存" : "PNGとして保存";
+}
+function saveIcon() {
+  return isIOS ? "🖼️" : "💾";
+}
+
+// iOS なら「すべて保存」は使いにくいので非表示
+if (isIOS) {
+  $("btn-save-all").style.display = "none";
+}
+
+// ---------- 保存処理 ----------
+async function saveImage(canvas, filename) {
+  const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+
+  // iOS Safari: Web Share API → ネイティブ共有シート → 「写真に保存」が選べる
+  if (isIOS && navigator.share) {
+    const file = new File([blob], filename, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      } catch (e) {
+        if (e.name === "AbortError") return; // キャンセル
+        // 失敗時は通常DLにフォールスルー
+      }
+    }
+  }
+
+  // PC / Android: DLリンク方式（DOMに追加してからクリック → Chrome失敗を防ぐ）
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// ---------- 初期化 ----------
+function setStatus(state, text) {
+  statusDot.className = "dot " + state;
+  statusText.textContent = text;
+}
+
+async function detectBackend() {
+  if (navigator.gpu) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      if (adapter) return "webgpu";
+    } catch {}
+  }
+  return "wasm";
+}
+
+const progressSeen = {};
+function onProgress(p) {
+  if (p.status === "progress" && p.total) {
+    progressSeen[p.file] = p.progress || 0;
+    const vals = Object.values(progressSeen);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    progressBar.style.display = "block";
+    progressFill.style.width = Math.min(100, avg).toFixed(1) + "%";
+  }
+  if (p.status === "done") progressFill.style.width = "100%";
+}
+
+async function loadModel(device) {
+  const spec = MODELS[selectedModelKey];
+  // WebGPU: フル精度fp32 / WASM・モバイル: 量子化q8（軽量・省メモリ）
+  // モバイルSafariは大容量fetchとメモリに弱いため、iOSでは常に量子化版
+  const dtype = (device === "webgpu" && !isIOS) ? "fp32" : "q8";
+
+  const modelOpts = { device, dtype, progress_callback: onProgress };
+  if (spec.modelType) modelOpts.config = { model_type: spec.modelType };
+  const m = await AutoModel.from_pretrained(spec.id, modelOpts);
+
+  const procOpts = {};
+  if (spec.procConfig) procOpts.config = spec.procConfig;
+  const p = await AutoProcessor.from_pretrained(spec.id, procOpts);
+
+  return { m, p };
+}
+
+async function init() {
+  const prepareBtn = $("btn-prepare");
+  prepareBtn.disabled = true;
+  prepareBtn.querySelector("span:last-child").textContent = "準備中…";
+  statusDot.className = "dot loading";
+  setStatus("loading", MODELS[selectedModelKey].label + " を準備しています…");
+  // 進捗カウンタをリセット（モデル切替時に前回分が残らないように）
+  for (const k in progressSeen) delete progressSeen[k];
+  progressFill.style.width = "0%";
+
+  backend = await detectBackend();
+  backendLabel.textContent  = backend === "webgpu" ? "WebGPU（高速）" : "WASM";
+  badgeBackend.textContent  = backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
+
+  try {
+    ({ m: model, p: processor } = await loadModel(backend));
+  } catch (e) {
+    console.error(e);
+    if (backend === "webgpu") {
+      backend = "wasm";
+      backendLabel.textContent = "WASM（フォールバック）";
+      badgeBackend.textContent = "WASM 互換モード";
+      try {
+        ({ m: model, p: processor } = await loadModel("wasm"));
+      } catch (e2) {
+        console.error(e2);
+        setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。");
+        prepareBtn.disabled = false;
+        prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
+        return;
+      }
+    } else {
+      setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。");
+      prepareBtn.disabled = false;
+      prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
+      return;
+    }
+  }
+  activeModel = selectedModelKey;
+  progressBar.style.display = "none";
+  setStatus("ready", MODELS[activeModel].label + " 準備完了。画像をドロップしてください。");
+  $("prepare-wrap").classList.add("done");
+  $("model-select-wrap").classList.add("done");
+  dropzone.classList.remove("disabled");
+}
+
+// ---------- 入力 ----------
+dropzone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInput.value = ""; });
+["dragover", "dragenter"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+dropzone.addEventListener("drop", e => addFiles(e.dataTransfer.files));
+
+function addFiles(fileList) {
+  const ok = ["image/jpeg", "image/png", "image/webp"];
+  for (const f of fileList) {
+    if (!ok.includes(f.type)) continue;
+    const card = makeCard(f);
+    queue.push({ file: f, card });
+  }
+  pump();
+}
+
+// ---------- カードUI ----------
+function makeCard(file) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="card-head">
+      <div style="min-width:0">
+        <div class="fname"></div>
+        <div class="fmeta"></div>
+      </div>
+      <div class="card-status">待機中…</div>
+    </div>
+    <div class="pair">
+      <div class="pane">
+        <div class="pane-label">元画像</div>
+        <img class="src-img" alt="元画像">
+      </div>
+      <div class="pane">
+        <div class="pane-label">透明化後（チェック柄＝透明部分）</div>
+        <div class="working">処理待ち…</div>
+      </div>
+    </div>
+    <div class="btn-save-wrap">
+      <button class="btn-save">
+        <span class="icon"></span>
+        <span class="label"></span>
+      </button>
+    </div>
+    <div class="editor-wrap">
+      <button class="editor-toggle">✎ 手動修正（消しゴム / 復元）</button>
+      <div class="editor-panel">
+        <div class="editor-canvas-box">
+          <canvas class="edit-canvas"></canvas>
+        </div>
+        <div class="editor-tools">
+          <button class="tool-btn tool-erase active">🧽 消しゴム</button>
+          <button class="tool-btn tool-restore">↩ 復元</button>
+          <div class="brush-control">
+            <span>太さ</span>
+            <input type="range" class="brush-size" min="6" max="80" value="28">
+            <span class="brush-size-val">28px</span>
+          </div>
+        </div>
+        <div class="editor-actions">
+          <button class="editor-reset">手動修正をリセット</button>
+        </div>
+        <p class="editor-hint">消しゴム＝なぞった所を透明に。復元＝消した所を元に戻す。修正は上のプレビューと保存PNGに反映されます。</p>
+      </div>
+    </div>
+    <div class="sub-actions">
+      <button class="btn-sm btn-remove">この画像を削除</button>
+    </div>`;
+
+  card.querySelector(".fname").textContent = file.name;
+  card.querySelector(".fmeta").textContent = (file.size / 1024 / 1024).toFixed(2) + " MB";
+  card.querySelector(".src-img").src = URL.createObjectURL(file);
+
+  // 保存ボタンの初期表示（ラベルだけ設定、まだ非表示）
+  card.querySelector(".btn-save .icon").textContent  = saveIcon();
+  card.querySelector(".btn-save .label").textContent = saveLabel();
+
+  card.querySelector(".btn-remove").addEventListener("click", () => {
+    const i = doneItems.findIndex(d => d.card === card);
+    if (i >= 0) doneItems.splice(i, 1);
+    queue = queue.filter(q => q.card !== card);
+    card.remove();
+    if (!results.children.length) globalActions.classList.remove("show");
+  });
+  results.prepend(card);
+  return card;
+}
+
+// ---------- 推論 ----------
+async function pump() {
+  if (busy || !model) return;
+  const job = queue.shift();
+  if (!job) return;
+  busy = true;
+  await processOne(job).catch(console.error);
+  busy = false;
+  pump();
+}
+
+async function processOne({ file, card }) {
+  const spec = MODELS[activeModel];
+  const statusEl = card.querySelector(".card-status");
+  const rightPane = card.querySelector(".pair .pane:last-child");
+  const workEl   = rightPane.querySelector(".working");
+  statusEl.textContent = "推論中…";
+  workEl.textContent = backend === "webgpu" ? "推論中…（WebGPU）" : "推論中…（WASM・数秒かかります）";
+
+  const url = URL.createObjectURL(file);
+  let pixel_values = null, output = null;
+  try {
+    let image = await RawImage.fromURL(url);
+
+    let outW = image.width, outH = image.height;
+    if (Math.max(outW, outH) > MAX_OUTPUT_SIDE) {
+      const r = MAX_OUTPUT_SIDE / Math.max(outW, outH);
+      outW = Math.round(outW * r);
+      outH = Math.round(outH * r);
+      image = await image.resize(outW, outH);
+    }
+
+    ({ pixel_values } = await processor(image));
+    // モデルごとに入力キーが違う（RMBG: input / BiRefNet: input_image）
+    const result = await model({ [spec.inputKey]: pixel_values });
+    // 出力テンソルを取り出す（output / output_image どちらにも対応）
+    output = result[Object.keys(result)[0]];
+
+    // BiRefNet は sigmoid をかけてからマスク化
+    let maskTensor = output[0];
+    if (spec.sigmoid) maskTensor = maskTensor.sigmoid();
+    const maskImg = await RawImage.fromTensor(maskTensor.mul(255).to("uint8"));
+    const mask    = await maskImg.resize(outW, outH);
+
+    // ベースとなるRGBピクセル（元画像）を取得
+    const srcCanvas = image.toCanvas();
+    const baseCtx = document.createElement("canvas").getContext("2d");
+    baseCtx.canvas.width = outW; baseCtx.canvas.height = outH;
+    baseCtx.drawImage(srcCanvas, 0, 0);
+    const baseRGBA = baseCtx.getImageData(0, 0, outW, outH); // RGBは元のまま
+
+    // AIマスク（uint8, 1ch）を配列で保持 → 消しゴム/復元の基準にする
+    const aiMask = new Uint8ClampedArray(mask.data); // 長さ outW*outH
+
+    // 表示用キャンバス：RGB + (AIマスク × ユーザー編集) を合成
+    const canvas = document.createElement("canvas");
+    canvas.width = outW; canvas.height = outH;
+    const ctx = canvas.getContext("2d");
+
+    // ユーザー編集レイヤー：各ピクセルの倍率 0(消し)〜255(残す)。初期は255
+    const userMask = new Uint8ClampedArray(outW * outH).fill(255);
+
+    // 合成してcanvasに描く関数
+    function compositeTo(targetCanvas) {
+      const tctx = targetCanvas.getContext("2d");
+      const img = tctx.createImageData(outW, outH);
+      const d = img.data, b = baseRGBA.data;
+      for (let i = 0; i < aiMask.length; i++) {
+        const j = i * 4;
+        d[j] = b[j]; d[j+1] = b[j+1]; d[j+2] = b[j+2];
+        // 最終アルファ = AIマスク × ユーザーマスク / 255
+        d[j+3] = (aiMask[i] * userMask[i]) / 255;
+      }
+      tctx.putImageData(img, 0, 0);
+    }
+    compositeTo(canvas);
+
+    canvas.className = "checker";
+    workEl.replaceWith(canvas);
+    statusEl.textContent = "完了 ✓";
+    statusEl.classList.add("done");
+
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    const saveName = baseName + "_透明.png";
+
+    const wrap   = card.querySelector(".btn-save-wrap");
+    const saveBtn = card.querySelector(".btn-save");
+    wrap.classList.add("show");
+    saveBtn.addEventListener("click", () => saveImage(canvas, saveName));
+
+    // エディタ（消しゴム）をセットアップ
+    setupEditor(card, { outW, outH, baseRGBA, aiMask, userMask, canvas, compositeTo });
+
+    doneItems.push({ name: saveName, canvas, card });
+    if (!isIOS) globalActions.classList.add("show");
+
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "エラー";
+    statusEl.classList.add("err");
+    workEl.textContent = "処理に失敗しました：" + (e.message || e);
+  } finally {
+    try { pixel_values?.dispose?.(); } catch {}
+    try { output?.dispose?.(); } catch {}
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ---------- エディタ（消しゴム / 復元 / ブラシサイズ） ----------
+function setupEditor(card, ctx) {
+  const { outW, outH, userMask, canvas, compositeTo } = ctx;
+  const editorWrap = card.querySelector(".editor-wrap");
+  editorWrap.classList.add("show");
+
+  const toggleBtn = card.querySelector(".editor-toggle");
+  const panel     = card.querySelector(".editor-panel");
+  const editCanvas = card.querySelector(".edit-canvas");
+  const eraseBtn  = card.querySelector(".tool-erase");
+  const restoreBtn= card.querySelector(".tool-restore");
+  const sizeInput = card.querySelector(".brush-size");
+  const sizeVal   = card.querySelector(".brush-size-val");
+  const resetBtn  = card.querySelector(".editor-reset");
+
+  // 編集キャンバスは実ピクセル解像度
+  editCanvas.width = outW; editCanvas.height = outH;
+  const ectx = editCanvas.getContext("2d");
+  compositeTo(editCanvas);
+
+  let tool = "erase";       // erase | restore
+  let brush = 28;           // 表示px基準（実ピクセルに変換）
+  let drawing = false;
+
+  toggleBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+    toggleBtn.textContent = panel.classList.contains("open")
+      ? "✎ 手動修正を閉じる" : "✎ 手動修正（消しゴム / 復元）";
+    if (panel.classList.contains("open")) compositeTo(editCanvas);
+  });
+
+  eraseBtn.addEventListener("click", () => {
+    tool = "erase";
+    eraseBtn.classList.add("active"); restoreBtn.classList.remove("active");
+  });
+  restoreBtn.addEventListener("click", () => {
+    tool = "restore";
+    restoreBtn.classList.add("active"); eraseBtn.classList.remove("active");
+  });
+  sizeInput.addEventListener("input", () => {
+    brush = +sizeInput.value;
+    sizeVal.textContent = brush + "px";
+  });
+
+  // 座標変換：表示座標 → 実ピクセル座標
+  function toPixel(clientX, clientY) {
+    const rect = editCanvas.getBoundingClientRect();
+    const sx = outW / rect.width;
+    const sy = outH / rect.height;
+    return {
+      x: (clientX - rect.left) * sx,
+      y: (clientY - rect.top) * sy,
+      r: brush * sx, // ブラシ半径も実ピクセルに
+    };
+  }
+
+  // 円形ブラシで userMask を塗る
+  function paintAt(px, py, radius) {
+    const val = tool === "erase" ? 0 : 255;
+    const r2 = radius * radius;
+    const minX = Math.max(0, Math.floor(px - radius));
+    const maxX = Math.min(outW - 1, Math.ceil(px + radius));
+    const minY = Math.max(0, Math.floor(py - radius));
+    const maxY = Math.min(outH - 1, Math.ceil(py + radius));
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const dx = x - px, dy = y - py;
+        if (dx*dx + dy*dy <= r2) userMask[y * outW + x] = val;
+      }
+    }
+  }
+
+  // なめらかに線を引く（点と点の間を補間）
+  let lastX = null, lastY = null;
+  function stroke(px, py, radius) {
+    if (lastX !== null) {
+      const dist = Math.hypot(px - lastX, py - lastY);
+      const steps = Math.max(1, Math.floor(dist / (radius * 0.4)));
+      for (let i = 1; i <= steps; i++) {
+        paintAt(lastX + (px-lastX)*i/steps, lastY + (py-lastY)*i/steps, radius);
+      }
+    } else {
+      paintAt(px, py, radius);
+    }
+    lastX = px; lastY = py;
+    compositeTo(editCanvas);
+    compositeTo(canvas); // プレビュー側も同期
+  }
+
+  function start(e) {
+    drawing = true; lastX = null; lastY = null;
+    const p = toPixel(e.clientX ?? e.touches[0].clientX, e.clientY ?? e.touches[0].clientY);
+    stroke(p.x, p.y, p.r);
+    e.preventDefault();
+  }
+  function move(e) {
+    if (!drawing) return;
+    const cx = e.clientX ?? (e.touches && e.touches[0].clientX);
+    const cy = e.clientY ?? (e.touches && e.touches[0].clientY);
+    if (cx == null) return;
+    const p = toPixel(cx, cy);
+    stroke(p.x, p.y, p.r);
+    e.preventDefault();
+  }
+  function end() { drawing = false; lastX = null; lastY = null; }
+
+  editCanvas.addEventListener("mousedown", start);
+  editCanvas.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  editCanvas.addEventListener("touchstart", start, { passive: false });
+  editCanvas.addEventListener("touchmove", move, { passive: false });
+  editCanvas.addEventListener("touchend", end);
+
+  resetBtn.addEventListener("click", () => {
+    userMask.fill(255);
+    compositeTo(editCanvas);
+    compositeTo(canvas);
+  });
+}
+
+// ---------- グローバルアクション ----------
+$("btn-save-all").addEventListener("click", async () => {
+  for (const d of doneItems) {
+    await saveImage(d.canvas, d.name);
+    await new Promise(r => setTimeout(r, 500));
+  }
+});
+$("btn-clear").addEventListener("click", () => {
+  doneItems.length = 0;
+  queue = [];
+  results.innerHTML = "";
+  globalActions.classList.remove("show");
+});
+
+// ---------- モデル選択 ----------
+document.querySelectorAll(".model-card").forEach(c => {
+  c.addEventListener("click", () => {
+    if (activeModel) return; // 準備後は変更不可
+    document.querySelectorAll(".model-card").forEach(x => x.classList.remove("selected"));
+    c.classList.add("selected");
+    selectedModelKey = c.dataset.model;
+    // 重いモデルはモバイルで警告
+    const warn = $("model-warn");
+    if (MODELS[selectedModelKey].veryHeavy || (MODELS[selectedModelKey].heavy && isIOS)) {
+      warn.classList.add("show");
+    } else {
+      warn.classList.remove("show");
+    }
+  });
+});
+
+// 準備ボタンを押すまでモデルは一切ダウンロードしない
+$("btn-prepare").addEventListener("click", init);
+</script>
+</body>
+</html>

@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ワード軽量エディタ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #f5f3ef;
+  --surface: #ffffff;
+  --surface2: #f0ede8;
+  --border: #d4cfc7;
+  --border-focus: #7a8b6e;
+  --text: #2c2c2c;
+  --text-muted: #7a7670;
+  --accent: #5b7a4a;
+  --accent-hover: #4a6a3a;
+  --accent-light: #e8efe4;
+  --danger: #c45c4a;
+  --danger-light: #fdf0ee;
+  --toolbar-bg: #3a3a3a;
+  --toolbar-text: #e8e4de;
+  --toolbar-hover: #505050;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
+  --radius: 6px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  background: var(--toolbar-bg);
+  color: var(--toolbar-text);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  z-index: 100;
+}
+.header .logo {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.header .logo .icon {
+  width: 22px; height: 22px;
+  background: var(--accent);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.filename {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.08);
+  padding: 3px 10px;
+  border-radius: 4px;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+/* Buttons */
+.btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary {
+  background: rgba(255,255,255,0.12);
+  color: var(--toolbar-text);
+}
+.btn-secondary:hover { background: rgba(255,255,255,0.2); }
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover { background: #b04a3a; }
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--surface2); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Toolbar */
+.toolbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.toolbar .sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  margin: 0 6px;
+}
+.tool-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text);
+  font-weight: 500;
+  transition: all 0.12s;
+  min-width: 28px;
+  text-align: center;
+}
+.tool-btn:hover {
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.tool-btn.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tool-select {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Main Content */
+.main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Editor Area */
+.editor-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+}
+.editor-page {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  border-radius: 2px;
+  padding: 25.4mm 25.4mm 25.4mm 25.4mm;
+  position: relative;
+}
+
+/* Blocks */
+.block {
+  position: relative;
+  margin-bottom: 2px;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+.block:hover {
+  background: rgba(91,122,74,0.04);
+}
+.block.selected {
+  background: var(--accent-light);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.block-handle {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.block:hover .block-handle { opacity: 0.6; }
+
+/* Paragraph editing */
+.para-edit {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: 10.5pt;
+  line-height: 1.8;
+  color: var(--text);
+  background: transparent;
+  resize: none;
+  min-height: 1.6em;
+  padding: 2px 4px;
+}
+.para-edit:focus {
+  background: rgba(91,122,74,0.03);
+}
+.para-edit.heading1 { font-size: 20pt; font-weight: 700; line-height: 1.4; }
+.para-edit.heading2 { font-size: 16pt; font-weight: 700; line-height: 1.4; }
+.para-edit.heading3 { font-size: 13pt; font-weight: 700; line-height: 1.5; }
+.para-edit.bold-text { font-weight: 700; }
+.para-edit.italic-text { font-style: italic; }
+
+/* Table editing */
+.table-wrap {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.table-edit {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 10pt;
+}
+.table-edit td, .table-edit th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  min-width: 60px;
+  vertical-align: top;
+}
+.table-edit td:focus-within, .table-edit th:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.cell-edit {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  resize: none;
+  min-height: 1.4em;
+  line-height: 1.6;
+}
+
+/* Block actions */
+.block-actions {
+  position: absolute;
+  right: -36px;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.block:hover .block-actions { opacity: 1; }
+.block-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: var(--surface2);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+.block-action-btn:hover {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* Add block button */
+.add-block-area {
+  text-align: center;
+  padding: 12px;
+  margin-top: 8px;
+}
+.add-block-btn {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 6px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+.add-block-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+/* Context Menu */
+.context-menu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 160px;
+  display: none;
+}
+.context-menu.show { display: block; }
+.context-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  border-radius: 3px;
+  color: var(--text);
+  transition: background 0.1s;
+}
+.context-item:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.context-item.danger:hover {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* Welcome screen */
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 40px;
+}
+.welcome h2 {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+}
+.welcome p {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 360px;
+  line-height: 1.7;
+}
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+.welcome-btn {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 12px 28px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+}
+.welcome-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.welcome-btn .wicon {
+  font-size: 28px;
+}
+
+/* Drop zone */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(91,122,74,0.15);
+  z-index: 999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.drop-overlay.show { display: flex; }
+.drop-box {
+  background: var(--surface);
+  border: 3px dashed var(--accent);
+  border-radius: 16px;
+  padding: 48px 64px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+/* Status bar */
+.statusbar {
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  padding: 3px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+/* Table controls */
+.table-controls {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.tbl-ctrl-btn {
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text-muted);
+  transition: all 0.1s;
+}
+.tbl-ctrl-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Scrollbar */
+.editor-wrap::-webkit-scrollbar { width: 8px; }
+.editor-wrap::-webkit-scrollbar-track { background: transparent; }
+.editor-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.editor-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 2000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 24px;
+  min-width: 320px;
+  max-width: 90vw;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+}
+.modal h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.modal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.modal-row label {
+  font-size: 12px;
+  min-width: 60px;
+  color: var(--text-muted);
+}
+.modal-row input, .modal-row select {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">
+    <div class="icon">W</div>
+    ワード軽量エディタ
+  </div>
+  <div class="filename" id="filenameDisplay">未開封</div>
+  <div class="header-actions">
+    <button class="btn btn-secondary" onclick="showWelcome()">🏠 ホーム</button>
+    <button class="btn btn-secondary" onclick="openFile()">📂 開く</button>
+    <button class="btn btn-primary" id="saveBtn" onclick="saveFile()" disabled>💾 保存</button>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar" id="toolbar" style="display:none;">
+  <select class="tool-select" id="blockType" onchange="changeBlockType()">
+    <option value="paragraph">本文</option>
+    <option value="heading1">見出し1</option>
+    <option value="heading2">見出し2</option>
+    <option value="heading3">見出し3</option>
+  </select>
+  <div class="sep"></div>
+  <button class="tool-btn" onclick="toggleFormat('bold')" title="太字"><b>B</b></button>
+  <button class="tool-btn" onclick="toggleFormat('italic')" title="斜体"><i>I</i></button>
+  <div class="sep"></div>
+  <select class="tool-select" id="fontSize" onchange="changeFontSize()">
+    <option value="">サイズ</option>
+    <option value="8">8pt</option>
+    <option value="9">9pt</option>
+    <option value="10">10pt</option>
+    <option value="10.5">10.5pt</option>
+    <option value="11">11pt</option>
+    <option value="12">12pt</option>
+    <option value="14">14pt</option>
+    <option value="16">16pt</option>
+    <option value="18">18pt</option>
+    <option value="20">20pt</option>
+    <option value="24">24pt</option>
+  </select>
+  <div class="sep"></div>
+  <button class="tool-btn" onclick="addParagraph()" title="段落追加">＋段落</button>
+  <button class="tool-btn" onclick="addTable()" title="表追加">＋表</button>
+  <div class="sep"></div>
+  <button class="tool-btn" onclick="moveBlock(-1)" title="上に移動">▲</button>
+  <button class="tool-btn" onclick="moveBlock(1)" title="下に移動">▼</button>
+  <button class="tool-btn" onclick="deleteBlock()" title="ブロック削除" style="color:var(--danger)">✕</button>
+</div>
+
+<!-- Main -->
+<div class="main" id="mainArea">
+  <!-- Welcome -->
+  <div class="welcome" id="welcomeScreen">
+    <h2>ワード軽量エディタ</h2>
+    <p>.docxファイルの読み込み・編集・保存が<br>ブラウザだけで完結する軽量ツールです</p>
+    <div class="welcome-actions">
+      <button class="welcome-btn" onclick="createNew()">
+        <span class="wicon">📄</span>
+        新規作成
+      </button>
+      <button class="welcome-btn" onclick="openFile()">
+        <span class="wicon">📂</span>
+        ファイルを開く
+      </button>
+    </div>
+    <p style="font-size:11px; margin-top:12px;">
+      .docxファイルをドラッグ＆ドロップでも開けます
+    </p>
+  </div>
+  <!-- Editor -->
+  <div class="editor-wrap" id="editorWrap" style="display:none;">
+    <div class="editor-page" id="editorPage"></div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div class="statusbar" id="statusbar">
+  <span id="statusText">準備完了</span>
+  <span id="blockCount"></span>
+</div>
+
+<!-- Drop Overlay -->
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-box">📄 .docxファイルをここにドロップ</div>
+</div>
+
+<!-- Context Menu -->
+<div class="context-menu" id="contextMenu">
+  <button class="context-item" onclick="ctx_insertAbove()">↑ 上に段落挿入</button>
+  <button class="context-item" onclick="ctx_insertBelow()">↓ 下に段落挿入</button>
+  <button class="context-item" onclick="ctx_insertTableBelow()">⊞ 下に表挿入</button>
+  <button class="context-item" onclick="ctx_duplicate()">⧉ 複製</button>
+  <button class="context-item danger" onclick="ctx_delete()">✕ 削除</button>
+</div>
+
+<!-- Table size modal -->
+<div class="modal-overlay" id="tableSizeModal">
+  <div class="modal">
+    <h3>表の挿入</h3>
+    <div class="modal-row">
+      <label>行数</label>
+      <input type="number" id="tblRows" value="3" min="1" max="50">
+    </div>
+    <div class="modal-row">
+      <label>列数</label>
+      <input type="number" id="tblCols" value="3" min="1" max="20">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('tableSizeModal')">キャンセル</button>
+      <button class="btn btn-primary" onclick="confirmAddTable()">挿入</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".docx" style="display:none" onchange="handleFileSelect(event)">
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let docBlocks = []; // {type:'paragraph'|'table', ...}
+let selectedBlockIdx = -1;
+let currentFilename = '';
+let originalZip = null; // keep original zip for preserving styles etc.
+let originalSectPr = null; // 本文末尾の sectPr（用紙・ヘッダー/フッター参照）を原文保持
+let contextBlockIdx = -1;
+let dirty = false;
+
+// ============================================================
+// Utility
+// ============================================================
+function setStatus(msg) {
+  document.getElementById('statusText').textContent = msg;
+}
+
+function updateBlockCount() {
+  const paras = docBlocks.filter(b => b.type === 'paragraph').length;
+  const tables = docBlocks.filter(b => b.type === 'table').length;
+  document.getElementById('blockCount').textContent = `段落: ${paras} / 表: ${tables}`;
+}
+
+function markDirty() {
+  dirty = true;
+  document.getElementById('saveBtn').disabled = false;
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// ============================================================
+// Welcome / Editor switch
+// ============================================================
+function showWelcome() {
+  document.getElementById('welcomeScreen').style.display = 'flex';
+  document.getElementById('editorWrap').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'none';
+}
+
+function showEditor() {
+  document.getElementById('welcomeScreen').style.display = 'none';
+  document.getElementById('editorWrap').style.display = 'flex';
+  document.getElementById('toolbar').style.display = 'flex';
+}
+
+// ============================================================
+// New Document
+// ============================================================
+function createNew() {
+  docBlocks = [{ type: 'paragraph', text: '', style: 'paragraph', bold: false, italic: false, fontSize: null }];
+  currentFilename = '新規文書.docx';
+  originalZip = null;
+  originalSectPr = null;
+  document.getElementById('filenameDisplay').textContent = currentFilename;
+  document.getElementById('saveBtn').disabled = false;
+  dirty = false;
+  showEditor();
+  renderBlocks();
+  setStatus('新規文書を作成しました');
+}
+
+// ============================================================
+// Open File
+// ============================================================
+function openFile() {
+  document.getElementById('fileInput').click();
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) loadDocx(file);
+  e.target.value = '';
+}
+
+// Drag & Drop
+document.addEventListener('dragover', e => {
+  e.preventDefault();
+  document.getElementById('dropOverlay').classList.add('show');
+});
+document.addEventListener('dragleave', e => {
+  if (e.relatedTarget === null) {
+    document.getElementById('dropOverlay').classList.remove('show');
+  }
+});
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('dropOverlay').classList.remove('show');
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.docx')) loadDocx(file);
+});
+
+// ============================================================
+// Load .docx
+// ============================================================
+async function loadDocx(file) {
+  setStatus('読み込み中...');
+  try {
+    const arrayBuf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(arrayBuf);
+    originalZip = zip;
+
+    const docXml = await zip.file('word/document.xml').async('string');
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(docXml, 'application/xml');
+
+    docBlocks = [];
+    const body = xmlDoc.getElementsByTagName('w:body')[0];
+    if (!body) throw new Error('文書本体が見つかりません');
+
+    originalSectPr = null;
+    for (const child of body.children) {
+      if (child.tagName === 'w:p') {
+        docBlocks.push(parseParagraph(child));
+      } else if (child.tagName === 'w:tbl') {
+        docBlocks.push(parseTable(child));
+      } else if (child.tagName === 'w:sectPr') {
+        // 本文末尾のセクション設定（用紙サイズ・ヘッダー/フッター参照など）を原文のまま保持
+        originalSectPr = new XMLSerializer().serializeToString(child);
+      }
+    }
+
+    if (docBlocks.length === 0) {
+      docBlocks.push({ type: 'paragraph', text: '', style: 'paragraph', bold: false, italic: false, fontSize: null });
+    }
+
+    currentFilename = file.name;
+    document.getElementById('filenameDisplay').textContent = currentFilename;
+    document.getElementById('saveBtn').disabled = false;
+    dirty = false;
+    showEditor();
+    renderBlocks();
+    setStatus(`${file.name} を読み込みました`);
+  } catch (err) {
+    setStatus('読み込みエラー: ' + err.message);
+    console.error(err);
+  }
+}
+
+function parseParagraph(pNode) {
+  let text = '';
+  let bold = false, italic = false;
+  let fontSize = null;
+  let style = 'paragraph';
+
+  // Check paragraph style
+  const pPr = pNode.getElementsByTagName('w:pPr')[0];
+  if (pPr) {
+    const pStyle = pPr.getElementsByTagName('w:pStyle')[0];
+    if (pStyle) {
+      const val = pStyle.getAttribute('w:val') || '';
+      if (/heading\s*1|見出し\s*1/i.test(val) || val === '1') style = 'heading1';
+      else if (/heading\s*2|見出し\s*2/i.test(val) || val === '2') style = 'heading2';
+      else if (/heading\s*3|見出し\s*3/i.test(val) || val === '3') style = 'heading3';
+    }
+  }
+
+  // Collect runs
+  const runs = pNode.getElementsByTagName('w:r');
+  for (const r of runs) {
+    const rPr = r.getElementsByTagName('w:rPr')[0];
+    if (rPr) {
+      if (rPr.getElementsByTagName('w:b').length > 0) bold = true;
+      if (rPr.getElementsByTagName('w:i').length > 0) italic = true;
+      const sz = rPr.getElementsByTagName('w:sz')[0];
+      if (sz) {
+        const v = parseInt(sz.getAttribute('w:val'));
+        if (v) fontSize = v / 2; // half-points → points
+      }
+    }
+    const tNodes = r.getElementsByTagName('w:t');
+    for (const t of tNodes) {
+      text += t.textContent;
+    }
+  }
+
+  // 未編集判定用のスナップショットと、書式を完全保持して再出力するための原文 XML を保持
+  const originalXml = new XMLSerializer().serializeToString(pNode);
+  return {
+    type: 'paragraph', text, style, bold, italic, fontSize,
+    _origXml: originalXml,
+    _origText: text, _origStyle: style, _origBold: bold, _origItalic: italic, _origFontSize: fontSize
+  };
+}
+
+function parseTable(tblNode) {
+  const rows = [];
+  const trNodes = tblNode.getElementsByTagName('w:tr');
+  for (const tr of trNodes) {
+    const cells = [];
+    const tcNodes = tr.getElementsByTagName('w:tc');
+    for (const tc of tcNodes) {
+      let cellText = '';
+      const paras = tc.getElementsByTagName('w:p');
+      const paraTexts = [];
+      for (const p of paras) {
+        let pText = '';
+        const runs = p.getElementsByTagName('w:r');
+        for (const r of runs) {
+          const tNodes = r.getElementsByTagName('w:t');
+          for (const t of tNodes) pText += t.textContent;
+        }
+        paraTexts.push(pText);
+      }
+      cellText = paraTexts.join('\n');
+
+      // Merge info
+      const tcPr = tc.getElementsByTagName('w:tcPr')[0];
+      let gridSpan = 1;
+      let vMerge = null;
+      if (tcPr) {
+        const gs = tcPr.getElementsByTagName('w:gridSpan')[0];
+        if (gs) gridSpan = parseInt(gs.getAttribute('w:val')) || 1;
+        const vm = tcPr.getElementsByTagName('w:vMerge')[0];
+        if (vm) {
+          vMerge = vm.getAttribute('w:val') === 'restart' ? 'restart' : 'continue';
+        }
+      }
+      cells.push({ text: cellText, gridSpan, vMerge });
+    }
+    rows.push(cells);
+  }
+  const originalXml = new XMLSerializer().serializeToString(tblNode);
+  return { type: 'table', rows, _origXml: originalXml, _origSig: tableSig(rows) };
+}
+
+// 表セルが未編集かを判定するためのシグネチャ（テキスト・結合情報）
+function tableSig(rows) {
+  return JSON.stringify(rows.map((r) => r.map((c) => [c.text, c.gridSpan, c.vMerge])));
+}
+
+// ============================================================
+// Render
+// ============================================================
+function renderBlocks() {
+  const page = document.getElementById('editorPage');
+  page.innerHTML = '';
+
+  docBlocks.forEach((block, idx) => {
+    const div = document.createElement('div');
+    div.className = 'block' + (idx === selectedBlockIdx ? ' selected' : '');
+    div.dataset.idx = idx;
+    div.addEventListener('click', () => selectBlock(idx));
+    div.addEventListener('contextmenu', e => showContextMenu(e, idx));
+
+    if (block.type === 'paragraph') {
+      const ta = document.createElement('textarea');
+      ta.className = 'para-edit';
+      if (block.style === 'heading1') ta.classList.add('heading1');
+      else if (block.style === 'heading2') ta.classList.add('heading2');
+      else if (block.style === 'heading3') ta.classList.add('heading3');
+      if (block.bold) ta.classList.add('bold-text');
+      if (block.italic) ta.classList.add('italic-text');
+      if (block.fontSize) ta.style.fontSize = block.fontSize + 'pt';
+      ta.value = block.text;
+      ta.rows = 1;
+      ta.addEventListener('input', e => {
+        block.text = e.target.value;
+        autoResize(e.target);
+        markDirty();
+      });
+      ta.addEventListener('focus', () => selectBlock(idx));
+      div.appendChild(ta);
+
+      // Auto-resize after render
+      requestAnimationFrame(() => autoResize(ta));
+    } else if (block.type === 'table') {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+
+      // Table controls
+      const ctrls = document.createElement('div');
+      ctrls.className = 'table-controls';
+      ctrls.innerHTML = `
+        <button class="tbl-ctrl-btn" onclick="event.stopPropagation(); tblAddRow(${idx})">＋行</button>
+        <button class="tbl-ctrl-btn" onclick="event.stopPropagation(); tblAddCol(${idx})">＋列</button>
+        <button class="tbl-ctrl-btn" onclick="event.stopPropagation(); tblDelRow(${idx})">－行</button>
+        <button class="tbl-ctrl-btn" onclick="event.stopPropagation(); tblDelCol(${idx})">－列</button>
+      `;
+      wrap.appendChild(ctrls);
+
+      const table = document.createElement('table');
+      table.className = 'table-edit';
+      block.rows.forEach((row, ri) => {
+        const tr = document.createElement('tr');
+        row.forEach((cell, ci) => {
+          const td = document.createElement('td');
+          if (cell.gridSpan > 1) td.colSpan = cell.gridSpan;
+          const ta = document.createElement('textarea');
+          ta.className = 'cell-edit';
+          ta.value = cell.text;
+          ta.rows = 1;
+          ta.addEventListener('input', e => {
+            cell.text = e.target.value;
+            autoResize(e.target);
+            markDirty();
+          });
+          ta.addEventListener('focus', () => selectBlock(idx));
+          td.appendChild(ta);
+          tr.appendChild(td);
+          requestAnimationFrame(() => autoResize(ta));
+        });
+        table.appendChild(tr);
+      });
+      wrap.appendChild(table);
+      div.appendChild(wrap);
+    }
+
+    page.appendChild(div);
+  });
+
+  // Add block button
+  const addArea = document.createElement('div');
+  addArea.className = 'add-block-area';
+  addArea.innerHTML = '<button class="add-block-btn" onclick="addParagraph()">＋ ブロックを追加</button>';
+  page.appendChild(addArea);
+
+  updateBlockCount();
+}
+
+function autoResize(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+}
+
+// ============================================================
+// Block Selection
+// ============================================================
+function selectBlock(idx) {
+  selectedBlockIdx = idx;
+  document.querySelectorAll('.block').forEach((el, i) => {
+    el.classList.toggle('selected', i === idx);
+  });
+  // Update toolbar
+  if (idx >= 0 && idx < docBlocks.length) {
+    const b = docBlocks[idx];
+    if (b.type === 'paragraph') {
+      document.getElementById('blockType').value = b.style;
+      document.getElementById('fontSize').value = b.fontSize || '';
+    }
+  }
+}
+
+// ============================================================
+// Toolbar Actions
+// ============================================================
+function changeBlockType() {
+  if (selectedBlockIdx < 0) return;
+  const b = docBlocks[selectedBlockIdx];
+  if (b.type !== 'paragraph') return;
+  b.style = document.getElementById('blockType').value;
+  renderBlocks();
+  markDirty();
+}
+
+function toggleFormat(fmt) {
+  if (selectedBlockIdx < 0) return;
+  const b = docBlocks[selectedBlockIdx];
+  if (b.type !== 'paragraph') return;
+  b[fmt] = !b[fmt];
+  renderBlocks();
+  markDirty();
+}
+
+function changeFontSize() {
+  if (selectedBlockIdx < 0) return;
+  const b = docBlocks[selectedBlockIdx];
+  if (b.type !== 'paragraph') return;
+  const val = document.getElementById('fontSize').value;
+  b.fontSize = val ? parseFloat(val) : null;
+  renderBlocks();
+  markDirty();
+}
+
+function addParagraph() {
+  const idx = selectedBlockIdx >= 0 ? selectedBlockIdx + 1 : docBlocks.length;
+  docBlocks.splice(idx, 0, { type: 'paragraph', text: '', style: 'paragraph', bold: false, italic: false, fontSize: null });
+  selectedBlockIdx = idx;
+  renderBlocks();
+  markDirty();
+  // Focus the new textarea
+  const block = document.querySelector(`.block[data-idx="${idx}"] .para-edit`);
+  if (block) block.focus();
+}
+
+function addTable() {
+  document.getElementById('tableSizeModal').classList.add('show');
+}
+
+function confirmAddTable() {
+  const rows = parseInt(document.getElementById('tblRows').value) || 3;
+  const cols = parseInt(document.getElementById('tblCols').value) || 3;
+  const tableData = { type: 'table', rows: [] };
+  for (let r = 0; r < rows; r++) {
+    const row = [];
+    for (let c = 0; c < cols; c++) {
+      row.push({ text: '', gridSpan: 1, vMerge: null });
+    }
+    tableData.rows.push(row);
+  }
+  const idx = selectedBlockIdx >= 0 ? selectedBlockIdx + 1 : docBlocks.length;
+  docBlocks.splice(idx, 0, tableData);
+  selectedBlockIdx = idx;
+  closeModal('tableSizeModal');
+  renderBlocks();
+  markDirty();
+}
+
+function deleteBlock() {
+  if (selectedBlockIdx < 0 || docBlocks.length <= 1) return;
+  docBlocks.splice(selectedBlockIdx, 1);
+  selectedBlockIdx = Math.min(selectedBlockIdx, docBlocks.length - 1);
+  renderBlocks();
+  markDirty();
+}
+
+function moveBlock(dir) {
+  const idx = selectedBlockIdx;
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= docBlocks.length) return;
+  [docBlocks[idx], docBlocks[newIdx]] = [docBlocks[newIdx], docBlocks[idx]];
+  selectedBlockIdx = newIdx;
+  renderBlocks();
+  markDirty();
+}
+
+// ============================================================
+// Table operations
+// ============================================================
+function tblAddRow(blockIdx) {
+  const tbl = docBlocks[blockIdx];
+  if (!tbl || tbl.type !== 'table') return;
+  const cols = tbl.rows[0] ? tbl.rows[0].length : 3;
+  const newRow = [];
+  for (let c = 0; c < cols; c++) newRow.push({ text: '', gridSpan: 1, vMerge: null });
+  tbl.rows.push(newRow);
+  renderBlocks();
+  markDirty();
+}
+
+function tblAddCol(blockIdx) {
+  const tbl = docBlocks[blockIdx];
+  if (!tbl || tbl.type !== 'table') return;
+  tbl.rows.forEach(row => row.push({ text: '', gridSpan: 1, vMerge: null }));
+  renderBlocks();
+  markDirty();
+}
+
+function tblDelRow(blockIdx) {
+  const tbl = docBlocks[blockIdx];
+  if (!tbl || tbl.type !== 'table' || tbl.rows.length <= 1) return;
+  tbl.rows.pop();
+  renderBlocks();
+  markDirty();
+}
+
+function tblDelCol(blockIdx) {
+  const tbl = docBlocks[blockIdx];
+  if (!tbl || tbl.type !== 'table') return;
+  if (tbl.rows[0] && tbl.rows[0].length <= 1) return;
+  tbl.rows.forEach(row => row.pop());
+  renderBlocks();
+  markDirty();
+}
+
+// ============================================================
+// Context Menu
+// ============================================================
+function showContextMenu(e, idx) {
+  e.preventDefault();
+  contextBlockIdx = idx;
+  selectBlock(idx);
+  const menu = document.getElementById('contextMenu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('show');
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('contextMenu').classList.remove('show');
+});
+
+function ctx_insertAbove() {
+  docBlocks.splice(contextBlockIdx, 0, { type: 'paragraph', text: '', style: 'paragraph', bold: false, italic: false, fontSize: null });
+  selectedBlockIdx = contextBlockIdx;
+  renderBlocks();
+  markDirty();
+}
+function ctx_insertBelow() {
+  docBlocks.splice(contextBlockIdx + 1, 0, { type: 'paragraph', text: '', style: 'paragraph', bold: false, italic: false, fontSize: null });
+  selectedBlockIdx = contextBlockIdx + 1;
+  renderBlocks();
+  markDirty();
+}
+function ctx_insertTableBelow() {
+  contextBlockIdx;
+  selectedBlockIdx = contextBlockIdx;
+  addTable();
+}
+function ctx_duplicate() {
+  const orig = docBlocks[contextBlockIdx];
+  const copy = JSON.parse(JSON.stringify(orig));
+  docBlocks.splice(contextBlockIdx + 1, 0, copy);
+  selectedBlockIdx = contextBlockIdx + 1;
+  renderBlocks();
+  markDirty();
+}
+function ctx_delete() {
+  if (docBlocks.length <= 1) return;
+  docBlocks.splice(contextBlockIdx, 1);
+  selectedBlockIdx = Math.min(contextBlockIdx, docBlocks.length - 1);
+  renderBlocks();
+  markDirty();
+}
+
+// ============================================================
+// Save .docx
+// ============================================================
+async function saveFile() {
+  setStatus('保存中...');
+  try {
+    let zip;
+    if (originalZip) {
+      zip = originalZip;
+    } else {
+      zip = createMinimalDocxZip();
+    }
+
+    // Generate document.xml
+    const docXml = generateDocumentXml();
+    zip.file('word/document.xml', docXml);
+
+    const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+
+    // Download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = currentFilename || '文書.docx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+
+    dirty = false;
+    setStatus(`${currentFilename} を保存しました`);
+  } catch (err) {
+    setStatus('保存エラー: ' + err.message);
+    console.error(err);
+  }
+}
+
+function createMinimalDocxZip() {
+  const zip = new JSZip();
+
+  // [Content_Types].xml
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`);
+
+  // _rels/.rels
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+
+  // word/_rels/document.xml.rels
+  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`);
+
+  // word/styles.xml
+  zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/>
+    <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="40"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/>
+    <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="32"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3">
+    <w:name w:val="heading 3"/>
+    <w:pPr><w:outlineLvl w:val="2"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="26"/></w:rPr>
+  </w:style>
+</w:styles>`);
+
+  return zip;
+}
+
+function generateDocumentXml() {
+  let bodyContent = '';
+
+  for (const block of docBlocks) {
+    if (block.type === 'paragraph') {
+      bodyContent += generateParagraphXml(block);
+    } else if (block.type === 'table') {
+      bodyContent += generateTableXml(block);
+    }
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+  xmlns:mo="http://schemas.microsoft.com/office/mac/office/2008/main"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:mv="urn:schemas-microsoft-com:mac:vml"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
+  xmlns:v="urn:schemas-microsoft-com:vml"
+  xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+  xmlns:w10="urn:schemas-microsoft-com:office:word"
+  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+  xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+  xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
+  xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
+  xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+  mc:Ignorable="w14 wp14">
+  <w:body>${bodyContent}
+    ${originalSectPr || `<w:sectPr>
+      <w:pgSz w:w="11906" w:h="16838"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+    </w:sectPr>`}
+  </w:body>
+</w:document>`;
+}
+
+function escXml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function generateParagraphXml(block) {
+  // 未編集の段落は元の XML をそのまま出力し、段落内の混在書式・既存スタイルを完全保持する
+  if (block._origXml !== undefined
+      && block.text === block._origText
+      && block.style === block._origStyle
+      && block.bold === block._origBold
+      && block.italic === block._origItalic
+      && block.fontSize === block._origFontSize) {
+    return '\n    ' + block._origXml;
+  }
+
+  let pPr = '';
+  if (block.style === 'heading1') pPr += '<w:pStyle w:val="Heading1"/>';
+  else if (block.style === 'heading2') pPr += '<w:pStyle w:val="Heading2"/>';
+  else if (block.style === 'heading3') pPr += '<w:pStyle w:val="Heading3"/>';
+
+  let rPr = '';
+  if (block.bold) rPr += '<w:b/>';
+  if (block.italic) rPr += '<w:i/>';
+  if (block.fontSize) rPr += `<w:sz w:val="${Math.round(block.fontSize * 2)}"/><w:szCs w:val="${Math.round(block.fontSize * 2)}"/>`;
+
+  const lines = block.text.split('\n');
+  let runs = '';
+  lines.forEach((line, i) => {
+    if (i > 0) runs += '<w:r><w:br/></w:r>';
+    runs += `<w:r>${rPr ? '<w:rPr>' + rPr + '</w:rPr>' : ''}<w:t xml:space="preserve">${escXml(line)}</w:t></w:r>`;
+  });
+
+  return `
+    <w:p>${pPr ? '<w:pPr>' + pPr + '</w:pPr>' : ''}${runs}</w:p>`;
+}
+
+function generateTableXml(block) {
+  // 未編集の表は元の XML をそのまま出力し、結合セル（縦結合含む）や書式を保持する
+  if (block._origXml !== undefined && tableSig(block.rows) === block._origSig) {
+    return '\n    ' + block._origXml;
+  }
+
+  let xml = `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblStyle w:val="TableGrid"/>
+        <w:tblW w:w="0" w:type="auto"/>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+        </w:tblBorders>
+        <w:tblLook w:val="04A0"/>
+      </w:tblPr>`;
+
+  for (const row of block.rows) {
+    xml += `
+      <w:tr>`;
+    for (const cell of row) {
+      let tcPr = '';
+      if (cell.gridSpan > 1) tcPr += `<w:gridSpan w:val="${cell.gridSpan}"/>`;
+      if (cell.vMerge) {
+        tcPr += cell.vMerge === 'restart' ? '<w:vMerge w:val="restart"/>' : '<w:vMerge/>';
+      }
+
+      const lines = cell.text.split('\n');
+      let parasXml = '';
+      for (const line of lines) {
+        parasXml += `<w:p><w:r><w:t xml:space="preserve">${escXml(line)}</w:t></w:r></w:p>`;
+      }
+
+      xml += `
+        <w:tc>${tcPr ? '<w:tcPr>' + tcPr + '</w:tcPr>' : ''}${parasXml}</w:tc>`;
+    }
+    xml += `
+      </w:tr>`;
+  }
+  xml += `
+    </w:tbl>`;
+  return xml;
+}
+
+// ============================================================
+// Keyboard shortcuts
+// ============================================================
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    if (!document.getElementById('saveBtn').disabled) saveFile();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+    e.preventDefault();
+    toggleFormat('bold');
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+    e.preventDefault();
+    toggleFormat('italic');
+  }
+});
+
+// Warn before leaving
+window.addEventListener('beforeunload', e => {
+  if (dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// Init
+setStatus('準備完了');
+</script>
+</body>
+</html>
