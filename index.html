@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -66,43 +66,11 @@
   <h1>ツールボックス</h1>
   <p class="sub">スマホで使えるツール一覧。タップで開く。ホーム画面に追加するとアプリのように使えます。</p>
 
-  <h2>画像生成 AI</h2>
-  <div class="grid">
-    <a class="tool" href="画像生成ai/prompt_corpus_explorer.html">
-      <span class="name">プロンプトコーパス</span>
-      <span class="desc">プロンプトの取り込み・分析・ガチャ生成</span>
-    </a>
-    <a class="tool" href="画像生成ai/danbooru_tag_search.html">
-      <span class="name">Danbooru タグ検索</span>
-      <span class="desc">タグ一覧 / アーティスト集計</span>
-    </a>
-  </div>
+  <!-- （非公開ツールの区間） -->
 
-  <h2>画像加工</h2>
-  <div class="grid">
-    <a class="tool" href="画像加工/深度レリーフ工房/depth_relief_tool.html">
-      <span class="name">深度レリーフ工房</span>
-      <span class="desc">写真1枚からAIで立体化（回す3D）</span>
-      <span class="badge">初回モデルDLあり</span>
-    </a>
-    <a class="tool" href="画像加工/背景透明化/bg-remover%20(6).html">
-      <span class="name">背景透明化（キリトリ）</span>
-      <span class="desc">AIで背景を透明PNGに</span>
-      <span class="badge">初回モデルDLあり</span>
-    </a>
-    <a class="tool" href="画像加工/疑似3d/pseudo_3d_viewer.html">
-      <span class="name">疑似3Dビューア</span>
-      <span class="desc">画像＋深度マップで立体（深度は工房で作成）</span>
-    </a>
-  </div>
-
-  <h2>画像ビューア</h2>
-  <div class="grid">
-    <a class="tool" href="画像ビューア/rocket-viewer.html">
-      <span class="name">Rocket Viewer</span>
-      <span class="desc">対応サイトの画像を連続ビューア（ブックマークレット登録ページ）</span>
-    </a>
-  </div>
+  <!-- 旧・画像加工3ツール（背景透明化・疑似3d・深度レリーフ工房）は
+       後継の「画像工房」に全機能が移植されたため 2026-07-02 に退避（フォルダ名_旧）。
+       画像工房は Netlify で公開中（共通部品を使うためこの一覧からは開けません） -->
 
   <h2>業務効率化</h2>
   <div class="grid">
@@ -123,12 +91,18 @@
       <span class="desc">サーマルプリンタに直接印刷</span>
       <span class="badge">Android Chrome のみ</span>
     </a>
+    <a class="tool" href="業務効率化/名前匿名化Web/名前匿名化.html">
+      <span class="name">名前匿名化</span>
+      <span class="desc">実名をA・B・Cに置換（人名辞書で自動検出）</span>
+    </a>
   </div>
 
   <p class="foot">
-    ※ ミニエクセル / 名前匿名化 / エクセル串刺し検索 / File-2-Text は Windows 専用（PowerShell）のためスマホでは動きません。<br>
-    ※ 各ツールはすべて端末内で動作し、ファイルはサーバーに送信されません。
+    ※ ミニエクセル / エクセル串刺し検索 / File-2-Text は Windows 専用（PowerShell）のためスマホでは動きません。
+    PCでは ツールボックス フォルダの「ツールメニュー.vbs」から起動できます。<br>
+    ※ 各ツールはすべて端末内で動作し、ファイルはサーバーに送信されません（ネット接続も不要です）。
   </p>
 </div>
 </body>
 </html>
+
