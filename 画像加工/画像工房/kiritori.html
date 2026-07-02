@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>キリトリ — 背景透明化 | 画像工房</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/common.css">
+<style>
+  /* ---- このページ固有 ---- */
+  #global-actions { display: none; margin-bottom: 16px; gap: 9px; }
+  #global-actions.show { display: flex; flex-wrap: wrap; }
+  #btn-change-model { margin-left: auto; }
+  .btn-save-wrap { margin-top: 15px; display: none; }
+  .btn-save-wrap.show { display: block; }
+  .next-actions { display: none; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+  .next-actions.show { display: flex; }
+  .btn-next {
+    flex: 1; min-width: 150px;
+    font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .03em;
+    padding: 12px 16px; border-radius: 9px;
+    border: 2px solid var(--accent-bright); background: var(--accent-soft);
+    color: var(--accent); cursor: pointer; transition: background .12s;
+  }
+  .btn-next:hover { background: #dcebe2; }
+  .sub-actions { display: flex; gap: 8px; margin-top: 9px; }
+
+  /* エディタ(消しゴム) */
+  .editor-wrap { margin-top: 15px; display: none; }
+  .editor-wrap.show { display: block; }
+  .editor-toggle {
+    width: 100%; padding: 12px;
+    font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: .04em;
+    border-radius: 9px; border: 1px dashed #b9b5a8;
+    background: transparent; color: var(--accent); cursor: pointer;
+    transition: background .12s; margin-top: 10px;
+  }
+  .editor-toggle:hover { background: #f1efe9; }
+  .editor-panel { display: none; margin-top: 12px; }
+  .editor-panel.open { display: block; }
+  .editor-canvas-box {
+    position: relative; border-radius: 9px; overflow: hidden;
+    border: 1px solid var(--line);
+    background-image:
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%),
+      linear-gradient(45deg, #dcdcd6 25%, transparent 25%, transparent 75%, #dcdcd6 75%);
+    background-size: 16px 16px; background-position: 0 0, 8px 8px;
+    background-color: #f4f3ef;
+    touch-action: none;
+  }
+  .editor-canvas-box canvas {
+    width: 100%; height: auto; display: block; cursor: crosshair;
+    border: none; border-radius: 0;
+  }
+  .editor-tools { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; align-items: center; }
+  .tool-btn {
+    font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: .03em;
+    padding: 8px 14px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--paper);
+    color: var(--muted); cursor: pointer; transition: all .12s;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .tool-btn.active { border-color: var(--accent-bright); color: var(--accent); background: var(--accent-soft); }
+  .tool-btn:hover { border-color: var(--accent-bright); }
+  .brush-control {
+    display: flex; align-items: center; gap: 9px; flex: 1; min-width: 160px;
+    font-size: 11.5px; color: var(--muted); font-weight: 700;
+  }
+  .brush-control input[type=range] { flex: 1; accent-color: var(--accent-bright); cursor: pointer; }
+  .brush-size-val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  .editor-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .editor-hint { font-size: 10.5px; color: var(--muted); margin-top: 9px; line-height: 1.6; }
+  #prepare-wrap { margin-bottom: 18px; }
+  #prepare-wrap.done, #model-select-wrap.done { display: none; }
+  #model-select-wrap { margin-bottom: 14px; }
+  .prepare-note { font-size: 11.5px; color: rgba(255,255,255,.75); margin-top: 10px; line-height: 1.8; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="crumbs"><a href="index.html">← 画像工房トップ</a></nav>
+
+  <header class="sticker">
+    <div class="title-row">
+      <h1><span style="font-weight:500">✂</span> キリトリ — 背景透明化</h1>
+      <span class="title-en">Step 1 / BG Remover</span>
+      <span class="rev-badge" id="rev-badge"></span>
+    </div>
+    <div class="sub">画像はこの端末の中だけで処理されます。サーバー送信なし・回数制限なし・PNG変換時にEXIF(位置情報・撮影日時)も自動除去。切り抜いたら「深度を作る」でそのまま立体化に進めます。</div>
+    <div class="badges">
+      <span class="badge">ローカルAI処理</span>
+      <span class="badge">サーバー保存なし</span>
+      <span class="badge">EXIF自動除去</span>
+      <span class="badge" id="badge-backend">バックエンド検出中…</span>
+    </div>
+  </header>
+
+  <div class="status-bar">
+    <span class="dot" id="status-dot"></span>
+    <div style="flex:1">
+      <div id="status-text">下のボタンを押すとAIの準備を開始します。押すまで通信は発生しません。</div>
+      <div class="progress" id="model-progress"><div class="fill" id="model-progress-fill"></div></div>
+    </div>
+    <span id="backend-label" style="font-size:11px;font-weight:700;color:var(--muted)"></span>
+    <button class="btn-sm" id="btn-change-model" style="display:none">モデル変更</button>
+  </div>
+
+  <div id="model-select-wrap">
+    <div class="model-select-label">使うAIモデルを選ぶ</div>
+    <div class="model-cards">
+      <div class="model-card selected" data-model="birefnet_lite">
+        <div class="model-name">BiRefNet lite</div>
+        <span class="model-tag">商用OK</span><span class="model-tag">高精度・標準</span>
+        <div class="model-desc">髪や複雑な輪郭に強い。PC(WebGPU)約115MB / その他約224MB。ライセンスはMITで商用利用も可。PCなら迷わずこれ。スマホは軽いRMBGが現実的。</div>
+      </div>
+      <div class="model-card" data-model="rmbg">
+        <div class="model-name">RMBG-1.4</div>
+        <span class="model-tag nc">非商用のみ</span><span class="model-tag">軽量・高速</span>
+        <div class="model-desc">PC約176MB / スマホ約44MB。速いが<b>商用利用は不可</b>(BRIA非商用ライセンス)。個人で楽しむ用。</div>
+      </div>
+      <div class="model-card" data-model="birefnet">
+        <div class="model-name">BiRefNet</div>
+        <span class="model-tag">商用OK</span><span class="model-tag heavy">最高精度・重量</span>
+        <div class="model-desc">PC(WebGPU)約490MB / その他約973MB。最も精細だがダウンロードと処理が重い。PC・WebGPU専用と考えて。</div>
+      </div>
+    </div>
+    <div class="model-warn" id="model-warn">⚠ このモデルはサイズが大きく、スマホでは読み込みや処理に失敗することがあります。Wi-Fi接続を推奨します。</div>
+  </div>
+
+  <div id="prepare-wrap">
+    <button class="btn-big" id="btn-prepare">
+      <span class="icon">⬇</span>
+      <span>このモデルで準備する（初回のみ取得）</span>
+    </button>
+    <p class="prepare-note">初回だけモデルをダウンロードします。2回目以降は同じモデルならキャッシュから即起動し、通信は発生しません。</p>
+  </div>
+
+  <div id="dropzone" class="dropzone disabled">
+    <p>ここに画像をドロップ　または　タップして選択</p>
+    <p class="hint">JPG / PNG / WebP ・ 複数ファイル対応 ・ 出力は透明背景PNG</p>
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+  </div>
+
+  <div id="global-actions">
+    <button class="btn-plain" id="btn-save-all">まとめてZIP保存</button>
+    <button class="btn-ghost" id="btn-clear">クリア</button>
+  </div>
+
+  <div id="results"></div>
+
+  <footer class="kobo">
+    標準モデル: BiRefNet lite（MITライセンス・商用可）／ RMBG-1.4 は BRIA 非商用ライセンスのため商売には使えません<br>
+    推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）／ 初回のみモデル取得のためインターネット接続が必要です<br>
+    大きい画像は推論用に内部で縮小されますが、出力PNGは元の解像度（最大4096px）で生成されます。
+  </footer>
+</div>
+
+<script type="module">
+import { env, AutoModel, AutoProcessor, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
+import { isIOS, saveBlob, canvasToBlob, makeZip, handoffSend, detectBackend } from "./assets/common.js";
+
+const REV = "v2 rev2";
+document.getElementById("rev-badge").textContent = REV;
+
+env.allowLocalModels = false;
+// COEPなし環境ではSharedArrayBufferが使えないためWASMはシングルスレッド固定。
+// 高速パスはWebGPUが担う。
+env.backends.onnx.wasm.proxy = false;
+env.backends.onnx.wasm.numThreads = 1;
+
+const $ = id => document.getElementById(id);
+const statusDot  = $("status-dot");
+const statusText = $("status-text");
+const backendLabel  = $("backend-label");
+const badgeBackend  = $("badge-backend");
+const progressBar   = $("model-progress");
+const progressFill  = $("model-progress-fill");
+const dropzone  = $("dropzone");
+const fileInput = $("file-input");
+const results   = $("results");
+const globalActions = $("global-actions");
+const changeModelBtn = $("btn-change-model");
+
+// ---------- モデル定義 ----------
+// dtypeはHugging Face上に実在するファイルに合わせること。
+// BiRefNet系にq8(model_quantized.onnx)は存在しない → 指定すると必ず読み込み失敗する
+const MODELS = {
+  birefnet_lite: {
+    id: "onnx-community/BiRefNet_lite",
+    label: "BiRefNet lite",
+    inputKey: "input_image",
+    sigmoid: true,
+    modelType: null,
+    procConfig: null,
+    heavy: true,
+    dtype: { webgpu: "fp16", wasm: "fp32" },   // fp16:115MB / fp32:224MB
+  },
+  rmbg: {
+    id: "briaai/RMBG-1.4",
+    label: "RMBG-1.4",
+    inputKey: "input",
+    sigmoid: false,
+    modelType: "custom",
+    procConfig: {
+      do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
+      image_mean: [0.5, 0.5, 0.5], image_std: [1, 1, 1],
+      feature_extractor_type: "ImageFeatureExtractor",
+      resample: 2, rescale_factor: 0.00392156862745098,
+      size: { width: 1024, height: 1024 },
+    },
+    dtype: { webgpu: "fp32", wasm: "q8" },     // fp32:176MB / q8:44MB
+  },
+  birefnet: {
+    id: "onnx-community/BiRefNet-ONNX",
+    label: "BiRefNet",
+    inputKey: "input_image",
+    sigmoid: true,
+    modelType: null,
+    procConfig: null,
+    heavy: true,
+    veryHeavy: true,
+    dtype: { webgpu: "fp16", wasm: "fp32" },   // fp16:490MB / fp32:973MB
+  },
+};
+let selectedModelKey = "birefnet_lite";
+let activeModel = null;
+let modelLoading = false;   // 読み込み中のモデル切替事故を防ぐ
+
+// iOSはcanvasメモリ上限が厳しいため出力上限を下げる(タブ強制再読込対策)
+const MAX_OUTPUT_SIDE = isIOS ? 2048 : 4096;
+let model = null, processor = null;
+let backend = "wasm";
+let queue = [];
+let busy  = false;
+const doneItems = [];
+
+function saveLabel() { return isIOS ? "写真アプリに保存" : "PNGとして保存"; }
+function saveIcon()  { return isIOS ? "🖼️" : "💾"; }
+if (isIOS) $("btn-save-all").style.display = "none"; // iOSはZIP一括より個別共有が確実
+
+// ---------- 初期化 ----------
+function setStatus(state, text) {
+  statusDot.className = "dot " + state;
+  statusText.textContent = text;
+}
+
+const progressSeen = {};
+function onProgress(p) {
+  if (p.status === "progress" && p.total) {
+    progressSeen[p.file] = p.progress || 0;
+    const vals = Object.values(progressSeen);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    progressBar.style.display = "block";
+    progressFill.style.width = Math.min(100, avg).toFixed(1) + "%";
+  }
+  if (p.status === "done") progressFill.style.width = "100%";
+}
+
+async function loadModel(device, key) {
+  const spec = MODELS[key];
+  // iOSはWebGPU扱いにしない(メモリ制約のため軽い方を選ぶ)
+  const dtype = (device === "webgpu" && !isIOS) ? spec.dtype.webgpu : spec.dtype.wasm;
+  const modelOpts = { device, dtype, progress_callback: onProgress };
+  if (spec.modelType) modelOpts.config = { model_type: spec.modelType };
+  const m = await AutoModel.from_pretrained(spec.id, modelOpts);
+  const procOpts = {};
+  if (spec.procConfig) procOpts.config = spec.procConfig;
+  const p = await AutoProcessor.from_pretrained(spec.id, procOpts);
+  return { m, p };
+}
+
+async function init() {
+  const loadKey = selectedModelKey;   // 読み込み対象をここで固定(途中でカードを触られても混ざらない)
+  modelLoading = true;
+  const prepareBtn = $("btn-prepare");
+  prepareBtn.disabled = true;
+  prepareBtn.querySelector("span:last-child").textContent = "準備中…";
+  setStatus("loading", MODELS[loadKey].label + " を準備しています…");
+  for (const k in progressSeen) delete progressSeen[k];
+  progressFill.style.width = "0%";
+
+  backend = await detectBackend();
+  backendLabel.textContent = backend === "webgpu" ? "WebGPU（高速）" : "WASM";
+  badgeBackend.textContent = backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
+
+  try {
+    ({ m: model, p: processor } = await loadModel(backend, loadKey));
+  } catch (e) {
+    console.error(e);
+    if (backend === "webgpu") {
+      backend = "wasm";
+      backendLabel.textContent = "WASM（フォールバック）";
+      badgeBackend.textContent = "WASM 互換モード";
+      try {
+        ({ m: model, p: processor } = await loadModel("wasm", loadKey));
+      } catch (e2) {
+        console.error(e2);
+        failPrepare(prepareBtn);
+        return;
+      }
+    } else {
+      failPrepare(prepareBtn);
+      return;
+    }
+  }
+  activeModel = loadKey;
+  modelLoading = false;
+  progressBar.style.display = "none";
+  setStatus("ready", MODELS[activeModel].label + " 準備完了。画像をドロップしてください。");
+  $("prepare-wrap").classList.add("done");
+  $("model-select-wrap").classList.add("done");
+  changeModelBtn.style.display = "";
+  dropzone.classList.remove("disabled");
+  prepareBtn.disabled = false;
+  prepareBtn.querySelector("span:last-child").textContent = "このモデルで準備する（初回のみ取得）";
+  pump(); // モデル切替中に積まれた分があれば処理
+}
+function failPrepare(prepareBtn) {
+  modelLoading = false;
+  setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。");
+  prepareBtn.disabled = false;
+  prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
+}
+
+// ---------- モデル変更(再読み込み不要) ----------
+changeModelBtn.addEventListener("click", () => {
+  if (busy || queue.length) {
+    setStatus("ready", "処理が終わってからモデルを変更できます。");
+    return;
+  }
+  const old = model;
+  model = null; processor = null; activeModel = null;
+  try { old?.dispose?.(); } catch { /* 破棄失敗は無視 */ }
+  changeModelBtn.style.display = "none";
+  $("prepare-wrap").classList.remove("done");
+  $("model-select-wrap").classList.remove("done");
+  dropzone.classList.add("disabled");
+  setStatus("", "モデルを選んで、準備ボタンを押してください。");
+});
+
+// ---------- 入力 ----------
+dropzone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInput.value = ""; });
+["dragover", "dragenter"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+dropzone.addEventListener("drop", e => addFiles(e.dataTransfer.files));
+
+function addFiles(fileList) {
+  const ok = ["image/jpeg", "image/png", "image/webp"];
+  for (const f of fileList) {
+    if (!ok.includes(f.type)) continue;
+    const card = makeCard(f);
+    queue.push({ file: f, card });
+  }
+  pump();
+}
+
+// ---------- カードUI ----------
+function makeCard(file) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="card-head">
+      <div style="min-width:0">
+        <div class="fname"></div>
+        <div class="fmeta"></div>
+      </div>
+      <div class="card-status">待機中…</div>
+    </div>
+    <div class="pair">
+      <div class="pane">
+        <div class="pane-label">元画像</div>
+        <img class="src-img" alt="元画像">
+      </div>
+      <div class="pane">
+        <div class="pane-label">透明化後（チェック柄＝透明部分）</div>
+        <div class="working">処理待ち…</div>
+      </div>
+    </div>
+    <div class="btn-save-wrap">
+      <button class="btn-primary btn-save">
+        <span class="icon"></span>
+        <span class="label"></span>
+      </button>
+    </div>
+    <div class="next-actions">
+      <button class="btn-next btn-to-okiba">🛋 部屋に置いてみる（実寸合成）</button>
+      <button class="btn-next btn-to-depth">⛰ 立体化する（深度づくりへ）</button>
+    </div>
+    <div class="editor-wrap">
+      <button class="editor-toggle">✎ 手動修正（消しゴム / 復元）</button>
+      <div class="editor-panel">
+        <div class="editor-canvas-box">
+          <canvas class="edit-canvas"></canvas>
+        </div>
+        <div class="editor-tools">
+          <button class="tool-btn tool-erase active">🧽 消しゴム</button>
+          <button class="tool-btn tool-restore">↩ 復元</button>
+          <div class="brush-control">
+            <span>太さ</span>
+            <input type="range" class="brush-size" min="6" max="80" value="28">
+            <span class="brush-size-val">28px</span>
+          </div>
+        </div>
+        <div class="editor-actions">
+          <button class="btn-sm editor-undo" disabled>↶ 1つ戻す</button>
+          <button class="btn-sm editor-reset">手動修正をリセット</button>
+        </div>
+        <p class="editor-hint">消しゴム＝なぞった所を透明に。復元＝消した所を元に戻す。「1つ戻す」で直前のひと筆を取り消せます。修正は上のプレビューと保存PNGに反映されます。</p>
+      </div>
+    </div>
+    <div class="sub-actions">
+      <button class="btn-sm btn-remove">この画像を削除</button>
+    </div>`;
+
+  card.querySelector(".fname").textContent = file.name;
+  card.querySelector(".fmeta").textContent = (file.size / 1024 / 1024).toFixed(2) + " MB";
+  card.querySelector(".src-img").src = URL.createObjectURL(file);
+  card.querySelector(".btn-save .icon").textContent  = saveIcon();
+  card.querySelector(".btn-save .label").textContent = saveLabel();
+
+  card.querySelector(".btn-remove").addEventListener("click", () => {
+    const i = doneItems.findIndex(d => d.card === card);
+    if (i >= 0) doneItems.splice(i, 1);
+    queue = queue.filter(q => q.card !== card);
+    const im = card.querySelector(".src-img");
+    if (im?.src) URL.revokeObjectURL(im.src);
+    card.remove();
+    if (!results.children.length) globalActions.classList.remove("show");
+  });
+  results.prepend(card);
+  return card;
+}
+
+// ---------- 推論 ----------
+async function pump() {
+  if (busy || !model) return;
+  const job = queue.shift();
+  if (!job) return;
+  busy = true;
+  await processOne(job).catch(console.error);
+  busy = false;
+  pump();
+}
+
+async function processOne({ file, card }) {
+  const spec = MODELS[activeModel];
+  const statusEl = card.querySelector(".card-status");
+  const rightPane = card.querySelector(".pair .pane:last-child");
+  const workEl   = rightPane.querySelector(".working");
+  statusEl.textContent = "推論中…";
+  workEl.textContent = backend === "webgpu" ? "推論中…（WebGPU）" : "推論中…（WASM・数秒かかります）";
+
+  const url = URL.createObjectURL(file);
+  let pixel_values = null, output = null;
+  const tmpTensors = [];
+  try {
+    let image = await RawImage.fromURL(url);
+
+    let outW = image.width, outH = image.height;
+    if (Math.max(outW, outH) > MAX_OUTPUT_SIDE) {
+      const r = MAX_OUTPUT_SIDE / Math.max(outW, outH);
+      outW = Math.round(outW * r);
+      outH = Math.round(outH * r);
+      image = await image.resize(outW, outH);
+    }
+
+    ({ pixel_values } = await processor(image));
+    const result = await model({ [spec.inputKey]: pixel_values });
+    output = result[Object.keys(result)[0]];
+
+    let maskTensor = output[0];
+    if (spec.sigmoid) { maskTensor = maskTensor.sigmoid(); tmpTensors.push(maskTensor); }
+    const m255 = maskTensor.mul(255); tmpTensors.push(m255);
+    const u8 = m255.to("uint8"); tmpTensors.push(u8);
+    const maskImg = await RawImage.fromTensor(u8);
+    const mask    = await maskImg.resize(outW, outH);
+
+    // 元画像のRGBを取得
+    const srcCanvas = image.toCanvas();
+    const baseCtx = document.createElement("canvas").getContext("2d");
+    baseCtx.canvas.width = outW; baseCtx.canvas.height = outH;
+    baseCtx.drawImage(srcCanvas, 0, 0);
+    const baseRGBA = baseCtx.getImageData(0, 0, outW, outH);
+
+    const aiMask = new Uint8ClampedArray(mask.data);       // AIの判定(基準)
+    const userMask = new Uint8ClampedArray(outW * outH).fill(255); // 手動修正レイヤー
+
+    const canvas = document.createElement("canvas");
+    canvas.width = outW; canvas.height = outH;
+
+    // 指定範囲だけ合成し直す(なぞるたびに全画素を計算しない)
+    function compositeRect(targetCanvas, x0, y0, w, h) {
+      x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
+      w = Math.min(outW - x0, Math.ceil(w)); h = Math.min(outH - y0, Math.ceil(h));
+      if (w <= 0 || h <= 0) return;
+      const tctx = targetCanvas.getContext("2d");
+      const img = tctx.createImageData(w, h);
+      const d = img.data, b = baseRGBA.data;
+      for (let y = 0; y < h; y++) {
+        let src = ((y0 + y) * outW + x0);
+        let dst = y * w * 4;
+        for (let x = 0; x < w; x++, src++, dst += 4) {
+          const j = src * 4;
+          d[dst] = b[j]; d[dst+1] = b[j+1]; d[dst+2] = b[j+2];
+          d[dst+3] = (aiMask[src] * userMask[src]) / 255;
+        }
+      }
+      tctx.putImageData(img, x0, y0);
+    }
+    const compositeAll = tc => compositeRect(tc, 0, 0, outW, outH);
+    compositeAll(canvas);
+
+    canvas.className = "checker";
+    workEl.replaceWith(canvas);
+    statusEl.textContent = "完了 ✓";
+    statusEl.classList.add("done");
+
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    const saveName = baseName + "_透明.png";
+
+    card.querySelector(".btn-save-wrap").classList.add("show");
+    card.querySelector(".btn-save").addEventListener("click", async () =>
+      saveBlob(await canvasToBlob(canvas), saveName));
+
+    // 次のツールへ受け渡し
+    const nextWrap = card.querySelector(".next-actions");
+    nextWrap.classList.add("show");
+    const wireNext = (sel, url) => {
+      const btn = nextWrap.querySelector(sel);
+      const label = btn.textContent;
+      btn.addEventListener("click", async () => {
+        btn.disabled = true; btn.textContent = "受け渡し中…";
+        try {
+          await handoffSend("source", await canvasToBlob(canvas), { name: saveName });
+          location.href = url;
+        } catch (err) {
+          console.error(err);
+          btn.disabled = false;
+          btn.textContent = label;
+          setStatus("error", "受け渡しに失敗しました。PNG保存→次のツールで読み込みでも同じことができます。");
+        }
+      });
+    };
+    wireNext(".btn-to-okiba", "okiba.html");
+    wireNext(".btn-to-depth", "depth.html");
+
+    setupEditor(card, { outW, outH, aiMask, userMask, canvas, compositeRect, compositeAll });
+
+    if (!card.isConnected) return;   // 処理中に削除/クリアされたカードは登録しない(ZIP混入防止)
+    doneItems.push({ name: saveName, canvas, card });
+    globalActions.classList.add("show");   // iOSでもクリアは使える(ZIPボタンだけ非表示)
+
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "エラー";
+    statusEl.classList.add("err");
+    workEl.textContent = "処理に失敗しました：" + (e.message || e);
+  } finally {
+    try { pixel_values?.dispose?.(); } catch { /* 無視 */ }
+    try { output?.dispose?.(); } catch { /* 無視 */ }
+    for (const t of tmpTensors) { try { t?.dispose?.(); } catch { /* 無視 */ } }
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ---------- エディタ(消しゴム / 復元 / undo) ----------
+function setupEditor(card, ctx) {
+  const { outW, outH, userMask, canvas, compositeRect, compositeAll } = ctx;
+  const editorWrap = card.querySelector(".editor-wrap");
+  editorWrap.classList.add("show");
+
+  const toggleBtn  = card.querySelector(".editor-toggle");
+  const panel      = card.querySelector(".editor-panel");
+  const editCanvas = card.querySelector(".edit-canvas");
+  const eraseBtn   = card.querySelector(".tool-erase");
+  const restoreBtn = card.querySelector(".tool-restore");
+  const sizeInput  = card.querySelector(".brush-size");
+  const sizeVal    = card.querySelector(".brush-size-val");
+  const undoBtn    = card.querySelector(".editor-undo");
+  const resetBtn   = card.querySelector(".editor-reset");
+
+  editCanvas.width = outW; editCanvas.height = outH;
+  compositeAll(editCanvas);
+
+  let tool = "erase";
+  let brush = 28;
+  let drawing = false;
+
+  // undo用: ひと筆 = {tool, points:[{x,y,r}]} 。取り消しは全筆を再生して作り直す
+  const ops = [];
+  let currentOp = null;
+  function refreshUndo() { undoBtn.disabled = ops.length === 0; }
+
+  toggleBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+    toggleBtn.textContent = panel.classList.contains("open")
+      ? "✎ 手動修正を閉じる" : "✎ 手動修正（消しゴム / 復元）";
+    if (panel.classList.contains("open")) compositeAll(editCanvas);
+  });
+  eraseBtn.addEventListener("click", () => {
+    tool = "erase";
+    eraseBtn.classList.add("active"); restoreBtn.classList.remove("active");
+  });
+  restoreBtn.addEventListener("click", () => {
+    tool = "restore";
+    restoreBtn.classList.add("active"); eraseBtn.classList.remove("active");
+  });
+  sizeInput.addEventListener("input", () => {
+    brush = +sizeInput.value;
+    sizeVal.textContent = brush + "px";
+  });
+
+  function toPixel(clientX, clientY) {
+    const rect = editCanvas.getBoundingClientRect();
+    const sx = outW / rect.width;
+    const sy = outH / rect.height;
+    return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy, r: brush * sx };
+  }
+
+  // 円形ブラシで userMask を塗る(値はtoolで決まる)
+  function paintAt(px, py, radius, val) {
+    const r2 = radius * radius;
+    const minX = Math.max(0, Math.floor(px - radius));
+    const maxX = Math.min(outW - 1, Math.ceil(px + radius));
+    const minY = Math.max(0, Math.floor(py - radius));
+    const maxY = Math.min(outH - 1, Math.ceil(py + radius));
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const dx = x - px, dy = y - py;
+        if (dx*dx + dy*dy <= r2) userMask[y * outW + x] = val;
+      }
+    }
+  }
+  // 2点間を補間しながら塗る。塗った範囲(dirty rect)を返す
+  function paintSegment(x0, y0, x1, y1, radius, val) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.max(1, Math.floor(dist / (radius * 0.4)));
+    for (let i = 1; i <= steps; i++) {
+      paintAt(x0 + (x1-x0)*i/steps, y0 + (y1-y0)*i/steps, radius, val);
+    }
+    return {
+      x: Math.min(x0, x1) - radius - 1, y: Math.min(y0, y1) - radius - 1,
+      w: Math.abs(x1 - x0) + radius*2 + 2, h: Math.abs(y1 - y0) + radius*2 + 2,
+    };
+  }
+
+  let lastX = null, lastY = null;
+  function strokeTo(px, py, radius) {
+    const val = tool === "erase" ? 0 : 255;
+    const x0 = lastX === null ? px : lastX;
+    const y0 = lastY === null ? py : lastY;
+    const rect = paintSegment(x0, y0, px, py, radius, val);
+    lastX = px; lastY = py;
+    if (currentOp) currentOp.points.push({ x: px, y: py, r: radius });
+    // 変更範囲だけ再合成(大きい画像でも軽い)
+    compositeRect(editCanvas, rect.x, rect.y, rect.w, rect.h);
+    compositeRect(canvas,     rect.x, rect.y, rect.w, rect.h);
+  }
+
+  function start(e) {
+    drawing = true; lastX = null; lastY = null;
+    currentOp = { tool, points: [] };
+    const p = toPixel(e.clientX ?? e.touches[0].clientX, e.clientY ?? e.touches[0].clientY);
+    currentOp.points.push({ x: p.x, y: p.y, r: p.r });
+    strokeTo(p.x, p.y, p.r);
+    e.preventDefault();
+  }
+  function move(e) {
+    if (!drawing) return;
+    const cx = e.clientX ?? (e.touches && e.touches[0].clientX);
+    const cy = e.clientY ?? (e.touches && e.touches[0].clientY);
+    if (cx == null) return;
+    const p = toPixel(cx, cy);
+    strokeTo(p.x, p.y, p.r);
+    e.preventDefault();
+  }
+  function end() {
+    if (drawing && currentOp && currentOp.points.length) {
+      ops.push(currentOp);
+      refreshUndo();
+    }
+    drawing = false; currentOp = null; lastX = null; lastY = null;
+  }
+
+  editCanvas.addEventListener("mousedown", start);
+  editCanvas.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  editCanvas.addEventListener("touchstart", start, { passive: false });
+  editCanvas.addEventListener("touchmove", move, { passive: false });
+  editCanvas.addEventListener("touchend", end);
+  editCanvas.addEventListener("touchcancel", end);   // 通知着信等の中断でもひと筆を確定させる(undo整合)
+
+  // ひと筆を再生する(undo用)
+  function replayOp(op) {
+    const val = op.tool === "erase" ? 0 : 255;
+    let px = null, py = null;
+    for (const pt of op.points) {
+      if (px === null) paintAt(pt.x, pt.y, pt.r, val);
+      else paintSegment(px, py, pt.x, pt.y, pt.r, val);
+      px = pt.x; py = pt.y;
+    }
+  }
+  undoBtn.addEventListener("click", () => {
+    if (!ops.length) return;
+    ops.pop();
+    userMask.fill(255);
+    for (const op of ops) replayOp(op);
+    compositeAll(editCanvas);
+    compositeAll(canvas);
+    refreshUndo();
+  });
+  resetBtn.addEventListener("click", () => {
+    ops.length = 0;
+    userMask.fill(255);
+    compositeAll(editCanvas);
+    compositeAll(canvas);
+    refreshUndo();
+  });
+}
+
+// ---------- 一括保存(ZIP) ----------
+$("btn-save-all").addEventListener("click", async () => {
+  if (!doneItems.length) return;
+  const btn = $("btn-save-all");
+  btn.disabled = true; btn.textContent = "ZIP作成中…";
+  try {
+    const files = [];
+    const used = new Set();
+    for (const d of doneItems) {
+      let name = d.name;
+      let i = 2;
+      while (used.has(name)) name = d.name.replace(/\.png$/, `_${i++}.png`);
+      used.add(name);
+      files.push({ name, blob: await canvasToBlob(d.canvas) });
+    }
+    await saveBlob(await makeZip(files), "キリトリ一括.zip");
+  } catch (e) {
+    console.error(e);
+    setStatus("error", "ZIP作成に失敗しました：" + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "まとめてZIP保存";
+  }
+});
+$("btn-clear").addEventListener("click", () => {
+  doneItems.length = 0;
+  queue = [];
+  results.querySelectorAll(".src-img").forEach(im => im.src && URL.revokeObjectURL(im.src));
+  results.innerHTML = "";
+  globalActions.classList.remove("show");
+});
+
+// ---------- モデル選択 ----------
+document.querySelectorAll(".model-card").forEach(c => {
+  c.addEventListener("click", () => {
+    if (activeModel || modelLoading) return;   // 読み込み中の切替は事故のもと
+    document.querySelectorAll(".model-card").forEach(x => x.classList.remove("selected"));
+    c.classList.add("selected");
+    selectedModelKey = c.dataset.model;
+    const warn = $("model-warn");
+    const spec = MODELS[selectedModelKey];
+    if (spec.veryHeavy || (spec.heavy && isIOS)) warn.classList.add("show");
+    else warn.classList.remove("show");
+  });
+});
+
+// 準備ボタンを押すまでモデルは一切ダウンロードしない
+$("btn-prepare").addEventListener("click", init);
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>画像工房 — 買う前に置いてみる・無料で飾って楽しむ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/common.css">
+<style>
+  .steps { display: grid; gap: 16px; margin-bottom: 20px; }
+  .branch { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .branch { grid-template-columns: 1fr; } }
+  a.step {
+    display: block; text-decoration: none; color: var(--ink);
+    background: var(--paper); border-radius: var(--radius);
+    padding: 20px 22px; box-shadow: var(--shadow-sticker);
+    position: relative; transition: transform .12s;
+  }
+  a.step::before {
+    content: ""; position: absolute; inset: -5px;
+    border-radius: calc(var(--radius) + 5px);
+    background: #fff; z-index: -1; box-shadow: var(--shadow-sticker);
+  }
+  a.step:hover { transform: translateY(-2px) rotate(-.2deg); }
+  .step-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .step-no {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    background: var(--accent); color: #fff; font-weight: 900; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-no.alt { background: var(--mark); color: #4a3a08; }
+  .step h2 { font-size: 16.5px; font-weight: 900; letter-spacing: .03em; }
+  .step .en { font-size: 10px; font-weight: 700; letter-spacing: .16em; color: var(--muted); text-transform: uppercase; }
+  .step p { font-size: 12.5px; color: var(--muted); line-height: 1.8; margin-top: 9px; }
+  .step .tags { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .arrow { text-align: center; color: rgba(255,255,255,.7); font-size: 15px; line-height: 1.4; }
+  .branch-label {
+    text-align: center; font-size: 12px; font-weight: 700;
+    color: rgba(255,255,255,.85); letter-spacing: .08em; margin-bottom: -6px;
+  }
+  .note-card {
+    background: var(--paper); border-radius: var(--radius);
+    padding: 18px 22px; box-shadow: var(--shadow-sticker-sm);
+    font-size: 12.5px; line-height: 2; margin-bottom: 16px;
+  }
+  .note-card h3 { font-size: 13.5px; font-weight: 900; margin-bottom: 6px; letter-spacing: .04em; }
+  .note-card table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 6px; }
+  .note-card th, .note-card td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .note-card th { background: #f1efe9; font-weight: 700; }
+  .ok { color: var(--accent-bright); font-weight: 700; }
+  .ng { color: var(--danger); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="sticker">
+    <div class="title-row">
+      <h1><span style="font-weight:500">🛠</span> 画像工房</h1>
+      <span class="title-en">Gazou Kobo</span>
+      <span class="rev-badge" id="rev-badge"></span>
+    </div>
+    <div class="sub">
+      推しの写真から——<b>「買う前に、部屋に置いたらどう見えるか確かめる」</b>と<b>「買わなくても、無料で飾って楽しむ」</b>の両方を、この端末の中だけで。<br>
+      課金なし・回数制限なし・画像はサーバーに送りません。
+    </div>
+    <div class="badges">
+      <span class="badge">全処理ローカル</span>
+      <span class="badge">課金・回数制限なし</span>
+      <span class="badge">ツール間の自動受け渡し</span>
+    </div>
+  </header>
+
+  <div class="steps">
+    <a class="step" href="kiritori.html">
+      <div class="step-head">
+        <div class="step-no">1</div>
+        <h2>✂ キリトリ — 背景透明化</h2>
+        <span class="en">BG Remover</span>
+      </div>
+      <p>写真からフィギュア・人物だけを切り抜いて透明PNGに。消しゴム/復元での手直し、まとめてZIP保存対応。切り抜いたらワンタップで下のどちらへも進めます。</p>
+      <div class="tags"><span class="badge">標準モデルは商用OK</span><span class="badge">EXIF自動除去</span></div>
+    </a>
+
+    <div class="arrow">▼ 切り抜きを自動で受け渡し ▼</div>
+
+    <div class="branch">
+      <div>
+        <div class="branch-label" style="margin-bottom:8px">🛒 買う前に確かめる</div>
+        <a class="step" href="okiba.html">
+          <div class="step-head">
+            <div class="step-no alt">2a</div>
+            <h2>🛋 おきば — 部屋写真に実寸で置く</h2>
+            <span class="en">Okiba</span>
+          </div>
+          <p>自分の机や棚の写真に「ものさし」を引いて、フィギュアを<b>実寸換算</b>で配置。「全高24cm、置いたらこの存在感か」が買う前に分かる。1/7と1/4の並べ比較も。AI不要で軽い。</p>
+          <div class="tags"><span class="badge">AI不要</span><span class="badge">実寸換算</span><span class="badge">合成PNG保存</span></div>
+        </a>
+      </div>
+      <div>
+        <div class="branch-label" style="margin-bottom:8px">🏠 無料で飾って楽しむ</div>
+        <a class="step" href="depth.html">
+          <div class="step-head">
+            <div class="step-no alt">2b</div>
+            <h2>⛰ 深度づくり → 🧊 ミタテ</h2>
+            <span class="en">Depth → Mitate</span>
+          </div>
+          <p>AIで奥行きを推定して立体化。ぐりぐり回す・ゆらゆら疑似3D・動画保存。Quest等なら<b>AR/VRに実寸サイズで設置</b>——買わなくても「うちの子」を部屋に飾れます。</p>
+          <div class="tags"><span class="badge">実寸AR/VR</span><span class="badge">動画で保存</span><span class="badge">GLB書き出し</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="note-card">
+    <h3>💡 使い方のヒント</h3>
+    ・AIを使うツール(キリトリ・深度づくり)は、初回だけ「準備する」ボタンでモデルをダウンロードします(押すまで通信ゼロ)。2回目からはキャッシュで即起動。<br>
+    ・おすすめの流れ: <b>PCでキリトリ→おきばで買う前チェック</b>。買わない(買えない)なら<b>深度づくり→ミタテをQuestで開いて実寸で飾る</b>。<br>
+    ・各ページ右上の <b>rev表示</b> が更新確認の目印。表示が変わっていなければ古い版です(再読み込みしてください)。
+  </div>
+
+  <div class="note-card">
+    <h3>⚖ AIモデルのライセンス早見表</h3>
+    切り抜き画像やこのツールを<b>商売に使う予定があるなら、「商用OK」のモデルだけ</b>を使ってください(各ツールとも標準設定が商用OK)。おきば・ミタテはAIモデルを使わないので制限なし。
+    <table>
+      <tr><th>ツール</th><th>モデル</th><th>商用利用</th></tr>
+      <tr><td rowspan="3">キリトリ</td><td>BiRefNet lite（標準）</td><td class="ok">○ 可（MIT）</td></tr>
+      <tr><td>BiRefNet</td><td class="ok">○ 可（MIT）</td></tr>
+      <tr><td>RMBG-1.4</td><td class="ng">× 不可（BRIA非商用）</td></tr>
+      <tr><td rowspan="2">深度づくり</td><td>Depth Anything V2 small（標準）</td><td class="ok">○ 可（Apache-2.0）</td></tr>
+      <tr><td>Depth Anything V2 base</td><td class="ng">× 不可（CC-BY-NC）</td></tr>
+    </table>
+  </div>
+
+  <footer class="kobo">
+    画像工房 — すべての処理はブラウザ内（初回のみAIモデル取得の通信あり）。<br>
+    ツール間の受け渡しは同じサイト内のブラウザ保存領域（IndexedDB）を使うため、同じドメインに一式で置いてください。Netlify等にこのフォルダごとデプロイすればOK。
+  </footer>
+</div>
+<script>
+  document.getElementById("rev-badge").textContent = "v2 rev2";
+</script>
+</body>
+</html>

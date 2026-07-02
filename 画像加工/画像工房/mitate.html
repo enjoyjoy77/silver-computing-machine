@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>立体で見る — ミタテ | 画像工房</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root{
+    --bg:#101613; --panel:#18211c; --panel2:#202b25; --line:#2d3a33;
+    --ink:#eef1ec; --dim:#8fa096; --accent:#7fd6a8; --accent2:#a9e8c8; --mark:#f0b429;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+
+  #top{position:fixed;top:0;left:0;right:0;height:48px;z-index:20;display:flex;align-items:center;
+    gap:10px;padding:0 14px;background:linear-gradient(180deg,rgba(16,22,19,.92),transparent);pointer-events:none;}
+  #top h1{margin:0;font-size:13px;letter-spacing:.06em;font-weight:900;}
+  #top h1 b{color:var(--accent);}
+  #top a{pointer-events:auto;color:var(--dim);font-size:11px;text-decoration:none;font-weight:700;}
+  #top a:hover{color:var(--ink);}
+  #rev{font-size:10px;color:var(--dim);letter-spacing:.1em;margin-left:auto;}
+
+  /* 開始画面 */
+  #drop{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;background:var(--bg);padding:24px;overflow-y:auto;}
+  #drop .mark{font-size:12px;letter-spacing:.4em;color:var(--accent);text-transform:uppercase;}
+  #drop h2{margin:0;font-size:24px;font-weight:900;text-align:center;line-height:1.35;}
+  #drop p{margin:0;color:var(--dim);font-size:12.5px;text-align:center;max-width:460px;line-height:1.7;}
+  #banner{display:none;width:min(92vw,440px);background:var(--panel2);border:1px solid var(--accent);
+    border-radius:13px;padding:13px 16px;font-size:12.5px;line-height:1.7;}
+  #banner.show{display:block;}
+  #banner b{color:var(--accent2);}
+  .zones{display:flex;flex-direction:column;gap:12px;width:min(92vw,440px);}
+  .zone{border:1.5px dashed var(--line);border-radius:16px;padding:18px;
+    display:flex;align-items:center;gap:14px;cursor:pointer;background:var(--panel);
+    transition:border-color .2s,background .2s;}
+  .zone.over{border-color:var(--accent);background:var(--panel2);}
+  .zone.set{border-style:solid;border-color:var(--accent);}
+  .zone .ico{width:52px;height:52px;border-radius:12px;display:flex;align-items:center;
+    justify-content:center;font-size:25px;flex-shrink:0;background:var(--panel2);}
+  .zone .t{font-size:13.5px;font-weight:700;}
+  .zone .s{font-size:11px;color:var(--dim);margin-top:3px;}
+  #goBtn{margin-top:2px;border:none;border-radius:12px;padding:14px 30px;font:inherit;font-size:14.5px;
+    font-weight:900;letter-spacing:.05em;cursor:pointer;background:var(--accent);color:#0b1410;
+    opacity:.35;pointer-events:none;transition:opacity .2s;}
+  #goBtn.ready{opacity:1;pointer-events:auto;}
+
+  /* 下部コントロール */
+  #ui{position:fixed;left:0;right:0;bottom:0;z-index:20;display:none;flex-direction:column;gap:9px;
+    padding:12px 12px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(0deg,rgba(16,22,19,.96),transparent);}
+  .row{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;}
+  .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow-x:auto;max-width:96vw;}
+  .seg button{border:none;background:transparent;color:var(--dim);padding:10px 13px;white-space:nowrap;
+    font:inherit;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;}
+  .seg button.on{background:var(--panel2);color:var(--accent);}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;
+    display:flex;align-items:center;gap:9px;}
+  label.k{font-size:10px;letter-spacing:.1em;color:var(--dim);}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;background:var(--line);outline:none;width:128px;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg);}
+  input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--bg);}
+  .val{font-size:12px;font-weight:700;color:var(--accent2);min-width:38px;text-align:right;}
+  input[type=number]{width:64px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    border-radius:7px;padding:6px 8px;font:inherit;font-size:12.5px;font-weight:700;}
+  input[type=checkbox]{accent-color:var(--accent);}
+  .btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:11px;padding:10px 14px;
+    font:inherit;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:border-color .15s;}
+  .btn:hover{border-color:var(--accent);}
+  .btn:disabled{opacity:.4;cursor:default;}
+  .btn.on{background:var(--accent);color:#0b1410;border-color:transparent;}
+  .hint{font-size:10.5px;color:var(--dim);text-align:center;letter-spacing:.03em;min-height:14px;}
+
+  #toast{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:var(--panel2);
+    border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:12px;
+    z-index:50;display:none;white-space:nowrap;max-width:92vw;}
+  #err{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:#3a1414;border:1px solid #7a2a2a;
+    color:#ffd9d9;padding:11px 16px;border-radius:11px;font-size:12px;z-index:50;display:none;max-width:92vw;text-align:center;}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="top">
+  <h1>ミタテ — <b>立体で見る</b></h1>
+  <a href="index.html">← トップ</a>
+  <a href="depth.html">⛰ 深度づくり</a>
+  <span id="rev"></span>
+</div>
+
+<div id="drop">
+  <div class="mark">Step 3 · Mitate Viewer</div>
+  <h2>写真と深度マップで、立体にして見る</h2>
+  <div id="banner">
+    <b>⛰ 深度づくりから画像を受け取りました。</b>
+    そのまま「立体で見る」を押せばOK。別の画像にしたい場合は下で選び直せます。
+  </div>
+  <div class="zones">
+    <div class="zone" id="zoneImg">
+      <div class="ico" id="imgIco">🖼️</div>
+      <div>
+        <div class="t" id="imgT">元画像をドロップ / タップ</div>
+        <div class="s">立体に見せたい写真・イラスト（背景透明PNG推奨）</div>
+      </div>
+    </div>
+    <div class="zone" id="zoneDepth">
+      <div class="ico" id="depthIco">🗺️</div>
+      <div>
+        <div class="t" id="depthT">深度マップをドロップ / タップ</div>
+        <div class="s">白いほど手前。「深度づくり」で作れます</div>
+      </div>
+    </div>
+  </div>
+  <button id="goBtn">立体で見る →</button>
+  <p>3Dレリーフ(メッシュ)と、軽い疑似3D(傾け・ゆらゆら・ライティング・多層)を切替可能。Quest等ではAR/VRで<b>実寸サイズ</b>のフィギュア設置イメージを確認できます。すべて端末内で処理します。</p>
+  <input type="file" id="imgIn" accept="image/*" style="display:none">
+  <input type="file" id="depthIn" accept="image/*" style="display:none">
+</div>
+
+<div id="ui">
+  <div class="row">
+    <div class="seg" id="modeSeg">
+      <button data-m="relief" class="on">🧊 3Dレリーフ</button>
+      <button data-m="parallax">傾け</button>
+      <button data-m="wiggle">ゆらゆら</button>
+      <button data-m="light">ライティング</button>
+      <button data-m="layers">多層</button>
+    </div>
+  </div>
+  <!-- レリーフ用 -->
+  <div class="row" id="reliefRow1">
+    <div class="card">
+      <label class="k">立体の強さ</label>
+      <input type="range" id="depthRange" min="0" max="120" value="35" step="1">
+      <span class="val" id="depthVal">35</span>
+    </div>
+    <div class="card">
+      <label class="k" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="invChk"> 奥行き反転
+      </label>
+    </div>
+    <div class="seg" id="resSeg">
+      <button data-r="180">粗い</button>
+      <button data-r="300" class="on">標準</button>
+      <button data-r="460">精細</button>
+    </div>
+  </div>
+  <div class="row" id="reliefRow2">
+    <div class="card">
+      <label class="k">実寸(AR/VR)</label>
+      <input type="number" id="sizeCm" min="5" max="300" step="1" value="25"> <span class="val" style="min-width:auto">cm</span>
+    </div>
+    <button class="btn" id="arBtn" disabled>🥽 AR</button>
+    <button class="btn" id="vrBtn" disabled>🌐 VR</button>
+    <button class="btn" id="glbBtn">📦 GLB保存</button>
+    <button class="btn" id="resetBtn">↩ 視点</button>
+  </div>
+  <!-- 疑似3D用 -->
+  <div class="row" id="pseudoRow" style="display:none">
+    <div class="card">
+      <label class="k" id="amtLbl">立体量</label>
+      <input type="range" id="amtRange" min="0" max="100" value="45">
+      <span class="val" id="amtVal">45</span>
+    </div>
+    <div class="card" id="speedCard">
+      <label class="k" id="spdLbl">速さ</label>
+      <input type="range" id="spdRange" min="0" max="100" value="45">
+      <span class="val" id="spdVal">45</span>
+    </div>
+    <button class="btn" id="gyroBtn" style="display:none">📱 ジャイロ</button>
+  </div>
+  <div class="row">
+    <button class="btn" id="recBtn">🎬 動画で保存（4秒）</button>
+    <button class="btn" id="newBtn">📂 別の画像</button>
+  </div>
+  <div class="hint" id="hint"></div>
+</div>
+
+<div id="toast"></div>
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
+
+const REV = "v2 rev2";
+document.getElementById("rev").textContent = REV;
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+function toast(m){const e=$('toast');e.textContent=m;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',3200);}
+function showErr(m){const e=$('err');e.textContent=m;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',5000);}
+
+/* ============ 入力(画像+深度) ============ */
+let imgEl = null, depthEl = null;
+function fileToImage(fileOrBlob){
+  return new Promise((res, rej) => {
+    if(!fileOrBlob){ rej(new Error('画像ファイルを選んでください')); return; }
+    if(fileOrBlob.type && !fileOrBlob.type.startsWith('image/')){ rej(new Error('画像ファイルを選んでください')); return; }
+    const url = URL.createObjectURL(fileOrBlob);
+    const im = new Image();
+    im.onload = () => res({ img: im, url });
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('画像を読めませんでした')); };
+    im.src = url;
+  });
+}
+function refreshGo(){ $('goBtn').classList.toggle('ready', !!(imgEl && depthEl)); }
+let imgThumbUrl = null, depthThumbUrl = null;
+async function pickImg(f){
+  try{
+    const { img, url } = await fileToImage(f);
+    imgEl = img;
+    if(imgThumbUrl) URL.revokeObjectURL(imgThumbUrl);
+    imgThumbUrl = url;
+    const ic = $('imgIco'); ic.style.background = 'url("'+url+'") center/cover'; ic.textContent = '';
+    $('zoneImg').classList.add('set'); $('imgT').textContent = '元画像 ✓ 変更はタップ';
+    refreshGo();
+  }catch(e){ showErr(e.message); }
+}
+async function pickDepth(f){
+  try{
+    const { img, url } = await fileToImage(f);
+    depthEl = img;
+    if(depthThumbUrl) URL.revokeObjectURL(depthThumbUrl);
+    depthThumbUrl = url;
+    const ic = $('depthIco'); ic.style.background = 'url("'+url+'") center/cover'; ic.textContent = '';
+    $('zoneDepth').classList.add('set'); $('depthT').textContent = '深度マップ ✓ 変更はタップ';
+    refreshGo();
+  }catch(e){ showErr(e.message); }
+}
+$('imgIn').addEventListener('change', e => { if(e.target.files[0]) pickImg(e.target.files[0]); e.target.value=''; });
+$('depthIn').addEventListener('change', e => { if(e.target.files[0]) pickDepth(e.target.files[0]); e.target.value=''; });
+$('zoneImg').onclick = () => $('imgIn').click();
+$('zoneDepth').onclick = () => $('depthIn').click();
+function dz(zone, cb){
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('over'); if(e.dataTransfer.files[0]) cb(e.dataTransfer.files[0]); });
+}
+dz($('zoneImg'), pickImg); dz($('zoneDepth'), pickDepth);
+document.body.addEventListener('dragover', e => e.preventDefault());
+document.body.addEventListener('drop', e => e.preventDefault());
+$('goBtn').onclick = () => { if(imgEl && depthEl) start(); };
+$('newBtn').onclick = () => {
+  if(xrSession) xrSession.end();
+  $('ui').style.display = 'none'; $('drop').style.display = 'flex';
+};
+
+// 受け渡し(深度づくりから)
+(async () => {
+  const src = await handoffTake('source');
+  const dep = await handoffTake('depth');
+  if(src?.blob && dep?.blob){
+    await pickImg(src.blob).catch(()=>{});
+    await pickDepth(dep.blob).catch(()=>{});
+    if(imgEl && depthEl){
+      $('banner').classList.add('show');
+      handoffClear('source'); handoffClear('depth');   // 受け取ったら消費
+    }
+  }
+})();
+
+/* ============ three 基本(0.160・1本に統一) ============ */
+const canvas = $('view');
+let renderer = null;   // 画像を読むまで作らない(iOSが写真ピッカー中にページを破棄する対策)
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 100);   // レリーフ用
+const ortho  = new THREE.OrthographicCamera(-1,1,1,-1,0,10); ortho.position.z = 1;   // 疑似3D用
+const persp  = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 50); persp.position.set(0,0,3); // 多層用
+
+// 背景グラデ
+const bgCv = document.createElement('canvas'); bgCv.width=8; bgCv.height=256;
+(()=>{ const g=bgCv.getContext('2d'); const gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'#16201b'); gr.addColorStop(1,'#0c110e'); g.fillStyle=gr; g.fillRect(0,0,8,256); })();
+const bgTex = new THREE.CanvasTexture(bgCv);
+scene.background = bgTex;
+
+scene.add(new THREE.HemisphereLight(0xfff0e0, 0x202824, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(1.2,2,3); scene.add(key);
+const rim = new THREE.DirectionalLight(0xd9ffe8, 0.5); rim.position.set(-2,1,-1); scene.add(rim);
+
+const root = new THREE.Group();   // レリーフを載せる(AR/VRで動かす単位)
+let reliefMesh = null, reliefGeo = null;
+
+/* ============ 状態 ============ */
+const S = {
+  aspect: 1,
+  depthMap: null,   // {data,w,h}
+  alphaMap: null,   // {data,w,h}
+  depthCm: 35,
+  invert: false,
+  res: 300,
+  sizeCm: 25,       // AR/VRでの実寸(高さcm)
+};
+let mode = 'relief';
+let imgTexLinear = null;   // 疑似3D用(色変換なし・見たまま)
+let imgTexSRGB = null;     // レリーフ用(ライティングに正しい色)
+let depthTex = null;
+
+/* ============ 画像→ピクセルマップ ============ */
+function imageToMap(img, maxW){
+  const w = Math.min(img.naturalWidth || img.width, maxW);
+  const h = Math.round(w * (img.naturalHeight||img.height) / (img.naturalWidth||img.width));
+  const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+  const ctx = cv.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+  return { data: ctx.getImageData(0,0,w,h).data, w, h };
+}
+function sampleBilinear(map,u,v,ch){
+  const fx=clamp(u*(map.w-1),0,map.w-1), fy=clamp((1-v)*(map.h-1),0,map.h-1);
+  const x0=Math.floor(fx),y0=Math.floor(fy),x1=Math.min(x0+1,map.w-1),y1=Math.min(y0+1,map.h-1);
+  const tx=fx-x0,ty=fy-y0,g=(x,y)=>map.data[(y*map.w+x)*4+ch];
+  return (g(x0,y0)*(1-tx)+g(x1,y0)*tx)*(1-ty)+(g(x0,y1)*(1-tx)+g(x1,y1)*tx)*ty;
+}
+
+/* ============ レリーフ構築 ============ */
+function buildRelief(){
+  if(reliefMesh){
+    root.remove(reliefMesh); reliefMesh.geometry.dispose();
+    (Array.isArray(reliefMesh.material)?reliefMesh.material:[reliefMesh.material]).forEach(m=>m.dispose&&m.dispose());
+    reliefMesh = null;
+  }
+  if(!imgTexSRGB) return;
+  const baseH = 1.0;                    // 高さ1m基準(AR時にscaleで実寸へ)
+  const w = baseH * S.aspect, h = baseH;
+  const RES = S.res;
+  let sx, sy;
+  if(S.aspect >= 1){ sx = RES; sy = Math.max(Math.round(RES/S.aspect), 8); }
+  else { sy = RES; sx = Math.max(Math.round(RES*S.aspect), 8); }
+  reliefGeo = new THREE.PlaneGeometry(w, h, sx, sy);
+  const mat = new THREE.MeshStandardMaterial({
+    map: imgTexSRGB, transparent: true, alphaTest: .06,
+    side: THREE.DoubleSide, roughness: .96, metalness: 0,
+  });
+  reliefMesh = new THREE.Mesh(reliefGeo, mat);
+  reliefMesh.position.y = h/2;
+  root.add(reliefMesh);
+  displace();
+}
+function displace(){
+  if(!reliefGeo) return;
+  const pos = reliefGeo.attributes.position, uv = reliefGeo.attributes.uv;
+  const scaleM = S.depthCm / 100;
+  for(let i=0;i<pos.count;i++){
+    const u=uv.getX(i), v=uv.getY(i);
+    let d = 0;
+    if(S.depthMap){ d = sampleBilinear(S.depthMap,u,v,0)/255; if(S.invert) d = 1-d; }
+    if(S.alphaMap && sampleBilinear(S.alphaMap,u,v,3) < 20) d = 0;   // 透明部は奥へ
+    pos.setZ(i, d*scaleM);
+  }
+  pos.needsUpdate = true;
+  reliefGeo.computeVertexNormals();
+}
+
+/* ============ レリーフ用カメラ(軌道) ============ */
+const ctl = { r:1.7, th:0, ph:Math.PI/2, tx:0, ty:0.5, tz:0, vth:0, vph:0 };
+function applyCam(){
+  const s = Math.sin(ctl.ph);
+  camera.position.set(ctl.tx + ctl.r*s*Math.sin(ctl.th), ctl.ty + ctl.r*Math.cos(ctl.ph), ctl.tz + ctl.r*s*Math.cos(ctl.th));
+  camera.lookAt(ctl.tx, ctl.ty, ctl.tz);
+}
+function frameCamera(){ ctl.r=1.6; ctl.th=0; ctl.ph=Math.PI/2; ctl.ty=0.5; ctl.vth=0; ctl.vph=0; applyCam(); }
+$('resetBtn').onclick = frameCamera;
+
+let dragging=false; const ptrs=new Map(); let pinchD=0;
+canvas.addEventListener('pointerdown', e=>{
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); dragging=true;
+  if(mode==='relief'){ ctl.vth=ctl.vph=0; }
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e=>{
+  if(!ptrs.has(e.pointerId)) return;
+  const p=ptrs.get(e.pointerId); const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+  if(mode==='relief'){
+    if(ptrs.size===1){ ctl.th-=dx*.006; ctl.ph=clamp(ctl.ph-dy*.006,.05,Math.PI-.05); ctl.vth=-dx*.0015; ctl.vph=-dy*.0015; }
+    else if(ptrs.size===2){ const a=[...ptrs.values()]; const nd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
+      if(pinchD) ctl.r=clamp(ctl.r*(pinchD/nd),0.5,6); pinchD=nd; }
+  } else if(ptrs.size===1){   // 2本指のときは二重加算しない
+    view.tx = clamp(view.tx + dx/innerWidth*2.2, -1, 1);
+    view.ty = clamp(view.ty + dy/innerHeight*2.2, -1, 1);
+  }
+});
+function endPtr(e){
+  ptrs.delete(e.pointerId); if(ptrs.size<2) pinchD=0; if(ptrs.size===0) dragging=false;
+  if(mode==='parallax'||mode==='layers'){ view.tx=0; view.ty=0; }   // 指を離すと正面へ戻る
+}
+canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', endPtr);
+canvas.addEventListener('wheel', e=>{ if(mode!=='relief')return; e.preventDefault(); ctl.r=clamp(ctl.r*(1+Math.sign(e.deltaY)*.08),0.5,6); },{passive:false});
+
+/* ============ 疑似3D: シェーダーquad ============ */
+const quadUniforms = {
+  uImage:{value:null}, uDepth:{value:null},
+  uShift:{value:new THREE.Vector2(0,0)},
+  uAmt:{value:0.45},
+  uMode:{value:0},                        // 0=parallax/wiggle, 1=light
+  uLightDir:{value:new THREE.Vector2(0.5,0.5)},
+  uAspect:{value:1}, uViewAspect:{value:1},
+};
+const quadMat = new THREE.ShaderMaterial({
+  uniforms: quadUniforms,
+  vertexShader: `
+    varying vec2 vUv;
+    void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }
+  `,
+  fragmentShader: `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uImage, uDepth;
+    uniform vec2 uShift, uLightDir;
+    uniform float uAmt, uAspect, uViewAspect;
+    uniform int uMode;
+    vec2 fitUv(vec2 uv){
+      float s = uAspect / uViewAspect;
+      vec2 c = uv - 0.5;
+      if(s > 1.0){ c.y *= s; } else { c.x /= s; }
+      return c + 0.5;
+    }
+    float depthAt(vec2 uv){ return texture2D(uDepth, uv).r; }
+    void main(){
+      vec2 uv = fitUv(vUv);
+      if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0){ gl_FragColor=vec4(0.0); return; }
+      if(uMode==1){
+        vec2 px = vec2(1.0/512.0);
+        float dl=depthAt(uv-vec2(px.x,0.0)), dr=depthAt(uv+vec2(px.x,0.0));
+        float dd=depthAt(uv-vec2(0.0,px.y)), du=depthAt(uv+vec2(0.0,px.y));
+        vec3 n = normalize(vec3((dl-dr)*uAmt*6.0, (dd-du)*uAmt*6.0, 1.0));
+        vec3 L = normalize(vec3(uLightDir, 0.8));
+        float diff = clamp(dot(n,L),0.0,1.0);
+        vec4 col = texture2D(uImage, uv);
+        gl_FragColor = vec4(col.rgb*(0.55+diff*0.9), col.a);
+      } else {
+        float d = depthAt(uv);
+        vec2 off = uShift * uAmt * (d - 0.5);
+        vec4 col = texture2D(uImage, uv + off);
+        gl_FragColor = col;
+      }
+    }
+  `,
+  transparent: true,
+});
+const quad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), quadMat);
+quad.frustumCulled = false;
+
+/* ============ 疑似3D: 多層 ============ */
+const layerGroup = new THREE.Group();
+let layerMeshes = [];
+function buildLayers(){
+  layerMeshes.forEach(m=>{ layerGroup.remove(m); m.geometry.dispose(); m.material.dispose(); });
+  layerMeshes = [];
+  if(!imgTexLinear || !depthTex) return;
+  const N = 6;
+  const w = S.aspect>=1 ? 2.0 : 2.0*S.aspect;
+  const h = S.aspect>=1 ? 2.0/S.aspect : 2.0;
+  for(let i=0;i<N;i++){
+    // 最前層は d==1.0 も含める(取りこぼし防止)
+    const lo=i/N, hi=(i===N-1)? 1.001 : (i+1)/N;
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      uniforms:{ uImage:{value:imgTexLinear}, uDepth:{value:depthTex}, uLo:{value:lo}, uHi:{value:hi} },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        precision highp float; varying vec2 vUv;
+        uniform sampler2D uImage,uDepth; uniform float uLo,uHi;
+        void main(){
+          float d=texture2D(uDepth,vUv).r;
+          if(d<uLo||d>=uHi){ discard; }
+          vec4 c=texture2D(uImage,vUv);
+          if(c.a<0.05) discard;
+          gl_FragColor=c;
+        }`,
+    });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(w,h,1,1), mat);
+    plane.position.z = (i-(N-1)/2) * 0.16;
+    layerGroup.add(plane); layerMeshes.push(plane);
+  }
+}
+
+function makeTex(img, srgb){
+  const t = new THREE.Texture(img);
+  t.needsUpdate = true;
+  t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  if(srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* ============ モード管理 ============ */
+function setMode(m){
+  if(xrSession && m!=='relief') return;   // AR/VR中はレリーフ固定
+  mode = m;
+  [...$('modeSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.m===m));
+  scene.remove(quad); scene.remove(layerGroup); scene.remove(root);
+  if(m==='relief'){ scene.add(root); }
+  else if(m==='layers'){ scene.add(layerGroup); }
+  else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
+
+  const isRelief = m==='relief';
+  $('reliefRow1').style.display = isRelief ? 'flex' : 'none';
+  $('reliefRow2').style.display = isRelief ? 'flex' : 'none';
+  $('pseudoRow').style.display  = isRelief ? 'none' : 'flex';
+  if(!isRelief){
+    const showSpeed = (m==='wiggle'||m==='light');
+    $('speedCard').style.display = showSpeed ? 'flex' : 'none';
+    $('amtLbl').textContent = (m==='light') ? '凹凸の強さ' : '立体量';
+    $('spdLbl').textContent = (m==='light') ? '光の速さ' : '速さ';
+    $('gyroBtn').style.display = (m==='parallax'&&hasGyro) ? 'flex' : 'none';
+  }
+  const hints = {
+    relief: 'ドラッグで回転・ホイール/二本指でズーム。AR/VRなら実寸cmで置けます',
+    parallax: '指でドラッグ／ジャイロで視点が動きます',
+    wiggle: '自動で左右に揺れます。「動画で保存」でSNS用にどうぞ',
+    light: '光源が回って陰影が流れます',
+    layers: '指でドラッグすると層がジオラマのようにズレます',
+  };
+  $('hint').textContent = hints[m];
+  view.tx=view.ty=view.x=view.y=0;
+  if(isRelief) frameCamera();
+}
+$('modeSeg').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setMode(b.dataset.m); });
+
+/* ============ 視点(疑似3D) ============ */
+const view = { x:0, y:0, tx:0, ty:0 };
+let hasGyro=false, gyroOn=false;
+if(typeof DeviceOrientationEvent !== 'undefined' && navigator.maxTouchPoints > 0){ hasGyro=true; }
+$('gyroBtn').onclick = async()=>{
+  try{
+    if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+      const p = await DeviceOrientationEvent.requestPermission();
+      if(p!=='granted'){ showErr('ジャイロの許可が必要です'); return; }
+    }
+    gyroOn = !gyroOn; $('gyroBtn').classList.toggle('on', gyroOn);
+    toast(gyroOn ? 'ジャイロ：端末を傾けて視点移動' : 'ジャイロ解除');
+  }catch{ showErr('ジャイロを利用できません'); }
+};
+addEventListener('deviceorientation', e=>{
+  if(!gyroOn || mode!=='parallax') return;
+  view.tx = clamp((e.gamma||0)/35, -1, 1);
+  view.ty = clamp(((e.beta||0)-45)/35, -1, 1);
+});
+
+/* ============ コントロール ============ */
+let amt=0.45, speed=0.45;
+$('amtRange').addEventListener('input', ()=>{ amt=parseInt($('amtRange').value)/100; $('amtVal').textContent=$('amtRange').value; });
+$('spdRange').addEventListener('input', ()=>{ speed=parseInt($('spdRange').value)/100; $('spdVal').textContent=$('spdRange').value; });
+$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; displace(); });
+$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; displace(); });
+$('resSeg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  [...$('resSeg').children].forEach(x=>x.classList.toggle('on', x===b));
+  S.res=parseInt(b.dataset.r); buildRelief();
+});
+$('sizeCm').addEventListener('change', ()=>{
+  S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
+  $('sizeCm').value = S.sizeCm;
+  if(xrSession) root.scale.setScalar(S.sizeCm/100);
+});
+
+/* ============ GLB書き出し ============ */
+$('glbBtn').onclick = ()=>{
+  if(!reliefMesh){ showErr('レリーフがありません'); return; }
+  try{
+    new GLTFExporter().parse(
+      reliefMesh,
+      result => {
+        const blob = new Blob([result], { type: 'model/gltf-binary' });
+        saveBlob(blob, 'レリーフ.glb');
+        toast('GLBを保存しました（3Dビューアや3Dプリントの下準備に）');
+      },
+      err => showErr('GLB書き出しに失敗: ' + (err?.message || err)),
+      { binary: true }
+    );
+  }catch(e){ showErr('GLB書き出しに失敗: ' + e.message); }
+};
+
+/* ============ 動画で保存(MediaRecorder) ============ */
+let recording = false;
+$('recBtn').onclick = ()=>{
+  if(recording || !renderer) return;
+  if(renderer.xr.isPresenting){ showErr('AR/VR中は録画できません(画面側が止まるため)'); return; }
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const mime = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if(!mime){ showErr('このブラウザは動画保存に対応していません'); return; }
+  const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+  const stream = canvas.captureStream(30);
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  const chunks = [];
+  rec.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+  rec.onstop = async () => {
+    recording = false;
+    $('recBtn').textContent = '🎬 動画で保存（4秒）';
+    stream.getTracks().forEach(t=>t.stop());
+    if(!chunks.length){ showErr('録画に失敗しました'); return; }
+    await saveBlob(new Blob(chunks, { type: mime.split(';')[0] }), '立体ミタテ.' + ext);
+    toast('動画を保存しました');
+  };
+  recording = true;
+  $('recBtn').textContent = '⏺ 録画中…';
+  rec.start();
+  setTimeout(()=>{ if(rec.state !== 'inactive') rec.stop(); }, 4000);
+};
+
+/* ============ WebXR (Quest AR/VR) — 実寸表示 ============ */
+let xrSession=null, xrMode=null, hitSource=null, hitReq=false, placed=false;
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.07,0.09,28).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({ color: 0x7fd6a8 })
+);
+reticle.matrixAutoUpdate=false; reticle.visible=false; scene.add(reticle);
+
+const raycaster = new THREE.Raycaster(); const tmpV = new THREE.Vector3();
+const controllers=[]; const grab=[null,null]; let pinch=null;
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i); scene.add(c);
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-3)]);
+    c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7fd6a8 })));
+    c.addEventListener('selectstart', ()=>onGrab(i));
+    c.addEventListener('selectend', ()=>onRelease(i));
+    controllers.push(c);
+  }
+}
+function ctrlPos(k){ return new THREE.Vector3().setFromMatrixPosition(controllers[k].matrixWorld); }
+function onGrab(i){
+  if(xrMode==='ar' && !placed) return;
+  if(!reliefMesh) return;
+  const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
+  const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
+  raycaster.set(tmpV, dir);
+  const hit = raycaster.intersectObject(reliefMesh, true);
+  if(hit.length){
+    grab[i] = true; const other = i^1;
+    if(grab[other]){ beginPinch(); } else { c.attach(root); }
+  }
+}
+function onRelease(i){
+  if(!grab[i]) return; grab[i]=false; const other=i^1;
+  if(pinch){ endPinch(); if(grab[other]) controllers[other].attach(root); else scene.attach(root); }
+  else if(!grab[other]) scene.attach(root);
+}
+function beginPinch(){
+  scene.attach(root);
+  const p0=ctrlPos(0), p1=ctrlPos(1);
+  const mid0 = p0.clone().add(p1).multiplyScalar(0.5);
+  pinch = { d0: Math.max(p0.distanceTo(p1),1e-4), s0: root.scale.x,
+    a0: Math.atan2(p1.x-p0.x, p1.z-p0.z), r0: root.rotation.y,
+    mid0, pos0: root.position.clone() };   // 差分適用でワープを防ぐ
+}
+function endPinch(){ pinch=null; }
+function updatePinch(){
+  if(!pinch) return; const p0=ctrlPos(0), p1=ctrlPos(1);
+  const d = Math.max(p0.distanceTo(p1), 1e-4);
+  root.scale.setScalar(clamp(pinch.s0*(d/pinch.d0), 0.02, 8));
+  const mid = p0.clone().add(p1).multiplyScalar(0.5);
+  root.position.x = pinch.pos0.x + (mid.x - pinch.mid0.x);
+  root.position.z = pinch.pos0.z + (mid.z - pinch.mid0.z);
+  root.rotation.y = pinch.r0 + (Math.atan2(p1.x-p0.x, p1.z-p0.z) - pinch.a0);
+}
+
+async function startAR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(mode!=='relief') setMode('relief');
+  try{
+    const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures:['hit-test'], optionalFeatures:['local-floor'] });
+    xrSession = s; xrMode = 'ar';
+    renderer.xr.setReferenceSpaceType('local');
+    await renderer.xr.setSession(s);
+    $('arBtn').textContent = '🛑 終了'; scene.background = null;
+    root.position.set(0,0,-1.6); root.scale.setScalar(S.sizeCm/100); placed=false; hitReq=false;
+    setupControllers();
+    toast('床にリング表示 → トリガーで実寸 ' + S.sizeCm + 'cm で配置');
+    s.addEventListener('end', ()=>{
+      xrSession=null; xrMode=null; hitSource=null; hitReq=false;
+      scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
+      $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
+      root.position.set(0,0,0); root.quaternion.identity(); root.scale.setScalar(1);
+      grab[0]=grab[1]=null; pinch=null;
+    });
+    s.addEventListener('select', ()=>{
+      if(reticle.visible && !placed){
+        reticle.matrix.decompose(root.position, root.quaternion, root.scale);
+        root.scale.setScalar(S.sizeCm/100);
+        placed=true; reticle.visible=false;
+        toast('実寸 ' + S.sizeCm + 'cm で配置完了。トリガーで掴む／両手で拡縮');
+      }
+    });
+  }catch(e){
+    showErr('AR開始失敗: ' + e.message);
+    try{ xrSession?.end(); }catch{ /* 無視 */ }
+    xrSession=null; xrMode=null;
+  }
+}
+async function startVR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(mode!=='relief') setMode('relief');
+  try{
+    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures:['local-floor'] });
+    xrSession = s; xrMode = 'vr';
+    renderer.xr.setReferenceSpaceType('local-floor');
+    await renderer.xr.setSession(s);
+    $('vrBtn').textContent = '🛑 終了'; scene.background = new THREE.Color(0x0c110e);
+    root.position.set(0,0,-1.2); root.scale.setScalar(S.sizeCm/100);
+    setupControllers();
+    toast('実寸 ' + S.sizeCm + 'cm で表示中。トリガーで掴む／両手で拡縮');
+    // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
+    s.addEventListener('end', ()=>{
+      xrSession=null; xrMode=null; $('vrBtn').textContent='🌐 VR';
+      scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
+      scene.background=bgTex; root.position.set(0,0,0); root.quaternion.identity();
+      grab[0]=grab[1]=null; pinch=null; root.scale.setScalar(1);
+    });
+  }catch(e){
+    showErr('VR開始失敗: ' + e.message);
+    try{ xrSession?.end(); }catch{ /* 無視 */ }
+    xrSession=null; xrMode=null;
+  }
+}
+$('arBtn').onclick = startAR;
+$('vrBtn').onclick = startVR;
+if(navigator.xr){
+  navigator.xr.isSessionSupported('immersive-ar').then(ok=>{ if(ok)$('arBtn').disabled=false; }).catch(()=>{});
+  navigator.xr.isSessionSupported('immersive-vr').then(ok=>{ if(ok)$('vrBtn').disabled=false; }).catch(()=>{});
+}
+
+/* ============ 開始 ============ */
+function start(){
+  init3D();
+  if(imgTexLinear) imgTexLinear.dispose();
+  if(imgTexSRGB) imgTexSRGB.dispose();
+  if(depthTex) depthTex.dispose();
+  imgTexLinear = makeTex(imgEl, false);
+  imgTexSRGB   = makeTex(imgEl, true);
+  depthTex     = makeTex(depthEl, false);
+  S.aspect = imgEl.naturalWidth / imgEl.naturalHeight;
+  S.depthMap = imageToMap(depthEl, 640);
+  S.alphaMap = imageToMap(imgEl, 512);
+  quadUniforms.uImage.value = imgTexLinear;
+  quadUniforms.uDepth.value = depthTex;
+  quadUniforms.uAspect.value = S.aspect;
+  quadUniforms.uViewAspect.value = innerWidth/innerHeight;
+  buildRelief();
+  buildLayers();
+  $('drop').style.display='none'; $('ui').style.display='flex';
+  setMode(mode);
+  toast('モードを切り替えて楽しんでください');
+}
+
+/* ============ ループ ============ */
+const tmpM = new THREE.Matrix4();
+let t0 = performance.now(); let loggedErr = false;
+function renderLoop(t, frame){
+ try{
+  const sec = (performance.now()-t0)/1000;
+  if(frame && renderer.xr.isPresenting && xrSession){
+    if(xrMode==='vr'){ if(controllers.length) updatePinch(); }
+    else if(xrMode==='ar'){
+      const ref = renderer.xr.getReferenceSpace(), sess = renderer.xr.getSession();
+      if(!hitReq){
+        hitReq = true;
+        if(sess.requestHitTestSource){
+          sess.requestReferenceSpace('viewer')
+            .then(vs => sess.requestHitTestSource({ space: vs }).then(src => hitSource = src).catch(()=>{}))
+            .catch(()=>{});
+        }
+      }
+      if(hitSource && !placed){
+        const res = frame.getHitTestResults(hitSource);
+        if(res.length){
+          const pose = res[0].getPose(ref);
+          reticle.visible = true; tmpM.fromArray(pose.transform.matrix); reticle.matrix.copy(tmpM);
+        } else reticle.visible = false;
+      }
+      if(placed && controllers.length) updatePinch();
+    }
+    renderer.render(scene, camera);
+    return;
+  }
+
+  if(mode==='relief'){
+    if(!dragging){ ctl.th+=ctl.vth; ctl.ph=clamp(ctl.ph+ctl.vph,.05,Math.PI-.05); ctl.vth*=.9; ctl.vph*=.9; }
+    applyCam();
+    renderer.render(scene, camera);
+  } else {
+    if(mode==='wiggle'){
+      const f = 0.3 + speed*1.2;
+      view.x = Math.sin(sec*f*Math.PI*2);
+      view.y = 0;
+    } else {
+      view.x += (view.tx-view.x)*0.12;
+      view.y += (view.ty-view.y)*0.12;
+    }
+    if(mode==='layers'){
+      persp.aspect = innerWidth/innerHeight; persp.updateProjectionMatrix();
+      persp.position.x = view.x*0.6*(0.2+amt*1.6);
+      persp.position.y = -view.y*0.6*(0.2+amt*1.6);
+      persp.position.z = 3.0;
+      persp.lookAt(0,0,0);
+      renderer.render(scene, persp);
+    } else {
+      if(mode==='light'){
+        const a = sec*(0.3+speed*2.0);
+        quadUniforms.uLightDir.value.set(Math.cos(a), Math.sin(a));
+      } else {
+        quadUniforms.uShift.value.set(-view.x*0.12, view.y*0.12);
+      }
+      quadUniforms.uAmt.value = amt;
+      quadUniforms.uViewAspect.value = innerWidth/innerHeight;
+      renderer.render(scene, ortho);
+    }
+  }
+ }catch(err){
+  if(!loggedErr){ loggedErr=true; showErr('描画エラー: ' + (err && err.message || err)); console.error(err); }
+ }
+}
+applyCam();
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+  quadUniforms.uViewAspect.value = innerWidth/innerHeight;
+});
+</script>
+</body>
+</html>

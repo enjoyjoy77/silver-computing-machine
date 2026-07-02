@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>おきば — 部屋写真に実寸で置く | 画像工房</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/common.css">
+<style>
+  /* ---- このページ固有 ---- */
+  .stage-card { padding: 14px; }
+  #stage-box {
+    position: relative; border-radius: 9px; overflow: hidden;
+    border: 1px solid var(--line); background: #f1efe9;
+    touch-action: none;
+  }
+  #stage { width: 100%; height: auto; display: block; cursor: crosshair; }
+  #stage.mode-move { cursor: grab; }
+  #stage.dragging { cursor: grabbing; }
+  #stage-empty {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 220px; color: var(--muted); font-size: 13px; text-align: center;
+    padding: 20px; line-height: 2;
+  }
+  .toolbar { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  .tool-note { font-size: 11px; color: var(--muted); line-height: 1.7; margin-top: 8px; }
+
+  /* ものさしパネル */
+  #ruler-panel {
+    display: none; margin-top: 12px; padding: 13px 15px;
+    background: #fdf7e8; border: 1px solid #eeddb4; border-radius: 10px;
+    font-size: 12.5px; line-height: 1.8;
+  }
+  #ruler-panel.show { display: block; }
+  .preset-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .preset-btns button {
+    font-family: inherit; font-size: 11.5px; font-weight: 700;
+    padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    border: 1px solid #dcc98e; background: #fff; color: var(--ink);
+    transition: background .12s;
+  }
+  .preset-btns button:hover { background: #f6edd7; }
+  .ruler-free { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .ruler-free input {
+    width: 80px; font-family: inherit; font-size: 13px; font-weight: 700;
+    padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px;
+  }
+
+  /* フィギュア操作パネル */
+  #fig-panel {
+    display: none; margin-top: 12px; padding: 12px 15px;
+    background: var(--accent-soft); border: 1px solid #d3e0d8; border-radius: 10px;
+    font-size: 12.5px;
+  }
+  #fig-panel.show { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #fig-panel input {
+    width: 72px; font-family: inherit; font-size: 13.5px; font-weight: 900;
+    padding: 7px 9px; border: 1px solid #c4d4ca; border-radius: 7px; text-align: right;
+  }
+  #fig-panel label { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .06em; }
+
+  .status-chips { display: flex; gap: 7px; margin-top: 12px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; font-weight: 700; padding: 4px 11px; border-radius: 4px;
+    background: #f1efe9; color: var(--muted); border: 1px solid var(--line);
+  }
+  .chip.done { background: var(--accent-soft); color: var(--accent); border-color: #d3e0d8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="crumbs"><a href="index.html">← 画像工房トップ</a>　<a href="kiritori.html">✂ 背景透明化へ</a></nav>
+
+  <header class="sticker">
+    <div class="title-row">
+      <h1><span style="font-weight:500">🛋</span> おきば — 部屋写真に実寸で置く</h1>
+      <span class="title-en">Okiba — Place at Real Size</span>
+      <span class="rev-badge" id="rev-badge"></span>
+    </div>
+    <div class="sub">
+      自分の机や棚の写真に、切り抜いたフィギュアを<b>実寸換算</b>で置いてみる。「全高24cm、実際に置いたらこの存在感か」が買う前に分かります。
+      AI不要・すべて端末内・保存した合成写真は自由に使えます。
+    </div>
+    <div class="badges">
+      <span class="badge">AI不要・軽い</span>
+      <span class="badge">実寸換算(ものさし方式)</span>
+      <span class="badge">複数体の並べ比較OK</span>
+    </div>
+  </header>
+
+  <div class="handoff-banner" id="handoff-banner">
+    <img id="handoff-thumb" alt="受け取った切り抜き">
+    <div class="txt">
+      <b>✂ キリトリから切り抜きを受け取りました</b><br>
+      <small id="handoff-meta">部屋写真とものさしを設定すると置けます</small>
+    </div>
+    <button class="btn-plain" id="handoff-use" disabled>この子を置く</button>
+  </div>
+
+  <div class="status-chips">
+    <span class="chip" id="chip-photo">① 部屋写真</span>
+    <span class="chip" id="chip-ruler">② ものさし</span>
+    <span class="chip" id="chip-fig">③ フィギュア</span>
+  </div>
+
+  <div id="photo-drop" class="dropzone" style="margin-top:12px">
+    <p>まず「置きたい場所」の写真をドロップ / タップして選択</p>
+    <p class="hint">机・棚・テレビ台など。正面からなるべく水平に撮ると誤差が少ない</p>
+    <input type="file" id="photo-input" accept="image/*" style="display:none">
+  </div>
+
+  <div class="card stage-card" id="stage-wrap" style="display:none">
+    <div id="stage-box">
+      <canvas id="stage"></canvas>
+    </div>
+
+    <div id="ruler-panel">
+      <b>📏 ものさしを引く:</b> 写真の中の「長さが分かるもの」の両端を<b>2回タップ</b>してください(例: A4用紙のフチ、ペットボトルの高さ)。<span id="ruler-state">1点目を待っています…</span>
+      <div class="preset-btns" id="preset-btns" style="display:none">
+        <button data-cm="29.7">A4の長辺 29.7cm</button>
+        <button data-cm="21.0">A4の短辺 21.0cm</button>
+        <button data-cm="20.5">500mlペット 20.5cm</button>
+        <button data-cm="12.5">CDケース 12.5cm</button>
+        <button data-cm="14.8">文庫本の高さ 14.8cm</button>
+        <button data-cm="23.5">ティッシュ箱の長辺 23.5cm</button>
+      </div>
+      <div class="ruler-free" id="ruler-free" style="display:none">
+        <span>または長さを入力:</span>
+        <input type="number" id="ruler-cm" min="1" max="500" step="0.1" placeholder="cm">
+        <button class="btn-plain" id="ruler-ok" style="padding:8px 16px">決定</button>
+      </div>
+    </div>
+
+    <div id="fig-panel">
+      <label>選択中の子の全高</label>
+      <input type="number" id="fig-cm" min="1" max="300" step="0.5"> <span style="font-weight:900">cm</span>
+      <button class="btn-sm" id="fig-flip">↔ 左右反転</button>
+      <button class="btn-sm" id="fig-front">⬆ 手前に</button>
+      <button class="btn-sm" id="fig-del">削除</button>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn-plain" id="btn-add-fig">＋ フィギュアを追加(切り抜きPNG)</button>
+      <button class="btn-plain" id="btn-reruler">📏 ものさしを引き直す</button>
+      <label class="tool-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;margin-top:0">
+        <input type="checkbox" id="chk-shadow" checked> 足元に影
+      </label>
+      <span class="spacer"></span>
+      <button class="btn-ghost" id="btn-photo-change" style="color:var(--muted);border-color:var(--line)">部屋写真を変える</button>
+      <input type="file" id="fig-input" accept="image/png,image/webp" style="display:none">
+    </div>
+    <div class="btn-save-wrap show" style="margin-top:12px">
+      <button class="btn-primary" id="btn-save">📷 この置き方で写真を保存</button>
+    </div>
+    <p class="tool-note">
+      タップで選択、ドラッグで移動。サイズは「ものさし」と同じ奥行きに置いた場合の実寸換算です(手前に置くほど本当はもう少し大きく見えます)。
+      商品ページの「全高◯◯cm」をそのまま入力してください。1/7スケールは約22〜26cm、1/4は約38〜42cmが目安。
+    </p>
+  </div>
+
+  <footer class="kobo">
+    おきば — AIを使わない単純な比例計算なので、確実に動きます。<br>
+    合成写真はあなたの端末の中だけで作られ、どこにも送信されません。
+  </footer>
+</div>
+
+<script type="module">
+import { saveBlob, canvasToBlob, handoffTake, handoffClear, agoText } from "./assets/common.js";
+
+const REV = "v2 rev2";
+document.getElementById("rev-badge").textContent = REV;
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+const stage = $("stage");
+const ctx = stage.getContext("2d");
+
+// ---------- 状態 ----------
+const S = {
+  photo: null,          // Image
+  pxPerCm: null,        // 写真ピクセル / cm
+  ruler: { p1: null, p2: null, waiting: false },
+  figures: [],          // {img, heightCm, x, y, flip} x,y = 足元中心(写真ピクセル座標)
+  selected: -1,
+  shadow: true,
+};
+const MAX_STAGE_SIDE = 2400;
+
+function refreshChips() {
+  $("chip-photo").classList.toggle("done", !!S.photo);
+  $("chip-ruler").classList.toggle("done", !!S.pxPerCm);
+  $("chip-fig").classList.toggle("done", S.figures.length > 0);
+  $("chip-photo").textContent = (S.photo ? "✓" : "①") + " 部屋写真";
+  $("chip-ruler").textContent = (S.pxPerCm ? "✓" : "②") + " ものさし";
+  $("chip-fig").textContent = (S.figures.length ? `✓ フィギュア×${S.figures.length}` : "③ フィギュア");
+  $("handoff-use").disabled = !(S.photo && S.pxPerCm && pendingHandoff);
+}
+
+// ---------- 画像読み込み ----------
+function fileToImage(fileOrBlob) {
+  return new Promise((res, rej) => {
+    if (!fileOrBlob || (fileOrBlob.type && !fileOrBlob.type.startsWith("image/"))) {
+      rej(new Error("画像ファイルを選んでください")); return;
+    }
+    const url = URL.createObjectURL(fileOrBlob);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); res(im) };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("画像を読めませんでした")); };
+    im.src = url;
+  });
+}
+
+// ---------- 部屋写真 ----------
+const photoDrop = $("photo-drop");
+photoDrop.addEventListener("click", () => $("photo-input").click());
+["dragover","dragenter"].forEach(ev => photoDrop.addEventListener(ev, e => { e.preventDefault(); photoDrop.classList.add("dragover"); }));
+["dragleave","drop"].forEach(ev => photoDrop.addEventListener(ev, e => { e.preventDefault(); photoDrop.classList.remove("dragover"); }));
+photoDrop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) loadPhoto(e.dataTransfer.files[0]); });
+$("photo-input").addEventListener("change", e => { if (e.target.files[0]) loadPhoto(e.target.files[0]); e.target.value = ""; });
+$("btn-photo-change").addEventListener("click", () => $("photo-input").click());
+document.body.addEventListener("dragover", e => e.preventDefault());
+document.body.addEventListener("drop", e => e.preventDefault());
+
+async function loadPhoto(file) {
+  try {
+    const img = await fileToImage(file);
+    S.photo = img;
+    // キャンバスの内部解像度を写真サイズに(上限あり)
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (Math.max(w, h) > MAX_STAGE_SIDE) {
+      const r = MAX_STAGE_SIDE / Math.max(w, h);
+      w = Math.round(w * r); h = Math.round(h * r);
+    }
+    stage.width = w; stage.height = h;
+    S.pxPerCm = null; S.ruler = { p1: null, p2: null, waiting: false };
+    S.figures = []; S.selected = -1;
+    $("photo-drop").style.display = "none";
+    $("stage-wrap").style.display = "";
+    startRuler();
+    redraw(); refreshChips();
+  } catch (e) { alert(e.message); }
+}
+
+// ---------- ものさし ----------
+function startRuler() {
+  S.ruler = { p1: null, p2: null, waiting: true };
+  // 旧pxPerCmは確定(setRulerCm)まで保持する → 引き直し中もフィギュアが消えない
+  $("ruler-panel").classList.add("show");
+  $("ruler-state").textContent = "1点目を待っています…";
+  $("preset-btns").style.display = "none";
+  $("ruler-free").style.display = "none";
+  $("fig-panel").classList.remove("show");
+  stage.classList.remove("mode-move");
+  redraw(); refreshChips();
+}
+$("btn-reruler").addEventListener("click", startRuler);
+
+function rulerClick(px, py) {
+  const r = S.ruler;
+  if (!r.p1) {
+    r.p1 = { x: px, y: py };
+    $("ruler-state").textContent = "2点目を待っています…";
+  } else if (!r.p2) {
+    r.p2 = { x: px, y: py };
+    const len = Math.hypot(r.p2.x - r.p1.x, r.p2.y - r.p1.y);
+    if (len < 8) { r.p2 = null; return; }   // 近すぎ
+    $("ruler-state").textContent = "この線の実際の長さは?";
+    $("preset-btns").style.display = "flex";
+    $("ruler-free").style.display = "flex";
+  }
+  redraw();
+}
+function setRulerCm(cm) {
+  const r = S.ruler;
+  if (!r.p1 || !r.p2 || !(cm > 0)) return;
+  const lenPx = Math.hypot(r.p2.x - r.p1.x, r.p2.y - r.p1.y);
+  S.pxPerCm = lenPx / cm;
+  r.waiting = false;
+  $("ruler-panel").classList.remove("show");
+  stage.classList.add("mode-move");
+  // ものさし確定後、受け取り待ちの子がいれば案内
+  redraw(); refreshChips();
+}
+$("preset-btns").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  setRulerCm(parseFloat(b.dataset.cm));
+});
+$("ruler-ok").addEventListener("click", () => setRulerCm(parseFloat($("ruler-cm").value)));
+
+// ---------- フィギュア ----------
+$("btn-add-fig").addEventListener("click", () => {
+  if (!S.pxPerCm) { alert("先に「ものさし」を設定してください(📏ボタン)"); return; }
+  $("fig-input").click();
+});
+$("fig-input").addEventListener("change", async e => {
+  if (e.target.files[0]) await addFigure(e.target.files[0]);
+  e.target.value = "";
+});
+async function addFigure(blob, defaultCm = 24) {
+  try {
+    if (!S.pxPerCm) { alert("先に「ものさし」を設定してください"); return; }
+    const img = await fileToImage(blob);
+    S.figures.push({
+      img, heightCm: defaultCm, flip: false,
+      x: stage.width / 2, y: stage.height * 0.8,
+    });
+    S.selected = S.figures.length - 1;
+    syncFigPanel();
+    redraw(); refreshChips();
+  } catch (e2) { alert(e2.message); }
+}
+
+function figRect(f) {
+  const h = f.heightCm * S.pxPerCm;
+  const w = h * (f.img.naturalWidth / f.img.naturalHeight);
+  return { x: f.x - w/2, y: f.y - h, w, h };
+}
+function syncFigPanel() {
+  const f = S.figures[S.selected];
+  if (!f) { $("fig-panel").classList.remove("show"); return; }
+  $("fig-panel").classList.add("show");
+  $("fig-cm").value = f.heightCm;
+}
+$("fig-cm").addEventListener("input", () => {
+  const f = S.figures[S.selected]; if (!f) return;
+  const v = parseFloat($("fig-cm").value);
+  if (v >= 1 && v <= 300) { f.heightCm = v; redraw(); }
+});
+$("fig-flip").addEventListener("click", () => {
+  const f = S.figures[S.selected]; if (!f) return;
+  f.flip = !f.flip; redraw();
+});
+$("fig-front").addEventListener("click", () => {
+  const f = S.figures[S.selected]; if (!f) return;
+  S.figures.splice(S.selected, 1);
+  S.figures.push(f);
+  S.selected = S.figures.length - 1;
+  redraw();
+});
+$("fig-del").addEventListener("click", () => {
+  if (S.selected < 0) return;
+  S.figures.splice(S.selected, 1);
+  S.selected = -1;
+  syncFigPanel(); redraw(); refreshChips();
+});
+$("chk-shadow").addEventListener("change", () => { S.shadow = $("chk-shadow").checked; redraw(); });
+
+// ---------- 描画 ----------
+function redraw(forSave = false) {
+  if (!S.photo) return;
+  ctx.clearRect(0, 0, stage.width, stage.height);
+  ctx.drawImage(S.photo, 0, 0, stage.width, stage.height);
+
+  for (let i = 0; i < S.figures.length; i++) {
+    const f = S.figures[i];
+    const r = figRect(f);
+    if (S.shadow) {
+      ctx.save();
+      ctx.fillStyle = "rgba(20,20,20,.22)";
+      ctx.beginPath();
+      ctx.ellipse(f.x, f.y - r.h*0.01, r.w*0.42, Math.max(r.w*0.10, 4), 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    if (f.flip) {
+      ctx.translate(f.x, 0); ctx.scale(-1, 1); ctx.translate(-f.x, 0);
+    }
+    ctx.drawImage(f.img, r.x, r.y, r.w, r.h);
+    ctx.restore();
+    if (!forSave && i === S.selected) {
+      ctx.save();
+      ctx.strokeStyle = "#3e6b59"; ctx.lineWidth = Math.max(2, stage.width/500);
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8);
+      // サイズ表示
+      ctx.setLineDash([]);
+      ctx.font = `700 ${Math.max(14, stage.width/50)}px sans-serif`;
+      const label = f.heightCm + "cm";
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = "rgba(44,74,62,.88)";
+      ctx.fillRect(r.x - 4, r.y - 4 - Math.max(22, stage.width/34), tw + 14, Math.max(20, stage.width/36));
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, r.x + 3, r.y - 10);
+      ctx.restore();
+    }
+  }
+  // ものさし描画
+  if (!forSave && S.ruler.waiting && S.ruler.p1) {
+    ctx.save();
+    ctx.strokeStyle = "#f0b429"; ctx.fillStyle = "#f0b429";
+    ctx.lineWidth = Math.max(3, stage.width/400);
+    const { p1, p2 } = S.ruler;
+    ctx.beginPath(); ctx.arc(p1.x, p1.y, ctx.lineWidth*2, 0, 7); ctx.fill();
+    if (p2) {
+      ctx.beginPath(); ctx.arc(p2.x, p2.y, ctx.lineWidth*2, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ---------- ポインタ操作 ----------
+let drag = null;   // {idx, dx, dy}
+function toStage(e) {
+  const rect = stage.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * stage.width / rect.width,
+    y: (e.clientY - rect.top) * stage.height / rect.height,
+  };
+}
+stage.addEventListener("pointerdown", e => {
+  if (!S.photo) return;
+  const p = toStage(e);
+  if (S.ruler.waiting) { rulerClick(p.x, p.y); return; }
+  if (drag) return;   // 2本目の指は無視(1体を2本指で引っ張ると飛ぶ)
+  // 上に描かれている(=配列の後ろ)ものから当たり判定
+  for (let i = S.figures.length - 1; i >= 0; i--) {
+    const r = figRect(S.figures[i]);
+    if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) {
+      S.selected = i;
+      drag = { idx: i, dx: p.x - S.figures[i].x, dy: p.y - S.figures[i].y, pointerId: e.pointerId };
+      stage.classList.add("dragging");
+      stage.setPointerCapture(e.pointerId);
+      syncFigPanel(); redraw();
+      return;
+    }
+  }
+  S.selected = -1;
+  syncFigPanel(); redraw();
+});
+stage.addEventListener("pointermove", e => {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const p = toStage(e);
+  const f = S.figures[drag.idx];
+  f.x = clamp(p.x - drag.dx, 0, stage.width);
+  f.y = clamp(p.y - drag.dy, 0, stage.height + figRect(f).h * 0.2);
+  redraw();
+});
+function endDrag(e) {
+  if (drag && e.pointerId !== drag.pointerId) return;
+  drag = null;
+  stage.classList.remove("dragging");
+}
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", endDrag);
+
+// ---------- 保存 ----------
+$("btn-save").addEventListener("click", async () => {
+  if (!S.photo) return;
+  redraw(true);                                   // 選択枠なしで描き直し
+  try {
+    await saveBlob(await canvasToBlob(stage), "おきば.png");
+  } finally {
+    redraw(false);
+  }
+});
+
+// ---------- キリトリからの受け渡し ----------
+let pendingHandoff = null;
+(async () => {
+  const item = await handoffTake("source");
+  if (!item || !item.blob) return;
+  pendingHandoff = item;
+  $("handoff-thumb").src = URL.createObjectURL(item.blob);
+  $("handoff-meta").textContent =
+    (item.name || "切り抜き") + "（" + agoText(item.ts) + "）・部屋写真とものさしを設定すると置けます";
+  $("handoff-banner").classList.add("show");
+  refreshChips();
+})();
+$("handoff-use").addEventListener("click", async () => {
+  if (!pendingHandoff) return;
+  await addFigure(pendingHandoff.blob);
+  const thumb = $("handoff-thumb");
+  if (thumb.src) URL.revokeObjectURL(thumb.src);
+  $("handoff-banner").classList.remove("show");
+  handoffClear("source");   // 使ったら消費(古いバナーが出続けない)
+  pendingHandoff = null;
+  refreshChips();
+});
+
+refreshChips();
+</script>
+</body>
+</html>

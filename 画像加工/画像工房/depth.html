@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>深度づくり — 奥行き推定 | 画像工房</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/common.css">
+<style>
+  #prepare-wrap { margin-bottom: 18px; }
+  #prepare-wrap.done, #model-select-wrap.done { display: none; }
+  #model-select-wrap { margin-bottom: 14px; }
+  .prepare-note { font-size: 11.5px; color: rgba(255,255,255,.75); margin-top: 10px; line-height: 1.8; text-align: center; }
+  .btn-save-wrap { margin-top: 15px; display: none; gap: 9px; flex-wrap: wrap; }
+  .btn-save-wrap.show { display: flex; }
+  .btn-save-wrap .btn-primary { flex: 1.4; min-width: 200px; }
+  .btn-save-wrap .btn-plain { flex: 1; min-width: 160px; }
+  .sub-actions { display: flex; gap: 8px; margin-top: 9px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="crumbs"><a href="index.html">← 画像工房トップ</a>　<a href="kiritori.html">✂ 背景透明化へ</a></nav>
+
+  <header class="sticker">
+    <div class="title-row">
+      <h1><span style="font-weight:500">⛰</span> 深度づくり — 奥行き推定</h1>
+      <span class="title-en">Step 2 / Depth Map</span>
+      <span class="rev-badge" id="rev-badge"></span>
+    </div>
+    <div class="sub">写真から「どこが手前でどこが奥か」をAIが推定して、深度マップ(白いほど手前)を作ります。処理はすべて端末内。作った深度は次の「立体で見る」でそのまま使えます。</div>
+    <div class="badges">
+      <span class="badge">ローカルAI処理</span>
+      <span class="badge">サーバー保存なし</span>
+      <span class="badge" id="badge-backend">バックエンド検出中…</span>
+    </div>
+  </header>
+
+  <div class="status-bar">
+    <span class="dot" id="status-dot"></span>
+    <div style="flex:1">
+      <div id="status-text">下のボタンを押すとAIの準備を開始します。押すまで通信は発生しません。</div>
+      <div class="progress" id="model-progress"><div class="fill" id="model-progress-fill"></div></div>
+    </div>
+    <span id="backend-label" style="font-size:11px;font-weight:700;color:var(--muted)"></span>
+  </div>
+
+  <div class="handoff-banner" id="handoff-banner">
+    <img id="handoff-thumb" alt="受け取った画像">
+    <div class="txt">
+      <b>✂ 背景透明化から画像を受け取りました</b><br>
+      <small id="handoff-meta"></small>
+    </div>
+    <button class="btn-plain" id="handoff-use" disabled>この画像で深度を作る</button>
+  </div>
+
+  <div id="model-select-wrap">
+    <div class="model-select-label">使うAIモデルを選ぶ</div>
+    <div class="model-cards two">
+      <div class="model-card selected" data-model="small">
+        <div class="model-name">Depth Anything V2 small</div>
+        <span class="model-tag">商用OK</span><span class="model-tag">軽量・標準</span>
+        <div class="model-desc">約100MB。十分きれいな奥行きが出ます。Apacheライセンスで商用も可。迷ったらこれ。</div>
+      </div>
+      <div class="model-card" data-model="base">
+        <div class="model-name">Depth Anything V2 base</div>
+        <span class="model-tag nc">非商用のみ</span><span class="model-tag heavy">高精度・重量</span>
+        <div class="model-desc">約400MB。細部がより滑らか。ただし<b>商用利用は不可</b>(CC-BY-NC)。PC推奨。</div>
+      </div>
+    </div>
+    <div class="model-warn" id="model-warn">⚠ このモデルはサイズが大きく、スマホでは読み込みや処理に失敗することがあります。Wi-Fi接続を推奨します。</div>
+  </div>
+
+  <div id="prepare-wrap">
+    <button class="btn-big" id="btn-prepare">
+      <span class="icon">⬇</span>
+      <span>このモデルで準備する（初回のみ取得）</span>
+    </button>
+    <p class="prepare-note">初回だけモデルをダウンロードします。2回目以降は同じモデルならキャッシュから即起動し、通信は発生しません。</p>
+  </div>
+
+  <div id="dropzone" class="dropzone disabled">
+    <p>ここに画像をドロップ　または　タップして選択</p>
+    <p class="hint">JPG / PNG / WebP ・ 背景透明PNGなら輪郭がきれいに抜けます</p>
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp" style="display:none">
+  </div>
+
+  <div id="results"></div>
+
+  <footer class="kobo">
+    標準モデル: Depth Anything V2 small（Apache-2.0・商用可）／ base版は CC-BY-NC のため商売には使えません<br>
+    推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）／ 初回のみモデル取得のためインターネット接続が必要です<br>
+    深度マップはPNGとして保存でき、別の端末の「立体で見る」でも読み込めます。
+  </footer>
+</div>
+
+<script type="module">
+import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
+import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, agoText, detectBackend } from "./assets/common.js";
+
+const REV = "v2 rev2";
+document.getElementById("rev-badge").textContent = REV;
+
+env.allowLocalModels = false;
+env.backends.onnx.wasm.proxy = false;
+env.backends.onnx.wasm.numThreads = 1;
+
+const $ = id => document.getElementById(id);
+const statusDot  = $("status-dot");
+const statusText = $("status-text");
+const dropzone   = $("dropzone");
+const fileInput  = $("file-input");
+const results    = $("results");
+const progressBar  = $("model-progress");
+const progressFill = $("model-progress-fill");
+
+const MODELS = {
+  small: { id: "onnx-community/depth-anything-v2-small", label: "Depth Anything V2 small" },
+  base:  { id: "onnx-community/depth-anything-v2-base",  label: "Depth Anything V2 base", heavy: true },
+};
+let selectedModelKey = "small";
+let activeModel = null;
+let pipe = null;
+let backend = "wasm";
+let queue = [];
+let busy = false;
+
+const MAX_INFER_SIDE = 768;   // 推論に入れる最大辺
+const MAX_DEPTH_SIDE = 640;   // 保存する深度マップの最大辺
+
+function setStatus(state, text) {
+  statusDot.className = "dot " + state;
+  statusText.textContent = text;
+}
+
+const progressSeen = {};
+function onProgress(p) {
+  if (p.status === "progress" && p.total) {
+    progressSeen[p.file] = p.progress || 0;
+    const vals = Object.values(progressSeen);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    progressBar.style.display = "block";
+    progressFill.style.width = Math.min(100, avg).toFixed(1) + "%";
+  }
+  if (p.status === "done") progressFill.style.width = "100%";
+}
+
+async function init() {
+  const prepareBtn = $("btn-prepare");
+  prepareBtn.disabled = true;
+  prepareBtn.querySelector("span:last-child").textContent = "準備中…";
+  setStatus("loading", MODELS[selectedModelKey].label + " を準備しています…");
+  for (const k in progressSeen) delete progressSeen[k];
+  progressFill.style.width = "0%";
+
+  backend = await detectBackend();
+  $("backend-label").textContent = backend === "webgpu" ? "WebGPU（高速）" : "WASM";
+  $("badge-backend").textContent = backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
+
+  const spec = MODELS[selectedModelKey];
+  // q8(量子化)はWebGPU非対応のopを含むためWASM専用。WebGPUのiOSは中間のfp16
+  const dtypeFor = dev => dev === "webgpu" ? (isIOS ? "fp16" : "fp32")
+                                           : (isIOS ? "q8" : "fp32");
+  try {
+    pipe = await pipeline("depth-estimation", spec.id, { device: backend, dtype: dtypeFor(backend), progress_callback: onProgress });
+  } catch (e) {
+    console.error(e);
+    if (backend === "webgpu") {
+      backend = "wasm";
+      $("backend-label").textContent = "WASM（フォールバック）";
+      $("badge-backend").textContent = "WASM 互換モード";
+      try {
+        pipe = await pipeline("depth-estimation", spec.id, { device: "wasm", dtype: dtypeFor("wasm"), progress_callback: onProgress });
+      } catch (e2) {
+        console.error(e2);
+        return failPrepare(prepareBtn);
+      }
+    } else {
+      return failPrepare(prepareBtn);
+    }
+  }
+  activeModel = selectedModelKey;
+  progressBar.style.display = "none";
+  setStatus("ready", spec.label + " 準備完了。画像をドロップしてください。");
+  $("prepare-wrap").classList.add("done");
+  $("model-select-wrap").classList.add("done");
+  dropzone.classList.remove("disabled");
+  $("handoff-use").disabled = false;
+  pump();
+}
+function failPrepare(prepareBtn) {
+  setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。");
+  prepareBtn.disabled = false;
+  prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
+}
+$("btn-prepare").addEventListener("click", init);
+
+// ---------- 受け渡しバナー ----------
+let handoffItem = null;
+(async () => {
+  handoffItem = await handoffTake("source");
+  if (!handoffItem || !handoffItem.blob) return;
+  $("handoff-thumb").src = URL.createObjectURL(handoffItem.blob);
+  $("handoff-meta").textContent =
+    (handoffItem.name || "画像") + "（" + agoText(handoffItem.ts) + "）・使うには先にAIを準備";
+  $("handoff-banner").classList.add("show");
+})();
+$("handoff-use").addEventListener("click", () => {
+  if (!handoffItem) return;
+  addJob(handoffItem.blob, handoffItem.name || "cutout.png");
+  const thumb = $("handoff-thumb");
+  if (thumb.src) URL.revokeObjectURL(thumb.src);
+  $("handoff-banner").classList.remove("show");
+  handoffClear("source");   // 使ったら消費(古いバナーが出続けない)
+  handoffItem = null;
+});
+
+// ---------- 入力 ----------
+dropzone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) addJob(fileInput.files[0], fileInput.files[0].name);
+  fileInput.value = "";
+});
+["dragover", "dragenter"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+dropzone.addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith("image/")) addJob(f, f.name);
+});
+
+function addJob(blob, name) {
+  const card = makeCard(name, blob);
+  queue.push({ blob, name, card });
+  pump();
+}
+
+function makeCard(name, blob) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="card-head">
+      <div style="min-width:0">
+        <div class="fname"></div>
+        <div class="fmeta">深度マップ：白いほど手前・黒いほど奥</div>
+      </div>
+      <div class="card-status">待機中…</div>
+    </div>
+    <div class="pair">
+      <div class="pane">
+        <div class="pane-label">元画像</div>
+        <img class="src-img checker" alt="元画像">
+      </div>
+      <div class="pane">
+        <div class="pane-label">深度マップ</div>
+        <div class="working">処理待ち…</div>
+      </div>
+    </div>
+    <div class="btn-save-wrap">
+      <button class="btn-primary btn-to-view">🧊 立体で見る →</button>
+      <button class="btn-plain btn-save-depth">💾 深度PNGを保存</button>
+    </div>
+    <div class="sub-actions">
+      <button class="btn-sm btn-remove">この結果を削除</button>
+    </div>`;
+  card.querySelector(".fname").textContent = name;
+  card.querySelector(".src-img").src = URL.createObjectURL(blob);
+  card.querySelector(".btn-remove").addEventListener("click", () => {
+    queue = queue.filter(q => q.card !== card);
+    const im = card.querySelector(".src-img");
+    if (im?.src) URL.revokeObjectURL(im.src);
+    card.remove();
+  });
+  results.prepend(card);
+  return card;
+}
+
+async function pump() {
+  if (busy || !pipe) return;
+  const job = queue.shift();
+  if (!job) return;
+  busy = true;
+  await processOne(job).catch(console.error);
+  busy = false;
+  pump();
+}
+
+async function processOne({ blob, name, card }) {
+  const statusEl = card.querySelector(".card-status");
+  const rightPane = card.querySelector(".pair .pane:last-child");
+  const workEl = rightPane.querySelector(".working");
+  statusEl.textContent = "推定中…";
+  workEl.textContent = backend === "webgpu" ? "奥行きを推定中…（WebGPU）" : "奥行きを推定中…（WASM・数十秒かかることがあります）";
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await RawImage.fromURL(url);
+    // 推論用に縮小
+    let w = img.width, h = img.height;
+    if (Math.max(w, h) > MAX_INFER_SIDE) {
+      const r = MAX_INFER_SIDE / Math.max(w, h);
+      w = Math.round(w * r); h = Math.round(h * r);
+    }
+    const inputImg = (w !== img.width) ? await img.resize(w, h) : img;
+    const out = await pipe(inputImg);
+
+    // 深度(グレースケール)をキャンバスへ
+    const d = out.depth;   // RawImage
+    const dcv = document.createElement("canvas");
+    dcv.width = d.width; dcv.height = d.height;
+    const dctx = dcv.getContext("2d");
+    const id = dctx.createImageData(d.width, d.height);
+    const ch = d.channels || 1;
+    for (let i = 0; i < d.width * d.height; i++) {
+      const g = d.data[i * ch];
+      id.data[i*4] = g; id.data[i*4+1] = g; id.data[i*4+2] = g; id.data[i*4+3] = 255;
+    }
+    dctx.putImageData(id, 0, 0);
+
+    // 保存用サイズに整える
+    const sw = Math.min(d.width, MAX_DEPTH_SIDE);
+    const sh = Math.round(d.height * sw / d.width);
+    const outCv = document.createElement("canvas");
+    outCv.width = sw; outCv.height = sh;
+    outCv.getContext("2d").drawImage(dcv, 0, 0, sw, sh);
+
+    workEl.replaceWith(outCv);
+    statusEl.textContent = "完了 ✓";
+    statusEl.classList.add("done");
+
+    const baseName = name.replace(/\.[^.]+$/, "");
+    card.querySelector(".btn-save-wrap").classList.add("show");
+    card.querySelector(".btn-save-depth").addEventListener("click", async () =>
+      saveBlob(await canvasToBlob(outCv), baseName + "_深度.png"));
+    card.querySelector(".btn-to-view").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.textContent = "受け渡し中…";
+      try {
+        await handoffSend("source", blob, { name });
+        await handoffSend("depth", await canvasToBlob(outCv), { name: baseName + "_深度.png" });
+        location.href = "mitate.html";
+      } catch (err) {
+        console.error(err);
+        btn.disabled = false; btn.textContent = "🧊 立体で見る →";
+        setStatus("error", "受け渡しに失敗しました。深度PNGを保存して「立体で見る」で読み込んでください。");
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "エラー";
+    statusEl.classList.add("err");
+    workEl.textContent = "処理に失敗しました：" + (e.message || e);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ---------- モデル選択 ----------
+document.querySelectorAll(".model-card").forEach(c => {
+  c.addEventListener("click", () => {
+    if (activeModel) return;
+    document.querySelectorAll(".model-card").forEach(x => x.classList.remove("selected"));
+    c.classList.add("selected");
+    selectedModelKey = c.dataset.model;
+    const warn = $("model-warn");
+    if (MODELS[selectedModelKey].heavy) warn.classList.add("show");
+    else warn.classList.remove("show");
+  });
+});
+</script>
+</body>
+</html>
