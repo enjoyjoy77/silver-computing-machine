@@ -56,23 +56,6 @@
     <button class="btn-plain" id="handoff-use" disabled>この画像で深度を作る</button>
   </div>
 
-  <div id="model-select-wrap">
-    <div class="model-select-label">使うAIモデルを選ぶ</div>
-    <div class="model-cards two">
-      <div class="model-card selected" data-model="small">
-        <div class="model-name">Depth Anything V2 small</div>
-        <span class="model-tag">商用OK</span><span class="model-tag">軽量・標準</span>
-        <div class="model-desc">約100MB。十分きれいな奥行きが出ます。Apacheライセンスで商用も可。迷ったらこれ。</div>
-      </div>
-      <div class="model-card" data-model="base">
-        <div class="model-name">Depth Anything V2 base</div>
-        <span class="model-tag nc">非商用のみ</span><span class="model-tag heavy">高精度・重量</span>
-        <div class="model-desc">約400MB。細部がより滑らか。ただし<b>商用利用は不可</b>(CC-BY-NC)。PC推奨。</div>
-      </div>
-    </div>
-    <div class="model-warn" id="model-warn">⚠ このモデルはサイズが大きく、スマホでは読み込みや処理に失敗することがあります。Wi-Fi接続を推奨します。</div>
-  </div>
-
   <div id="prepare-wrap">
     <button class="btn-big" id="btn-prepare">
       <span class="icon">⬇</span>
@@ -90,7 +73,7 @@
   <div id="results"></div>
 
   <footer class="kobo">
-    標準モデル: Depth Anything V2 small（Apache-2.0・商用可）／ base版は CC-BY-NC のため商売には使えません<br>
+    使用モデル: Depth Anything V2 small（Apache-2.0・商用可）— 軽くて十分きれいなこれ一本です<br>
     推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）／ 初回のみモデル取得のためインターネット接続が必要です<br>
     深度マップはPNGとして保存でき、別の端末の「立体で見る」でも読み込めます。
   </footer>
@@ -100,7 +83,7 @@
 import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
 import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, agoText, detectBackend } from "./assets/common.js";
 
-const REV = "v2 rev2";
+const REV = "v2 rev3";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
@@ -116,12 +99,8 @@ const results    = $("results");
 const progressBar  = $("model-progress");
 const progressFill = $("model-progress-fill");
 
-const MODELS = {
-  small: { id: "onnx-community/depth-anything-v2-small", label: "Depth Anything V2 small" },
-  base:  { id: "onnx-community/depth-anything-v2-base",  label: "Depth Anything V2 base", heavy: true },
-};
-let selectedModelKey = "small";
-let activeModel = null;
+// モデルはsmall一本(軽量・商用OK)。base版はQuestで重すぎる+非商用ライセンスのため廃止(2026-07-05)
+const MODEL = { id: "onnx-community/depth-anything-v2-small", label: "Depth Anything V2 small" };
 let pipe = null;
 let backend = "wasm";
 let queue = [];
@@ -151,7 +130,7 @@ async function init() {
   const prepareBtn = $("btn-prepare");
   prepareBtn.disabled = true;
   prepareBtn.querySelector("span:last-child").textContent = "準備中…";
-  setStatus("loading", MODELS[selectedModelKey].label + " を準備しています…");
+  setStatus("loading", MODEL.label + " を準備しています…");
   for (const k in progressSeen) delete progressSeen[k];
   progressFill.style.width = "0%";
 
@@ -159,7 +138,7 @@ async function init() {
   $("backend-label").textContent = backend === "webgpu" ? "WebGPU（高速）" : "WASM";
   $("badge-backend").textContent = backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
 
-  const spec = MODELS[selectedModelKey];
+  const spec = MODEL;
   // q8(量子化)はWebGPU非対応のopを含むためWASM専用。WebGPUのiOSは中間のfp16
   const dtypeFor = dev => dev === "webgpu" ? (isIOS ? "fp16" : "fp32")
                                            : (isIOS ? "q8" : "fp32");
@@ -181,11 +160,9 @@ async function init() {
       return failPrepare(prepareBtn);
     }
   }
-  activeModel = selectedModelKey;
   progressBar.style.display = "none";
   setStatus("ready", spec.label + " 準備完了。画像をドロップしてください。");
   $("prepare-wrap").classList.add("done");
-  $("model-select-wrap").classList.add("done");
   dropzone.classList.remove("disabled");
   $("handoff-use").disabled = false;
   pump();
@@ -358,18 +335,6 @@ async function processOne({ blob, name, card }) {
   }
 }
 
-// ---------- モデル選択 ----------
-document.querySelectorAll(".model-card").forEach(c => {
-  c.addEventListener("click", () => {
-    if (activeModel) return;
-    document.querySelectorAll(".model-card").forEach(x => x.classList.remove("selected"));
-    c.classList.add("selected");
-    selectedModelKey = c.dataset.model;
-    const warn = $("model-warn");
-    if (MODELS[selectedModelKey].heavy) warn.classList.add("show");
-    else warn.classList.remove("show");
-  });
-});
 </script>
 </body>
 </html>

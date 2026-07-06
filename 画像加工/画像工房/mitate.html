@@ -198,7 +198,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
 
-const REV = "v2 rev2";
+const REV = "v2 rev5b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -303,7 +303,9 @@ scene.add(new THREE.HemisphereLight(0xfff0e0, 0x202824, 0.9));
 const key = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(1.2,2,3); scene.add(key);
 const rim = new THREE.DirectionalLight(0xd9ffe8, 0.5); rim.position.set(-2,1,-1); scene.add(rim);
 
-const root = new THREE.Group();   // レリーフを載せる(AR/VRで動かす単位)
+const root = new THREE.Group();   // 位置・大きさ・水平回転(yaw)を持つ = つかみ/ピンチ/呼び戻しの単位
+const tiltGroup = new THREE.Group();   // 前後の傾き(tilt.x)だけを持つ子。yaw/ピンチ計算と分離して姿勢破壊を防ぐ
+root.add(tiltGroup);
 let reliefMesh = null, reliefGeo = null;
 
 /* ============ 状態 ============ */
@@ -339,7 +341,7 @@ function sampleBilinear(map,u,v,ch){
 /* ============ レリーフ構築 ============ */
 function buildRelief(){
   if(reliefMesh){
-    root.remove(reliefMesh); reliefMesh.geometry.dispose();
+    tiltGroup.remove(reliefMesh); reliefMesh.geometry.dispose();
     (Array.isArray(reliefMesh.material)?reliefMesh.material:[reliefMesh.material]).forEach(m=>m.dispose&&m.dispose());
     reliefMesh = null;
   }
@@ -357,7 +359,7 @@ function buildRelief(){
   });
   reliefMesh = new THREE.Mesh(reliefGeo, mat);
   reliefMesh.position.y = h/2;
-  root.add(reliefMesh);
+  tiltGroup.add(reliefMesh);   // rootではなくtiltGroupの下(傾きはtiltGroupが担う)
   displace();
 }
 function displace(){
@@ -443,14 +445,17 @@ const quadMat = new THREE.ShaderMaterial({
       vec2 uv = fitUv(vUv);
       if(uv.x<0.0||uv.x>1.0||uv.y<0.0||uv.y>1.0){ gl_FragColor=vec4(0.0); return; }
       if(uMode==1){
+        // ライティング強化: 凹凸を強め(×18)、周囲光を下げ、鏡面ハイライトを足して陰影をはっきり出す
         vec2 px = vec2(1.0/512.0);
         float dl=depthAt(uv-vec2(px.x,0.0)), dr=depthAt(uv+vec2(px.x,0.0));
         float dd=depthAt(uv-vec2(0.0,px.y)), du=depthAt(uv+vec2(0.0,px.y));
-        vec3 n = normalize(vec3((dl-dr)*uAmt*6.0, (dd-du)*uAmt*6.0, 1.0));
+        vec3 n = normalize(vec3((dl-dr)*uAmt*18.0, (dd-du)*uAmt*18.0, 1.0));
         vec3 L = normalize(vec3(uLightDir, 0.8));
         float diff = clamp(dot(n,L),0.0,1.0);
+        vec3 Hh = normalize(L + vec3(0.0,0.0,1.0));
+        float spec = pow(clamp(dot(n,Hh),0.0,1.0), 24.0) * 0.5;
         vec4 col = texture2D(uImage, uv);
-        gl_FragColor = vec4(col.rgb*(0.55+diff*0.9), col.a);
+        gl_FragColor = vec4(col.rgb*(0.35+diff*1.1) + spec, col.a);
       } else {
         float d = depthAt(uv);
         vec2 off = uShift * uAmt * (d - 0.5);
@@ -498,6 +503,141 @@ function buildLayers(){
   }
 }
 
+/* ============ XR用: 空間パネル(ゆらゆら/傾け/ライティング) ============ */
+// 2Dのquadと同じ陰影/視差ロジックだが、通常のMVP頂点シェーダ+fitUv廃止(板に直接UV)。
+// 高さ1m基準(root.scaleで実寸化)。tiltGroupの子=レリーフと同じ操作対象。
+const panelU = {
+  uImage:{value:null}, uDepth:{value:null},
+  uShift:{value:new THREE.Vector2(0,0)}, uAmt:{value:0.45},
+  uMode:{value:0}, uLightDir:{value:new THREE.Vector2(0.5,0.5)},
+};
+const panelMat = new THREE.ShaderMaterial({
+  uniforms: panelU, transparent: true, side: THREE.DoubleSide,
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    precision highp float; varying vec2 vUv;
+    uniform sampler2D uImage,uDepth; uniform vec2 uShift,uLightDir; uniform float uAmt; uniform int uMode;
+    float depthAt(vec2 uv){ return texture2D(uDepth,uv).r; }
+    void main(){
+      vec2 uv = vUv;
+      if(uMode==1){
+        vec2 px=vec2(1.0/512.0);
+        float dl=depthAt(uv-vec2(px.x,0.0)),dr=depthAt(uv+vec2(px.x,0.0));
+        float dd=depthAt(uv-vec2(0.0,px.y)),du=depthAt(uv+vec2(0.0,px.y));
+        vec3 n=normalize(vec3((dl-dr)*uAmt*18.0,(dd-du)*uAmt*18.0,1.0));
+        vec3 L=normalize(vec3(uLightDir,0.8));
+        float diff=clamp(dot(n,L),0.0,1.0);
+        vec3 Hh=normalize(L+vec3(0.0,0.0,1.0));
+        float spec=pow(clamp(dot(n,Hh),0.0,1.0),24.0)*0.5;
+        vec4 col=texture2D(uImage,uv);
+        gl_FragColor=vec4(col.rgb*(0.35+diff*1.1)+spec, col.a);
+      } else {
+        float d=depthAt(uv);
+        vec2 off=uShift*uAmt*(d-0.5);
+        vec4 col=texture2D(uImage,uv+off);
+        gl_FragColor=col;
+      }
+    }`,
+});
+let panelMesh = null;
+function buildPanel(){
+  if(panelMesh){ tiltGroup.remove(panelMesh); panelMesh.geometry.dispose(); panelMesh=null; }
+  if(!imgTexLinear) return;
+  panelMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0*S.aspect, 1.0, 1, 1), panelMat);
+  panelMesh.position.y = 0.5;   // 足元原点で立てる(レリーフと同じ)
+  panelU.uImage.value = imgTexLinear;
+  panelU.uDepth.value = depthTex;
+}
+
+// XR用の多層(高さ1m・足元原点)。2DのlayerGroupとは別物(2Dは一切触らない)
+const xrLayerGroup = new THREE.Group();
+let xrLayerMeshes = [];
+function buildXRLayers(){
+  xrLayerMeshes.forEach(m=>{ xrLayerGroup.remove(m); m.geometry.dispose(); m.material.dispose(); });
+  xrLayerMeshes = [];
+  if(!imgTexLinear || !depthTex) return;
+  const N = 6, W = 1.0*S.aspect, H = 1.0;
+  for(let i=0;i<N;i++){
+    const lo=i/N, hi=(i===N-1)? 1.001 : (i+1)/N;
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, side: THREE.DoubleSide,
+      uniforms:{ uImage:{value:imgTexLinear}, uDepth:{value:depthTex}, uLo:{value:lo}, uHi:{value:hi} },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        precision highp float; varying vec2 vUv;
+        uniform sampler2D uImage,uDepth; uniform float uLo,uHi;
+        void main(){
+          float d=texture2D(uDepth,vUv).r;
+          if(d<uLo||d>=uHi){ discard; }
+          vec4 c=texture2D(uImage,vUv);
+          if(c.a<0.05) discard;
+          gl_FragColor=c;
+        }`,
+    });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(W,H,1,1), mat);
+    plane.position.y = 0.5;
+    plane.position.z = (i-(N-1)/2) * 0.08;   // 実寸1mなので層間隔も控えめ
+    xrLayerGroup.add(plane); xrLayerMeshes.push(plane);
+  }
+}
+
+// XRでtiltGroupの中身を差し替える(relief=reliefMesh / layers=xrLayerGroup / それ以外=panelMesh)
+let grabTarget = null;          // XRでraycastする対象
+let panelRefLocal = null;       // 傾け(頭視差)の基準頭位置
+const PANEL_PARALLAX_SIGN = -1; // 頭視差の向き。実機で逆なら +1 に
+function xrAttach(m){
+  if(reliefMesh && reliefMesh.parent===tiltGroup) tiltGroup.remove(reliefMesh);
+  if(panelMesh && panelMesh.parent===tiltGroup) tiltGroup.remove(panelMesh);
+  if(xrLayerGroup.parent===tiltGroup) tiltGroup.remove(xrLayerGroup);
+  panelRefLocal = null;
+  if(m==='relief'){ if(reliefMesh){ tiltGroup.add(reliefMesh); grabTarget=reliefMesh; } }
+  else if(m==='layers'){ tiltGroup.add(xrLayerGroup); grabTarget=xrLayerGroup; }
+  else { if(panelMesh){ tiltGroup.add(panelMesh); grabTarget=panelMesh; } panelU.uMode.value=(m==='light')?1:0; }
+}
+// XR終了時: tiltGroupをレリーフに戻して2D構成へ復帰できる状態にする
+function xrDetachAll(){
+  if(panelMesh && panelMesh.parent===tiltGroup) tiltGroup.remove(panelMesh);
+  if(xrLayerGroup.parent===tiltGroup) tiltGroup.remove(xrLayerGroup);
+  if(reliefMesh && reliefMesh.parent!==tiltGroup) tiltGroup.add(reliefMesh);
+  grabTarget = null; panelRefLocal = null;
+}
+// XR突入: 2Dの表示物を外してrootを立て、選択中モードのオブジェクトを付ける
+function enterXR(){
+  scene.remove(quad); scene.remove(layerGroup); scene.add(root);
+  // 前セッションから残ったボタンのラッチを消す(突入後の最初の押下を確実にエッジ扱いに)
+  recallHeld = false; stickPrev.left = stickPrev.right = stickPrev.none = false;
+  xrAttach(mode);
+}
+// 没入中のモード循環(スティック押し込み)
+const MODE_CYCLE = ['relief','parallax','wiggle','light','layers'];
+function cycleMode(){
+  const i = MODE_CYCLE.indexOf(mode);
+  setMode(MODE_CYCLE[(i+1) % MODE_CYCLE.length]);
+}
+// XRフレーム毎: パネルの視差/光を更新
+const _cLocal = new THREE.Vector3();
+function updatePanelXR(sec){
+  if(!panelMesh) return;
+  panelU.uAmt.value = amt;
+  if(mode==='light'){
+    const a = sec*(0.3+speed*2.0);
+    panelU.uLightDir.value.set(Math.cos(a), Math.sin(a));
+  } else if(mode==='wiggle'){
+    const f = 0.3+speed*1.2;
+    panelU.uShift.value.set(Math.sin(sec*f*Math.PI*2)*0.12, 0);
+  } else if(mode==='parallax'){
+    if(root.parent !== scene) return;   // 掴み中はパネルが手と一緒に動くので視差を止める(スイム防止)
+    const cam = renderer.xr.getCamera();
+    cam.getWorldPosition(_camPos);
+    panelMesh.updateWorldMatrix(true, false);
+    _cLocal.copy(_camPos); panelMesh.worldToLocal(_cLocal);
+    if(!panelRefLocal){ panelRefLocal = _cLocal.clone(); }   // 入った時の頭位置を基準に(高さの偏りを消す)
+    const nx = clamp((_cLocal.x - panelRefLocal.x) / (0.5*S.aspect), -1, 1);
+    const ny = clamp((_cLocal.y - panelRefLocal.y) / 0.5, -1, 1);
+    panelU.uShift.value.set(PANEL_PARALLAX_SIGN*nx*0.12, PANEL_PARALLAX_SIGN*ny*0.12);
+  }
+}
+
 function makeTex(img, srgb){
   const t = new THREE.Texture(img);
   t.needsUpdate = true;
@@ -509,13 +649,17 @@ function makeTex(img, srgb){
 
 /* ============ モード管理 ============ */
 function setMode(m){
-  if(xrSession && m!=='relief') return;   // AR/VR中はレリーフ固定
   mode = m;
   [...$('modeSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.m===m));
-  scene.remove(quad); scene.remove(layerGroup); scene.remove(root);
-  if(m==='relief'){ scene.add(root); }
-  else if(m==='layers'){ scene.add(layerGroup); }
-  else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
+  const inXR = renderer && renderer.xr.isPresenting;
+  if(inXR){
+    xrAttach(m);   // XR: tiltGroupの中身を差し替え(2Dのscene構成は触らない)
+  } else {
+    scene.remove(quad); scene.remove(layerGroup); scene.remove(root);
+    if(m==='relief'){ scene.add(root); }
+    else if(m==='layers'){ scene.add(layerGroup); }
+    else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
+  }
 
   const isRelief = m==='relief';
   $('reliefRow1').style.display = isRelief ? 'flex' : 'none';
@@ -537,7 +681,7 @@ function setMode(m){
   };
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
-  if(isRelief) frameCamera();
+  if(isRelief && !inXR) frameCamera();
 }
 $('modeSeg').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setMode(b.dataset.m); });
 
@@ -624,6 +768,87 @@ $('recBtn').onclick = ()=>{
 
 /* ============ WebXR (Quest AR/VR) — 実寸表示 ============ */
 let xrSession=null, xrMode=null, hitSource=null, hitReq=false, placed=false;
+
+/* ---- 「目の前に出す」: 開始直後の自動配置 + A/X・B/Yボタンでの呼び戻し ---- */
+// VRの原点は「部屋の境界設定の基準点」で、立ち位置や向きとは無関係。
+// だから開始フレームで実際の頭の位置・向きを読み、視線の先1.1mに置き直す。
+const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new THREE.Vector3();
+let pendingPlace = false, recallHeld = false;
+// スティック押し込み(モード切替)のエッジ検出は手ごとに持つ(片手ホールドでもう片手が効かない事故を防ぐ)
+const stickPrev = { left:false, right:false, none:false };
+function placeInFront(){
+  if(!renderer || !renderer.xr.isPresenting) return;
+  const cam = renderer.xr.getCamera();
+  cam.getWorldPosition(_camPos);
+  cam.getWorldQuaternion(_camQ);
+  _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
+  if(_fwd.lengthSq() < 1e-6) _fwd.set(0,0,-1); else _fwd.normalize();
+  const scale = S.sizeCm/100;
+  const px = _camPos.x + _fwd.x*1.1, pz = _camPos.z + _fwd.z*1.1;
+  // VR(local-floor)は床の上に立たせる / AR(local)は目線やや下に中心が来る高さで浮かせる
+  const py = (xrMode==='vr') ? 0 : (_camPos.y - 0.2 - 0.5*scale);
+  scene.attach(root);   // つかまれた状態でも救出してから置く
+  root.position.set(px, py, pz);
+  root.quaternion.identity();
+  root.rotation.y = Math.atan2(_camPos.x - px, _camPos.z - pz);   // こちらを向かせる
+  root.scale.setScalar(scale);
+  tiltGroup.rotation.x = 0;   // 傾きもまっすぐに戻す
+  grab[0]=grab[1]=null; pinch=null;
+}
+
+/* ---- グリップ+スティックで回転 ---- */
+// これらは実機で挙動が逆/速すぎと感じたら数値を変えるだけ(1箇所に集約)
+const STICK_DEADZONE = 0.15;      // これ以下の傾きは無視(誤操作防止)
+const ROT_YAW_SPEED  = 1.6;       // 水平回転の最高速(rad/s ≒ 92°/s)
+const ROT_TILT_SPEED = 1.2;       // 前後傾きの最高速(rad/s ≒ 69°/s)
+const TILT_MAX       = Math.PI/4; // 傾きの上限 ±45°
+const YAW_SIGN  = -1;             // 回転方向。実機で「逆」なら +1 に
+const TILT_SIGN = 1;              // 傾き方向。実機で「逆」なら -1 に
+function deadzone(v){
+  const a = Math.abs(v);
+  if(a < STICK_DEADZONE) return 0;
+  return Math.sign(v) * (a - STICK_DEADZONE) / (1 - STICK_DEADZONE);  // 遊びを超えた分を0..1に
+}
+
+// 毎フレーム: A/B/X/Y(呼び戻し) と グリップ+スティック(回転) をまとめて処理
+function pollInput(dt){
+  const sess = renderer.xr.getSession(); if(!sess) return;
+  let recallPressed = false, cycleNow = false, recalledThisFrame = false;
+  let bestYaw = 0, bestTilt = 0, bestMag = 0;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
+  for(const src of sess.inputSources){
+    const gp = src.gamepad; if(!gp) continue;
+    const b = gp.buttons, ax = gp.axes;
+    if(b && ((b[4] && b[4].pressed) || (b[5] && b[5].pressed))) recallPressed = true;
+    const gripHeld = b && b[1] && b[1].pressed;   // buttons[1] = グリップ(中指)
+    // スティック押し込み(buttons[3])はグリップ非押下時のみモード切替。手ごとに立ち上がりを見る
+    const hd = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'none';
+    const stickNow = !!(b && b[3] && b[3].pressed && !gripHeld);
+    if(stickNow && !stickPrev[hd]) cycleNow = true;
+    stickPrev[hd] = stickNow;
+    if(gripHeld && ax && ax.length){
+      // Quest Touch: axes[2]=左右 / axes[3]=上下。古い機種は axes[0]/[1]
+      const rawX = (ax.length >= 4) ? ax[2] : (ax[0] || 0);
+      const rawY = (ax.length >= 4) ? ax[3] : (ax[1] || 0);
+      const x = deadzone(rawX), y = deadzone(rawY);
+      const mag = Math.abs(x) + Math.abs(y);
+      if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; }
+    }
+  }
+  // 呼び戻し(押した瞬間の1回だけ)
+  if(recallPressed && !recallHeld){
+    placeInFront(); recalledThisFrame = true;
+    if(xrMode==='ar'){ placed = true; reticle.visible = false; }
+  }
+  recallHeld = recallPressed;
+  // モード循環(いずれかの手の押した瞬間の1回だけ)
+  if(cycleNow) cycleMode();
+  // 回転は「置いてある時」だけ効かせる(つかみ中はrootがコントローラーの子で座標系が傾くため無効。
+  // 両手ピンチ中・呼び戻しの同フレームも無効。喧嘩しないように)
+  if(!pinch && !recalledThisFrame && bestMag > 0 && root.parent === scene){
+    root.rotation.y += YAW_SIGN * bestYaw * ROT_YAW_SPEED * dt;
+    tiltGroup.rotation.x = clamp(tiltGroup.rotation.x + TILT_SIGN * bestTilt * ROT_TILT_SPEED * dt, -TILT_MAX, TILT_MAX);
+  }
+}
 const reticle = new THREE.Mesh(
   new THREE.RingGeometry(0.07,0.09,28).rotateX(-Math.PI/2),
   new THREE.MeshBasicMaterial({ color: 0x7fd6a8 })
@@ -633,6 +858,7 @@ reticle.matrixAutoUpdate=false; reticle.visible=false; scene.add(reticle);
 const raycaster = new THREE.Raycaster(); const tmpV = new THREE.Vector3();
 const controllers=[]; const grab=[null,null]; let pinch=null;
 function setupControllers(){
+  setupHands();   // 手モデルも同時に用意(内部で二重生成ガード)
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i); scene.add(c);
@@ -644,25 +870,31 @@ function setupControllers(){
   }
 }
 function ctrlPos(k){ return new THREE.Vector3().setFromMatrixPosition(controllers[k].matrixWorld); }
+// rootをシーンに戻したとき、コントローラーのついでの傾き(roll/pitch)を落として水平回頭(yaw)だけ残す
+const _flatEuler = new THREE.Euler();
+function flattenRootYaw(){ _flatEuler.setFromQuaternion(root.quaternion, 'YXZ'); root.rotation.set(0, _flatEuler.y, 0); }
 function onGrab(i){
   if(xrMode==='ar' && !placed) return;
-  if(!reliefMesh) return;
+  if(!grabTarget) return;
   const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
   const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
   raycaster.set(tmpV, dir);
-  const hit = raycaster.intersectObject(reliefMesh, true);
+  const hit = raycaster.intersectObject(grabTarget, true);
   if(hit.length){
     grab[i] = true; const other = i^1;
+    panelRefLocal = null;   // パネルを動かすので頭視差の基準は取り直す
     if(grab[other]){ beginPinch(); } else { c.attach(root); }
   }
 }
 function onRelease(i){
   if(!grab[i]) return; grab[i]=false; const other=i^1;
-  if(pinch){ endPinch(); if(grab[other]) controllers[other].attach(root); else scene.attach(root); }
-  else if(!grab[other]) scene.attach(root);
+  if(pinch){ endPinch(); if(grab[other]) controllers[other].attach(root); else { scene.attach(root); flattenRootYaw(); } }
+  else if(!grab[other]){ scene.attach(root); flattenRootYaw(); }
+  panelRefLocal = null;   // 置き直した新しい姿勢で頭視差の基準を取り直す
 }
 function beginPinch(){
   scene.attach(root);
+  flattenRootYaw();   // 片手つかみ中に焼き付いた傾きを落としてから基準yawを捕捉
   const p0=ctrlPos(0), p1=ctrlPos(1);
   const mid0 = p0.clone().add(p1).multiplyScalar(0.5);
   pinch = { d0: Math.max(p0.distanceTo(p1),1e-4), s0: root.scale.x,
@@ -680,24 +912,126 @@ function updatePinch(){
   root.rotation.y = pinch.r0 + (Math.atan2(p1.x-p0.x, p1.z-p0.z) - pinch.a0);
 }
 
+/* ============ コントローラー用の手モデル(日本人の肌色・低ポリ) ============ */
+const SKIN = 0xe8c0a0;                  // 日本人の明るめの肌色ベージュ
+const MM = 0.001;                       // mm→m
+// コントローラーの握り位置に対する手の向き合わせ。実機で角度が変ならここだけ直す
+const HAND_ATTACH_EULER = { x: -Math.PI/2, y: 0, z: 0 };
+const HAND_ATTACH_POS   = { x: 0, y: -0.02, z: 0.02 };
+const FINGER_BASE_CURL  = -0.26;        // 脱力ポーズ(指を軽く曲げる ≒15°)
+const FINGER_GRIP_CURL  = 0.6;          // トリガー全引きで追加で曲がる量(rad ≒34°)
+let handMeshes = [null, null];          // getControllerGrip(i) を保持
+
+// sign=+1:右手 / -1:左手(座標をXミラー。負スケールは使わず法線を正しく保つ)
+function makeHand(sign){
+  const hand = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.85, metalness: 0 });
+  // 手のひら(平たい箱)
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(85*MM, 28*MM, 90*MM), mat);
+  hand.add(palm);
+  // 手首(円柱・Z軸沿い)
+  const wrist = new THREE.Mesh(new THREE.CylinderGeometry(30*MM, 30*MM, 40*MM, 16), mat);
+  wrist.rotation.x = Math.PI/2; wrist.position.set(0, 0, 55*MM);
+  hand.add(wrist);
+  // 指4本(人差し〜小指)。指先は-Z方向へ、脱力で軽く曲げる
+  const fingerLen = [62, 70, 64, 50].map(v=>v*MM);
+  const fingerX   = [30, 10, -10, -30].map(v=>v*sign*MM);   // 親指側(+X*sign)が人差し指
+  const fingers = [];
+  for(let i=0;i<4;i++){
+    const len = fingerLen[i], r = 9*MM;
+    const cyl = Math.max(len - 2*r, r);
+    const joint = new THREE.Group();
+    const cap = new THREE.Mesh(new THREE.CapsuleGeometry(r, cyl, 4, 8), mat);
+    cap.rotation.x = Math.PI/2; cap.position.set(0, 0, -len/2);   // 関節(z=0)から-Zへ伸ばす
+    joint.add(cap);
+    joint.position.set(fingerX[i], 0, -45*MM);   // 手のひら前縁
+    joint.rotation.x = FINGER_BASE_CURL;
+    hand.add(joint); fingers.push(joint);
+  }
+  // 親指(内側へ)
+  const tr = 10*MM, tlen = 58*MM, tcyl = Math.max(tlen - 2*tr, tr);
+  const thumb = new THREE.Group();
+  const tcap = new THREE.Mesh(new THREE.CapsuleGeometry(tr, tcyl, 4, 8), mat);
+  tcap.rotation.x = Math.PI/2; tcap.position.set(0, 0, -tlen/2);
+  thumb.add(tcap);
+  thumb.position.set(42*sign*MM, 0, -5*MM);
+  thumb.rotation.y = sign*0.8; thumb.rotation.x = -0.1;
+  hand.add(thumb);
+  hand.userData.fingers = fingers;
+  return hand;
+}
+
+// grip空間に手を装着。手のモデルはコントローラー使用中だけ表示
+function setupHands(){
+  if(handMeshes[0]) return;
+  for(let i=0;i<2;i++){
+    const grip = renderer.xr.getControllerGrip(i);
+    scene.add(grip);
+    grip.visible = false;
+    grip.addEventListener('connected', e=>{
+      grip.userData.src = e.data;
+      const sign = (e.data && e.data.handedness === 'left') ? -1 : 1;
+      // 左右が入れ替わって再接続したら古い手を捨てて作り直す(grip index↔handednessは保証されない)
+      if(grip.userData.hand && grip.userData.handSign !== sign){
+        const old = grip.userData.wrap;
+        if(old){ grip.remove(old); old.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
+        grip.userData.hand = null;
+      }
+      if(!grip.userData.hand){
+        const wrap = new THREE.Group();
+        const hand = makeHand(sign);
+        wrap.add(hand);
+        wrap.rotation.set(HAND_ATTACH_EULER.x, HAND_ATTACH_EULER.y, HAND_ATTACH_EULER.z);
+        wrap.position.set(HAND_ATTACH_POS.x, HAND_ATTACH_POS.y, HAND_ATTACH_POS.z);
+        grip.add(wrap);
+        grip.userData.hand = hand;
+        grip.userData.wrap = wrap;
+        grip.userData.handSign = sign;
+      }
+      grip.visible = true;
+    });
+    // 手とコントローラの自動切替でコントローラーを置くと disconnected → 空中に手を残さない
+    grip.addEventListener('disconnected', ()=>{ grip.userData.src = null; grip.visible = false; });
+    handMeshes[i] = grip;
+  }
+}
+
+// 毎フレーム: トリガーの引き具合で指を曲げる(なめらかに追従)
+function updateHands(dt){
+  for(let i=0;i<2;i++){
+    const grip = handMeshes[i]; if(!grip || !grip.visible || !grip.userData.hand) continue;
+    const src = grip.userData.src;
+    const trig = (src && src.gamepad && src.gamepad.buttons[0]) ? src.gamepad.buttons[0].value : 0;
+    const target = FINGER_BASE_CURL - trig * FINGER_GRIP_CURL;
+    const k = Math.min(1, dt * 12);   // 約0.1秒で追従
+    for(const f of grip.userData.hand.userData.fingers){
+      f.rotation.x += (target - f.rotation.x) * k;
+    }
+  }
+}
+
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
-  if(mode!=='relief') setMode('relief');
   try{
     const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures:['hit-test'], optionalFeatures:['local-floor'] });
     xrSession = s; xrMode = 'ar';
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(s);
+    enterXR();   // 選択中モードのオブジェクトを空間に出す(2Dの表示物を外しrootを立てる)
     $('arBtn').textContent = '🛑 終了'; scene.background = null;
     root.position.set(0,0,-1.6); root.scale.setScalar(S.sizeCm/100); placed=false; hitReq=false;
+    pendingPlace = true;   // 最初のフレームで視線の先へ
     setupControllers();
-    toast('床にリング表示 → トリガーで実寸 ' + S.sizeCm + 'cm で配置');
+    toast('目の前に出します。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
       scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
       root.position.set(0,0,0); root.quaternion.identity(); root.scale.setScalar(1);
+      tiltGroup.rotation.x = 0;
+      handMeshes.forEach(g=>{ if(g) g.visible = false; });   // 手を残さない
       grab[0]=grab[1]=null; pinch=null;
+      xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
     s.addEventListener('select', ()=>{
       if(reticle.visible && !placed){
@@ -715,22 +1049,26 @@ async function startAR(){
 }
 async function startVR(){
   if(xrSession){ xrSession.end(); return; }
-  if(mode!=='relief') setMode('relief');
   try{
     const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures:['local-floor'] });
     xrSession = s; xrMode = 'vr';
     renderer.xr.setReferenceSpaceType('local-floor');
     await renderer.xr.setSession(s);
+    enterXR();   // 選択中モードのオブジェクトを空間に出す
     $('vrBtn').textContent = '🛑 終了'; scene.background = new THREE.Color(0x0c110e);
     root.position.set(0,0,-1.2); root.scale.setScalar(S.sizeCm/100);
+    pendingPlace = true;   // 最初のフレームで視線の先の床上へ
     setupControllers();
-    toast('実寸 ' + S.sizeCm + 'cm で表示中。トリガーで掴む／両手で拡縮');
+    toast('実寸 ' + S.sizeCm + 'cm・目の前の床に出します。A・Bボタンでいつでも呼び戻し');
     // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; $('vrBtn').textContent='🌐 VR';
       scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
       scene.background=bgTex; root.position.set(0,0,0); root.quaternion.identity();
+      tiltGroup.rotation.x = 0;
+      handMeshes.forEach(g=>{ if(g) g.visible = false; });   // 手を残さない
       grab[0]=grab[1]=null; pinch=null; root.scale.setScalar(1);
+      xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
   }catch(e){
     showErr('VR開始失敗: ' + e.message);
@@ -763,6 +1101,8 @@ function start(){
   quadUniforms.uViewAspect.value = innerWidth/innerHeight;
   buildRelief();
   buildLayers();
+  buildPanel();      // XR用の空間パネル(ゆらゆら/傾け/ライティング)
+  buildXRLayers();   // XR用の多層(ジオラマ箱)
   $('drop').style.display='none'; $('ui').style.display='flex';
   setMode(mode);
   toast('モードを切り替えて楽しんでください');
@@ -770,11 +1110,17 @@ function start(){
 
 /* ============ ループ ============ */
 const tmpM = new THREE.Matrix4();
-let t0 = performance.now(); let loggedErr = false;
+let t0 = performance.now(); let loggedErr = false; let lastFrameMs = performance.now();
 function renderLoop(t, frame){
  try{
-  const sec = (performance.now()-t0)/1000;
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastFrameMs)/1000, 0.05); lastFrameMs = nowMs;   // 上限0.05秒(フレーム落ちで一気に回るのを防ぐ)
+  const sec = (nowMs-t0)/1000;
   if(frame && renderer.xr.isPresenting && xrSession){
+    if(pendingPlace){ pendingPlace = false; placeInFront(); }
+    pollInput(dt);      // 呼び戻し + グリップ回転 + スティックでモード切替
+    updateHands(dt);    // トリガーで指を曲げる
+    if(mode==='parallax'||mode==='wiggle'||mode==='light') updatePanelXR(sec);   // パネルの頭視差/光
     if(xrMode==='vr'){ if(controllers.length) updatePinch(); }
     else if(xrMode==='ar'){
       const ref = renderer.xr.getReferenceSpace(), sess = renderer.xr.getSession();

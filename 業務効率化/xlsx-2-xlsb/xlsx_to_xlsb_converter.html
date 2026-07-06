@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>XLSX → XLSB 変換ツール</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="../../libs/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg: #faf6ef;
@@ -239,6 +239,13 @@
     <span class="sub">Excelバイナリブック形式への一括変換</span>
   </header>
 
+  <div style="margin:14px 0; padding:12px 16px; background:#fdf0e7; border:1px solid #e8b48d; border-radius:6px; font-size:13px; line-height:1.7; color:#7a4a1e;">
+    <strong>⚠ 変換で消えるものがあります</strong><br>
+    この変換では <strong>セルの色・罫線などの書式、グラフ、図形、マクロ（VBA）、ピボットテーブル</strong> は保持されません。
+    残るのは「値・数式・シート構成」だけです。<br>
+    見た目や仕掛けが大事なファイルには使わず、<strong>必ず元ファイルを残したまま</strong>変換してください。
+  </div>
+
   <label class="drop-zone" id="dropZone" for="fileInput">
     <div class="icon">📥</div>
     <div class="main-text">ここに .xlsx ファイルをドロップ</div>
@@ -261,7 +268,9 @@
     <strong>このツールについて</strong><br>
     ブラウザ内でXLSXファイルをXLSB（Excelバイナリブック）形式に変換します。ファイルはサーバーに送信されず、すべての処理はローカルで完結します。<br>
     <strong>対応入力：</strong> <code>.xlsx</code> / <code>.xlsm</code>　<strong>出力：</strong> <code>.xlsb</code><br>
-    <strong>留意点：</strong> 数式・基本的な書式・複数シートは保持されますが、マクロ（VBA）・一部の高度な機能・外部参照は変換時に失われる可能性があります。重要なファイルは変換前にバックアップしてください。
+    <strong>保持されるもの：</strong> セルの値・数式・シート構成。<br>
+    <strong>失われるもの：</strong> セルの色・罫線などの書式、グラフ、図形、マクロ（VBA）、ピボットテーブル、外部参照など。<br>
+    重要なファイルは必ず元の .xlsx を残したまま変換してください（このツールは元ファイルを変更しません）。
   </div>
 </div>
 
