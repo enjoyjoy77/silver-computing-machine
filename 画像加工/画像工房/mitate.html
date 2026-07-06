@@ -141,6 +141,15 @@
       <button data-m="layers">多層</button>
     </div>
   </div>
+  <!-- どのモードでも見える: 実寸 + AR/VR の入り口 -->
+  <div class="row" id="xrRow">
+    <div class="card">
+      <label class="k">実寸(AR/VR)</label>
+      <input type="number" id="sizeCm" min="5" max="300" step="1" value="25"> <span class="val" style="min-width:auto">cm</span>
+    </div>
+    <button class="btn" id="arBtn" disabled>🥽 AR</button>
+    <button class="btn" id="vrBtn" disabled>🌐 VR</button>
+  </div>
   <!-- レリーフ用 -->
   <div class="row" id="reliefRow1">
     <div class="card">
@@ -160,12 +169,6 @@
     </div>
   </div>
   <div class="row" id="reliefRow2">
-    <div class="card">
-      <label class="k">実寸(AR/VR)</label>
-      <input type="number" id="sizeCm" min="5" max="300" step="1" value="25"> <span class="val" style="min-width:auto">cm</span>
-    </div>
-    <button class="btn" id="arBtn" disabled>🥽 AR</button>
-    <button class="btn" id="vrBtn" disabled>🌐 VR</button>
     <button class="btn" id="glbBtn">📦 GLB保存</button>
     <button class="btn" id="resetBtn">↩ 視点</button>
   </div>
@@ -198,7 +201,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
 
-const REV = "v2 rev5b";
+const REV = "v2 rev5c";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -862,8 +865,8 @@ function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i); scene.add(c);
-    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-3)]);
-    c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7fd6a8 })));
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,-0.11), new THREE.Vector3(0,0,-3)]);
+    c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7fd6a8 })));   // 人差し指の先からビーム
     c.addEventListener('selectstart', ()=>onGrab(i));
     c.addEventListener('selectend', ()=>onRelease(i));
     controllers.push(c);
@@ -915,12 +918,13 @@ function updatePinch(){
 /* ============ コントローラー用の手モデル(日本人の肌色・低ポリ) ============ */
 const SKIN = 0xe8c0a0;                  // 日本人の明るめの肌色ベージュ
 const MM = 0.001;                       // mm→m
-// コントローラーの握り位置に対する手の向き合わせ。実機で角度が変ならここだけ直す
-const HAND_ATTACH_EULER = { x: -Math.PI/2, y: 0, z: 0 };
-const HAND_ATTACH_POS   = { x: 0, y: -0.02, z: 0.02 };
-const FINGER_BASE_CURL  = -0.26;        // 脱力ポーズ(指を軽く曲げる ≒15°)
-const FINGER_GRIP_CURL  = 0.6;          // トリガー全引きで追加で曲がる量(rad ≒34°)
-let handMeshes = [null, null];          // getControllerGrip(i) を保持
+// 手はレーザー(照準)と同じ getController 空間に付け、指をレーザーに沿わせる。実機で向きが変ならここ
+const HAND_ATTACH_EULER = { x: 0, y: 0, z: 0 };   // 指は-Z=レーザー方向。傾けたい時だけ触る
+const HAND_ATTACH_POS   = { x: 0, y: 0, z: 0.0 }; // y/zの微調整用(xは人差し指をレーザー中心へ寄せるため符号依存で別途)
+const FINGER_INDEX_X    = 30;           // 人差し指のローカルXオフセット(mm)。これをレーザー中心(x=0)へ寄せる
+const FINGER_BASE = [-0.05, -1.0, -1.05, -1.1]; // 人差し指はほぼ真っ直ぐ(レーザーに沿う)、他は握る
+const FINGER_GRIP_CURL  = 0.6;          // トリガーで追加で曲がる量(rad)
+let handMeshes = [null, null];          // getController(i)(照準/レーザー空間)を保持
 
 // sign=+1:右手 / -1:左手(座標をXミラー。負スケールは使わず法線を正しく保つ)
 function makeHand(sign){
@@ -945,7 +949,8 @@ function makeHand(sign){
     cap.rotation.x = Math.PI/2; cap.position.set(0, 0, -len/2);   // 関節(z=0)から-Zへ伸ばす
     joint.add(cap);
     joint.position.set(fingerX[i], 0, -45*MM);   // 手のひら前縁
-    joint.rotation.x = FINGER_BASE_CURL;
+    joint.rotation.x = FINGER_BASE[i];            // 人差し指はまっすぐ、他は握る(指差しポーズ)
+    joint.userData.baseCurl = FINGER_BASE[i];
     hand.add(joint); fingers.push(joint);
   }
   // 親指(内側へ)
@@ -961,50 +966,51 @@ function makeHand(sign){
   return hand;
 }
 
-// grip空間に手を装着。手のモデルはコントローラー使用中だけ表示
+// 手を照準(レーザー)空間 getController に装着。指がレーザーに沿い、人差し指の先からビームが出る
 function setupHands(){
   if(handMeshes[0]) return;
   for(let i=0;i<2;i++){
-    const grip = renderer.xr.getControllerGrip(i);
-    scene.add(grip);
-    grip.visible = false;
-    grip.addEventListener('connected', e=>{
-      grip.userData.src = e.data;
+    const c = renderer.xr.getController(i);   // レーザーと同じ空間(-Z=照準方向)
+    scene.add(c);                              // setupControllersでも追加されるが冪等
+    c.addEventListener('connected', e=>{
+      c.userData.src = e.data;
       const sign = (e.data && e.data.handedness === 'left') ? -1 : 1;
-      // 左右が入れ替わって再接続したら古い手を捨てて作り直す(grip index↔handednessは保証されない)
-      if(grip.userData.hand && grip.userData.handSign !== sign){
-        const old = grip.userData.wrap;
-        if(old){ grip.remove(old); old.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
-        grip.userData.hand = null;
+      // 左右が入れ替わって再接続したら古い手を捨てて作り直す(index↔handednessは保証されない)
+      if(c.userData.hand && c.userData.handSign !== sign){
+        const old = c.userData.wrap;
+        if(old){ c.remove(old); old.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
+        c.userData.hand = null;
       }
-      if(!grip.userData.hand){
+      if(!c.userData.hand){
         const wrap = new THREE.Group();
         const hand = makeHand(sign);
         wrap.add(hand);
         wrap.rotation.set(HAND_ATTACH_EULER.x, HAND_ATTACH_EULER.y, HAND_ATTACH_EULER.z);
-        wrap.position.set(HAND_ATTACH_POS.x, HAND_ATTACH_POS.y, HAND_ATTACH_POS.z);
-        grip.add(wrap);
-        grip.userData.hand = hand;
-        grip.userData.wrap = wrap;
-        grip.userData.handSign = sign;
+        // 人差し指(ローカルx=FINGER_INDEX_X*sign)をレーザー中心 x=0 に寄せる
+        wrap.position.set(HAND_ATTACH_POS.x - FINGER_INDEX_X*sign*MM, HAND_ATTACH_POS.y, HAND_ATTACH_POS.z);
+        c.add(wrap);
+        c.userData.hand = hand;
+        c.userData.wrap = wrap;
+        c.userData.handSign = sign;
       }
-      grip.visible = true;
+      c.userData.wrap.visible = true;
     });
-    // 手とコントローラの自動切替でコントローラーを置くと disconnected → 空中に手を残さない
-    grip.addEventListener('disconnected', ()=>{ grip.userData.src = null; grip.visible = false; });
-    handMeshes[i] = grip;
+    // 手とコントローラの自動切替でコントローラーを置くと disconnected → 手だけ隠す(レーザーは残す)
+    c.addEventListener('disconnected', ()=>{ c.userData.src = null; if(c.userData.wrap) c.userData.wrap.visible = false; });
+    handMeshes[i] = c;
   }
 }
 
 // 毎フレーム: トリガーの引き具合で指を曲げる(なめらかに追従)
 function updateHands(dt){
   for(let i=0;i<2;i++){
-    const grip = handMeshes[i]; if(!grip || !grip.visible || !grip.userData.hand) continue;
-    const src = grip.userData.src;
+    const c = handMeshes[i];
+    if(!c || !c.userData.wrap || !c.userData.wrap.visible || !c.userData.hand) continue;
+    const src = c.userData.src;
     const trig = (src && src.gamepad && src.gamepad.buttons[0]) ? src.gamepad.buttons[0].value : 0;
-    const target = FINGER_BASE_CURL - trig * FINGER_GRIP_CURL;
     const k = Math.min(1, dt * 12);   // 約0.1秒で追従
-    for(const f of grip.userData.hand.userData.fingers){
+    for(const f of c.userData.hand.userData.fingers){
+      const target = f.userData.baseCurl - trig * FINGER_GRIP_CURL;   // 各指の基準から曲げる
       f.rotation.x += (target - f.rotation.x) * k;
     }
   }
@@ -1029,7 +1035,7 @@ async function startAR(){
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
       root.position.set(0,0,0); root.quaternion.identity(); root.scale.setScalar(1);
       tiltGroup.rotation.x = 0;
-      handMeshes.forEach(g=>{ if(g) g.visible = false; });   // 手を残さない
+      handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
       grab[0]=grab[1]=null; pinch=null;
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
@@ -1066,7 +1072,7 @@ async function startVR(){
       scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
       scene.background=bgTex; root.position.set(0,0,0); root.quaternion.identity();
       tiltGroup.rotation.x = 0;
-      handMeshes.forEach(g=>{ if(g) g.visible = false; });   // 手を残さない
+      handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
       grab[0]=grab[1]=null; pinch=null; root.scale.setScalar(1);
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
