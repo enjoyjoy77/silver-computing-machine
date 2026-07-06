@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>かたづけポスト（AR疎通テスト版）</title>
+<style>
+  :root{
+    --bg:#0e1512; --panel:#17211c; --line:#2b3a32; --ink:#eef3ee;
+    --dim:#8fa398; --accent:#57e0a0; --accent2:#9ff0c8; --danger:#ff8f8f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+
+  /* 右上の版数（更新できたか一目で分かる） */
+  #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;}
+
+  /* 開始画面 */
+  #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;background:var(--bg);
+    padding:28px 22px;overflow-y:auto;text-align:center;}
+  #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
+  #start h1{margin:0;font-size:26px;font-weight:900;line-height:1.4;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:440px;}
+  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;
+    font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
+    color:#08130d;box-shadow:0 6px 22px rgba(87,224,160,.35);transition:opacity .2s,transform .1s;}
+  #goBtn:active{transform:translateY(1px);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:440px;}
+  #note b{color:var(--accent2);}
+
+  /* 画面内ログ（ヘッドセット単独でも状況が読めるように常設） */
+  #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
+  #log{background:rgba(10,16,13,.82);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
+    height:118px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+
+  /* 赤いエラー帯（大きく・確実に気づく） */
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
+    display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
+    padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<span id="rev"></span>
+
+<div id="start">
+  <div class="mark">かたづけポスト</div>
+  <h1>まずは「置けるか」を<br>ためす回です</h1>
+  <p>Quest 3をかぶったまま、床に白い輪が出て、光る「ポスト」が置ければ成功です。<br>この回はまだゲームではありません。土台が動くかの確認です。</p>
+  <button id="goBtn" disabled>はじめる</button>
+  <div id="note">
+    <b>英語の画面が出たら</b><br>
+    ボタンを押すと英語の確認が出ることがあります。<br>
+    「<b>Allow</b>（許可）」または「<b>Enter VR / OK</b>」を押してください。<br>
+    うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
+  </div>
+</div>
+
+<div id="logWrap">
+  <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+  <div id="log"></div>
+</div>
+
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+
+const REV = "v1 rev1";
+document.getElementById("rev").textContent = REV;
+
+/* ============ 画面内ログ（DOM＋AR中は3Dパネル、二重に残す） ============ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  const line = msg;
+  logLines.push({ t: line, e: !!isErr });
+  if(logLines.length > 40) logLines.shift();
+  // DOM側（AR前・AR終了後に見える）
+  const div = document.createElement("div");
+  if(isErr) div.className = "e";
+  div.textContent = "・" + line;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  // 3Dパネル側（AR中にヘッドセットで見える）
+  drawLogPanel();
+}
+function showErr(msg){
+  const e = $("err");
+  e.textContent = msg;
+  e.style.display = "block";
+  log(msg, true);
+}
+
+// 想定外のエラーも全部ログに出す（無言で失敗する経路を作らない）
+addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
+addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+/* ============ Three.js 基本 ============ */
+const canvas = $("view");
+let renderer = null;
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 100);
+
+// ライトは規定どおり最小（半球光＋平行光1灯）
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445044, 1.0));
+const dir = new THREE.DirectionalLight(0xffffff, 1.1); dir.position.set(1, 2, 1); scene.add(dir);
+
+/* ============ 床の白いリング（レティクル：見ている床に出る目印） ============ */
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.08, 0.12, 40).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.95 })
+);
+reticle.matrixAutoUpdate = false;
+reticle.visible = false;
+scene.add(reticle);
+
+/* ============ 光る「ポスト」（プリミティブだけで作る） ============ */
+// 足元原点。柱＋頭のリング（手をかざす的：この回は表示だけ）。
+const post = new THREE.Group();
+{
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x1f8f66, emissive: 0x0d5a3f, emissiveIntensity: 0.8,
+    roughness: 0.5, metalness: 0.0,
+  });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.9, 20), bodyMat);
+  body.position.y = 0.45;
+  post.add(body);
+
+  // 頭の光るリング（常に明るく見えるよう Basic）
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.13, 0.022, 16, 40),
+    new THREE.MeshBasicMaterial({ color: 0x9ff0c8 })
+  );
+  ring.rotation.x = Math.PI/2;
+  ring.position.y = 0.98;
+  ring.name = "ring";
+  post.add(ring);
+
+  // 台座（安定して立って見えるように）
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.11, 0.13, 0.04, 24),
+    new THREE.MeshStandardMaterial({ color: 0x144130, roughness:0.7 })
+  );
+  base.position.y = 0.02;
+  post.add(base);
+}
+post.visible = false;
+scene.add(post);
+let postPlaced = false;
+
+/* ============ AR中に読める3Dログパネル（頭追従はしない・置いたら固定） ============ */
+const logCanvas = document.createElement("canvas");
+logCanvas.width = 640; logCanvas.height = 320;
+const logCtx = logCanvas.getContext("2d");
+const logTex = new THREE.CanvasTexture(logCanvas);
+logTex.colorSpace = THREE.SRGBColorSpace;
+const logPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.5, 0.25),
+  new THREE.MeshBasicMaterial({ map: logTex, transparent:true })
+);
+logPanel.visible = false;
+scene.add(logPanel);
+function drawLogPanel(){
+  const c = logCtx, W = logCanvas.width, H = logCanvas.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(10,16,13,0.88)";
+  c.fillRect(0,0,W,H);
+  c.strokeStyle = "#2b3a32"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
+  c.font = "18px 'Consolas','Courier New',monospace";
+  c.textBaseline = "top";
+  const last = logLines.slice(-11);
+  let y = 12;
+  for(const ln of last){
+    c.fillStyle = ln.e ? "#ff9a9a" : "#dff5e8";
+    let t = ln.t;
+    if(t.length > 46) t = t.slice(0, 45) + "…";
+    c.fillText(t, 12, y);
+    y += 27;
+  }
+  logTex.needsUpdate = true;
+}
+
+/* ============ コントローラ（トリガーでポストを置く） ============ */
+const controllers = [];
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i);
+    c.addEventListener("select", onSelect);
+    scene.add(c);
+    controllers.push(c);
+  }
+}
+function onSelect(){
+  if(!reticle.visible){
+    log("トリガー：床の白い輪がまだ出ていません。床を見てください");
+    return;
+  }
+  // レティクルの位置にポストを立てる（初回=設置、以降=移動）
+  const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+  reticle.matrix.decompose(pos, quat, scl);
+  post.position.copy(pos);
+  post.quaternion.identity();   // まっすぐ立てる（床の傾きは無視）
+  post.visible = true;
+  if(!postPlaced){ postPlaced = true; log("ポストを置きました。成功です！"); }
+  else { log("ポストを動かしました"); }
+}
+
+/* ============ AR開始 ============ */
+let xrSession = null, hitSource = null, hitReq = false, pendingLogPanel = false;
+async function startAR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(!navigator.xr){
+    showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。");
+    return;
+  }
+  init3D();
+  try{
+    log("ARを開始します…");
+    const session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"],
+      optionalFeatures: ["local-floor"],
+    });
+    xrSession = session;
+    renderer.xr.setReferenceSpaceType("local");
+    await renderer.xr.setSession(session);
+    scene.background = null;   // これで現実（パススルー）が透けて見える
+    setupControllers();
+    hitSource = null; hitReq = false; postPlaced = false; post.visible = false;
+    $("start").style.display = "none";
+    $("goBtn").textContent = "AR中…";
+    log("AR開始OK。床を見ると白い輪が出ます。輪が出たらトリガーを引いてください");
+
+    // ログパネルは最初のフレームで目の前に置く（頭位置が確定してから。頭追従はしない）
+    pendingLogPanel = true;
+
+    session.addEventListener("end", ()=>{
+      xrSession = null; hitSource = null; hitReq = false;
+      scene.background = null;
+      reticle.visible = false; logPanel.visible = false;
+      $("start").style.display = "flex";
+      $("goBtn").textContent = "もう一度ためす";
+      $("goBtn").disabled = false;
+      log("ARを終了しました");
+    });
+  }catch(e){
+    showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
+    log("ヒント：Quest 3のブラウザで、URLを開いてから「はじめる」を押してください");
+    try{ xrSession && xrSession.end(); }catch(_){}
+    xrSession = null;
+  }
+}
+function placeLogPanelInFront(){
+  const cam = renderer.xr.getCamera();
+  const camPos = new THREE.Vector3(), camQ = new THREE.Quaternion();
+  cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
+  const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
+  if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
+  logPanel.position.set(camPos.x + fwd.x*1.3, camPos.y - 0.45, camPos.z + fwd.z*1.3);
+  logPanel.lookAt(camPos.x, camPos.y - 0.45, camPos.z);
+  logPanel.visible = true;
+  drawLogPanel();
+}
+
+/* ============ ボタン有効化（AR対応チェック） ============ */
+$("goBtn").addEventListener("click", startAR);
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{
+    if(ok){
+      $("goBtn").disabled = false;
+      log("準備OK。「はじめる」を押せます");
+    }else{
+      showErr("この端末ではMR（AR）を開始できません。Quest 3のブラウザで開いてください。");
+    }
+  }).catch(err=>{
+    showErr("AR対応の確認に失敗：" + (err && err.message || err));
+  });
+}else{
+  showErr("このブラウザはWebXR（MR）に対応していません。Quest 3のブラウザで開いてください。");
+  log("PCのChromeで確認する場合は拡張『Immersive Web Emulator』を使ってください");
+}
+
+/* ============ 毎フレーム ============ */
+const tmpM = new THREE.Matrix4();
+let loopErrLogged = false;
+let ringSpin = 0, lastMs = performance.now();
+function renderLoop(t, frame){
+ try{
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
+
+  if(frame && renderer.xr.isPresenting){
+    const ref = renderer.xr.getReferenceSpace();
+    const sess = renderer.xr.getSession();
+    // 最初のフレームでログパネルを目の前に置く（頭位置が確定してから）
+    if(pendingLogPanel){ pendingLogPanel = false; placeLogPanelInFront(); }
+    // hit-test の準備（1回だけ）
+    if(!hitReq){
+      hitReq = true;
+      if(sess.requestHitTestSource){
+        sess.requestReferenceSpace("viewer")
+          .then(vs => sess.requestHitTestSource({ space: vs })
+            .then(src => { hitSource = src; })
+            .catch(err => showErr("床の検出を開始できません：" + (err && err.message || err))))
+          .catch(err => showErr("基準空間の取得に失敗：" + (err && err.message || err)));
+      }else{
+        showErr("このブラウザは床の検出（hit-test）に対応していません。ブラウザを最新にしてください。");
+      }
+    }
+    // レティクル更新（見ている床に白い輪）
+    if(hitSource){
+      const res = frame.getHitTestResults(hitSource);
+      if(res.length){
+        const pose = res[0].getPose(ref);
+        reticle.visible = true;
+        tmpM.fromArray(pose.transform.matrix);
+        reticle.matrix.copy(tmpM);
+      }else{
+        reticle.visible = false;
+      }
+    }
+  }
+
+  // ポストの頭リングをゆっくり回す（光って生きている感じ・軽い処理）
+  if(post.visible){
+    ringSpin += dt * 0.8;
+    const ring = post.getObjectByName("ring");
+    if(ring) ring.rotation.z = ringSpin;
+  }
+
+  renderer.render(scene, camera);
+ }catch(err){
+  if(!loopErrLogged){ loopErrLogged = true; showErr("描画エラー：" + (err && err.message || err)); }
+ }
+}
+
+/* ============ 画面サイズ変更 ============ */
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+
+log("読み込みOK（版：" + REV + "）");
+</script>
+</body>
+</html>
