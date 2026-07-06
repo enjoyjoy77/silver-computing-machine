@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<script>/* GitHub Pagesのキャッシュ対策: 古い?vなら付け直して最新を取りに行く(開くだけで常に最新。ループしない) */
+(function(){try{var u=new URL(location.href);var v=+u.searchParams.get('v')||0;if(Date.now()-v>3000){u.searchParams.set('v',Date.now());location.replace(u.toString());}}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>立体で見る — ミタテ | 画像工房</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -201,7 +203,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
 
-const REV = "v2 rev5c";
+const REV = "v2 rev5d";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -298,13 +300,13 @@ const persp  = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 50)
 // 背景グラデ
 const bgCv = document.createElement('canvas'); bgCv.width=8; bgCv.height=256;
 (()=>{ const g=bgCv.getContext('2d'); const gr=g.createLinearGradient(0,0,0,256);
-  gr.addColorStop(0,'#16201b'); gr.addColorStop(1,'#0c110e'); g.fillStyle=gr; g.fillRect(0,0,8,256); })();
+  gr.addColorStop(0,'#254e3c'); gr.addColorStop(1,'#15291f'); g.fillStyle=gr; g.fillRect(0,0,8,256); })();
 const bgTex = new THREE.CanvasTexture(bgCv);
 scene.background = bgTex;
 
-scene.add(new THREE.HemisphereLight(0xfff0e0, 0x202824, 0.9));
-const key = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(1.2,2,3); scene.add(key);
-const rim = new THREE.DirectionalLight(0xd9ffe8, 0.5); rim.position.set(-2,1,-1); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xfff2e2, 0x2a3630, 1.15));
+const key = new THREE.DirectionalLight(0xffffff, 1.35); key.position.set(1.2,2,3); scene.add(key);
+const rim = new THREE.DirectionalLight(0xe4fff0, 0.6); rim.position.set(-2,1,-1); scene.add(rim);
 
 const root = new THREE.Group();   // 位置・大きさ・水平回転(yaw)を持つ = つかみ/ピンチ/呼び戻しの単位
 const tiltGroup = new THREE.Group();   // 前後の傾き(tilt.x)だけを持つ子。yaw/ピンチ計算と分離して姿勢破壊を防ぐ
@@ -358,7 +360,9 @@ function buildRelief(){
   reliefGeo = new THREE.PlaneGeometry(w, h, sx, sy);
   const mat = new THREE.MeshStandardMaterial({
     map: imgTexSRGB, transparent: true, alphaTest: .06,
-    side: THREE.DoubleSide, roughness: .96, metalness: 0,
+    side: THREE.DoubleSide, roughness: .82, metalness: 0,
+    // 光に依らず絵の色を少し自己発光させて発色を上げる(暗い側でも色が沈まない)
+    emissive: 0xffffff, emissiveMap: imgTexSRGB, emissiveIntensity: 0.22,
   });
   reliefMesh = new THREE.Mesh(reliefGeo, mat);
   reliefMesh.position.y = h/2;

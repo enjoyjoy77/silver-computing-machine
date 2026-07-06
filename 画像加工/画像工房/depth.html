@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<script>/* GitHub Pagesのキャッシュ対策: 古い?vなら付け直して最新を取りに行く(開くだけで常に最新。ループしない) */
+(function(){try{var u=new URL(location.href);var v=+u.searchParams.get('v')||0;if(Date.now()-v>3000){u.searchParams.set('v',Date.now());location.replace(u.toString());}}catch(e){}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>深度づくり — 奥行き推定 | 画像工房</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -83,7 +85,7 @@
 import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
 import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, agoText, detectBackend } from "./assets/common.js";
 
-const REV = "v2 rev3";
+const REV = "v2 rev4";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
