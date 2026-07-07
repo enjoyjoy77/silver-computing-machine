@@ -201,9 +201,10 @@
 <script type="module">
 import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
 
-const REV = "v2 rev5d";
+const REV = "v2 rev6";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -865,7 +866,8 @@ reticle.matrixAutoUpdate=false; reticle.visible=false; scene.add(reticle);
 const raycaster = new THREE.Raycaster(); const tmpV = new THREE.Vector3();
 const controllers=[]; const grab=[null,null]; let pinch=null;
 function setupControllers(){
-  setupHands();   // 手モデルも同時に用意(内部で二重生成ガード)
+  setupHands();         // コントローラー用の作り物の手
+  setupHandTracking();  // 素手用の本物同期の手
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i); scene.add(c);
@@ -997,11 +999,33 @@ function setupHands(){
         c.userData.wrap = wrap;
         c.userData.handSign = sign;
       }
-      c.userData.wrap.visible = true;
+      // 素手(ハンドトラッキング)のときは作り物の手を出さない → 本物の手モデルに任せる
+      const isHand = !!(e.data && e.data.hand);
+      c.userData.wrap.visible = !isHand;
+      if(handTrackers[i]) handTrackers[i].visible = isHand;   // 素手の時だけ本物の手を出す(コントローラー時は静止した手を残さない)
     });
     // 手とコントローラの自動切替でコントローラーを置くと disconnected → 手だけ隠す(レーザーは残す)
-    c.addEventListener('disconnected', ()=>{ c.userData.src = null; if(c.userData.wrap) c.userData.wrap.visible = false; });
+    c.addEventListener('disconnected', ()=>{
+      c.userData.src = null;
+      if(c.userData.wrap) c.userData.wrap.visible = false;
+      if(handTrackers[i]) handTrackers[i].visible = false;
+    });
     handMeshes[i] = c;
+  }
+}
+
+// ハンドトラッキング(素手): Questが認識した本物の手に同期する手モデル。つまむ=つかむ(select)は既存のまま動く
+const handModelFactory = new XRHandModelFactory();
+let handTrackers = [null, null];
+function setupHandTracking(){
+  if(handTrackers[0]) return;
+  for(let i=0;i<2;i++){
+    const h = renderer.xr.getHand(i);
+    h.visible = false;   // 素手が接続された時だけ表示(下のconnectedで切替)
+    scene.add(h);
+    // 'mesh'=実際の手の形にリグされたモデル(素手の関節に同期)
+    h.add(handModelFactory.createHandModel(h, 'mesh'));
+    handTrackers[i] = h;
   }
 }
 
@@ -1023,7 +1047,7 @@ function updateHands(dt){
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   try{
-    const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures:['hit-test'], optionalFeatures:['local-floor'] });
+    const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures:['hit-test'], optionalFeatures:['local-floor','hand-tracking'] });
     xrSession = s; xrMode = 'ar';
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(s);
@@ -1060,7 +1084,7 @@ async function startAR(){
 async function startVR(){
   if(xrSession){ xrSession.end(); return; }
   try{
-    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures:['local-floor'] });
+    const s = await navigator.xr.requestSession('immersive-vr', { optionalFeatures:['local-floor','hand-tracking'] });
     xrSession = s; xrMode = 'vr';
     renderer.xr.setReferenceSpaceType('local-floor');
     await renderer.xr.setSession(s);
