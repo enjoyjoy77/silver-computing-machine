@@ -54,6 +54,7 @@
   #result {
     margin-top: 0.4rem; border: 1px solid var(--line); border-radius: 10px;
     background: var(--card); padding: 0.7rem; min-height: 5rem;
+    max-height: 55vh; overflow: auto; resize: vertical;
     white-space: pre-wrap; word-break: break-word; font-size: 0.92rem;
   }
   #result b.lb { background: var(--hl-bg); color: var(--hl-ink); border-radius: 4px; padding: 0 0.25em; }
@@ -62,7 +63,8 @@
   th, td { border: 1px solid var(--line); padding: 0.25rem 0.6rem; text-align: left; }
   th { background: var(--card); }
   .warnnote { font-size: 0.74rem; color: var(--warn); margin-top: 0.3rem; }
-  #suspectsBox { margin-top: 0.7rem; }
+  #mapArea { margin-top: 0.6rem; max-height: 40vh; overflow: auto; }
+  #suspectsBox { margin-top: 0.7rem; max-height: 40vh; overflow: auto; }
   #suspectsBox .hd { font-weight:600; font-size:0.84rem; color:var(--warn); }
   #suspectsBox .note { font-size:0.72rem; color:var(--muted); margin:0.15rem 0 0.4rem; }
   .suspect { display:inline-flex; align-items:center; gap:0.3rem; margin:0.15rem; padding:0.2rem 0.5rem; border:1px solid var(--warn); border-radius:999px; font-size:0.82rem; background:var(--card); }
@@ -81,7 +83,7 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章の実名をA・B・Cに置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-05e 表データ誤爆修正版</span></p>
+  <p class="sub">文章の実名をA・B・Cに置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-05f スクロール枠・ボタン上部版</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください"></textarea>
@@ -103,14 +105,13 @@
   </details>
 
   <label class="head">✨ 結果 <span id="stats"></span></label>
-  <div id="result"></div>
-
   <div class="row">
     <button id="copyBody" disabled>📋 本文コピー（実名なし）</button>
     <button id="copyMap" disabled>🔑 対応表コピー（実名入り）</button>
     <button id="saveBtn" disabled>💾 保存</button>
   </div>
   <p class="warnnote">⚠ 対応表には実名が入ります。AIやチャットには「本文コピー」の方を貼ってください。</p>
+  <div id="result"></div>
 
   <div id="mapArea"></div>
 
