@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ねんりき崩し（物理疎通テスト版）</title>
+<style>
+  :root{
+    --bg:#140f0a; --panel:#211812; --line:#3a2c20; --ink:#f5efe6;
+    --dim:#b39c86; --accent:#ffb454; --accent2:#ffd79a; --danger:#ff8f8f; --ok:#7fe0a0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+
+  #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;}
+
+  /* 開始画面 */
+  #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:var(--bg);
+    padding:28px 22px;overflow-y:auto;text-align:center;}
+  #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
+  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:460px;}
+  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;
+    font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
+    color:#2a1602;box-shadow:0 6px 22px rgba(255,180,84,.35);transition:opacity .2s,transform .1s;}
+  #goBtn:active{transform:translateY(1px);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:460px;}
+  #note b{color:var(--accent2);}
+
+  /* 常時ステータス（fps・物理時間・状況。PCでもARの前でも見える） */
+  #stats{position:fixed;top:8px;left:12px;z-index:40;font-size:11px;line-height:1.6;
+    color:var(--dim);pointer-events:none;font-family:"Consolas","Courier New",monospace;
+    background:rgba(10,7,4,.5);padding:5px 8px;border-radius:8px;display:none;white-space:pre;}
+
+  /* PC操作ヒント */
+  #pchint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:35;
+    display:none;background:rgba(33,24,18,.9);border:1px solid var(--line);border-radius:12px;
+    padding:10px 16px;font-size:12.5px;line-height:1.7;color:var(--ink);text-align:center;max-width:92vw;}
+  #pchint b{color:var(--accent2);}
+
+  /* 画面内ログ */
+  #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
+  #log{background:rgba(10,7,4,.82);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
+    height:108px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+
+  /* 赤いエラー帯 */
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
+    display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
+    padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<span id="rev"></span>
+<div id="stats"></div>
+
+<div id="start">
+  <div class="mark">ねんりき崩し</div>
+  <h1>まずは「壊せるか」を<br>ためす回です</h1>
+  <p>机か床に塔が生えて、玉を投げて崩せれば成功です。<br>この回はまだ演出が少なめの、土台の確認回です。</p>
+  <button id="goBtn" disabled>じゅんび中…</button>
+  <div id="note">
+    <b>英語の画面が出たら</b><br>
+    ボタンを押すと英語の確認が出ることがあります。<br>
+    「<b>Allow</b>（許可）」または「<b>Enter VR / OK</b>」を押してください。<br>
+    うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
+  </div>
+</div>
+
+<div id="pchint">
+  <b>PC確認モード</b>　ドラッグ＝視点回転／クリック＝玉を投げる／ホイール＝寄る引く／R＝次の塔
+</div>
+
+<div id="logWrap">
+  <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+  <div id="log"></div>
+</div>
+
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import RAPIER from "./lib/rapier.mjs";
+
+const REV = "v1 rev1";
+document.getElementById("rev").textContent = REV;
+
+/* ============================================================
+   0. 画面内ログ（DOM＋AR中の3Dパネル。無言で失敗する経路を作らない）
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  logLines.push({ t: msg, e: !!isErr });
+  if(logLines.length > 40) logLines.shift();
+  const div = document.createElement("div");
+  if(isErr) div.className = "e";
+  div.textContent = "・" + msg;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  drawPanel();
+}
+function showErr(msg){
+  const e = $("err");
+  e.textContent = msg;
+  e.style.display = "block";
+  log(msg, true);
+}
+addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
+addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+// チェックポイント（土台とゲーム、どこまで到達したかを1回ずつ記録）
+const cp = {};
+function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + msg); }
+
+/* ============================================================
+   1. 調整パラメータ（実機の往復はこの数値を回す。__dbg.tune で生変更可）
+   ============================================================ */
+const TUNE = {
+  throwMul: 1.4,        // 投げ補助倍率
+  throwMax: 7.0,        // 投げ速度上限(m/s)
+  blockDensity: 550,    // 木材相当(kg/m3)→1本 約0.2kg
+  ballDensity: 1900,    // 玉 約0.5kg
+  restitution: 0.3,     // 反発
+  friction: 0.8,        // 摩擦
+  forceThreshold: 1.0,  // 衝突音を出す接触力のしきい値
+  forceRef: 220,        // この接触力で音量が最大になる基準
+  collapseDist: 0.12,   // これだけ動いたら「崩れた」(m)
+  towerLayers: 6,       // 段数(1段3本)
+  hapHit: 0.5, hapThrow: 0.25, hapSpawn: 0.2, hapClear: 0.9,
+};
+
+/* ============================================================
+   2. Three.js 基本
+   ============================================================ */
+const canvas = $("view");
+let renderer = null;
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 100);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x483828, 1.0));
+const dirLight = new THREE.DirectionalLight(0xfff0dc, 1.1); dirLight.position.set(1, 2.2, 1.2); scene.add(dirLight);
+
+// 使い回すスクラッチ（毎フレーム new しない：酔い＝処理落ち対策）
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _q1 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
+
+// 素材（1回だけ作って共有）
+const woodMat = new THREE.MeshStandardMaterial({ color:0xd8a25a, roughness:0.75, metalness:0.0 });
+const ballMat = new THREE.MeshStandardMaterial({ color:0xffb454, emissive:0x6a3a00, emissiveIntensity:0.55, roughness:0.35 });
+const blockGeoX = new THREE.BoxGeometry(0.15, 0.05, 0.05);
+const blockGeoZ = new THREE.BoxGeometry(0.05, 0.05, 0.15);
+const ballGeo = new THREE.SphereGeometry(0.04, 20, 16);
+
+/* ============================================================
+   3. 物理（Rapier）
+   ============================================================ */
+let world = null, eventQueue = null, rapierReady = false;
+const FIXED = 1/60;
+let physAcc = 0, timeScale = 1;         // timeScale：段階2のスローモ用に最初から持つ
+const handleToObj = new Map();          // colliderハンドル → {kind, ...}
+const blocks = [];                      // {mesh, body, colHandle, ox,oy,oz, down, lastSnd}
+const balls = [];                       // {mesh, body, colHandle, held, owner, kinematic, hist, hlen, hi}
+
+async function initRapier(){
+  try{
+    log("物理エンジンを読み込み中…（数MBあります）");
+    await RAPIER.init();
+    world = new RAPIER.World({ x:0, y:-9.81, z:0 });
+    world.timestep = FIXED;
+    eventQueue = new RAPIER.EventQueue(true);
+    rapierReady = true;
+    checkpoint("rapier", "物理エンジンOK");
+    tryEnableButton();
+  }catch(e){
+    showErr("物理エンジンの読み込みに失敗しました：" + (e && e.message ? e.message : e));
+  }
+}
+
+/* --- 見えない舞台（半径0.75mの円板）＋ 塔 --- */
+let stagePlaced = false, stageTopY = 0, stageCx = 0, stageCz = 0;
+let tableBody = null;
+
+function setupStage(cx, topY, cz){
+  clearAll();
+  stageCx = cx; stageCz = cz; stageTopY = topY; stagePlaced = true;
+  // 見えない物理の台（cylinder(halfHeight, radius)）
+  const tDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(cx, topY - 0.02, cz);
+  tableBody = world.createRigidBody(tDesc);
+  const tc = RAPIER.ColliderDesc.cylinder(0.02, 0.75).setFriction(0.95).setRestitution(0.1);
+  world.createCollider(tc, tableBody);
+  spawnTower(cx, topY, cz);
+}
+
+function spawnTower(cx, topY, cz){
+  const L = TUNE.towerLayers;
+  const off = [-0.05, 0, 0.05];
+  for(let layer=0; layer<L; layer++){
+    const y = topY + 0.025 + layer*0.05;
+    const alongX = (layer % 2 === 0);   // 交互に向きを変える（ジェンガ式）
+    for(let k=0; k<3; k++){
+      const x = alongX ? cx : cx + off[k];
+      const z = alongX ? cz + off[k] : cz;
+      const mesh = new THREE.Mesh(alongX ? blockGeoX : blockGeoZ, woodMat);
+      mesh.position.set(x, y, z);
+      mesh.scale.set(1, 0.001, 1);      // にょき演出：下段から伸びる
+      scene.add(mesh);
+      const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z);
+      const body = world.createRigidBody(rb);
+      const hx = alongX ? 0.075 : 0.025, hz = alongX ? 0.025 : 0.075;
+      const cd = RAPIER.ColliderDesc.cuboid(hx, 0.025, hz)
+        .setDensity(TUNE.blockDensity).setRestitution(TUNE.restitution).setFriction(TUNE.friction)
+        .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+        .setContactForceEventThreshold(TUNE.forceThreshold);
+      const col = world.createCollider(cd, body);
+      const b = { mesh, body, colHandle: col.handle, ox:x, oy:y, oz:z, down:false, lastSnd:0,
+                  growDelay: layer*0.06 };
+      handleToObj.set(col.handle, { kind:"block", ref:b });
+      blocks.push(b);
+    }
+  }
+  standing = blocks.length;
+  growT = 0;
+  checkpoint("tower", "塔が生えた（" + blocks.length + "本）");
+}
+
+/* --- 玉：握ると手に湧く（kinematic）→離すと投げる（dynamic） --- */
+function makeBallMesh(){ const m = new THREE.Mesh(ballGeo, ballMat); scene.add(m); return m; }
+
+function spawnHeldBall(owner, pos){
+  // 既にこの手が握っている玉があれば投げずに捨てる（多重発火の保険）
+  if(heldByController[owner]) removeBall(heldByController[owner]);
+  // 3個上限。ただし「今どちらかの手で握っている玉」は消さず、投げ終わった古い玉から消す
+  while(balls.length >= 3){
+    const victim = balls.find(x => !x.held);
+    if(!victim) break;               // 全部握り中（両手＝最大2個）なら消さない
+    removeBall(victim);
+  }
+  const mesh = makeBallMesh();
+  mesh.position.copy(pos);
+  const rb = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pos.x, pos.y, pos.z);
+  const body = world.createRigidBody(rb);
+  const cd = RAPIER.ColliderDesc.ball(0.04).setFriction(0.6)
+    .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+    .setContactForceEventThreshold(TUNE.forceThreshold);
+  const col = world.createCollider(cd, body);
+  // 直近の手の動きを覚える小さなリング（毎フレーム new しないよう数値で保持）
+  const hist = []; for(let i=0;i<10;i++) hist.push({t:0,x:0,y:0,z:0});
+  const b = { mesh, body, colHandle: col.handle, held:true, owner, kinematic:true, hist, hlen:0, hi:0 };
+  handleToObj.set(col.handle, { kind:"ball", ref:b });
+  balls.push(b);
+  playPop();
+  pulse(owner, TUNE.hapSpawn, 30);
+  return b;
+}
+
+function pushHist(b, x, y, z, now){
+  const s = b.hist[b.hi]; s.t=now; s.x=x; s.y=y; s.z=z;
+  b.hi = (b.hi+1) % b.hist.length;
+  if(b.hlen < b.hist.length) b.hlen++;
+}
+
+function throwBall(b, now){
+  if(!b || !b.held || balls.indexOf(b) < 0) return;   // 既に消えた玉は投げない
+  // 現在位置
+  const px = b.mesh.position.x, py = b.mesh.position.y, pz = b.mesh.position.z;
+  // 100ms前に一番近い履歴を探す
+  let best = null, bestDt = 0;
+  for(let i=0;i<b.hlen;i++){
+    const s = b.hist[i];
+    const dt = now - s.t;
+    if(dt > 0.02 && dt < 0.25){ if(!best || Math.abs(dt-0.1) < Math.abs(bestDt-0.1)){ best=s; bestDt=dt; } }
+  }
+  let vx=0, vy=0, vz=0;
+  if(best && bestDt > 0.001){
+    vx = (px-best.x)/bestDt * TUNE.throwMul;
+    vy = (py-best.y)/bestDt * TUNE.throwMul;
+    vz = (pz-best.z)/bestDt * TUNE.throwMul;
+    const sp = Math.hypot(vx,vy,vz);
+    if(sp > TUNE.throwMax){ const s = TUNE.throwMax/sp; vx*=s; vy*=s; vz*=s; }
+  }
+  // kinematic を消して dynamic を作り直す（型変換に頼らない安全策）
+  handleToObj.delete(b.colHandle);
+  world.removeRigidBody(b.body);
+  const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(px, py, pz).setCcdEnabled(true)
+    .setLinvel(vx, vy, vz);
+  const body = world.createRigidBody(rb);
+  const cd = RAPIER.ColliderDesc.ball(0.04).setDensity(TUNE.ballDensity)
+    .setRestitution(0.35).setFriction(0.6)
+    .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+    .setContactForceEventThreshold(TUNE.forceThreshold);
+  const col = world.createCollider(cd, body);
+  b.body = body; b.colHandle = col.handle; b.held = false; b.kinematic = false;
+  handleToObj.set(col.handle, { kind:"ball", ref:b });
+  playThrow();
+  pulse(b.owner, TUNE.hapThrow, 40);
+  checkpoint("throw", "玉を投げた");
+}
+
+function removeBall(b){
+  // 握っている手の参照を必ず先に切る。これを怠ると、消した玉を次フレームの手追従が
+  // 触りにいき、解放済みの物理ボディを操作して world 全体が壊れる（実機で画面が固まる）
+  for(let i=0;i<heldByController.length;i++){ if(heldByController[i] === b) heldByController[i] = null; }
+  b.held = false;
+  handleToObj.delete(b.colHandle);
+  if(b.body){ try{ world.removeRigidBody(b.body); }catch(_){} b.body = null; }
+  scene.remove(b.mesh);
+  const i = balls.indexOf(b); if(i>=0) balls.splice(i,1);
+}
+
+// 塔と玉だけ片づける（舞台＝台は残す。次の塔を出す前に必ず呼ぶ）
+function clearBlocks(){
+  for(const b of blocks){ handleToObj.delete(b.colHandle); try{ world.removeRigidBody(b.body); }catch(_){} scene.remove(b.mesh); }
+  blocks.length = 0;
+  while(balls.length) removeBall(balls[0]);
+  standing = 0;
+}
+// 舞台ごと全部片づける（置き直し・AR開始時）
+function clearAll(){
+  clearBlocks();
+  if(tableBody){ try{ world.removeRigidBody(tableBody); }catch(_){} tableBody = null; }
+}
+
+/* --- ゲーム進行 --- */
+let standing = 0, growT = 0;
+let phase = "idle";     // idle → playing → cleared → sinking → (playing)
+let phaseT = 0;
+
+function stepPhysics(dtReal){
+  if(!world || !stagePlaced) return;
+  physAcc += Math.min(dtReal, 0.05) * timeScale;
+  let n = 0;
+  while(physAcc >= FIXED && n < 3){ world.step(eventQueue); physAcc -= FIXED; n++; }
+  if(n === 3) physAcc = 0;                 // 積み残しは捨てる（破綻防止）
+  if(n > 0) drainEvents();
+}
+
+let drainErrLogged = false;
+function drainEvents(){
+  try{
+    eventQueue.drainContactForceEvents(ev => {
+      const mag = ev.maxForceMagnitude ? ev.maxForceMagnitude() : 0;
+      const strength = Math.min(1, mag / TUNE.forceRef);
+      const o1 = handleToObj.get(ev.collider1());
+      const o2 = handleToObj.get(ev.collider2());
+      const now = performance.now();
+      // 音：ブロックが絡む衝突で鳴らす（1ブロック70msのクールダウン）
+      const blk = (o1 && o1.kind==="block") ? o1.ref : (o2 && o2.kind==="block") ? o2.ref : null;
+      if(blk && now - blk.lastSnd > 70){ blk.lastSnd = now; playImpact(strength); }
+      // 振動：自分の投げた玉がブロックに当たった
+      const ball = (o1 && o1.kind==="ball") ? o1.ref : (o2 && o2.kind==="ball") ? o2.ref : null;
+      if(ball && blk && !ball.held && strength > 0.15){
+        pulse(ball.owner, TUNE.hapHit * (0.4+0.6*strength), 60);
+        checkpoint("hit", "玉が塔に当たった");
+      }
+    });
+  }catch(e){
+    if(!drainErrLogged){ drainErrLogged = true; showErr("衝突イベントの読み取りに失敗：" + (e && e.message || e)); }
+  }
+}
+
+function syncMeshes(){
+  if(phase === "sinking") return;     // 沈み演出中はメッシュを物理で上書きしない
+  for(const b of blocks){
+    const t = b.body.translation(), r = b.body.rotation();
+    b.mesh.position.set(t.x, t.y, t.z);
+    b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+  }
+  for(const b of balls){
+    if(b.held) continue;              // 持っている玉は手に追従（別処理）
+    const t = b.body.translation(), r = b.body.rotation();
+    b.mesh.position.set(t.x, t.y, t.z);
+    b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+  }
+}
+
+function checkCollapse(){
+  if(phase !== "playing") return;
+  for(const b of blocks){
+    if(b.down) continue;
+    const t = b.body.translation();
+    const dx=t.x-b.ox, dy=t.y-b.oy, dz=t.z-b.oz;
+    if(dx*dx+dy*dy+dz*dz > TUNE.collapseDist*TUNE.collapseDist || t.y < stageTopY - 0.05){
+      b.down = true; standing--;
+    }
+  }
+  if(standing <= 0 && blocks.length){
+    phase = "cleared"; phaseT = 0;
+    playClear();
+    pulseAll(TUNE.hapClear, 150);
+    checkpoint("clear", "塔を全部崩した（全壊）");
+  }
+}
+
+function advancePhase(dt){
+  if(phase === "cleared"){
+    phaseT += dt;
+    if(phaseT >= 2.0){ phase = "sinking"; phaseT = 0; }
+  }else if(phase === "sinking"){
+    phaseT += dt;
+    const k = Math.min(1, phaseT/0.6);
+    for(const b of blocks){ b.mesh.position.y -= dt*0.5; b.mesh.material = woodMat; b.mesh.visible = (k < 1); }
+    for(const b of balls){ b.mesh.visible = (k < 1); }
+    if(phaseT >= 0.6 + 0.5){
+      // 次の塔（古い塔と玉を片づけてから出す）
+      clearBlocks();
+      spawnTower(stageCx, stageTopY, stageCz);
+      phase = "playing"; phaseT = 0;
+    }
+  }
+}
+
+function forceNextTower(){
+  if(!stagePlaced) return;
+  if(phase === "playing"){ for(const b of blocks){ b.down = true; } standing = 0; phase = "cleared"; phaseT = 0; playClear(); }
+}
+
+/* ============================================================
+   4. 音（段階1はブラウザ内合成。しょぼければ段階2で素材へ差し替え）
+   ============================================================ */
+let actx = null, noiseBuf = null, voices = 0;
+function ensureAudio(){
+  if(!actx){
+    try{ actx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return; }
+    const n = actx.sampleRate * 0.3; noiseBuf = actx.createBuffer(1, n, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
+  }
+  if(actx && actx.state === "suspended") actx.resume();
+}
+function playImpact(strength){
+  if(!actx || voices >= 8) return;
+  const now = actx.currentTime, vol = Math.min(0.5, 0.05 + strength*0.5), dur = 0.09;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf;
+  const bp = actx.createBiquadFilter(); bp.type = "bandpass";
+  bp.frequency.value = 900*(0.9+Math.random()*0.2); bp.Q.value = 0.9;
+  const g = actx.createGain(); g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+  src.connect(bp).connect(g).connect(actx.destination);
+  voices++; src.onended = ()=>{ voices--; };
+  src.start(now); src.stop(now+dur);
+  const o = actx.createOscillator(); o.type="sine"; o.frequency.value = 150*(0.9+Math.random()*0.2);
+  const g2 = actx.createGain(); g2.gain.setValueAtTime(vol*0.7, now); g2.gain.exponentialRampToValueAtTime(0.0001, now+0.12);
+  o.connect(g2).connect(actx.destination); o.start(now); o.stop(now+0.12);
+}
+function playPop(){
+  if(!actx) return; const now = actx.currentTime;
+  const o = actx.createOscillator(); o.type="triangle";
+  o.frequency.setValueAtTime(500, now); o.frequency.exponentialRampToValueAtTime(900, now+0.08);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.1);
+  o.connect(g).connect(actx.destination); o.start(now); o.stop(now+0.1);
+}
+function playThrow(){
+  if(!actx) return; const now = actx.currentTime;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf;
+  const bp = actx.createBiquadFilter(); bp.type="highpass"; bp.frequency.value=1400;
+  const g = actx.createGain(); g.gain.setValueAtTime(0.14, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.14);
+  src.connect(bp).connect(g).connect(actx.destination); src.start(now); src.stop(now+0.14);
+}
+function playClear(){
+  if(!actx) return; const now = actx.currentTime;
+  // 低いドーン
+  const o = actx.createOscillator(); o.type="sine";
+  o.frequency.setValueAtTime(90, now); o.frequency.exponentialRampToValueAtTime(45, now+0.5);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.5, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.6);
+  o.connect(g).connect(actx.destination); o.start(now); o.stop(now+0.6);
+  // 上がる3音
+  [523,659,784].forEach((f,i)=>{
+    const t = now + 0.05 + i*0.09;
+    const oo = actx.createOscillator(); oo.type="triangle"; oo.frequency.value=f;
+    const gg = actx.createGain(); gg.gain.setValueAtTime(0.0001,t); gg.gain.linearRampToValueAtTime(0.22,t+0.02); gg.gain.exponentialRampToValueAtTime(0.0001,t+0.22);
+    oo.connect(gg).connect(actx.destination); oo.start(t); oo.stop(t+0.24);
+  });
+}
+
+/* ============================================================
+   5. 振動（Questのブラウザで効くか未確認。効かなくても音＋視覚で成立）
+   ============================================================ */
+const gamepads = [null, null];
+function pulse(i, intensity, ms){
+  try{
+    const gp = gamepads[i];
+    const a = gp && gp.hapticActuators && gp.hapticActuators[0];
+    if(a && a.pulse) a.pulse(Math.max(0, Math.min(1,intensity)), ms);
+  }catch(_){}
+}
+function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); }
+
+/* ============================================================
+   6. AR：セッション・hit-test・コントローラ（かたづけポストの実績ある型）
+   ============================================================ */
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.07, 0.11, 40).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.95 })
+);
+reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+
+const controllers = [];
+const heldByController = [null, null];
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i);
+    c.userData.index = i;
+    c.addEventListener("connected", e => { if(e.data && e.data.gamepad) gamepads[i] = e.data.gamepad; });
+    c.addEventListener("disconnected", () => { gamepads[i] = null; heldByController[i] = null; });
+    c.addEventListener("selectstart", () => onSelectStart(i));
+    c.addEventListener("selectend", () => onSelectEnd(i));
+    c.addEventListener("squeezestart", () => forceNextTower());
+    // 小さなグリップの目印
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 10),
+      new THREE.MeshBasicMaterial({ color:0xffd79a }));
+    c.add(tip);
+    scene.add(c);
+    controllers.push(c);
+  }
+}
+function onSelectStart(i){
+  ensureAudio();
+  if(!stagePlaced){
+    if(!reticle.visible){ log("床か机の白い輪がまだ出ていません。少し見回してください"); return; }
+    reticle.matrix.decompose(_v1, _q1, _v2);
+    setupStage(_v1.x, _v1.y, _v1.z);
+    phase = "playing";
+    checkpoint("stage", "舞台を置いた（土台OK）");
+    return;
+  }
+  // 舞台があるなら握った手に玉を湧かせる
+  controllers[i].getWorldPosition(_v3);
+  heldByController[i] = spawnHeldBall(i, _v3);
+}
+function onSelectEnd(i){
+  const b = heldByController[i];
+  if(b && b.held){ throwBall(b, performance.now()/1000); }
+  heldByController[i] = null;
+}
+
+let xrSession = null, hitSource = null, hitReq = false, hitTries = 0, pendingPanel = false, arStarting = false;
+async function startAR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(arStarting) return;                 // 二度押しで requestSession が2本走るのを防ぐ
+  if(!navigator.xr){ showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return; }
+  if(!rapierReady){ showErr("物理エンジンの準備がまだです。数秒待って、もう一度押してください。"); return; }
+  init3D(); ensureAudio();
+  arStarting = true;
+  $("goBtn").disabled = true;            // 応答待ちの間はボタンを塞ぐ
+  let session = null;
+  try{
+    log("ARを開始します…");
+    session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor"],
+    });
+    xrSession = session;
+    renderer.xr.setReferenceSpaceType("local");
+    await renderer.xr.setSession(session);
+    scene.background = null;
+    setupControllers();
+    hitSource = null; hitReq = false; hitTries = 0; stagePlaced = false; phase = "idle"; clearAll();
+    heldByController[0] = heldByController[1] = null;
+    $("start").style.display = "none"; $("goBtn").textContent = "AR中…";
+    $("stats").style.display = "block";
+    checkpoint("ar", "AR開始OK（土台の起動に成功）");
+    log("白い輪が出たら、机か床でトリガーを引いて塔を出してください");
+    pendingPanel = true;
+    session.addEventListener("end", ()=>{
+      xrSession = null; hitSource = null; hitReq = false;
+      heldByController[0] = heldByController[1] = null;
+      scene.background = null; reticle.visible = false; panel.visible = false;
+      $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
+      log("ARを終了しました");
+    });
+  }catch(e){
+    showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
+    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
+    // 後始末は今回作った session だけに限定（成功済みの別セッションを巻き込まない）
+    try{ session && session.end(); }catch(_){}
+    if(xrSession === session) xrSession = null;
+    $("goBtn").disabled = false; $("goBtn").textContent = "もう一度ためす";
+  }finally{
+    arStarting = false;
+  }
+}
+
+/* --- AR中に読める3Dパネル（fps・物理時間・記録。頭追従なし） --- */
+const panelCanvas = document.createElement("canvas");
+panelCanvas.width = 640; panelCanvas.height = 360;
+const pctx = panelCanvas.getContext("2d");
+const panelTex = new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace = THREE.SRGBColorSpace;
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.28),
+  new THREE.MeshBasicMaterial({ map: panelTex, transparent:true }));
+panel.visible = false; scene.add(panel);
+let panelStatus = "";
+function drawPanel(){
+  const c = pctx, W = panelCanvas.width, H = panelCanvas.height;
+  c.clearRect(0,0,W,H); c.fillStyle = "rgba(12,8,5,0.9)"; c.fillRect(0,0,W,H);
+  c.strokeStyle = "#3a2c20"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
+  c.textBaseline = "top";
+  c.font = "bold 20px 'Consolas','Courier New',monospace"; c.fillStyle = "#ffd79a";
+  c.fillText(panelStatus, 12, 10);
+  c.font = "17px 'Consolas','Courier New',monospace";
+  const last = logLines.slice(-11); let y = 42;
+  for(const ln of last){
+    c.fillStyle = ln.e ? "#ff9a9a" : "#dff5e8";
+    let t = ln.t; if(t.length > 44) t = t.slice(0,43)+"…";
+    c.fillText(t, 12, y); y += 27;
+  }
+  panelTex.needsUpdate = true;
+}
+function placePanelInFront(){
+  const camN = renderer.xr.getCamera();
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y = 0;
+  if(_v2.lengthSq() < 1e-6) _v2.set(0,0,-1); else _v2.normalize();
+  panel.position.set(_v1.x + _v2.x*1.4, _v1.y - 0.5, _v1.z + _v2.z*1.4);
+  panel.lookAt(_v1.x, _v1.y - 0.5, _v1.z);
+  panel.visible = true; drawPanel();
+}
+
+/* ============================================================
+   7. PC確認モード（Claudeが自分でテストできる。マウス操作）
+   ============================================================ */
+let pcMode = false, pcYaw = 0.5, pcPitch = 0.5, pcRadius = 1.3;
+const pcTarget = new THREE.Vector3(0, 0.15, 0);
+function startPC(){
+  if(!rapierReady){ showErr("物理エンジンの準備がまだです。数秒待ってください。"); return; }
+  init3D(); ensureAudio();
+  pcMode = true;
+  $("start").style.display = "none"; $("stats").style.display = "block"; $("pchint").style.display = "block";
+  setupStage(0, 0, 0); phase = "playing";
+  checkpoint("stage", "舞台を置いた（PC確認モード）");
+  updatePCCamera();
+  setupPCInput();
+}
+function updatePCCamera(){
+  const cp2 = Math.cos(pcPitch), sp2 = Math.sin(pcPitch);
+  camera.position.set(
+    pcTarget.x + pcRadius*cp2*Math.sin(pcYaw),
+    pcTarget.y + pcRadius*sp2,
+    pcTarget.z + pcRadius*cp2*Math.cos(pcYaw)
+  );
+  camera.lookAt(pcTarget);
+}
+let pcInputReady = false;
+function setupPCInput(){
+  if(pcInputReady) return; pcInputReady = true;
+  let dragging = false, moved = 0, lx = 0, ly = 0;
+  canvas.addEventListener("pointerdown", e => { dragging = true; moved = 0; lx = e.clientX; ly = e.clientY; });
+  addEventListener("pointermove", e => {
+    if(!dragging) return;
+    const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    pcYaw -= dx*0.008; pcPitch = Math.max(-0.2, Math.min(1.3, pcPitch + dy*0.006));
+    updatePCCamera();
+  });
+  addEventListener("pointerup", e => {
+    if(dragging && moved < 6) pcShootAt(e.clientX, e.clientY);
+    dragging = false;
+  });
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    pcRadius = Math.max(0.5, Math.min(3, pcRadius + (e.deltaY>0?0.1:-0.1)));
+    updatePCCamera();
+  }, { passive:false });
+  addEventListener("keydown", e => { if(e.key==="r" || e.key==="R") forceNextTower(); });
+}
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), _plane = new THREE.Plane(new THREE.Vector3(0,0,1), 0);
+function pcShootAt(sx, sy){
+  ensureAudio();
+  _ndc.set((sx/innerWidth)*2-1, -(sy/innerHeight)*2+1);
+  _ray.setFromCamera(_ndc, camera);
+  // 舞台の中心を通る縦面へ当てて狙点を作る
+  _plane.set(new THREE.Vector3(0,0,1), -pcTarget.z);
+  const hit = _ray.ray.intersectPlane(_plane, _v1);
+  const aim = hit ? _v1 : _v2.copy(pcTarget);
+  _v2.copy(aim).sub(camera.position).normalize().multiplyScalar(6.0);
+  pcSpawnThrown(camera.position, _v2);
+}
+function pcSpawnThrown(pos, vel){
+  while(balls.length >= 3){ removeBall(balls[0]); }
+  const mesh = makeBallMesh(); mesh.position.copy(pos);
+  const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(pos.x,pos.y,pos.z).setCcdEnabled(true)
+    .setLinvel(vel.x, vel.y, vel.z);
+  const body = world.createRigidBody(rb);
+  const cd = RAPIER.ColliderDesc.ball(0.04).setDensity(TUNE.ballDensity).setRestitution(0.35).setFriction(0.6)
+    .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(TUNE.forceThreshold);
+  const col = world.createCollider(cd, body);
+  const b = { mesh, body, colHandle: col.handle, held:false, owner:0, kinematic:false };
+  handleToObj.set(col.handle, { kind:"ball", ref:b });
+  balls.push(b); playThrow(); checkpoint("throw", "玉を投げた");
+}
+
+/* ============================================================
+   8. ボタン有効化
+   ============================================================ */
+let arSupported = false;
+$("goBtn").addEventListener("click", () => { if(arSupported) startAR(); else startPC(); });
+function tryEnableButton(){
+  if(!rapierReady) return;
+  if(arSupported){ $("goBtn").disabled = false; $("goBtn").textContent = "はじめる"; log("準備OK。「はじめる」を押せます"); }
+  else { $("goBtn").disabled = false; $("goBtn").textContent = "PCでためす（マウス）"; }
+}
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{
+    arSupported = !!ok;
+    if(!ok) log("この端末はMR非対応です。PC確認モードで動きだけ試せます（手応え・見え方はQuestで確認）");
+    tryEnableButton();
+  }).catch(()=>{ arSupported = false; tryEnableButton(); });
+}else{
+  log("このブラウザはWebXR非対応。PC確認モードで動きだけ試せます");
+  tryEnableButton();
+}
+
+/* ============================================================
+   9. 毎フレーム
+   ============================================================ */
+let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false;
+
+// ゲーム進行だけを1フレーム分進める（描画とは分離。ヘッドレスの自動テストでも回せる）
+function simulate(dt){
+  const p0 = performance.now();
+  stepPhysics(dt);
+  physMs = physMs*0.9 + (performance.now()-p0)*0.1;
+  syncMeshes();
+  checkCollapse();
+  advancePhase(dt);
+  // にょき演出
+  if(growT < 1 && blocks.length){
+    growT += dt/0.4;
+    for(const b of blocks){
+      const local = Math.max(0, Math.min(1, (growT - b.growDelay)/0.3 ));
+      if(!b.down) b.mesh.scale.y = 0.001 + local*0.999;
+    }
+  }
+  // ステータス表示（DOM＋3Dパネル）
+  const statLine = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1) + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length;
+  $("stats").textContent = statLine;
+  if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
+}
+
+function renderLoop(t, frame){
+ try{
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
+  fpsSmooth = fpsSmooth ? fpsSmooth*0.9 + (1/Math.max(dt,1e-4))*0.1 : 1/Math.max(dt,1e-4);
+
+  // AR：hit-test でレティクル更新
+  if(frame && renderer.xr.isPresenting){
+    const ref = renderer.xr.getReferenceSpace();
+    const sess = renderer.xr.getSession();
+    if(pendingPanel){ pendingPanel = false; placePanelInFront(); }
+    // hit-test の準備。取得に失敗しても数回は再挑戦できるようにする（1回で詰ませない）
+    if(!hitSource && !hitReq && hitTries < 5){
+      hitReq = true; hitTries++;
+      if(sess.requestHitTestSource){
+        sess.requestReferenceSpace("viewer")
+          .then(vs => sess.requestHitTestSource({ space: vs })
+            .then(src => { hitSource = src; })
+            .catch(err => { hitReq = false; if(hitTries >= 5) showErr("床の検出を開始できません：" + (err && err.message || err)); }))
+          .catch(err => { hitReq = false; if(hitTries >= 5) showErr("基準空間の取得に失敗：" + (err && err.message || err)); });
+      }else{
+        showErr("このブラウザは床の検出（hit-test）に対応していません。ブラウザを最新にしてください。");
+      }
+    }
+    if(hitSource && !stagePlaced){
+      const res = frame.getHitTestResults(hitSource);
+      const pose = res.length ? res[0].getPose(ref) : null;   // getPose は追跡が一瞬切れると null になり得る
+      if(pose){ reticle.visible = true; _m1.fromArray(pose.transform.matrix); reticle.matrix.copy(_m1); }
+      else reticle.visible = false;
+    }else reticle.visible = false;
+
+    // 持っている玉を手に追従（物理を進める前に kinematic の目標を更新）
+    for(let i=0;i<2;i++){
+      const b = heldByController[i];
+      if(b && b.held && b.body){
+        controllers[i].getWorldPosition(_v1);
+        b.mesh.position.copy(_v1);
+        b.body.setNextKinematicTranslation({ x:_v1.x, y:_v1.y, z:_v1.z });
+        pushHist(b, _v1.x, _v1.y, _v1.z, nowMs/1000);
+      }
+    }
+  }
+
+  simulate(dt);
+  renderer.render(scene, camera);
+ }catch(err){
+  if(!loopErr){ loopErr = true; showErr("描画エラー：" + (err && err.message || err)); }
+ }
+}
+
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============================================================
+   10. 自動テスト用の窓口（PCで preview から叩ける）
+   ============================================================ */
+window.__dbg = {
+  state(){ return { rapierReady, stagePlaced, phase, standing, blocks: blocks.length, balls: balls.length, fps: Math.round(fpsSmooth), physMs: +physMs.toFixed(2), cp: {...cp} }; },
+  shoot(vx, vy, vz){ if(!stagePlaced) return "no-stage"; pcSpawnThrown(camera.position, new THREE.Vector3(vx||0, vy||0, vz||-6)); return "ok"; },
+  blast(){ // 塔の中心へ強い玉を撃ち込む（自動テスト用）
+    if(!stagePlaced) return "no-stage";
+    const from = new THREE.Vector3(stageCx, stageTopY+0.15, stageCz+1.0);
+    const dir = new THREE.Vector3(0, 0, -1).multiplyScalar(9);
+    pcSpawnThrown(from, dir); return "ok";
+  },
+  nextTower(){ forceNextTower(); return "ok"; },
+  // ヘッドレスで物理を進める（この環境はタブ非表示でrAFが止まるため）
+  tick(seconds){ const n = Math.round((seconds||1)/FIXED); for(let i=0;i<n;i++) simulate(FIXED); return this.state(); },
+  render(){ if(renderer) renderer.render(scene, camera); return "ok"; },   // 非表示タブでの静止画確認用
+  tune: TUNE,
+};
+
+initRapier();
+log("読み込みOK（版：" + REV + "）");
+</script>
+</body>
+</html>
