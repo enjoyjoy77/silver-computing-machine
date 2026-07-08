@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>かたづけポスト（AR疎通テスト版）</title>
+<title>かたづけポスト</title>
 <style>
   :root{
     --bg:#0e1512; --panel:#17211c; --line:#2b3a32; --ink:#eef3ee;
@@ -15,36 +15,44 @@
     overflow:hidden;}
   canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
 
-  /* 右上の版数（更新できたか一目で分かる） */
   #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
     color:var(--dim);pointer-events:none;}
 
-  /* 開始画面 */
   #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:20px;background:var(--bg);
-    padding:28px 22px;overflow-y:auto;text-align:center;}
+    align-items:center;justify-content:center;gap:18px;background:var(--bg);
+    padding:26px 22px;overflow-y:auto;text-align:center;}
   #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
-  #start h1{margin:0;font-size:26px;font-weight:900;line-height:1.4;}
+  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
   #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:440px;}
-  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;
+  #goBtn{border:none;border-radius:16px;padding:19px 44px;font:inherit;font-size:19px;
     font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
     color:#08130d;box-shadow:0 6px 22px rgba(87,224,160,.35);transition:opacity .2s,transform .1s;}
   #goBtn:active{transform:translateY(1px);}
   #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+
+  /* 完了の合図の切替 */
+  .modeBox{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:13px 16px;max-width:440px;width:100%;}
+  .modeBox .lbl{font-size:12px;color:var(--dim);margin-bottom:9px;letter-spacing:.04em;}
+  .modeRow{display:flex;gap:8px;}
+  .modeRow button{flex:1;border:1px solid var(--line);background:#101a15;color:var(--ink);
+    border-radius:11px;padding:11px 8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;
+    transition:border-color .15s,background .15s;line-height:1.5;}
+  .modeRow button .s{display:block;font-size:10.5px;color:var(--dim);font-weight:400;margin-top:3px;}
+  .modeRow button.on{background:#16352a;border-color:var(--accent);color:var(--accent2);}
+
   #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:440px;}
+    padding:13px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:440px;}
   #note b{color:var(--accent2);}
 
-  /* 画面内ログ（ヘッドセット単独でも状況が読めるように常設） */
   #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
   #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
   #log{background:rgba(10,16,13,.82);border:1px solid var(--line);border-radius:10px;
     padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
-    height:118px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    height:104px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
     font-family:"Consolas","Courier New",monospace;}
   #log .e{color:var(--danger);}
 
-  /* 赤いエラー帯（大きく・確実に気づく） */
   #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
     display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
     padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
@@ -57,13 +65,20 @@
 
 <div id="start">
   <div class="mark">かたづけポスト</div>
-  <h1>まずは「置けるか」を<br>ためす回です</h1>
-  <p>Quest 3をかぶったまま、床に白い輪が出て、光る「ポスト」が置ければ成功です。<br>この回はまだゲームではありません。土台が動くかの確認です。</p>
+  <h1>1個かたづけるたび<br>紙吹雪でほめる</h1>
+  <p>床に光るポストを置いて、ゴミを1つ捨てるたびにポストへ“納品”します。10個で1ラウンド。</p>
+
+  <div class="modeBox">
+    <div class="lbl">「かたづけた」の合図（あとで変えられます）</div>
+    <div class="modeRow">
+      <button id="modeAuto" data-mode="auto">手をかざす<span class="s">ポストの輪に手をくぐらせる（おすすめ）</span></button>
+      <button id="modeTrigger" data-mode="trigger">トリガー<span class="s">輪に向けて引き金を引く（確実）</span></button>
+    </div>
+  </div>
+
   <button id="goBtn" disabled>はじめる</button>
   <div id="note">
-    <b>英語の画面が出たら</b><br>
-    ボタンを押すと英語の確認が出ることがあります。<br>
-    「<b>Allow</b>（許可）」または「<b>Enter VR / OK</b>」を押してください。<br>
+    <b>英語の画面が出たら</b>「<b>Allow</b>（許可）」や「<b>OK</b>」を押してください。<br>
     うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
   </div>
 </div>
@@ -78,36 +93,88 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v1 rev1";
+const REV = "v1 rev2";
 document.getElementById("rev").textContent = REV;
 
-/* ============ 画面内ログ（DOM＋AR中は3Dパネル、二重に残す） ============ */
+/* ============ 画面内ログ（DOM＋AR中は3Dパネル） ============ */
 const $ = id => document.getElementById(id);
 const logEl = $("log");
 const logLines = [];
 function log(msg, isErr){
-  const line = msg;
-  logLines.push({ t: line, e: !!isErr });
+  logLines.push({ t: msg, e: !!isErr });
   if(logLines.length > 40) logLines.shift();
-  // DOM側（AR前・AR終了後に見える）
   const div = document.createElement("div");
   if(isErr) div.className = "e";
-  div.textContent = "・" + line;
+  div.textContent = "・" + msg;
   logEl.appendChild(div);
   logEl.scrollTop = logEl.scrollHeight;
-  // 3Dパネル側（AR中にヘッドセットで見える）
   drawLogPanel();
 }
 function showErr(msg){
-  const e = $("err");
-  e.textContent = msg;
-  e.style.display = "block";
+  const e = $("err"); e.textContent = msg; e.style.display = "block";
   log(msg, true);
 }
-
-// 想定外のエラーも全部ログに出す（無言で失敗する経路を作らない）
 addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
 addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+/* ============ 完了の合図モード（開始画面で選ぶ・localStorageに保存） ============ */
+let completionMode = "auto";
+try{ const saved = localStorage.getItem("katazuke_mode"); if(saved === "auto" || saved === "trigger") completionMode = saved; }catch(_){}
+function setMode(m){
+  completionMode = m;
+  try{ localStorage.setItem("katazuke_mode", m); }catch(_){}
+  $("modeAuto").classList.toggle("on", m === "auto");
+  $("modeTrigger").classList.toggle("on", m === "trigger");
+}
+$("modeAuto").addEventListener("click", ()=>setMode("auto"));
+$("modeTrigger").addEventListener("click", ()=>setMode("trigger"));
+setMode(completionMode);
+
+/* ============ 音（その場で合成・音声ファイル無し） ============ */
+let actx = null;
+function initAudio(){
+  try{
+    if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if(actx && actx.state === "suspended") actx.resume();
+  }catch(_){}
+}
+function beep(freq, dur, type, vol){
+  if(!actx) return;
+  try{
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.3, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }catch(_){}
+}
+// コンボで半音ずつ上がる「ポン♪」
+function playPon(step){
+  const f = 660 * Math.pow(2, Math.min(step, 12) / 12);
+  beep(f, 0.18, "triangle", 0.35);
+  beep(f * 2, 0.10, "sine", 0.10);
+}
+function playUndo(){ beep(320, 0.14, "sine", 0.22); }
+function playFanfare(){
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((f, i) => setTimeout(() => beep(f, 0.34, "triangle", 0.34), i * 130));
+}
+
+/* ============ 振動（対応していなければ静かに無視） ============ */
+function pulse(ms, intensity){
+  try{
+    const s = renderer && renderer.xr.getSession(); if(!s) return;
+    for(const src of s.inputSources){
+      const g = src.gamepad;
+      if(g && g.hapticActuators && g.hapticActuators[0] && g.hapticActuators[0].pulse){
+        g.hapticActuators[0].pulse(intensity || 1.0, ms || 80);
+      }
+    }
+  }catch(_){}
+}
 
 /* ============ Three.js 基本 ============ */
 const canvas = $("view");
@@ -123,152 +190,342 @@ function init3D(){
 }
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 100);
-
-// ライトは規定どおり最小（半球光＋平行光1灯）
 scene.add(new THREE.HemisphereLight(0xffffff, 0x445044, 1.0));
 const dir = new THREE.DirectionalLight(0xffffff, 1.1); dir.position.set(1, 2, 1); scene.add(dir);
 
-/* ============ 床の白いリング（レティクル：見ている床に出る目印） ============ */
+/* ============ 床の白いリング（レティクル） ============ */
 const reticle = new THREE.Mesh(
   new THREE.RingGeometry(0.08, 0.12, 40).rotateX(-Math.PI/2),
   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent:true, opacity:0.95 })
 );
-reticle.matrixAutoUpdate = false;
-reticle.visible = false;
+reticle.matrixAutoUpdate = false; reticle.visible = false;
 scene.add(reticle);
 
-/* ============ 光る「ポスト」（プリミティブだけで作る） ============ */
-// 足元原点。柱＋頭のリング（手をかざす的：この回は表示だけ）。
+/* ============ 光る「ポスト」 ============ */
 const post = new THREE.Group();
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x9ff0c8 });
+let postRing = null;
 {
   const bodyMat = new THREE.MeshStandardMaterial({
-    color: 0x1f8f66, emissive: 0x0d5a3f, emissiveIntensity: 0.8,
-    roughness: 0.5, metalness: 0.0,
+    color: 0x1f8f66, emissive: 0x0d5a3f, emissiveIntensity: 0.8, roughness: 0.5, metalness: 0.0,
   });
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.9, 20), bodyMat);
-  body.position.y = 0.45;
-  post.add(body);
+  body.position.y = 0.45; post.add(body);
 
-  // 頭の光るリング（常に明るく見えるよう Basic）
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.13, 0.022, 16, 40),
-    new THREE.MeshBasicMaterial({ color: 0x9ff0c8 })
-  );
-  ring.rotation.x = Math.PI/2;
-  ring.position.y = 0.98;
-  ring.name = "ring";
-  post.add(ring);
+  postRing = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 16, 40), ringMat);
+  postRing.rotation.x = Math.PI/2; postRing.position.y = 0.98; postRing.name = "ring";
+  post.add(postRing);
 
-  // 台座（安定して立って見えるように）
   const base = new THREE.Mesh(
     new THREE.CylinderGeometry(0.11, 0.13, 0.04, 24),
     new THREE.MeshStandardMaterial({ color: 0x144130, roughness:0.7 })
   );
-  base.position.y = 0.02;
-  post.add(base);
+  base.position.y = 0.02; post.add(base);
 }
-post.visible = false;
-scene.add(post);
+post.visible = false; scene.add(post);
 let postPlaced = false;
 
-/* ============ AR中に読める3Dログパネル（頭追従はしない・置いたら固定） ============ */
-const logCanvas = document.createElement("canvas");
-logCanvas.width = 640; logCanvas.height = 320;
-const logCtx = logCanvas.getContext("2d");
-const logTex = new THREE.CanvasTexture(logCanvas);
-logTex.colorSpace = THREE.SRGBColorSpace;
-const logPanel = new THREE.Mesh(
-  new THREE.PlaneGeometry(0.5, 0.25),
-  new THREE.MeshBasicMaterial({ map: logTex, transparent:true })
-);
-logPanel.visible = false;
-scene.add(logPanel);
-function drawLogPanel(){
-  const c = logCtx, W = logCanvas.width, H = logCanvas.height;
-  c.clearRect(0,0,W,H);
-  c.fillStyle = "rgba(10,16,13,0.88)";
-  c.fillRect(0,0,W,H);
-  c.strokeStyle = "#2b3a32"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
-  c.font = "18px 'Consolas','Courier New',monospace";
-  c.textBaseline = "top";
-  const last = logLines.slice(-11);
-  let y = 12;
-  for(const ln of last){
-    c.fillStyle = ln.e ? "#ff9a9a" : "#dff5e8";
-    let t = ln.t;
-    if(t.length > 46) t = t.slice(0, 45) + "…";
-    c.fillText(t, 12, y);
-    y += 27;
-  }
-  logTex.needsUpdate = true;
+// リングのワールド中心（手かざし判定・紙吹雪の発生点）
+const _ringWorld = new THREE.Vector3();
+function ringWorldPos(){ postRing.getWorldPosition(_ringWorld); return _ringWorld; }
+
+/* ============ 文字パネルを作る道具（canvasテクスチャ） ============ */
+function makePanelTexture(w, h){
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  return { cv, ctx: cv.getContext("2d"), tex };
+}
+function faceCamera(obj){
+  // ユーザーの方へ向ける（水平回転だけ＝文字が傾かない）
+  obj.rotation.y = Math.atan2(_camPos.x - obj.position.x, _camPos.z - obj.position.z);
 }
 
-/* ============ コントローラ（トリガーでポストを置く） ============ */
+/* ---- カウント表示パネル（ポストの上） ---- */
+const cP = makePanelTexture(512, 320);
+const countPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.42, 0.2625),
+  new THREE.MeshBasicMaterial({ map: cP.tex, transparent:true })
+);
+countPanel.visible = false; scene.add(countPanel);
+let panelPop = 0;   // カウント時の“跳ね”
+function drawCountPanel(){
+  const c = cP.ctx, W = cP.cv.width, H = cP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(10,20,16,0.82)";
+  roundRect(c, 6, 6, W-12, H-12, 26); c.fill();
+  c.strokeStyle = "#57e0a0"; c.lineWidth = 5; roundRect(c, 6, 6, W-12, H-12, 26); c.stroke();
+  c.textAlign = "center"; c.textBaseline = "middle";
+  // 指示
+  c.fillStyle = "#9ff0c8"; c.font = "bold 40px sans-serif";
+  c.fillText("いまは ゴミだけ", W/2, 62);
+  // カウント
+  c.fillStyle = "#eafff4"; c.font = "bold 150px sans-serif";
+  c.fillText(count + " / 10", W/2, 175);
+  // コンボ
+  c.font = "bold 34px sans-serif";
+  if(combo > 0){ c.fillStyle = "#ffe08a"; c.fillText("コンボ " + (combo+1) + "！", W/2, 278); }
+  else { c.fillStyle = "#6f8a7e"; c.fillText(completionMode==="auto" ? "輪に手をくぐらせよう" : "輪に向けて引き金", W/2, 278); }
+  cP.tex.needsUpdate = true;
+}
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+/* ---- 3Dボタン（1個もどす・つづける・きょうはおしまい） ---- */
+const uiButtons = [];   // {mesh, onClick}
+function makeButton(label, w, h, onClick, accent){
+  const P = makePanelTexture(384, 160);
+  const draw = (hot)=>{
+    const c = P.ctx, W = P.cv.width, H = P.cv.height;
+    c.clearRect(0,0,W,H);
+    c.fillStyle = hot ? "#1d5a44" : "#13322a";
+    roundRect(c, 5,5,W-10,H-10, 30); c.fill();
+    c.strokeStyle = accent || "#57e0a0"; c.lineWidth = 6; roundRect(c,5,5,W-10,H-10,30); c.stroke();
+    c.fillStyle = "#eafff4"; c.textAlign="center"; c.textBaseline="middle"; c.font = "bold 58px sans-serif";
+    c.fillText(label, W/2, H/2);
+    P.tex.needsUpdate = true;
+  };
+  draw(false);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map:P.tex, transparent:true }));
+  mesh.visible = false; scene.add(mesh);
+  const entry = { mesh, onClick, draw };
+  uiButtons.push(entry);
+  return entry;
+}
+const undoBtn = makeButton("1個もどす", 0.2, 0.083, doUndo, "#8fb8a8");
+const contBtn = makeButton("つづける", 0.24, 0.1, doContinue, "#57e0a0");
+const finishBtn = makeButton("きょうはおしまい", 0.30, 0.1, doFinish, "#8fb8a8");
+
+/* ---- ラウンドクリアの見出しパネル ---- */
+const clP = makePanelTexture(512, 200);
+const clearPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.44, 0.172),
+  new THREE.MeshBasicMaterial({ map: clP.tex, transparent:true })
+);
+clearPanel.visible = false; scene.add(clearPanel);
+function drawClearPanel(){
+  const c = clP.ctx, W = clP.cv.width, H = clP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(12,26,20,0.86)"; roundRect(c,6,6,W-12,H-12,26); c.fill();
+  c.strokeStyle = "#ffe08a"; c.lineWidth = 6; roundRect(c,6,6,W-12,H-12,26); c.stroke();
+  c.fillStyle = "#ffe08a"; c.textAlign="center"; c.textBaseline="middle"; c.font = "bold 96px sans-serif";
+  c.fillText("ラウンドクリア！", W/2, H/2);
+  clP.tex.needsUpdate = true;
+}
+
+/* ============ 紙吹雪（1回のdraw callで済むPoints） ============ */
+const PMAX = 440;
+const pPos = new Float32Array(PMAX*3);
+const pCol = new Float32Array(PMAX*3);
+const pVel = new Array(PMAX);
+const pLife = new Float32Array(PMAX);
+for(let i=0;i<PMAX;i++){ pPos[i*3+1] = -9999; pVel[i] = {x:0,y:0,z:0}; }
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute("color", new THREE.BufferAttribute(pCol, 3));
+const confetti = new THREE.Points(pGeo, new THREE.PointsMaterial({
+  size: 0.022, sizeAttenuation: true, vertexColors: true, transparent: true, depthWrite: false,
+}));
+confetti.frustumCulled = false; scene.add(confetti);
+const CONFETTI_COLORS = [
+  [0.34,0.88,0.63], [0.62,0.94,0.78], [1.0,0.88,0.54], [0.6,0.85,1.0], [1.0,1.0,1.0], [1.0,0.7,0.85],
+];
+let pHead = 0;
+function burstConfetti(origin, n, big){
+  for(let k=0;k<n;k++){
+    const idx = pHead; pHead = (pHead+1) % PMAX;
+    pPos[idx*3] = origin.x; pPos[idx*3+1] = origin.y; pPos[idx*3+2] = origin.z;
+    const ang = Math.random()*Math.PI*2;
+    const up = (big?2.2:1.7) + Math.random()*1.1;
+    const out = (big?1.4:0.95) * (0.3 + Math.random()*0.7);
+    pVel[idx] = { x: Math.cos(ang)*out, y: up, z: Math.sin(ang)*out };
+    const col = CONFETTI_COLORS[(Math.random()*CONFETTI_COLORS.length)|0];
+    pCol[idx*3]=col[0]; pCol[idx*3+1]=col[1]; pCol[idx*3+2]=col[2];
+    pLife[idx] = (big?1.8:1.3) + Math.random()*0.4;
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+}
+function updateConfetti(dt){
+  let any = false;
+  for(let i=0;i<PMAX;i++){
+    if(pLife[i] > 0){
+      any = true; pLife[i] -= dt;
+      const v = pVel[i]; v.y -= 3.2*dt;
+      pPos[i*3] += v.x*dt; pPos[i*3+1] += v.y*dt; pPos[i*3+2] += v.z*dt;
+      if(pLife[i] <= 0) pPos[i*3+1] = -9999;
+    }
+  }
+  if(any) pGeo.attributes.position.needsUpdate = true;
+}
+
+/* ============ AR中に読める3Dログパネル ============ */
+const lP = makePanelTexture(640, 320);
+const logPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.5, 0.25),
+  new THREE.MeshBasicMaterial({ map: lP.tex, transparent:true })
+);
+logPanel.visible = false; scene.add(logPanel);
+function drawLogPanel(){
+  const c = lP.ctx, W = lP.cv.width, H = lP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(10,16,13,0.88)"; c.fillRect(0,0,W,H);
+  c.strokeStyle = "#2b3a32"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
+  c.font = "18px 'Consolas','Courier New',monospace"; c.textAlign = "left"; c.textBaseline = "top";
+  const last = logLines.slice(-11); let y = 12;
+  for(const ln of last){
+    c.fillStyle = ln.e ? "#ff9a9a" : "#dff5e8";
+    let t = ln.t; if(t.length > 46) t = t.slice(0,45) + "…";
+    c.fillText(t, 12, y); y += 27;
+  }
+  lP.tex.needsUpdate = true;
+}
+
+/* ============ コントローラ（トリガー／レイ） ============ */
 const controllers = [];
+const ctrlConnected = [false, false];
+const raycaster = new THREE.Raycaster();
+const _origin = new THREE.Vector3();
+const _dirv = new THREE.Vector3();
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
-    c.addEventListener("select", onSelect);
-    scene.add(c);
-    controllers.push(c);
+    c.addEventListener("select", ()=>onSelect(c));
+    c.addEventListener("connected", ()=>{ ctrlConnected[i] = true; });
+    c.addEventListener("disconnected", ()=>{ ctrlConnected[i] = false; });
+    // 細い光の線（ボタンを狙うときの目印）
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-2.5)]);
+    c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x57e0a0, transparent:true, opacity:0.5 })));
+    scene.add(c); controllers.push(c);
   }
 }
-function onSelect(){
-  if(!reticle.visible){
-    log("トリガー：床の白い輪がまだ出ていません。床を見てください");
+function controllerWorldPos(i, out){ return out.setFromMatrixPosition(controllers[i].matrixWorld); }
+function raycastFrom(c){
+  _origin.setFromMatrixPosition(c.matrixWorld);
+  _dirv.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
+  raycaster.set(_origin, _dirv);
+}
+
+function onSelect(c){
+  // 1) 3Dボタンを狙っていれば押す
+  raycastFrom(c);
+  const btnMeshes = uiButtons.filter(b=>b.mesh.visible).map(b=>b.mesh);
+  if(btnMeshes.length){
+    const hit = raycaster.intersectObjects(btnMeshes, false);
+    if(hit.length){
+      const entry = uiButtons.find(b=>b.mesh === hit[0].object);
+      if(entry && entry.onClick){ entry.onClick(); return; }
+    }
+  }
+  // 2) トリガー式モード：ポストの輪を狙っていれば「かたづけた」
+  if(completionMode === "trigger" && playing && armed && post.visible){
+    const hitRing = raycaster.intersectObject(postRing, false);
+    if(hitRing.length){ complete(); return; }
+  }
+  // 3) 床の輪が出ていればポストを設置／移動
+  if(reticle.visible){
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+    reticle.matrix.decompose(pos, quat, scl);
+    post.position.copy(pos); post.quaternion.identity(); post.visible = true;
+    if(!postPlaced){
+      postPlaced = true; startRound(true);
+      log("ポストを置きました。ゴミを1つ捨てて、輪で合図してね");
+    }else{
+      log("ポストを動かしました");
+    }
     return;
   }
-  // レティクルの位置にポストを立てる（初回=設置、以降=移動）
-  const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
-  reticle.matrix.decompose(pos, quat, scl);
-  post.position.copy(pos);
-  post.quaternion.identity();   // まっすぐ立てる（床の傾きは無視）
-  post.visible = true;
-  if(!postPlaced){ postPlaced = true; log("ポストを置きました。成功です！"); }
-  else { log("ポストを動かしました"); }
+  log("床の白い輪を出してからトリガーを引いてください");
 }
+
+/* ============ ゲーム状態とコアループ ============ */
+let count = 0, combo = 0, comboExpireAt = 0;
+let armed = true, cooldownUntil = 0, playing = false;
+let ringFlash = 0;
+const TOUCH_DIST = 0.25;   // これ以内に手が来たら1個（自動式）
+const REARM_DIST = 0.60;   // ここまで離れたら次を数えられる
+const COOLDOWN   = 2.0;    // 数えた後の待ち（秒）
+const COMBO_WINDOW = 90;   // この秒数内の連続でコンボ
+
+function startRound(firstTime){
+  count = 0; combo = 0; comboExpireAt = 0; armed = true; cooldownUntil = 0; playing = true;
+  clearPanel.visible = false; contBtn.mesh.visible = false; finishBtn.mesh.visible = false;
+  countPanel.visible = true; undoBtn.mesh.visible = true;
+  drawCountPanel();
+}
+function complete(){
+  const now = performance.now()/1000;
+  count++;
+  if(now < comboExpireAt) combo++; else combo = 0;
+  comboExpireAt = now + COMBO_WINDOW;
+  playPon(combo); pulse(80, 1.0);
+  burstConfetti(ringWorldPos(), 300, false);
+  ringFlash = 1.0; panelPop = 1.0;
+  armed = false; cooldownUntil = now + COOLDOWN;
+  drawCountPanel();
+  log("かたづけ " + count + "/10" + (combo>0 ? ("（コンボ" + (combo+1) + "）") : ""));
+  if(count >= 10) roundClear();
+}
+function doUndo(){
+  if(count <= 0){ log("もどす分がありません"); return; }
+  count--; if(combo > 0) combo--;
+  playUndo(); panelPop = 0.6; drawCountPanel();
+  log("1個もどしました（" + count + "/10）");
+}
+function roundClear(){
+  playing = false;
+  burstConfetti(ringWorldPos(), 440, true);
+  playFanfare(); pulse(150, 1.0);
+  drawClearPanel();
+  clearPanel.visible = true;
+  countPanel.visible = false; undoBtn.mesh.visible = false;
+  contBtn.mesh.visible = true; finishBtn.mesh.visible = true;
+  log("ラウンドクリア！ 10個かたづけました");
+}
+function doContinue(){ log("次のラウンド！"); startRound(false); }
+function doFinish(){ log("おつかれさまでした"); if(xrSession) xrSession.end(); }
 
 /* ============ AR開始 ============ */
 let xrSession = null, hitSource = null, hitReq = false, pendingLogPanel = false;
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   if(!navigator.xr){
-    showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。");
-    return;
+    showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return;
   }
-  init3D();
+  init3D(); initAudio();
   try{
     log("ARを開始します…");
     const session = await navigator.xr.requestSession("immersive-ar", {
-      requiredFeatures: ["hit-test"],
-      optionalFeatures: ["local-floor"],
+      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor"],
     });
     xrSession = session;
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(session);
-    scene.background = null;   // これで現実（パススルー）が透けて見える
+    scene.background = null;
     setupControllers();
-    hitSource = null; hitReq = false; postPlaced = false; post.visible = false;
+    hitSource = null; hitReq = false;
+    postPlaced = false; post.visible = false; playing = false;
+    countPanel.visible = false; undoBtn.mesh.visible = false;
+    clearPanel.visible = false; contBtn.mesh.visible = false; finishBtn.mesh.visible = false;
     $("start").style.display = "none";
     $("goBtn").textContent = "AR中…";
-    log("AR開始OK。床を見ると白い輪が出ます。輪が出たらトリガーを引いてください");
-
-    // ログパネルは最初のフレームで目の前に置く（頭位置が確定してから。頭追従はしない）
+    log("AR開始OK。床を見て白い輪→トリガーでポストを置いてください");
+    log("合図の方法：" + (completionMode==="auto" ? "手を輪にくぐらせる" : "輪に向けてトリガー"));
     pendingLogPanel = true;
 
     session.addEventListener("end", ()=>{
       xrSession = null; hitSource = null; hitReq = false;
       scene.background = null;
-      reticle.visible = false; logPanel.visible = false;
+      reticle.visible = false; logPanel.visible = false; post.visible = false;
+      countPanel.visible = false; undoBtn.mesh.visible = false;
+      clearPanel.visible = false; contBtn.mesh.visible = false; finishBtn.mesh.visible = false;
+      playing = false;
       $("start").style.display = "flex";
-      $("goBtn").textContent = "もう一度ためす";
-      $("goBtn").disabled = false;
+      $("goBtn").textContent = "もう一度あそぶ"; $("goBtn").disabled = false;
       log("ARを終了しました");
     });
   }catch(e){
     showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
-    log("ヒント：Quest 3のブラウザで、URLを開いてから「はじめる」を押してください");
+    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
     try{ xrSession && xrSession.end(); }catch(_){}
     xrSession = null;
   }
@@ -279,25 +536,18 @@ function placeLogPanelInFront(){
   cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
   const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
   if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
-  logPanel.position.set(camPos.x + fwd.x*1.3, camPos.y - 0.45, camPos.z + fwd.z*1.3);
-  logPanel.lookAt(camPos.x, camPos.y - 0.45, camPos.z);
-  logPanel.visible = true;
-  drawLogPanel();
+  logPanel.position.set(camPos.x + fwd.x*1.3, camPos.y - 0.5, camPos.z + fwd.z*1.3);
+  logPanel.lookAt(camPos.x, camPos.y - 0.5, camPos.z);
+  logPanel.visible = true; drawLogPanel();
 }
 
-/* ============ ボタン有効化（AR対応チェック） ============ */
+/* ============ ボタン有効化 ============ */
 $("goBtn").addEventListener("click", startAR);
 if(navigator.xr && navigator.xr.isSessionSupported){
   navigator.xr.isSessionSupported("immersive-ar").then(ok=>{
-    if(ok){
-      $("goBtn").disabled = false;
-      log("準備OK。「はじめる」を押せます");
-    }else{
-      showErr("この端末ではMR（AR）を開始できません。Quest 3のブラウザで開いてください。");
-    }
-  }).catch(err=>{
-    showErr("AR対応の確認に失敗：" + (err && err.message || err));
-  });
+    if(ok){ $("goBtn").disabled = false; log("準備OK。「はじめる」を押せます"); }
+    else { showErr("この端末ではMR（AR）を開始できません。Quest 3のブラウザで開いてください。"); }
+  }).catch(err=>{ showErr("AR対応の確認に失敗：" + (err && err.message || err)); });
 }else{
   showErr("このブラウザはWebXR（MR）に対応していません。Quest 3のブラウザで開いてください。");
   log("PCのChromeで確認する場合は拡張『Immersive Web Emulator』を使ってください");
@@ -305,18 +555,20 @@ if(navigator.xr && navigator.xr.isSessionSupported){
 
 /* ============ 毎フレーム ============ */
 const tmpM = new THREE.Matrix4();
-let loopErrLogged = false;
-let ringSpin = 0, lastMs = performance.now();
+const _camPos = new THREE.Vector3();
+const _cw0 = new THREE.Vector3(), _cw1 = new THREE.Vector3();
+let loopErrLogged = false, ringSpin = 0, lastMs = performance.now();
 function renderLoop(t, frame){
  try{
   const nowMs = performance.now();
   const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
+  const now = nowMs/1000;
 
   if(frame && renderer.xr.isPresenting){
     const ref = renderer.xr.getReferenceSpace();
     const sess = renderer.xr.getSession();
-    // 最初のフレームでログパネルを目の前に置く（頭位置が確定してから）
     if(pendingLogPanel){ pendingLogPanel = false; placeLogPanelInFront(); }
+
     // hit-test の準備（1回だけ）
     if(!hitReq){
       hitReq = true;
@@ -330,25 +582,66 @@ function renderLoop(t, frame){
         showErr("このブラウザは床の検出（hit-test）に対応していません。ブラウザを最新にしてください。");
       }
     }
-    // レティクル更新（見ている床に白い輪）
-    if(hitSource){
+    // 床の白い輪（ポストを置くまでだけ探す。置いた後は消す＝誤操作でポストが動かない）
+    if(hitSource && !postPlaced){
       const res = frame.getHitTestResults(hitSource);
       if(res.length){
-        const pose = res[0].getPose(ref);
         reticle.visible = true;
-        tmpM.fromArray(pose.transform.matrix);
-        reticle.matrix.copy(tmpM);
-      }else{
-        reticle.visible = false;
+        tmpM.fromArray(res[0].getPose(ref).transform.matrix); reticle.matrix.copy(tmpM);
+      }else reticle.visible = false;
+    }else{
+      reticle.visible = false;
+    }
+
+    // カメラ位置（ビルボード用）
+    renderer.xr.getCamera().getWorldPosition(_camPos);
+
+    // ポストの頭リングをゆっくり回す＋完了時のフラッシュ
+    if(post.visible){
+      ringSpin += dt * 0.8; postRing.rotation.z = ringSpin;
+      if(ringFlash > 0){
+        ringFlash = Math.max(0, ringFlash - dt*2.2);
+        const s = 1 + 0.5*ringFlash; postRing.scale.setScalar(s);
+        ringMat.color.setRGB(0.62 + 0.38*ringFlash, 0.94, 0.78);
+      }else{ postRing.scale.setScalar(1); }
+    }
+
+    // 手かざし自動判定＋再セット（接続済みのコントローラだけを見る）
+    if(playing && post.visible){
+      const rw = ringWorldPos();
+      const d0 = ctrlConnected[0] ? controllerWorldPos(0, _cw0).distanceTo(rw) : 999;
+      const d1 = ctrlConnected[1] ? controllerWorldPos(1, _cw1).distanceTo(rw) : 999;
+      if(completionMode === "auto" && armed && (d0 < TOUCH_DIST || d1 < TOUCH_DIST)){
+        complete();
+      }
+      if(!armed && now >= cooldownUntil && d0 > REARM_DIST && d1 > REARM_DIST){
+        armed = true;
       }
     }
-  }
 
-  // ポストの頭リングをゆっくり回す（光って生きている感じ・軽い処理）
-  if(post.visible){
-    ringSpin += dt * 0.8;
-    const ring = post.getObjectByName("ring");
-    if(ring) ring.rotation.z = ringSpin;
+    // カウントパネル：ポストの上・ユーザーへ向ける・跳ね
+    if(countPanel.visible){
+      countPanel.position.set(post.position.x, post.position.y + 1.28, post.position.z);
+      faceCamera(countPanel);
+      if(panelPop > 0){ panelPop = Math.max(0, panelPop - dt*3.0); }
+      countPanel.scale.setScalar(1 + 0.22*panelPop);
+    }
+    // もどすボタン：ポストの手前・低め
+    if(undoBtn.mesh.visible){
+      undoBtn.mesh.position.set(post.position.x, post.position.y + 0.5, post.position.z);
+      faceCamera(undoBtn.mesh);
+    }
+    // クリア表示とボタン
+    if(clearPanel.visible){
+      clearPanel.position.set(post.position.x, post.position.y + 1.30, post.position.z);
+      faceCamera(clearPanel);
+      contBtn.mesh.position.set(post.position.x - 0.16, post.position.y + 0.95, post.position.z);
+      faceCamera(contBtn.mesh);
+      finishBtn.mesh.position.set(post.position.x + 0.16, post.position.y + 0.95, post.position.z);
+      faceCamera(finishBtn.mesh);
+    }
+
+    updateConfetti(dt);
   }
 
   renderer.render(scene, camera);
@@ -357,7 +650,6 @@ function renderLoop(t, frame){
  }
 }
 
-/* ============ 画面サイズ変更 ============ */
 addEventListener("resize", ()=>{
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
   if(renderer) renderer.setSize(innerWidth, innerHeight);
