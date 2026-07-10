@@ -108,15 +108,23 @@
   <div class="mark">Step 3 · Mitate Viewer</div>
   <h2>写真と深度マップで、立体にして見る</h2>
   <div id="banner">
-    <b>⛰ 深度づくりから画像を受け取りました。</b>
-    そのまま「立体で見る」を押せばOK。別の画像にしたい場合は下で選び直せます。
+    <b>⛰ 深度づくりから棚に追加しました。</b> チェックした子を「立体で見る」で並べられます。
+  </div>
+  <!-- 棚(コレクション): 複数フィギュアを貯めてAR/VRで並べる -->
+  <div id="shelf-wrap" style="width:min(94vw,640px)">
+    <div style="font-size:12px;font-weight:700;color:var(--dim);letter-spacing:.06em;margin-bottom:8px">
+      🗂 棚のフィギュア <span id="shelf-count"></span>
+      <button id="shelf-clear" style="float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:3px 9px;font:inherit;font-size:11px;cursor:pointer">棚を空に</button>
+    </div>
+    <div id="shelf" style="display:flex;gap:9px;overflow-x:auto;padding-bottom:4px"></div>
+    <div id="shelf-empty" style="font-size:12px;color:var(--dim);padding:10px 2px;line-height:1.7">まだ空です。下で「元画像＋深度マップ」を読み込むか、「深度づくり」から追加してください。</div>
   </div>
   <div class="zones">
     <div class="zone" id="zoneImg">
       <div class="ico" id="imgIco">🖼️</div>
       <div>
         <div class="t" id="imgT">元画像をドロップ / タップ</div>
-        <div class="s">立体に見せたい写真・イラスト（背景透明PNG推奨）</div>
+        <div class="s">手動で1体追加(背景透明PNG推奨)</div>
       </div>
     </div>
     <div class="zone" id="zoneDepth">
@@ -127,8 +135,8 @@
       </div>
     </div>
   </div>
-  <button id="goBtn">立体で見る →</button>
-  <p>3Dレリーフ(メッシュ)と、軽い疑似3D(傾け・ゆらゆら・ライティング・多層)を切替可能。Quest等ではAR/VRで<b>実寸サイズ</b>のフィギュア設置イメージを確認できます。すべて端末内で処理します。</p>
+  <button id="goBtn">🧊 立体で見る →</button>
+  <p>棚に貯めた複数のフィギュアを、AR/VRで<b>実寸サイズ</b>で並べて比べられます。各体を別々に掴んで動かせます。すべて端末内で処理します。</p>
   <input type="file" id="imgIn" accept="image/*" style="display:none">
   <input type="file" id="depthIn" accept="image/*" style="display:none">
 </div>
@@ -202,9 +210,9 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
-import { saveBlob, handoffTake, handoffClear } from "./assets/common.js";
+import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev6";
+const REV = "v2 rev7";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -212,8 +220,7 @@ const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 function toast(m){const e=$('toast');e.textContent=m;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',3200);}
 function showErr(m){const e=$('err');e.textContent=m;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',5000);}
 
-/* ============ 入力(画像+深度) ============ */
-let imgEl = null, depthEl = null;
+/* ============ 入力(棚コレクション) ============ */
 function fileToImage(fileOrBlob){
   return new Promise((res, rej) => {
     if(!fileOrBlob){ rej(new Error('画像ファイルを選んでください')); return; }
@@ -225,28 +232,54 @@ function fileToImage(fileOrBlob){
     im.src = url;
   });
 }
-function refreshGo(){ $('goBtn').classList.toggle('ready', !!(imgEl && depthEl)); }
-let imgThumbUrl = null, depthThumbUrl = null;
+
+// ---- 棚の一覧表示 ----
+let shelfUrls = [];
+async function renderShelf(){
+  shelfUrls.forEach(u => URL.revokeObjectURL(u)); shelfUrls = [];
+  const figs = await figuresAll();
+  const shelf = $('shelf'); shelf.innerHTML = '';
+  $('shelf-count').textContent = figs.length ? '（'+figs.length+'体）' : '';
+  $('shelf-empty').style.display = figs.length ? 'none' : 'block';
+  for(const fig of figs){
+    const url = URL.createObjectURL(fig.image); shelfUrls.push(url);
+    const card = document.createElement('div');
+    card.style.cssText = 'flex:0 0 auto;width:96px;text-align:center';
+    card.innerHTML =
+      '<label style="display:block;cursor:pointer;position:relative">'
+      + '<img src="'+url+'" style="width:96px;height:96px;object-fit:contain;background:var(--panel2);border:2px solid var(--accent);border-radius:10px">'
+      + '<input type="checkbox" class="shelf-chk" checked data-id="'+fig.id+'" style="position:absolute;top:6px;left:6px;width:18px;height:18px">'
+      + '</label>'
+      + '<div style="font-size:10px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(fig.name||'')+'</div>'
+      + '<button class="shelf-del" data-id="'+fig.id+'" style="margin-top:2px;background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:2px 8px;font:inherit;font-size:10px;cursor:pointer">🗑 削除</button>';
+    shelf.appendChild(card);
+  }
+  shelf.querySelectorAll('.shelf-del').forEach(b => b.addEventListener('click', async () => { await figuresRemove(+b.dataset.id); await renderShelf(); }));
+  $('goBtn').classList.toggle('ready', figs.length > 0);
+}
+
+// ---- 手動で1体追加(元画像+深度がそろったら棚へ) ----
+let manualImg = null, manualDepth = null;
+async function tryManualAdd(){
+  if(!(manualImg && manualDepth)) return;
+  const nm = (manualImg.name || '手動').replace(/\.[^.]+$/, '');
+  try{ await figuresAdd({ name: nm, image: manualImg, depth: manualDepth }); toast('棚に追加しました'); }
+  catch(e){ showErr('棚追加に失敗: ' + e.message); }
+  manualImg = manualDepth = null;
+  $('zoneImg').classList.remove('set'); $('imgT').textContent = '元画像をドロップ / タップ'; $('imgIco').textContent = '🖼️'; $('imgIco').style.background = '';
+  $('zoneDepth').classList.remove('set'); $('depthT').textContent = '深度マップをドロップ / タップ'; $('depthIco').textContent = '🗺️'; $('depthIco').style.background = '';
+  await renderShelf();
+}
 async function pickImg(f){
-  try{
-    const { img, url } = await fileToImage(f);
-    imgEl = img;
-    if(imgThumbUrl) URL.revokeObjectURL(imgThumbUrl);
-    imgThumbUrl = url;
+  try{ const { img, url } = await fileToImage(f); manualImg = f;
     const ic = $('imgIco'); ic.style.background = 'url("'+url+'") center/cover'; ic.textContent = '';
-    $('zoneImg').classList.add('set'); $('imgT').textContent = '元画像 ✓ 変更はタップ';
-    refreshGo();
+    $('zoneImg').classList.add('set'); $('imgT').textContent = '元画像 ✓'; await tryManualAdd();
   }catch(e){ showErr(e.message); }
 }
 async function pickDepth(f){
-  try{
-    const { img, url } = await fileToImage(f);
-    depthEl = img;
-    if(depthThumbUrl) URL.revokeObjectURL(depthThumbUrl);
-    depthThumbUrl = url;
+  try{ const { img, url } = await fileToImage(f); manualDepth = f;
     const ic = $('depthIco'); ic.style.background = 'url("'+url+'") center/cover'; ic.textContent = '';
-    $('zoneDepth').classList.add('set'); $('depthT').textContent = '深度マップ ✓ 変更はタップ';
-    refreshGo();
+    $('zoneDepth').classList.add('set'); $('depthT').textContent = '深度マップ ✓'; await tryManualAdd();
   }catch(e){ showErr(e.message); }
 }
 $('imgIn').addEventListener('change', e => { if(e.target.files[0]) pickImg(e.target.files[0]); e.target.value=''; });
@@ -261,24 +294,30 @@ function dz(zone, cb){
 dz($('zoneImg'), pickImg); dz($('zoneDepth'), pickDepth);
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => e.preventDefault());
-$('goBtn').onclick = () => { if(imgEl && depthEl) start(); };
-$('newBtn').onclick = () => {
+$('shelf-clear').addEventListener('click', async () => { if(confirm('棚を空にしますか?')){ await figuresClear(); await renderShelf(); } });
+$('goBtn').onclick = async () => {
+  const figs = await figuresAll();
+  const ids = [...$('shelf').querySelectorAll('.shelf-chk')].filter(c=>c.checked).map(c=>+c.dataset.id);
+  const selected = figs.filter(f => ids.includes(f.id));
+  if(!selected.length){ showErr('立体で見る子にチェックを入れてください'); return; }
+  start(selected);
+};
+$('newBtn').onclick = async () => {
   if(xrSession) xrSession.end();
   $('ui').style.display = 'none'; $('drop').style.display = 'flex';
+  await renderShelf();
 };
 
-// 受け渡し(深度づくりから)
+// 受け渡し(深度づくりから)= 棚に1体追加。棚一覧を表示
 (async () => {
   const src = await handoffTake('source');
   const dep = await handoffTake('depth');
   if(src?.blob && dep?.blob){
-    await pickImg(src.blob).catch(()=>{});
-    await pickDepth(dep.blob).catch(()=>{});
-    if(imgEl && depthEl){
-      $('banner').classList.add('show');
-      handoffClear('source'); handoffClear('depth');   // 受け取ったら消費
-    }
+    try{ await figuresAdd({ name: src.name || '受け取り', image: src.blob, depth: dep.blob }); }catch(e){ console.error(e); }
+    handoffClear('source'); handoffClear('depth');
+    $('banner').classList.add('show');
   }
+  await renderShelf();
 })();
 
 /* ============ three 基本(0.160・1本に統一) ============ */
@@ -309,15 +348,18 @@ scene.add(new THREE.HemisphereLight(0xfff2e2, 0x2a3630, 1.15));
 const key = new THREE.DirectionalLight(0xffffff, 1.35); key.position.set(1.2,2,3); scene.add(key);
 const rim = new THREE.DirectionalLight(0xe4fff0, 0.6); rim.position.set(-2,1,-1); scene.add(rim);
 
-const root = new THREE.Group();   // 位置・大きさ・水平回転(yaw)を持つ = つかみ/ピンチ/呼び戻しの単位
-const tiltGroup = new THREE.Group();   // 前後の傾き(tilt.x)だけを持つ子。yaw/ピンチ計算と分離して姿勢破壊を防ぐ
-root.add(tiltGroup);
-let reliefMesh = null, reliefGeo = null;
+// ---- 複数フィギュア(棚) ----
+// items = 全フィギュア。各itemが group>tiltGroup>reliefMesh と自前テクスチャを持つ。
+// 下の root/tiltGroup/reliefMesh… は「操作中(activeItem)」を指すエイリアスで、
+// setActive()で付け替える。既存のつかみ/回転/パネル処理はこのエイリアスを見て動く。
+let items = [], activeItem = null;
+let root = null, tiltGroup = null, reliefMesh = null, reliefGeo = null;
+let imgTexLinear = null, imgTexSRGB = null, depthTex = null;
 
 /* ============ 状態 ============ */
 const S = {
   aspect: 1,
-  depthMap: null,   // {data,w,h}
+  depthMap: null,   // {data,w,h}  ← activeItemのもの
   alphaMap: null,   // {data,w,h}
   depthCm: 35,
   invert: false,
@@ -325,9 +367,19 @@ const S = {
   sizeCm: 25,       // AR/VRでの実寸(高さcm)
 };
 let mode = 'relief';
-let imgTexLinear = null;   // 疑似3D用(色変換なし・見たまま)
-let imgTexSRGB = null;     // レリーフ用(ライティングに正しい色)
-let depthTex = null;
+
+// activeItemを切替え、エイリアスを付け替える(既存コードはこれらを見て動く)
+function setActive(it){
+  activeItem = it || null;
+  root = it ? it.group : null;
+  tiltGroup = it ? it.tiltGroup : null;
+  reliefMesh = it ? it.reliefMesh : null;
+  reliefGeo = it ? it.reliefGeo : null;
+  imgTexSRGB = it ? it.imgTexSRGB : null;
+  imgTexLinear = it ? it.imgTexLinear : null;
+  depthTex = it ? it.depthTex : null;
+  if(it){ S.aspect = it.aspect; S.depthMap = it.depthMap; S.alphaMap = it.alphaMap; }
+}
 
 /* ============ 画像→ピクセルマップ ============ */
 function imageToMap(img, maxW){
@@ -368,7 +420,32 @@ function buildRelief(){
   reliefMesh = new THREE.Mesh(reliefGeo, mat);
   reliefMesh.position.y = h/2;
   tiltGroup.add(reliefMesh);   // rootではなくtiltGroupの下(傾きはtiltGroupが担う)
+  if(activeItem){ activeItem.reliefMesh = reliefMesh; activeItem.reliefGeo = reliefGeo; }   // itemへ書き戻す
   displace();
+}
+
+// 棚の1体からitemを作る(自前のgroup/tiltGroup/テクスチャ/relief)
+async function makeItem(figure){
+  const img = await fileToImage(figure.image);
+  const dep = await fileToImage(figure.depth);
+  const it = {
+    id: figure.id, name: figure.name,
+    imgEl: img.img, depEl: dep.img,   // GC防止に保持(revokeしない)
+    group: new THREE.Group(), tiltGroup: new THREE.Group(),
+    reliefMesh: null, reliefGeo: null,
+  };
+  it.group.add(it.tiltGroup);
+  it.imgTexLinear = makeTex(img.img, false);
+  it.imgTexSRGB   = makeTex(img.img, true);
+  it.depthTex     = makeTex(dep.img, false);
+  it.aspect   = img.img.naturalWidth / img.img.naturalHeight;
+  it.depthMap = imageToMap(dep.img, 640);
+  it.alphaMap = imageToMap(img.img, 512);
+  scene.add(it.group);
+  setActive(it);
+  buildRelief();   // itへ組み込む(書き戻し済み)
+  items.push(it);
+  return it;
 }
 function displace(){
   if(!reliefGeo) return;
@@ -549,7 +626,7 @@ const panelMat = new THREE.ShaderMaterial({
 });
 let panelMesh = null;
 function buildPanel(){
-  if(panelMesh){ tiltGroup.remove(panelMesh); panelMesh.geometry.dispose(); panelMesh=null; }
+  if(panelMesh){ if(panelMesh.parent) panelMesh.parent.remove(panelMesh); panelMesh.geometry.dispose(); panelMesh=null; }
   if(!imgTexLinear) return;
   panelMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.0*S.aspect, 1.0, 1, 1), panelMat);
   panelMesh.position.y = 0.5;   // 足元原点で立てる(レリーフと同じ)
@@ -593,25 +670,42 @@ function buildXRLayers(){
 let grabTarget = null;          // XRでraycastする対象
 let panelRefLocal = null;       // 傾け(頭視差)の基準頭位置
 const PANEL_PARALLAX_SIGN = -1; // 頭視差の向き。実機で逆なら +1 に
-function xrAttach(m){
-  if(reliefMesh && reliefMesh.parent===tiltGroup) tiltGroup.remove(reliefMesh);
-  if(panelMesh && panelMesh.parent===tiltGroup) tiltGroup.remove(panelMesh);
-  if(xrLayerGroup.parent===tiltGroup) tiltGroup.remove(xrLayerGroup);
-  panelRefLocal = null;
-  if(m==='relief'){ if(reliefMesh){ tiltGroup.add(reliefMesh); grabTarget=reliefMesh; } }
-  else if(m==='layers'){ tiltGroup.add(xrLayerGroup); grabTarget=xrLayerGroup; }
-  else { if(panelMesh){ tiltGroup.add(panelMesh); grabTarget=panelMesh; } panelU.uMode.value=(m==='light')?1:0; }
+function detachPanels(){
+  if(panelMesh && panelMesh.parent) panelMesh.parent.remove(panelMesh);
+  if(xrLayerGroup.parent) xrLayerGroup.parent.remove(xrLayerGroup);
 }
-// XR終了時: tiltGroupをレリーフに戻して2D構成へ復帰できる状態にする
+function xrAttach(m){
+  panelRefLocal = null;
+  detachPanels();
+  if(m==='relief'){
+    // 複数体: 全item表示、各itemのreliefは自分のtiltGroupに(makeItemで既に入っている)
+    for(const it of items){
+      it.group.visible = true;
+      if(it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
+    }
+    grabTarget = null;   // raycastはitemUnderRayで全item対象
+  } else {
+    // 疑似3D(単体): activeItemだけ表示、そのtiltGroupにパネル/多層。activeのreliefは外す
+    for(const it of items) it.group.visible = (it === activeItem);
+    if(!activeItem) return;
+    if(activeItem.reliefMesh && activeItem.reliefMesh.parent === activeItem.tiltGroup) activeItem.tiltGroup.remove(activeItem.reliefMesh);
+    buildPanel(); buildXRLayers();   // active(globals)のテクスチャから作る
+    if(m==='layers'){ activeItem.tiltGroup.add(xrLayerGroup); grabTarget = xrLayerGroup; }
+    else { activeItem.tiltGroup.add(panelMesh); grabTarget = panelMesh; panelU.uMode.value = (m==='light') ? 1 : 0; }
+  }
+}
+// XR終了時: 各itemをreliefに戻して2D構成へ復帰できる状態にする
 function xrDetachAll(){
-  if(panelMesh && panelMesh.parent===tiltGroup) tiltGroup.remove(panelMesh);
-  if(xrLayerGroup.parent===tiltGroup) tiltGroup.remove(xrLayerGroup);
-  if(reliefMesh && reliefMesh.parent!==tiltGroup) tiltGroup.add(reliefMesh);
+  detachPanels();
+  for(const it of items){
+    if(it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
+  }
   grabTarget = null; panelRefLocal = null;
 }
-// XR突入: 2Dの表示物を外してrootを立て、選択中モードのオブジェクトを付ける
+// XR突入: 2Dの表示物を外して全itemのgroupをsceneに立て、選択中モードのオブジェクトを付ける
 function enterXR(){
-  scene.remove(quad); scene.remove(layerGroup); scene.add(root);
+  scene.remove(quad); scene.remove(layerGroup);
+  for(const it of items) if(it.group.parent !== scene) scene.add(it.group);
   // 前セッションから残ったボタンのラッチを消す(突入後の最初の押下を確実にエッジ扱いに)
   recallHeld = false; stickPrev.left = stickPrev.right = stickPrev.none = false;
   xrAttach(mode);
@@ -663,8 +757,10 @@ function setMode(m){
   if(inXR){
     xrAttach(m);   // XR: tiltGroupの中身を差し替え(2Dのscene構成は触らない)
   } else {
-    scene.remove(quad); scene.remove(layerGroup); scene.remove(root);
-    if(m==='relief'){ scene.add(root); }
+    // 2Dは単体表示(activeItemのみ)。複数の並べ替えはAR/VRの体験
+    for(const it of items){ it.group.visible = (it === activeItem); scene.remove(it.group); }
+    scene.remove(quad); scene.remove(layerGroup);
+    if(m==='relief'){ if(activeItem) scene.add(activeItem.group); }
     else if(m==='layers'){ scene.add(layerGroup); }
     else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
   }
@@ -727,7 +823,7 @@ $('resSeg').addEventListener('click', e=>{
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
   $('sizeCm').value = S.sizeCm;
-  if(xrSession) root.scale.setScalar(S.sizeCm/100);
+  if(xrSession) scaleAllItems();   // 全itemの実寸を更新
 });
 
 /* ============ GLB書き出し ============ */
@@ -780,27 +876,61 @@ let xrSession=null, xrMode=null, hitSource=null, hitReq=false, placed=false;
 /* ---- 「目の前に出す」: 開始直後の自動配置 + A/X・B/Yボタンでの呼び戻し ---- */
 // VRの原点は「部屋の境界設定の基準点」で、立ち位置や向きとは無関係。
 // だから開始フレームで実際の頭の位置・向きを読み、視線の先1.1mに置き直す。
-const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new THREE.Vector3();
+const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new THREE.Vector3(), _fwdRight = new THREE.Vector3();
 let pendingPlace = false, recallHeld = false;
 // スティック押し込み(モード切替)のエッジ検出は手ごとに持つ(片手ホールドでもう片手が効かない事故を防ぐ)
 const stickPrev = { left:false, right:false, none:false };
+// 表示中の全itemを (cx,cz) 中心・高さpy で横一列に、ユーザーの方を向けて並べる
+function layoutRowAt(cx, cz, py){
+  const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos);
+  const list = items.filter(it => it.group.visible);
+  if(!list.length) return;
+  _fwd.set(cx - _camPos.x, 0, cz - _camPos.z);
+  if(_fwd.lengthSq() < 1e-6) _fwd.set(0,0,-1); else _fwd.normalize();
+  _fwdRight.set(-_fwd.z, 0, _fwd.x);   // 行が広がる左右方向(視線に直交)
+  const scale = S.sizeCm/100, gap = 0.12;
+  const widths = list.map(it => it.aspect*scale + gap);
+  const total = widths.reduce((a,b)=>a+b, 0);
+  let off = -total/2;
+  for(let k=0;k<list.length;k++){
+    const it = list[k];
+    const c = off + widths[k]/2; off += widths[k];
+    const px = cx + _fwdRight.x*c, pz = cz + _fwdRight.z*c;
+    scene.attach(it.group);                       // 掴まれた状態でも救出してから置く
+    it.group.position.set(px, py, pz);
+    it.group.quaternion.identity();
+    it.group.rotation.y = Math.atan2(_camPos.x - px, _camPos.z - pz);   // こちらを向かせる
+    it.group.scale.setScalar(scale);
+    it.tiltGroup.rotation.x = 0;
+  }
+  grab[0]=grab[1]=null; pinch=null;
+}
+// 視線の先に並べる(初期配置=pendingPlace / 呼び戻し=A/B/X/Y)
 function placeInFront(){
   if(!renderer || !renderer.xr.isPresenting) return;
   const cam = renderer.xr.getCamera();
-  cam.getWorldPosition(_camPos);
-  cam.getWorldQuaternion(_camQ);
+  cam.getWorldPosition(_camPos); cam.getWorldQuaternion(_camQ);
   _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
   if(_fwd.lengthSq() < 1e-6) _fwd.set(0,0,-1); else _fwd.normalize();
-  const scale = S.sizeCm/100;
-  const px = _camPos.x + _fwd.x*1.1, pz = _camPos.z + _fwd.z*1.1;
-  // VR(local-floor)は床の上に立たせる / AR(local)は目線やや下に中心が来る高さで浮かせる
-  const py = (xrMode==='vr') ? 0 : (_camPos.y - 0.2 - 0.5*scale);
-  scene.attach(root);   // つかまれた状態でも救出してから置く
-  root.position.set(px, py, pz);
-  root.quaternion.identity();
-  root.rotation.y = Math.atan2(_camPos.x - px, _camPos.z - pz);   // こちらを向かせる
-  root.scale.setScalar(scale);
-  tiltGroup.rotation.x = 0;   // 傾きもまっすぐに戻す
+  const cx = _camPos.x + _fwd.x*1.1, cz = _camPos.z + _fwd.z*1.1;
+  const py = (xrMode==='vr') ? 0 : (_camPos.y - 0.2 - 0.5*(S.sizeCm/100));
+  layoutRowAt(cx, cz, py);
+}
+// AR: 床のリング位置に横一列で置く
+const _retP = new THREE.Vector3(), _retQ = new THREE.Quaternion(), _retS = new THREE.Vector3();
+function placeAtReticle(){
+  reticle.matrix.decompose(_retP, _retQ, _retS);
+  layoutRowAt(_retP.x, _retP.z, _retP.y);
+}
+// 全itemの実寸(scale)を更新
+function scaleAllItems(){ const s = S.sizeCm/100; for(const it of items) if(it.group.parent===scene) it.group.scale.setScalar(s); }
+// 全itemを原点にリセット(XR終了時)
+function resetAllItems(){
+  for(const it of items){
+    scene.attach(it.group);
+    it.group.position.set(0,0,0); it.group.quaternion.identity(); it.group.scale.setScalar(1);
+    it.tiltGroup.rotation.x = 0;
+  }
   grab[0]=grab[1]=null; pinch=null;
 }
 
@@ -879,46 +1009,69 @@ function setupControllers(){
   }
 }
 function ctrlPos(k){ return new THREE.Vector3().setFromMatrixPosition(controllers[k].matrixWorld); }
-// rootをシーンに戻したとき、コントローラーのついでの傾き(roll/pitch)を落として水平回頭(yaw)だけ残す
+// groupをシーンに戻したとき、コントローラーのついでの傾き(roll/pitch)を落として水平回頭(yaw)だけ残す
 const _flatEuler = new THREE.Euler();
-function flattenRootYaw(){ _flatEuler.setFromQuaternion(root.quaternion, 'YXZ'); root.rotation.set(0, _flatEuler.y, 0); }
-function onGrab(i){
-  if(xrMode==='ar' && !placed) return;
-  if(!grabTarget) return;
+function flattenYaw(g){ _flatEuler.setFromQuaternion(g.quaternion, 'YXZ'); g.rotation.set(0, _flatEuler.y, 0); }
+// コントローラーiのレーザーが指すitem(reliefモード)を返す
+function itemUnderRay(i){
   const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
   const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
   raycaster.set(tmpV, dir);
-  const hit = raycaster.intersectObject(grabTarget, true);
-  if(hit.length){
-    grab[i] = true; const other = i^1;
-    panelRefLocal = null;   // パネルを動かすので頭視差の基準は取り直す
-    if(grab[other]){ beginPinch(); } else { c.attach(root); }
+  let best=null, bestD=Infinity;
+  for(const it of items){
+    if(!it.group.visible || !it.reliefMesh) continue;
+    const hit = raycaster.intersectObject(it.reliefMesh, true);
+    if(hit.length && hit[0].distance < bestD){ bestD = hit[0].distance; best = it; }
   }
+  return best;
+}
+function onGrab(i){
+  if(xrMode==='ar' && !placed) return;
+  panelRefLocal = null;
+  let it = null;
+  if(mode==='relief'){ it = itemUnderRay(i); }        // 複数体: 指した1体
+  else if(grabTarget && activeItem){                   // 疑似3D: activeItemのパネル/多層
+    const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
+    const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
+    raycaster.set(tmpV, dir);
+    if(raycaster.intersectObject(grabTarget, true).length) it = activeItem;
+  }
+  if(!it) return;
+  setActive(it);
+  grab[i] = it; const other = i^1;
+  if(grab[other] === it){ beginPinch(it); }             // 両手が同じ1体 → 拡縮回転
+  else { controllers[i].attach(it.group); }             // 片手で移動(別々の体を別々の手でも可)
 }
 function onRelease(i){
-  if(!grab[i]) return; grab[i]=false; const other=i^1;
-  if(pinch){ endPinch(); if(grab[other]) controllers[other].attach(root); else { scene.attach(root); flattenRootYaw(); } }
-  else if(!grab[other]){ scene.attach(root); flattenRootYaw(); }
-  panelRefLocal = null;   // 置き直した新しい姿勢で頭視差の基準を取り直す
+  const it = grab[i]; if(!it) return; grab[i] = null; const other = i^1;
+  if(pinch && pinch.item === it){
+    endPinch();
+    if(grab[other] === it) controllers[other].attach(it.group);
+    else { scene.attach(it.group); flattenYaw(it.group); }
+  } else {
+    scene.attach(it.group); flattenYaw(it.group);
+  }
+  panelRefLocal = null;
 }
-function beginPinch(){
-  scene.attach(root);
-  flattenRootYaw();   // 片手つかみ中に焼き付いた傾きを落としてから基準yawを捕捉
+function beginPinch(it){
+  const g = it.group;
+  scene.attach(g);
+  flattenYaw(g);   // 片手つかみ中に焼き付いた傾きを落としてから基準yawを捕捉
   const p0=ctrlPos(0), p1=ctrlPos(1);
   const mid0 = p0.clone().add(p1).multiplyScalar(0.5);
-  pinch = { d0: Math.max(p0.distanceTo(p1),1e-4), s0: root.scale.x,
-    a0: Math.atan2(p1.x-p0.x, p1.z-p0.z), r0: root.rotation.y,
-    mid0, pos0: root.position.clone() };   // 差分適用でワープを防ぐ
+  pinch = { item: it, group: g, d0: Math.max(p0.distanceTo(p1),1e-4), s0: g.scale.x,
+    a0: Math.atan2(p1.x-p0.x, p1.z-p0.z), r0: g.rotation.y,
+    mid0, pos0: g.position.clone() };   // 差分適用でワープを防ぐ
 }
 function endPinch(){ pinch=null; }
 function updatePinch(){
-  if(!pinch) return; const p0=ctrlPos(0), p1=ctrlPos(1);
+  if(!pinch) return; const g = pinch.group; const p0=ctrlPos(0), p1=ctrlPos(1);
   const d = Math.max(p0.distanceTo(p1), 1e-4);
-  root.scale.setScalar(clamp(pinch.s0*(d/pinch.d0), 0.02, 8));
+  g.scale.setScalar(clamp(pinch.s0*(d/pinch.d0), 0.02, 8));
   const mid = p0.clone().add(p1).multiplyScalar(0.5);
-  root.position.x = pinch.pos0.x + (mid.x - pinch.mid0.x);
-  root.position.z = pinch.pos0.z + (mid.z - pinch.mid0.z);
-  root.rotation.y = pinch.r0 + (Math.atan2(p1.x-p0.x, p1.z-p0.z) - pinch.a0);
+  g.position.x = pinch.pos0.x + (mid.x - pinch.mid0.x);
+  g.position.z = pinch.pos0.z + (mid.z - pinch.mid0.z);
+  g.rotation.y = pinch.r0 + (Math.atan2(p1.x-p0.x, p1.z-p0.z) - pinch.a0);
 }
 
 /* ============ コントローラー用の手モデル(日本人の肌色・低ポリ) ============ */
@@ -1051,26 +1204,22 @@ async function startAR(){
     xrSession = s; xrMode = 'ar';
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(s);
-    enterXR();   // 選択中モードのオブジェクトを空間に出す(2Dの表示物を外しrootを立てる)
+    enterXR();   // 選択中モードのオブジェクトを空間に出す(2Dの表示物を外し全itemを立てる)
     $('arBtn').textContent = '🛑 終了'; scene.background = null;
-    root.position.set(0,0,-1.6); root.scale.setScalar(S.sizeCm/100); placed=false; hitReq=false;
-    pendingPlace = true;   // 最初のフレームで視線の先へ
+    scaleAllItems(); placed=false; hitReq=false;
+    pendingPlace = true;   // 最初のフレームで視線の先へ横一列
     setupControllers();
-    toast('目の前に出します。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
+    toast('目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
-      scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
-      root.position.set(0,0,0); root.quaternion.identity(); root.scale.setScalar(1);
-      tiltGroup.rotation.x = 0;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
-      grab[0]=grab[1]=null; pinch=null;
+      resetAllItems();
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
     s.addEventListener('select', ()=>{
       if(reticle.visible && !placed){
-        reticle.matrix.decompose(root.position, root.quaternion, root.scale);
-        root.scale.setScalar(S.sizeCm/100);
+        placeAtReticle();   // 床のリング位置に全itemを横一列
         placed=true; reticle.visible=false;
         toast('実寸 ' + S.sizeCm + 'cm で配置完了。トリガーで掴む／両手で拡縮');
       }
@@ -1090,18 +1239,16 @@ async function startVR(){
     await renderer.xr.setSession(s);
     enterXR();   // 選択中モードのオブジェクトを空間に出す
     $('vrBtn').textContent = '🛑 終了'; scene.background = new THREE.Color(0x0c110e);
-    root.position.set(0,0,-1.2); root.scale.setScalar(S.sizeCm/100);
-    pendingPlace = true;   // 最初のフレームで視線の先の床上へ
+    scaleAllItems();
+    pendingPlace = true;   // 最初のフレームで視線の先の床上へ横一列
     setupControllers();
-    toast('実寸 ' + S.sizeCm + 'cm・目の前の床に出します。A・Bボタンでいつでも呼び戻し');
+    toast('実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
     // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; $('vrBtn').textContent='🌐 VR';
-      scene.attach(root);   // 掴んだままの終了でもコントローラの子から救出する
-      scene.background=bgTex; root.position.set(0,0,0); root.quaternion.identity();
-      tiltGroup.rotation.x = 0;
+      scene.background=bgTex;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
-      grab[0]=grab[1]=null; pinch=null; root.scale.setScalar(1);
+      resetAllItems();
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
   }catch(e){
@@ -1118,28 +1265,33 @@ if(navigator.xr){
 }
 
 /* ============ 開始 ============ */
-function start(){
+function disposeItem(it){
+  [it.imgTexLinear, it.imgTexSRGB, it.depthTex].forEach(t => t && t.dispose && t.dispose());
+  if(it.reliefMesh){
+    it.reliefMesh.geometry.dispose();
+    (Array.isArray(it.reliefMesh.material)?it.reliefMesh.material:[it.reliefMesh.material]).forEach(m=>m.dispose&&m.dispose());
+  }
+}
+// selected = 棚のfigure配列。全体を組んで表示
+async function start(selected){
   init3D();
-  if(imgTexLinear) imgTexLinear.dispose();
-  if(imgTexSRGB) imgTexSRGB.dispose();
-  if(depthTex) depthTex.dispose();
-  imgTexLinear = makeTex(imgEl, false);
-  imgTexSRGB   = makeTex(imgEl, true);
-  depthTex     = makeTex(depthEl, false);
-  S.aspect = imgEl.naturalWidth / imgEl.naturalHeight;
-  S.depthMap = imageToMap(depthEl, 640);
-  S.alphaMap = imageToMap(imgEl, 512);
+  detachPanels();
+  for(const it of items){ scene.remove(it.group); disposeItem(it); }
+  items = []; setActive(null);
+  for(const fig of selected){
+    try { await makeItem(fig); } catch(e){ console.error(e); showErr('読み込み失敗: ' + (fig.name||'')); }
+  }
+  if(!items.length){ showErr('フィギュアがありません'); return; }
+  setActive(items[0]);
+  // 2D疑似3D用の共有uniforms/多層をactiveから用意
   quadUniforms.uImage.value = imgTexLinear;
   quadUniforms.uDepth.value = depthTex;
   quadUniforms.uAspect.value = S.aspect;
   quadUniforms.uViewAspect.value = innerWidth/innerHeight;
-  buildRelief();
-  buildLayers();
-  buildPanel();      // XR用の空間パネル(ゆらゆら/傾け/ライティング)
-  buildXRLayers();   // XR用の多層(ジオラマ箱)
+  buildLayers();     // 2D多層(active)
   $('drop').style.display='none'; $('ui').style.display='flex';
   setMode(mode);
-  toast('モードを切り替えて楽しんでください');
+  toast(items.length>1 ? items.length+'体を読み込みました。AR/VRで並べられます' : 'モードを切り替えて楽しんでください');
 }
 
 /* ============ ループ ============ */

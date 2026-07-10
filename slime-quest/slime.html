@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ぷにスライム（さわる回）</title>
+<style>
+  :root{
+    --bg:#0c1116; --panel:#141d26; --line:#243342; --ink:#eef4fa;
+    --dim:#8fa3b6; --accent:#7fe0a0; --accent2:#b6f5cf; --danger:#ff8f8f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+
+  #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;}
+
+  #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:var(--bg);
+    padding:28px 22px;overflow-y:auto;text-align:center;}
+  #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
+  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:460px;}
+  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;
+    font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
+    color:#06231a;box-shadow:0 6px 22px rgba(127,224,160,.35);transition:opacity .2s,transform .1s;}
+  #goBtn:active{transform:translateY(1px);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:460px;}
+  #note b{color:var(--accent2);}
+
+  #stats{position:fixed;top:8px;left:12px;z-index:40;font-size:11px;line-height:1.6;
+    color:var(--dim);pointer-events:none;font-family:"Consolas","Courier New",monospace;
+    background:rgba(6,10,14,.5);padding:5px 8px;border-radius:8px;display:none;white-space:pre;}
+
+  #pchint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:35;
+    display:none;background:rgba(20,29,38,.9);border:1px solid var(--line);border-radius:12px;
+    padding:10px 16px;font-size:12.5px;line-height:1.7;color:var(--ink);text-align:center;max-width:92vw;}
+  #pchint b{color:var(--accent2);}
+
+  #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
+  #log{background:rgba(6,10,14,.82);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
+    height:108px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
+    display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
+    padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<span id="rev"></span>
+<div id="stats"></div>
+
+<div id="start">
+  <div class="mark">ぷにスライム</div>
+  <h1>半透明スライムを<br>手でさわってみる回です</h1>
+  <p>目の前にうかぶスライムを、手やコントローラで押すと、ぷにっと凹んで、はなすと戻ります。<br>まずは触りごこちを確かめる、土台の回です。</p>
+  <button id="goBtn" disabled>じゅんび中…</button>
+  <div id="note">
+    <b>英語の画面が出たら</b><br>
+    ボタンを押すと英語の確認が出ることがあります。<br>
+    「<b>Allow</b>（許可）」または「<b>Enter VR / OK</b>」を押してください。<br>
+    うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
+  </div>
+</div>
+
+<div id="pchint">
+  <b>PC確認モード</b>　ドラッグ＝見る向き／クリック＝スライムをつつく／ホイール＝寄る引く／R＝元に戻す
+</div>
+
+<div id="logWrap">
+  <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+  <div id="log"></div>
+</div>
+
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+
+const REV = "v1 rev1";
+document.getElementById("rev").textContent = REV;
+
+/* ============================================================
+   0. 画面内ログ（DOM＋AR中の3Dパネル。無言で失敗する経路を作らない）
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  logLines.push({ t: msg, e: !!isErr });
+  if(logLines.length > 40) logLines.shift();
+  const div = document.createElement("div");
+  if(isErr) div.className = "e";
+  div.textContent = "・" + msg;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  drawPanel();
+}
+function showErr(msg){
+  const e = $("err"); e.textContent = msg; e.style.display = "block"; log(msg, true);
+}
+addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
+addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+const cp = {};
+function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + msg); }
+
+/* ============================================================
+   1. 調整パラメータ（実機の往復はこの数値を回す。__dbg.tune で生変更可）
+   物理編 physics-game.md の黄金律: 表面(edge)は柔らかく・体積(vol)はほぼ固く
+   ============================================================ */
+const TUNE = {
+  radius: 0.11,           // スライムの半径(m)。手のひらより少し大きい
+  detail: 3,              // 球の細かさ。3=162点/320面。粒が粗いと指がすり抜けるので3以上
+  substeps: 10,           // XPBDのサブステップ（反復より歩幅を刻む方が効く）
+  edgeCompliance: 5e-5,   // 表面のやわらかさ（大きいほどふにゃふにゃ）
+  volCompliance: 0.0,     // 体積のやわらかさ（0=戻る力最大＝ぷにぷにの要）
+  pressure: 1.0,          // 目標体積の倍率（>1でパンパンに張る）
+  velDamping: 1.4,        // 速度の減衰（揺れが収まる速さ）
+  shapeK: 18.0,           // 元の丸い形＆定位置へ戻る力（形状記憶。これが無いと凹んだまま固まる）
+  gravity: 0.0,           // 重力(m/s^2)。0=空中に浮く
+  fingerR: 0.022,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
+  ctrlR: 0.03,            // コントローラ先端の当たり半径(m)
+  maxStep: 0.04,          // 1サブステップの最大移動(m)（暴れ防止）
+  squishGap: 85,          // 音の最短間隔(ms)
+  squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
+  hapPoke: 0.5,           // 触れた時の振動の強さ（コントローラのみ有効）
+};
+
+/* ============================================================
+   2. Three.js 基本
+   ============================================================ */
+const canvas = $("view");
+let renderer = null;
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a3a48, 1.05));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0); dirLight.position.set(1, 2.2, 1.0); scene.add(dirLight);
+
+// 使い回すスクラッチ（毎フレーム new しない：処理落ち＝酔い対策）
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion();
+
+/* ============================================================
+   3. スライム本体（自前XPBD：圧力＝風船モデル）
+   ============================================================ */
+// --- 半透明ゼリー素材（本物transmissionは重いのでフェイク：フレネル＋うっすら内側の色） ---
+const slimeMat = new THREE.MeshStandardMaterial({
+  color:0x54d68a, roughness:0.28, metalness:0.0,
+  emissive:0x0e5b39, emissiveIntensity:0.35,
+  transparent:true, opacity:0.62, side:THREE.DoubleSide, depthWrite:false,
+});
+slimeMat.onBeforeCompile = (sh) => {
+  sh.uniforms.rimColor = { value: new THREE.Color(0xbdf7d6) };
+  sh.uniforms.rimPow   = { value: 2.4 };
+  sh.fragmentShader = "uniform vec3 rimColor;\nuniform float rimPow;\n" + sh.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    `float _fres = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), rimPow);
+     gl_FragColor.rgb += rimColor * _fres * 0.9;
+     gl_FragColor.a = clamp(gl_FragColor.a + _fres * 0.33, 0.0, 1.0);
+     #include <dithering_fragment>`
+  );
+};
+
+// --- 球メッシュを作り、頂点を「粒」に溶接（共有頂点をまとめる） ---
+const geo = new THREE.IcosahedronGeometry(TUNE.radius, TUNE.detail); // 非indexed（3頂点=1三角）
+const posAttr = geo.attributes.position;
+const vCount = posAttr.count;
+const vmap = new Int32Array(vCount);         // 幾何頂点 → 粒index
+const plist = [];
+const keyToIdx = new Map();
+const QUANT = 1e5;
+for(let v=0; v<vCount; v++){
+  const x=posAttr.getX(v), y=posAttr.getY(v), z=posAttr.getZ(v);
+  const key = Math.round(x*QUANT)+"_"+Math.round(y*QUANT)+"_"+Math.round(z*QUANT);
+  let idx = keyToIdx.get(key);
+  if(idx===undefined){ idx = plist.length/3; keyToIdx.set(key, idx); plist.push(x,y,z); }
+  vmap[v] = idx;
+}
+const N = plist.length/3;
+const pos  = new Float32Array(plist);        // 現在位置（ワールド）
+const prev = new Float32Array(pos);          // 直前位置
+const vel  = new Float32Array(N*3);          // 速度
+const rest = new Float32Array(plist);        // 静止形（原点中心のローカル形）
+const invMass = new Float32Array(N).fill(1); // 全粒 等質量
+const grad = new Float32Array(N*3);          // 体積制約の勾配スクラッチ
+
+// 三角形（非indexedなので3連続頂点＝1面）
+const triN = vCount/3;
+const tri = new Int32Array(triN*3);
+for(let t=0;t<triN;t++){ tri[t*3]=vmap[t*3]; tri[t*3+1]=vmap[t*3+1]; tri[t*3+2]=vmap[t*3+2]; }
+// 辺（重複を除く）
+const edgeSet = new Set(); const elist=[];
+function addEdge(a,b){ const k = a<b ? a+"_"+b : b+"_"+a; if(!edgeSet.has(k)){ edgeSet.add(k); elist.push(a,b); } }
+for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; addEdge(a,b); addEdge(b,c); addEdge(c,a); }
+const edge = new Int32Array(elist);
+const edgeN = edge.length/2;
+const edgeLen = new Float32Array(edgeN);
+function edist(a,b){ const dx=pos[a*3]-pos[b*3], dy=pos[a*3+1]-pos[b*3+1], dz=pos[a*3+2]-pos[b*3+2]; return Math.hypot(dx,dy,dz); }
+for(let e=0;e<edgeN;e++){ edgeLen[e]=edist(edge[e*2], edge[e*2+1]); }
+// 静止体積
+function meshVolume(){
+  let V=0;
+  for(let t=0;t<triN;t++){
+    const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
+    const ax=pos[a*3],ay=pos[a*3+1],az=pos[a*3+2];
+    const bx=pos[b*3],by=pos[b*3+1],bz=pos[b*3+2];
+    const cx=pos[c*3],cy=pos[c*3+1],cz=pos[c*3+2];
+    V += (ax*(by*cz-bz*cy) + ay*(bz*cx-bx*cz) + az*(bx*cy-by*cx))/6;
+  }
+  return V;
+}
+const restVol = meshVolume();
+let curVol = restVol;
+
+const slime = new THREE.Mesh(geo, slimeMat);
+slime.frustumCulled = false; slime.visible = false; scene.add(slime);
+
+const anchorCenter = new THREE.Vector3(0, 0, 0);
+let slimeReady = false;
+
+// 指定位置にスライムを出す（静止形を平行移動して置く）
+function spawnAt(cx, cy, cz){
+  anchorCenter.set(cx, cy, cz);
+  for(let i=0;i<N;i++){
+    pos[i*3]=rest[i*3]+cx; pos[i*3+1]=rest[i*3+1]+cy; pos[i*3+2]=rest[i*3+2]+cz;
+    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
+    vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
+  }
+  curVol = restVol; slimeReady = true; slime.visible = true;
+  updateRenderMesh();
+  checkpoint("spawn", "スライムを出した");
+}
+
+/* --- 当たり判定用の球（指先・コントローラ・PCつつき） --- */
+const MAXCOL = 24;
+const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
+let colN = 0;
+let contactDepth = 0;   // このフレームで一番深くめり込んだ量
+function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+
+/* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
+const FIXED = 1/60;
+let physAcc = 0, physMs = 0;
+
+function softStep(h){
+  const sub = TUNE.substeps, sdt = h/sub;
+  for(let s=0;s<sub;s++){
+    integrate(sdt);
+    solveEdges(sdt);
+    solveVolume(sdt);
+    solveColliders();
+    finalize(sdt);
+  }
+}
+function integrate(sdt){
+  const damp = Math.max(0, 1 - TUNE.velDamping*sdt);
+  const k = TUNE.shapeK, mx = TUNE.maxStep;
+  const ax=anchorCenter.x, ay=anchorCenter.y, az=anchorCenter.z;
+  for(let i=0;i<N;i++){
+    // 各粒を「元の家（定位置＋静止形）」へ引く＝形状記憶。凹んだまま固まるのを防ぐ
+    const hx=ax+rest[i*3]  -pos[i*3];
+    const hy=ay+rest[i*3+1]-pos[i*3+1];
+    const hz=az+rest[i*3+2]-pos[i*3+2];
+    let vx=(vel[i*3]   + hx*k*sdt)*damp;
+    let vy=(vel[i*3+1] + (hy*k + TUNE.gravity)*sdt)*damp;
+    let vz=(vel[i*3+2] + hz*k*sdt)*damp;
+    vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
+    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
+    let dx=vx*sdt, dy=vy*sdt, dz=vz*sdt;
+    const st=Math.hypot(dx,dy,dz);
+    if(st>mx){ const kk=mx/st; dx*=kk; dy*=kk; dz*=kk; }
+    pos[i*3]+=dx; pos[i*3+1]+=dy; pos[i*3+2]+=dz;
+  }
+}
+function solveEdges(sdt){
+  const alpha = TUNE.edgeCompliance/(sdt*sdt);
+  for(let e=0;e<edgeN;e++){
+    const a=edge[e*2], b=edge[e*2+1];
+    let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const C=len-edgeLen[e];
+    const wa=invMass[a], wb=invMass[b];
+    const s=-C/(wa+wb+alpha);
+    pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
+    pos[b*3]-=gx*s*wb; pos[b*3+1]-=gy*s*wb; pos[b*3+2]-=gz*s*wb;
+  }
+}
+function solveVolume(sdt){
+  grad.fill(0);
+  let V=0;
+  for(let t=0;t<triN;t++){
+    const a=tri[t*3], b=tri[t*3+1], c=tri[t*3+2];
+    const ax=pos[a*3],ay=pos[a*3+1],az=pos[a*3+2];
+    const bx=pos[b*3],by=pos[b*3+1],bz=pos[b*3+2];
+    const cx=pos[c*3],cy=pos[c*3+1],cz=pos[c*3+2];
+    const bcx=by*cz-bz*cy, bcy=bz*cx-bx*cz, bcz=bx*cy-by*cx; // b×c
+    V += (ax*bcx+ay*bcy+az*bcz)/6;
+    grad[a*3]+=bcx/6; grad[a*3+1]+=bcy/6; grad[a*3+2]+=bcz/6;         // dV/da = b×c /6
+    const cax=cy*az-cz*ay, cay=cz*ax-cx*az, caz=cx*ay-cy*ax;          // c×a
+    grad[b*3]+=cax/6; grad[b*3+1]+=cay/6; grad[b*3+2]+=caz/6;         // dV/db = c×a /6
+    const abx=ay*bz-az*by, aby=az*bx-ax*bz, abz=ax*by-ay*bx;          // a×b
+    grad[c*3]+=abx/6; grad[c*3+1]+=aby/6; grad[c*3+2]+=abz/6;         // dV/dc = a×b /6
+  }
+  curVol = V;
+  const alpha = TUNE.volCompliance/(sdt*sdt);
+  let denom = alpha;
+  for(let i=0;i<N;i++){ const gx=grad[i*3],gy=grad[i*3+1],gz=grad[i*3+2]; denom += invMass[i]*(gx*gx+gy*gy+gz*gz); }
+  if(denom<1e-12) return;
+  const C = V - restVol*TUNE.pressure;
+  const s = -C/denom;
+  for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
+}
+function solveColliders(){
+  for(let k=0;k<colN;k++){
+    const cx=colX[k], cy=colY[k], cz=colZ[k], R=colR[k], R2=R*R;
+    for(let i=0;i<N;i++){
+      let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
+      const d2=dx*dx+dy*dy+dz*dz;
+      if(d2<R2){
+        if(d2>1e-12){
+          const d=Math.sqrt(d2), push=(R-d)/d;
+          pos[i*3]+=dx*push; pos[i*3+1]+=dy*push; pos[i*3+2]+=dz*push;
+          if(R-d>contactDepth) contactDepth=R-d;
+        }else{
+          pos[i*3+1]+=R; if(R>contactDepth) contactDepth=R;
+        }
+      }
+    }
+  }
+}
+function finalize(sdt){
+  const inv=1/sdt;
+  for(let i=0;i<N*3;i++){ vel[i]=(pos[i]-prev[i])*inv; }
+}
+
+function updateRenderMesh(){
+  for(let v=0;v<vCount;v++){ const i=vmap[v]; posAttr.setXYZ(v, pos[i*3], pos[i*3+1], pos[i*3+2]); }
+  posAttr.needsUpdate = true;
+  geo.computeVertexNormals();
+}
+
+/* ============================================================
+   4. 音（ぷに、をブラウザ内で合成。音声ファイル同梱ゼロ）
+   ============================================================ */
+let actx = null, voices = 0;
+function ensureAudio(){
+  if(!actx){ try{ actx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return; } }
+  if(actx && actx.state === "suspended") actx.resume();
+}
+function playSquish(strength){
+  if(!actx || voices >= 8) return;
+  const now = actx.currentTime, dur = 0.13;
+  const o = actx.createOscillator(); o.type="sine";
+  const f0 = 300 + strength*120;
+  o.frequency.setValueAtTime(f0, now);
+  o.frequency.exponentialRampToValueAtTime(150, now+dur);
+  const g = actx.createGain();
+  const vol = Math.min(0.28, 0.05 + strength*0.28);
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.linearRampToValueAtTime(vol, now+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+  o.connect(g).connect(actx.destination);
+  voices++; o.onended = ()=>{ voices--; };
+  o.start(now); o.stop(now+dur);
+}
+
+/* ============================================================
+   5. 振動（コントローラのみ。素手ハンドトラッキングは物理的に振動不可）
+   ============================================================ */
+const gamepads = [null, null];
+function pulse(i, intensity, ms){
+  try{ const gp=gamepads[i]; const a=gp && gp.hapticActuators && gp.hapticActuators[0]; if(a && a.pulse) a.pulse(Math.max(0,Math.min(1,intensity)), ms); }catch(_){}
+}
+function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); }
+
+/* ============================================================
+   6. AR：セッション・コントローラ・ハンド（浮かぶスライムを手で押す）
+   ============================================================ */
+const controllers = [];
+const ctrlOn = [false, false];
+const TIP_JOINTS = ["index-finger-tip","thumb-tip","middle-finger-tip"];
+
+// 触れている所を示す小さな球（コントローラ・指先ぶん）
+const markerMat = new THREE.MeshBasicMaterial({ color:0xb6f5cf, transparent:true, opacity:0.5, depthWrite:false });
+const markerGeo = new THREE.SphereGeometry(1, 10, 8);
+const markers = [];
+for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo, markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
+
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i);
+    c.userData.index = i;
+    c.addEventListener("connected", e => { ctrlOn[i]=true; if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
+    c.addEventListener("disconnected", () => { ctrlOn[i]=false; gamepads[i]=null; });
+    c.addEventListener("squeezestart", () => respawnInFront());   // 握ると目の前に呼び戻す
+    c.addEventListener("selectstart", () => { ensureAudio(); respawnInFront(); }); // トリガーでも呼び戻し
+    scene.add(c);
+    controllers.push(c);
+  }
+}
+
+function collectXRColliders(frame, ref){
+  colN = 0;
+  for(let i=0;i<2;i++){
+    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
+  }
+  const session = renderer.xr.getSession();
+  if(session && frame && ref){
+    for(const src of session.inputSources){
+      if(!src.hand) continue;
+      for(const jn of TIP_JOINTS){
+        const j = src.hand.get(jn); if(!j) continue;
+        const p = frame.getJointPose(j, ref); if(!p) continue;
+        const r = (p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR;
+        addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
+      }
+    }
+  }
+  // マーカー表示
+  for(let i=0;i<MAXCOL;i++){
+    if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
+    else markers[i].visible=false;
+  }
+}
+
+let xrSession = null, arStarting = false, pendingSpawn = false;
+async function startAR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(arStarting) return;
+  if(!navigator.xr){ showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return; }
+  init3D(); ensureAudio();
+  arStarting = true; $("goBtn").disabled = true;
+  let session = null;
+  try{
+    log("ARを開始します…");
+    session = await navigator.xr.requestSession("immersive-ar", {
+      optionalFeatures: ["hand-tracking","local-floor"],
+    });
+    xrSession = session;
+    renderer.xr.setReferenceSpaceType("local");
+    await renderer.xr.setSession(session);
+    scene.background = null;
+    setupControllers();
+    slimeReady = false;
+    $("start").style.display = "none"; $("goBtn").textContent = "AR中…"; $("stats").style.display = "block";
+    checkpoint("ar", "AR開始OK（土台の起動に成功）");
+    log("目の前にスライムを出します。手やコントローラで押してみてください");
+    pendingSpawn = true;
+    session.addEventListener("end", ()=>{
+      xrSession = null; slime.visible = false; slimeReady = false; panel.visible = false;
+      for(const m of markers) m.visible = false;
+      scene.background = null;
+      $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
+      log("ARを終了しました");
+    });
+  }catch(e){
+    showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
+    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
+    try{ session && session.end(); }catch(_){}
+    if(xrSession === session) xrSession = null;
+    $("goBtn").disabled = false; $("goBtn").textContent = "もう一度ためす";
+  }finally{ arStarting = false; }
+}
+
+// カメラの正面 0.45m・少し下にスライムを置き直す
+function respawnInFront(){
+  const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y = 0;
+  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1); else _v2.normalize();
+  spawnAt(_v1.x + _v2.x*0.45, _v1.y - 0.15, _v1.z + _v2.z*0.45);
+}
+
+/* --- AR中に読める3Dパネル（fps・体積・記録。頭追従なし） --- */
+const panelCanvas = document.createElement("canvas"); panelCanvas.width=640; panelCanvas.height=360;
+const pctx = panelCanvas.getContext("2d");
+const panelTex = new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace = THREE.SRGBColorSpace;
+const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.28), new THREE.MeshBasicMaterial({ map:panelTex, transparent:true }));
+panel.visible = false; scene.add(panel);
+let panelStatus = "";
+function drawPanel(){
+  const c=pctx, W=panelCanvas.width, H=panelCanvas.height;
+  c.clearRect(0,0,W,H); c.fillStyle="rgba(8,12,16,0.9)"; c.fillRect(0,0,W,H);
+  c.strokeStyle="#243342"; c.lineWidth=4; c.strokeRect(2,2,W-4,H-4);
+  c.textBaseline="top";
+  c.font="bold 20px 'Consolas','Courier New',monospace"; c.fillStyle="#b6f5cf"; c.fillText(panelStatus, 12, 10);
+  c.font="17px 'Consolas','Courier New',monospace";
+  const last=logLines.slice(-11); let y=42;
+  for(const ln of last){ c.fillStyle=ln.e?"#ff9a9a":"#dff5e8"; let t=ln.t; if(t.length>44) t=t.slice(0,43)+"…"; c.fillText(t,12,y); y+=27; }
+  panelTex.needsUpdate=true;
+}
+function placePanelInFront(){
+  const camN = renderer.xr.getCamera();
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0;
+  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1); else _v2.normalize();
+  panel.position.set(_v1.x + _v2.x*1.4, _v1.y - 0.55, _v1.z + _v2.z*1.4);
+  panel.lookAt(_v1.x, _v1.y - 0.55, _v1.z);
+  panel.visible = true; drawPanel();
+}
+
+/* ============================================================
+   7. PC確認モード（Claudeが自分でテストできる。マウス）
+   ============================================================ */
+let pcMode = false, pcYaw = 0.0, pcPitch = 0.15, pcRadius = 0.7;
+const pcTarget = new THREE.Vector3(0, 0, 0.5);
+let pokeAnim = null;   // {t,dur,dx,dy,dz}  クリックで1回つつく
+function startPC(){
+  init3D(); ensureAudio();
+  pcMode = true;
+  $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
+  spawnAt(pcTarget.x, pcTarget.y, pcTarget.z);
+  updatePCCamera(); setupPCInput();
+}
+function updatePCCamera(){
+  const cpp=Math.cos(pcPitch), spp=Math.sin(pcPitch);
+  camera.position.set(
+    pcTarget.x + pcRadius*cpp*Math.sin(pcYaw),
+    pcTarget.y + pcRadius*spp,
+    pcTarget.z - pcRadius*cpp*Math.cos(pcYaw)
+  );
+  camera.lookAt(pcTarget);
+}
+let pcInputReady=false;
+function setupPCInput(){
+  if(pcInputReady) return; pcInputReady=true;
+  let dragging=false, moved=0, lx=0, ly=0;
+  canvas.addEventListener("pointerdown", e=>{ dragging=true; moved=0; lx=e.clientX; ly=e.clientY; });
+  addEventListener("pointermove", e=>{
+    if(!dragging) return;
+    const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; moved+=Math.abs(dx)+Math.abs(dy);
+    pcYaw += dx*0.008; pcPitch = Math.max(-1.2, Math.min(1.2, pcPitch + dy*0.006));
+    updatePCCamera();
+  });
+  addEventListener("pointerup", e=>{ if(dragging && moved<6) pcPokeFrom(e.clientX, e.clientY); dragging=false; });
+  canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
+  addEventListener("keydown", e=>{ if(e.key==="r"||e.key==="R") spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); });
+}
+// クリック位置から中心へ向かうレイを求め、その向きから1回つつく（凹みを目視するため）
+function pcPokeFrom(sx, sy){
+  ensureAudio();
+  const nx=(sx/innerWidth)*2-1, ny=-(sy/innerHeight)*2+1;
+  _v1.set(nx, ny, 0.5).unproject(camera);            // 画面上の点をワールドへ
+  _v1.sub(camera.position).normalize();               // カメラからのレイ方向
+  // レイ上で中心に一番近い点 → その中心からの向きを「つつく向き」に
+  _v2.copy(anchorCenter).sub(camera.position);
+  const tt = _v2.dot(_v1);
+  _v2.copy(camera.position).addScaledVector(_v1, tt).sub(anchorCenter); // 中心→最近点
+  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1);
+  _v2.normalize();
+  pokeAnim = { t:0, dur:0.5, dx:_v2.x, dy:_v2.y, dz:_v2.z };
+}
+
+/* ============================================================
+   8. ボタン有効化
+   ============================================================ */
+let arSupported = false;
+$("goBtn").addEventListener("click", ()=>{ if(arSupported) startAR(); else startPC(); });
+function enableButton(){
+  $("goBtn").disabled=false;
+  $("goBtn").textContent = arSupported ? "はじめる" : "PCでためす（マウス）";
+  log(arSupported ? "準備OK。「はじめる」を押せます" : "この端末はMR非対応。PC確認モードで動きだけ試せます（手ざわり・見え方はQuestで確認）");
+}
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{ arSupported=!!ok; enableButton(); }).catch(()=>{ arSupported=false; enableButton(); });
+}else{ arSupported=false; enableButton(); }
+
+/* ============================================================
+   9. 毎フレーム
+   ============================================================ */
+let lastMs = performance.now(), fpsSmooth = 0, loopErr = false;
+
+function stepSoft(dt){
+  if(!slimeReady) return;
+  physAcc += Math.min(dt, 0.05);
+  let n=0; const p0=performance.now();
+  while(physAcc>=FIXED && n<3){ softStep(FIXED); physAcc-=FIXED; n++; }
+  if(n===3) physAcc=0;
+  physMs = physMs*0.9 + (performance.now()-p0)*0.1;
+  updateRenderMesh();
+}
+function handleContactFX(){
+  if(contactDepth > TUNE.squishMin){
+    const now = performance.now();
+    if(now - lastSquish > TUNE.squishGap){ lastSquish=now; playSquish(Math.min(1, contactDepth/0.03)); pulseAll(TUNE.hapPoke, 22); }
+  }
+}
+let lastSquish = 0;
+
+function simulate(dt){
+  contactDepth = 0;
+  // PCのつつきアニメ：中心から dir 方向の表面へ球を押し込む
+  if(pokeAnim){
+    pokeAnim.t += dt;
+    const f = pokeAnim.t/pokeAnim.dur;
+    if(f>=1){ pokeAnim=null; colN=0; }
+    else{
+      const depth = Math.sin(f*Math.PI)*TUNE.fingerR*0.9; // 0→ほぼ指半径→0（外から接触を保つ）
+      const d = TUNE.radius + TUNE.fingerR - depth;       // 外から押し込む
+      colN=0; addCol(anchorCenter.x+pokeAnim.dx*d, anchorCenter.y+pokeAnim.dy*d, anchorCenter.z+pokeAnim.dz*d, TUNE.fingerR);
+    }
+  }
+  stepSoft(dt);
+  handleContactFX();
+  const V = curVol/restVol;
+  const statLine = "fps "+Math.round(fpsSmooth)+" / 物理 "+physMs.toFixed(1)+"ms / 体積 "+(V*100).toFixed(0)+"% / 点 "+N;
+  $("stats").textContent = statLine;
+  if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
+}
+
+function renderLoop(t, frame){
+ try{
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
+  fpsSmooth = fpsSmooth ? fpsSmooth*0.9 + (1/Math.max(dt,1e-4))*0.1 : 1/Math.max(dt,1e-4);
+
+  if(frame && renderer.xr.isPresenting){
+    const ref = renderer.xr.getReferenceSpace();
+    if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); }
+    collectXRColliders(frame, ref);
+  }
+
+  simulate(dt);
+  renderer.render(scene, camera);
+ }catch(err){
+  if(!loopErr){ loopErr=true; showErr("描画エラー：" + (err && err.message || err)); }
+ }
+}
+
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============================================================
+   10. 自動テスト用の窓口（PCの preview から叩ける。tab非表示でrAFが止まるため）
+   ============================================================ */
+function comOffset(){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N; return Math.hypot(cx-anchorCenter.x, cy-anchorCenter.y, cz-anchorCenter.z); }
+function shapeErr(){
+  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
+  let se=0; for(let i=0;i<N;i++){ const dx=(pos[i*3]-cx)-rest[i*3], dy=(pos[i*3+1]-cy)-rest[i*3+1], dz=(pos[i*3+2]-cz)-rest[i*3+2]; se+=dx*dx+dy*dy+dz*dz; } return Math.sqrt(se/N);
+}
+function maxSpeed(){ let m=0; for(let i=0;i<N;i++){ const s=Math.hypot(vel[i*3],vel[i*3+1],vel[i*3+2]); if(s>m) m=s; } return m; }
+function anyNaN(){ for(let i=0;i<N*3;i++){ if(Number.isNaN(pos[i])) return true; } return false; }
+
+window.__dbg = {
+  state(){
+    return {
+      slimeReady, N, tris:triN, edges:edgeN, colN,
+      volRatio:+(curVol/restVol).toFixed(3),
+      comOffset:+comOffset().toFixed(4),
+      shapeErr:+shapeErr().toFixed(4),
+      maxSpeed:+maxSpeed().toFixed(3),
+      fps:Math.round(fpsSmooth), physMs:+physMs.toFixed(2),
+      nan:anyNaN(),
+    };
+  },
+  // 外から指を当てて depth(m) だけ凹ませ、その状態を保持 → 凹み量(maxShapeDuring)を測る
+  poke(depth, sec){
+    if(!slimeReady) return "no-slime";
+    depth = Math.min(depth||0.015, TUNE.fingerR*0.95); sec = sec||0.4;   // 単一指の凹みは指半径まで
+    const cxHold = anchorCenter.x + TUNE.radius + TUNE.fingerR - depth;  // 外から接触を保つ位置
+    const steps = Math.max(1, Math.round(sec/FIXED));
+    let maxShape = 0;
+    for(let s=0;s<steps;s++){
+      colN=0; addCol(cxHold, anchorCenter.y, anchorCenter.z, TUNE.fingerR);
+      contactDepth=0; softStep(FIXED); handleContactFX();
+      const se = shapeErr(); if(se>maxShape) maxShape=se;
+    }
+    updateRenderMesh();
+    const st = this.state(); st.maxShapeDuring = +maxShape.toFixed(4); return st;
+  },
+  // 指を離して戻るのを見る
+  settle(sec){
+    colN=0; pokeAnim=null;
+    const steps=Math.max(1, Math.round((sec||1.0)/FIXED));
+    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); }
+    updateRenderMesh();
+    return this.state();
+  },
+  tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
+  spawn(){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); return this.state(); },
+  render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
+  tune: TUNE,
+};
+
+log("読み込みOK（版：" + REV + "）");
+</script>
+</body>
+</html>
