@@ -74,6 +74,11 @@
 
   <div id="results"></div>
 
+  <!-- チェックした複数体をまとめて棚に入れて立体ビューアへ -->
+  <div id="view-bar" style="display:none;position:sticky;bottom:12px;z-index:5;margin-top:6px;text-align:center">
+    <button class="btn-primary" id="btn-view-all" style="max-width:460px;margin:0 auto;box-shadow:0 4px 16px rgba(20,30,25,.35)">🧊 立体で見る →</button>
+  </div>
+
   <footer class="kobo">
     使用モデル: Depth Anything V2 small（Apache-2.0・商用可）— 軽くて十分きれいなこれ一本です<br>
     推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）／ 初回のみモデル取得のためインターネット接続が必要です<br>
@@ -85,7 +90,7 @@
 import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
 import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, figuresAdd, agoText, detectBackend } from "./assets/common.js";
 
-const REV = "v2 rev4";
+const REV = "v2 rev5";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
@@ -239,7 +244,9 @@ function makeCard(name, blob) {
       </div>
     </div>
     <div class="btn-save-wrap">
-      <button class="btn-primary btn-to-view">🧊 立体で見る →</button>
+      <label class="view-pick" style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:var(--accent);cursor:pointer;flex:1">
+        <input type="checkbox" class="view-chk" checked style="width:19px;height:19px;accent-color:var(--accent)"> 立体で見る棚に入れる
+      </label>
       <button class="btn-plain btn-save-depth">💾 深度PNGを保存</button>
     </div>
     <div class="sub-actions">
@@ -249,13 +256,40 @@ function makeCard(name, blob) {
   card.querySelector(".src-img").src = URL.createObjectURL(blob);
   card.querySelector(".btn-remove").addEventListener("click", () => {
     queue = queue.filter(q => q.card !== card);
+    const i = doneCards.findIndex(d => d.card === card);
+    if (i >= 0) doneCards.splice(i, 1);
     const im = card.querySelector(".src-img");
     if (im?.src) URL.revokeObjectURL(im.src);
     card.remove();
+    updateViewBar();
   });
   results.prepend(card);
   return card;
 }
+
+// 完成した子のうちチェックされた数を数え、「立体で見る」バーを更新
+const doneCards = [];
+function updateViewBar() {
+  const live = doneCards.filter(d => d.card.isConnected);
+  const chk = live.filter(d => d.card.querySelector(".view-chk")?.checked).length;
+  $("view-bar").style.display = live.length ? "block" : "none";
+  $("btn-view-all").textContent = "🧊 立体で見る（" + chk + "体を棚に入れる）→";
+  $("btn-view-all").disabled = chk === 0;
+}
+$("btn-view-all").addEventListener("click", async () => {
+  const btn = $("btn-view-all"); const orig = btn.textContent;
+  const chosen = doneCards.filter(d => d.card.isConnected && d.card.querySelector(".view-chk")?.checked);
+  if (!chosen.length) { setStatus("error", "立体で見る子にチェックを入れてください"); return; }
+  btn.disabled = true; btn.textContent = "棚に追加中…（" + chosen.length + "体）";
+  try {
+    for (const d of chosen) await figuresAdd({ name: d.name, image: d.blob, depth: await canvasToBlob(d.outCv) });
+    location.href = "mitate.html";
+  } catch (err) {
+    console.error(err);
+    btn.disabled = false; btn.textContent = orig;
+    setStatus("error", "棚への追加に失敗しました。深度PNGを保存して「立体で見る」で読み込んでください。");
+  }
+});
 
 async function pump() {
   if (busy || !pipe) return;
@@ -314,19 +348,10 @@ async function processOne({ blob, name, card }) {
     card.querySelector(".btn-save-wrap").classList.add("show");
     card.querySelector(".btn-save-depth").addEventListener("click", async () =>
       saveBlob(await canvasToBlob(outCv), baseName + "_深度.png"));
-    card.querySelector(".btn-to-view").addEventListener("click", async (e) => {
-      const btn = e.currentTarget;
-      btn.disabled = true; btn.textContent = "棚に追加中…";
-      try {
-        // 棚(コレクション)に1体追加(上書きせず貯まる)→ 立体ビューアへ
-        await figuresAdd({ name, image: blob, depth: await canvasToBlob(outCv) });
-        location.href = "mitate.html";
-      } catch (err) {
-        console.error(err);
-        btn.disabled = false; btn.textContent = "🧊 立体で見る →";
-        setStatus("error", "棚への追加に失敗しました。深度PNGを保存して「立体で見る」で読み込んでください。");
-      }
-    });
+    // 完成した子を「まとめて立体で見る」候補に登録
+    doneCards.push({ name, blob, outCv, card });
+    card.querySelector(".view-chk").addEventListener("change", updateViewBar);
+    updateViewBar();
   } catch (e) {
     console.error(e);
     statusEl.textContent = "エラー";

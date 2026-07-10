@@ -107,6 +107,11 @@
 <div id="drop">
   <div class="mark">Step 3 · Mitate Viewer</div>
   <h2>写真と深度マップで、立体にして見る</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+    <a href="depth.html" style="text-decoration:none;background:var(--panel2);border:1px solid var(--accent);color:var(--accent2);border-radius:11px;padding:10px 16px;font-size:12.5px;font-weight:700">⛰ 深度づくり（もっと作る）</a>
+    <a href="kiritori.html" style="text-decoration:none;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:11px;padding:10px 16px;font-size:12.5px;font-weight:700">✂ 背景透明化</a>
+    <a href="index.html" style="text-decoration:none;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:11px;padding:10px 16px;font-size:12.5px;font-weight:700">🏠 トップ</a>
+  </div>
   <div id="banner">
     <b>⛰ 深度づくりから棚に追加しました。</b> チェックした子を「立体で見る」で並べられます。
   </div>
@@ -198,7 +203,8 @@
   </div>
   <div class="row">
     <button class="btn" id="recBtn">🎬 動画で保存（4秒）</button>
-    <button class="btn" id="newBtn">📂 別の画像</button>
+    <button class="btn" id="newBtn">📂 棚を選び直す</button>
+    <button class="btn" id="toDepthBtn">⛰ 深度づくりへ</button>
   </div>
   <div class="hint" id="hint"></div>
 </div>
@@ -212,7 +218,7 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev7b";
+const REV = "v2 rev7c";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -307,6 +313,7 @@ $('newBtn').onclick = async () => {
   $('ui').style.display = 'none'; $('drop').style.display = 'flex';
   await renderShelf();
 };
+$('toDepthBtn').onclick = () => { if(xrSession) xrSession.end(); location.href = 'depth.html'; };
 
 // 受け渡し(深度づくりから)= 棚に1体追加。棚一覧を表示
 (async () => {
