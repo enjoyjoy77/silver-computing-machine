@@ -154,6 +154,7 @@
       <button data-m="wiggle">ゆらゆら</button>
       <button data-m="light">ライティング</button>
       <button data-m="layers">多層</button>
+      <button data-m="sculpt">🖐 彫刻</button>
     </div>
   </div>
   <!-- どのモードでも見える: 実寸 + AR/VR の入り口 -->
@@ -192,6 +193,15 @@
     <button class="btn" id="glbBtn">📦 GLB保存</button>
     <button class="btn" id="resetBtn">↩ 視点</button>
   </div>
+  <!-- 彫刻用(AR/VRで盛り上げ・へこませ) -->
+  <div class="row" id="sculptRow" style="display:none">
+    <div class="card">
+      <label class="k">筆の太さ</label>
+      <input type="range" id="brushRange" min="2" max="40" value="10">
+      <span class="val" id="brushVal">10cm</span>
+    </div>
+    <button class="btn" id="sculptResetBtn">↩ 彫刻を戻す</button>
+  </div>
   <!-- 疑似3D用 -->
   <div class="row" id="pseudoRow" style="display:none">
     <div class="card">
@@ -222,9 +232,10 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev7e";
+const REV = "v2 rev8b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -404,7 +415,7 @@ function syncDepthUI(){
 // 2Dで「どの体を調整するか」を選ぶサムネ列(複数体のレリーフ時だけ)
 function renderFigPicker(){
   const row = $('figPickerRow'), box = $('figPicker');
-  const show = (mode === 'relief') && items.length > 1;
+  const show = (mode === 'relief' || mode === 'sculpt') && items.length > 1;
   row.style.display = show ? 'flex' : 'none';
   box.innerHTML = '';
   if(!show) return;
@@ -413,7 +424,7 @@ function renderFigPicker(){
     b.style.cssText = 'flex:0 0 auto;width:44px;height:44px;border-radius:9px;padding:0;cursor:pointer;overflow:hidden;'
       + 'background:var(--panel2);border:2px solid ' + (it===activeItem ? 'var(--accent)' : 'var(--line)');
     b.innerHTML = '<img src="'+it.thumb+'" style="width:100%;height:100%;object-fit:contain">';
-    b.addEventListener('click', ()=>{ setActive(it); syncDepthUI(); refresh2DActive(); setMode('relief'); });
+    b.addEventListener('click', ()=>{ setActive(it); syncDepthUI(); refresh2DActive(); setMode(mode); });   // 彫刻中に体を選び直してもモードを外さない
     box.appendChild(b);
   }
 }
@@ -448,6 +459,10 @@ function buildRelief(){
   if(S.aspect >= 1){ sx = RES; sy = Math.max(Math.round(RES/S.aspect), 8); }
   else { sy = RES; sx = Math.max(Math.round(RES*S.aspect), 8); }
   reliefGeo = new THREE.PlaneGeometry(w, h, sx, sy);
+  if(activeItem){   // 彫刻(局所変形)用の格子情報とオフセット配列。res変更時はリセット
+    activeItem.sx = sx; activeItem.sy = sy; activeItem.w = w; activeItem.h = h;
+    activeItem.sculpt = new Float32Array((sx+1)*(sy+1));
+  }
   const mat = new THREE.MeshStandardMaterial({
     map: imgTexSRGB, transparent: true, alphaTest: .06,
     side: THREE.DoubleSide, roughness: .82, metalness: 0,
@@ -494,15 +509,114 @@ function displace(){
   if(!reliefGeo) return;
   const pos = reliefGeo.attributes.position, uv = reliefGeo.attributes.uv;
   const scaleM = S.depthCm / 100;
+  const sc = (activeItem && activeItem.sculpt) ? activeItem.sculpt : null;   // 彫刻オフセット
   for(let i=0;i<pos.count;i++){
     const u=uv.getX(i), v=uv.getY(i);
     let d = 0;
     if(S.depthMap){ d = sampleBilinear(S.depthMap,u,v,0)/255; if(S.invert) d = 1-d; }
     if(S.alphaMap && sampleBilinear(S.alphaMap,u,v,3) < 20) d = 0;   // 透明部は奥へ
-    pos.setZ(i, d*scaleM);
+    pos.setZ(i, d*scaleM + (sc ? sc[i] : 0));
   }
   pos.needsUpdate = true;
   reliefGeo.computeVertexNormals();
+}
+
+/* ============ 彫刻(局所変形): 狙った所を盛り上げ/へこませ ============ */
+let sculptRadius = 0.10;             // 筆の太さ(m)
+const SCULPT_RATE = 0.5;             // 押し引きの速さ(m/秒 @ トリガー全引き)
+// item の hit点(mesh-local p)の周りの頂点を、格子ブロックだけ回して押し引き
+function sculptAt(item, p, radius, delta){
+  const geo = item.reliefGeo; if(!geo || !item.sculpt) return;
+  const pos = geo.attributes.position;
+  const { sx, sy, w, h, sculpt } = item;
+  // PlaneGeometryの頂点順: index = iy*(sx+1)+ix / x=ix*sw-w/2 / y=h/2-iy*sh
+  const ix0 = Math.round((p.x + w/2)/w*sx), iy0 = Math.round((h/2 - p.y)/h*sy);
+  const rix = Math.ceil(radius/w*sx)+1, riy = Math.ceil(radius/h*sy)+1;
+  const r2 = radius*radius;
+  for(let iy=Math.max(0,iy0-riy); iy<=Math.min(sy,iy0+riy); iy++){
+    for(let ix=Math.max(0,ix0-rix); ix<=Math.min(sx,ix0+rix); ix++){
+      const i = iy*(sx+1)+ix;
+      const dx = pos.getX(i)-p.x, dy = pos.getY(i)-p.y;
+      const dd = dx*dx+dy*dy;
+      if(dd<=r2){
+        const fall = 1 - Math.sqrt(dd)/radius;   // 中心ほど強い(なだらか)
+        const add = delta*fall*fall;             // 二乗でより滑らか
+        sculpt[i] += add;
+        pos.setZ(i, pos.getZ(i) + add);
+      }
+    }
+  }
+  pos.needsUpdate = true;   // 法線の再計算はupdateSculpt側で間引く(重いので毎回はやらない)
+}
+function sculptReset(item){
+  if(!item || !item.sculpt) return;
+  item.sculpt.fill(0);
+  const cur = activeItem; setActive(item); displace(); setActive(cur);
+}
+// その体に彫刻(0以外のオフセット)が入っているか
+function sculptHasData(it){
+  if(!it || !it.sculpt) return false;
+  for(let i=0;i<it.sculpt.length;i++) if(it.sculpt[i] !== 0) return true;
+  return false;
+}
+// ブラシの輪(狙い先の表示)
+const brushRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.9, 1.0, 24),
+  new THREE.MeshBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.85, side:THREE.DoubleSide, depthTest:false })
+);
+brushRing.visible = false; scene.add(brushRing);
+const _sn = new THREE.Vector3();
+const _ro = new THREE.Vector3(), _rd = new THREE.Vector3(), _lh = new THREE.Vector3(), _lh2 = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _invM = new THREE.Matrix4();
+let _normAccum = 0, _wasCarving = false;
+// レリーフは「局所XY平面をZ方向へ変位させた板」。光線と z=0 平面の交点を数式で解く=総当たりraycastを避けて実機を軽く保つ
+function sculptHit(mesh, originWorld, dirWorld){
+  _invM.copy(mesh.matrixWorld).invert();
+  _ro.copy(originWorld).applyMatrix4(_invM);                  // 原点を板の局所座標へ
+  _rd.copy(dirWorld).transformDirection(_invM).normalize();   // 向きを板の局所座標へ
+  if(Math.abs(_rd.z) < 1e-5) return null;                     // 板と平行なら当たらない
+  const t = -_ro.z / _rd.z;
+  if(t <= 0) return null;                                     // 後ろ向き
+  _lh.set(_ro.x + _rd.x*t, _ro.y + _rd.y*t, 0);
+  return _lh;                                                 // 局所座標(z=0)
+}
+// 毎フレーム(XR・sculptモード): 解析交差で active relief を狙い、トリガーで盛り上げ/グリップでへこませ
+function updateSculpt(dt){
+  brushRing.visible = false;
+  if(mode!=='sculpt' || !activeItem || !activeItem.reliefMesh){ _wasCarving = false; return; }
+  const sess = renderer.xr.getSession(); if(!sess) return;
+  const mesh = activeItem.reliefMesh, geo = activeItem.reliefGeo;
+  const { w, h, sx, sy } = activeItem; const pos = geo.attributes.position;
+  let carved = false;
+  for(let i=0;i<controllers.length;i++){
+    const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
+    if(!gp) continue;
+    // 筆の太さ: スティック左右で調整(グリップは押し引きに使うので上下は使わない)
+    const ax = gp.axes; if(ax && ax.length){ const rx=(ax.length>=4)?ax[2]:(ax[0]||0); if(Math.abs(rx)>0.4){ sculptRadius=clamp(sculptRadius + rx*0.25*dt, 0.02, 0.4); $('brushRange').value=Math.round(sculptRadius*100); $('brushVal').textContent=Math.round(sculptRadius*100)+'cm'; } }
+    tmpV.setFromMatrixPosition(c.matrixWorld);
+    _dir.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
+    const lh = sculptHit(mesh, tmpV, _dir);
+    if(!lh) continue;
+    if(lh.x < -w/2 || lh.x > w/2 || lh.y < -h/2 || lh.y > h/2) continue;   // 板の外
+    // ブラシ輪を変位後の面に載せる(最寄り格子のZを読む=raycast不要)
+    const ix0 = clamp(Math.round((lh.x + w/2)/w*sx), 0, sx);
+    const iy0 = clamp(Math.round((h/2 - lh.y)/h*sy), 0, sy);
+    _lh2.set(lh.x, lh.y, pos.getZ(iy0*(sx+1)+ix0));
+    brushRing.visible = true;
+    brushRing.position.copy(mesh.localToWorld(_lh2.clone()));
+    _sn.set(0,0,1).transformDirection(mesh.matrixWorld);
+    brushRing.lookAt(brushRing.position.clone().add(_sn));
+    brushRing.scale.setScalar(Math.max(sculptRadius * activeItem.group.scale.x, 0.01));   // 実寸スケール込みの見た目半径
+    // 押し引き: グリップ優先(トリガー全押し+グリップの相殺デッドゾーンを無くす)
+    const trig = gp.buttons[0] ? gp.buttons[0].value : 0;
+    const grip = (gp.buttons[1] && gp.buttons[1].pressed) ? 1 : 0;
+    const delta = grip ? -1 : (trig>0.1 ? trig : 0);   // グリップ=へこませ(-) / トリガー=盛り上げ(+)
+    if(delta !== 0){ sculptAt(activeItem, lh, sculptRadius, delta * SCULPT_RATE * dt); carved = true; }
+  }
+  // 法線の再計算は重いので彫っている間は間引き(約12回/秒)、彫り終わりに一度だけ確定計算
+  if(carved){ _normAccum += dt; if(_normAccum >= 0.08){ geo.computeVertexNormals(); _normAccum = 0; } }
+  else if(_wasCarving){ geo.computeVertexNormals(); _normAccum = 0; }
+  _wasCarving = carved;
 }
 
 /* ============ レリーフ用カメラ(軌道) ============ */
@@ -518,13 +632,13 @@ $('resetBtn').onclick = frameCamera;
 let dragging=false; const ptrs=new Map(); let pinchD=0;
 canvas.addEventListener('pointerdown', e=>{
   ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); dragging=true;
-  if(mode==='relief'){ ctl.vth=ctl.vph=0; }
+  if(mode==='relief' || mode==='sculpt'){ ctl.vth=ctl.vph=0; }
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', e=>{
   if(!ptrs.has(e.pointerId)) return;
   const p=ptrs.get(e.pointerId); const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
-  if(mode==='relief'){
+  if(mode==='relief' || mode==='sculpt'){
     if(ptrs.size===1){ ctl.th-=dx*.006; ctl.ph=clamp(ctl.ph-dy*.006,.05,Math.PI-.05); ctl.vth=-dx*.0015; ctl.vph=-dy*.0015; }
     else if(ptrs.size===2){ const a=[...ptrs.values()]; const nd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
       if(pinchD) ctl.r=clamp(ctl.r*(pinchD/nd),0.5,6); pinchD=nd; }
@@ -538,7 +652,7 @@ function endPtr(e){
   if(mode==='parallax'||mode==='layers'){ view.tx=0; view.ty=0; }   // 指を離すと正面へ戻る
 }
 canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', endPtr);
-canvas.addEventListener('wheel', e=>{ if(mode!=='relief')return; e.preventDefault(); ctl.r=clamp(ctl.r*(1+Math.sign(e.deltaY)*.08),0.5,6); },{passive:false});
+canvas.addEventListener('wheel', e=>{ if(mode!=='relief' && mode!=='sculpt')return; e.preventDefault(); ctl.r=clamp(ctl.r*(1+Math.sign(e.deltaY)*.08),0.5,6); },{passive:false});
 
 /* ============ 疑似3D: シェーダーquad ============ */
 const quadUniforms = {
@@ -730,6 +844,13 @@ function xrAttach(m){
     }
     grabTarget = null;   // raycastはitemUnderRayで全item対象
     if(exposed && renderer && renderer.xr.isPresenting) pendingPlace = true;   // 未配置の体を並べ直す
+  } else if(m==='sculpt'){
+    // 彫刻: activeItemだけ表示、そのreliefをtiltGroupに(1体に集中して彫る)
+    for(const it of items){
+      it.group.visible = (it === activeItem);
+      if(it === activeItem && it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
+    }
+    grabTarget = null;   // 掴みは無効(updateSculptが入力を処理)
   } else {
     // 疑似3D(単体): activeItemだけ表示、そのtiltGroupにパネル/多層。activeのreliefは外す
     for(const it of items) it.group.visible = (it === activeItem);
@@ -743,6 +864,7 @@ function xrAttach(m){
 // XR終了時: 各itemをreliefに戻して2D構成へ復帰できる状態にする
 function xrDetachAll(){
   detachPanels();
+  brushRing.visible = false;   // XR終了時に彫刻の輪を消す
   for(const it of items){
     if(it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
   }
@@ -757,7 +879,7 @@ function enterXR(){
   xrAttach(mode);
 }
 // 没入中のモード循環(スティック押し込み)
-const MODE_CYCLE = ['relief','parallax','wiggle','light','layers'];
+const MODE_CYCLE = ['relief','parallax','wiggle','light','layers','sculpt'];
 function cycleMode(){
   const i = MODE_CYCLE.indexOf(mode);
   setMode(MODE_CYCLE[(i+1) % MODE_CYCLE.length]);
@@ -798,6 +920,7 @@ function makeTex(img, srgb){
 /* ============ モード管理 ============ */
 function setMode(m){
   mode = m;
+  brushRing.visible = false;   // 彫刻から抜けたら黄色い輪を残さない(XR外でも消す)
   [...$('modeSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   const inXR = renderer && renderer.xr.isPresenting;
   if(inXR){
@@ -806,16 +929,17 @@ function setMode(m){
     // 2Dは単体表示(activeItemのみ)。複数の並べ替えはAR/VRの体験
     for(const it of items){ it.group.visible = (it === activeItem); scene.remove(it.group); }
     scene.remove(quad); scene.remove(layerGroup);
-    if(m==='relief'){ if(activeItem) scene.add(activeItem.group); }
+    if(m==='relief' || m==='sculpt'){ if(activeItem) scene.add(activeItem.group); }
     else if(m==='layers'){ scene.add(layerGroup); }
     else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
   }
 
-  const isRelief = m==='relief';
-  $('reliefRow1').style.display = isRelief ? 'flex' : 'none';
-  $('reliefRow2').style.display = isRelief ? 'flex' : 'none';
-  $('pseudoRow').style.display  = isRelief ? 'none' : 'flex';
-  if(!isRelief){
+  const isReliefLike = (m==='relief' || m==='sculpt');
+  $('reliefRow1').style.display = (m==='relief') ? 'flex' : 'none';
+  $('reliefRow2').style.display = (m==='relief') ? 'flex' : 'none';
+  $('sculptRow').style.display  = (m==='sculpt') ? 'flex' : 'none';
+  $('pseudoRow').style.display  = isReliefLike ? 'none' : 'flex';
+  if(!isReliefLike){
     const showSpeed = (m==='wiggle'||m==='light');
     $('speedCard').style.display = showSpeed ? 'flex' : 'none';
     $('amtLbl').textContent = (m==='light') ? '凹凸の強さ' : '立体量';
@@ -828,11 +952,12 @@ function setMode(m){
     wiggle: '自動で左右に揺れます。「動画で保存」でSNS用にどうぞ',
     light: '光源が回って陰影が流れます',
     layers: '指でドラッグすると層がジオラマのようにズレます',
+    sculpt: 'AR/VRで狙って トリガー=盛り上げ / グリップ=へこませ。スティック左右で筆の太さ',
   };
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
-  if(isRelief && !inXR) frameCamera();
-  renderFigPicker();   // 体えらび列の表示更新(reliefかつ複数体のみ)
+  if(isReliefLike && !inXR) frameCamera();
+  renderFigPicker();   // 体えらび列の表示更新(relief/sculptかつ複数体のみ)
 }
 $('modeSeg').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setMode(b.dataset.m); });
 
@@ -865,9 +990,15 @@ $('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange
 $('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; if(activeItem) activeItem.invert=S.invert; displace(); });
 $('resSeg').addEventListener('click', e=>{
   const b=e.target.closest('button'); if(!b) return;
+  const newRes = parseInt(b.dataset.r);
+  if(newRes === S.res) return;   // 変化なしなら何もしない
+  // 精細さを変えるとレリーフを作り直すため彫った凸凹は消える。消える前に日本語で確認
+  if(activeItem && sculptHasData(activeItem) && !confirm('精細さを変えると、彫った凸凹（盛り上げ・へこませ）は消えます。変えますか？')) return;
   [...$('resSeg').children].forEach(x=>x.classList.toggle('on', x===b));
-  S.res=parseInt(b.dataset.r); if(activeItem) activeItem.res=S.res; buildRelief();
+  S.res=newRes; if(activeItem) activeItem.res=S.res; buildRelief();
 });
+$('brushRange').addEventListener('input', ()=>{ sculptRadius = parseInt($('brushRange').value)/100; $('brushVal').textContent = $('brushRange').value + 'cm'; });
+$('sculptResetBtn').onclick = ()=>{ if(activeItem){ sculptReset(activeItem); toast('彫刻を戻しました'); } };
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
   $('sizeCm').value = S.sizeCm;
@@ -1028,8 +1159,8 @@ function pollInput(dt){
   recallHeld = recallPressed;
   // モード循環(いずれかの手の押した瞬間の1回だけ)
   if(cycleNow) cycleMode();
-  // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中(コントローラーの子)は座標系が傾くので不可
-  if(!pinch && !recalledThisFrame && bestMag > 0){
+  // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中は不可。彫刻中はグリップ=へこませなので回転しない
+  if(!pinch && !recalledThisFrame && bestMag > 0 && mode !== 'sculpt'){
     const gh = (bestHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestHd) : -1;
     let target = (gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem;
     if(target && target.group.parent === scene){
@@ -1180,20 +1311,21 @@ function makeHand(sign){
 // コントローラー用: ハンドトラッキングと同じ写実的な手(GLB)を静止で装着。読めなければ低ポリにフォールバック
 const gltfLoader = new GLTFLoader();
 const handGLB = { left: null, right: null };
-const HANDGLB_EULER = { x: 0, y: 0, z: 0 };       // 実機で手の向きが変ならここを直す(1箇所)
-const HANDGLB_POS   = { x: 0, y: -0.02, z: 0.02 };
+// GLBの手は指が-Y(真下)に伸びる造り。X軸+90°で指を前(照準-Z)へ=握手のように前へ差し出す向き。左右共通
+const HANDGLB_EULER = { x: Math.PI/2, y: 0, z: 0 };   // 実機で手の向きが変ならここを直す(1箇所)
+const HANDGLB_POS   = { x: 0, y: 0, z: 0 };
 const HANDGLB_SCALE = 1.0;
 (function loadHandGLBs(){
   for(const hd of ['left','right']){
     gltfLoader.load('https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/'+hd+'.glb',
-      g => { const s=g.scene; s.rotation.set(HANDGLB_EULER.x,HANDGLB_EULER.y,HANDGLB_EULER.z); s.position.set(HANDGLB_POS.x,HANDGLB_POS.y,HANDGLB_POS.z); s.scale.setScalar(HANDGLB_SCALE); handGLB[hd]=s; },
+      g => { const s=g.scene; s.rotation.set(HANDGLB_EULER.x,HANDGLB_EULER.y,HANDGLB_EULER.z); s.position.set(HANDGLB_POS.x,HANDGLB_POS.y,HANDGLB_POS.z); s.scale.setScalar(HANDGLB_SCALE); handGLB[hd]=s; upgradeHandsToGLB(hd); },
       undefined, err => console.warn('手GLBの読込失敗（低ポリで代替）', hd, err));
   }
 })();
 // コントローラーcに手(GLB優先・無ければ低ポリ)を付ける
 function buildControllerHand(c, hd, sign){
   let obj, isGLB = false;
-  if(handGLB[hd]){ obj = handGLB[hd]; isGLB = true; c.userData.hand = null; }   // 写実GLB(共有・静止)
+  if(handGLB[hd]){ obj = skeletonClone(handGLB[hd]); isGLB = true; c.userData.hand = null; }   // 写実GLB(コントローラーごとに複製=手の奪い合いを防ぐ・静止)
   else {
     const wrap = new THREE.Group(); const h = makeHand(sign); wrap.add(h);
     wrap.rotation.set(HAND_ATTACH_EULER.x, HAND_ATTACH_EULER.y, HAND_ATTACH_EULER.z);
@@ -1208,6 +1340,19 @@ function disposeControllerHand(c){
   c.remove(c.userData.wrap);
   if(!c.userData.isGLB){ c.userData.wrap.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
   c.userData.wrap = null; c.userData.hand = null; c.userData.isGLB = false;
+}
+// GLBが後から届いたとき、既にローポリの手を出しているコントローラーをGLBへ差し替える(初回の読込レース対策)
+function upgradeHandsToGLB(hd){
+  for(const c of handMeshes){
+    if(!c || !c.userData) continue;
+    const wrap = c.userData.wrap;
+    if(!wrap || !wrap.visible || c.userData.isGLB) continue;   // 今ローポリの手を表示中のコントローラーだけ
+    const chd = (c.userData.handedness === 'left') ? 'left' : 'right';
+    if(chd !== hd) continue;
+    disposeControllerHand(c);
+    buildControllerHand(c, hd, hd === 'left' ? -1 : 1);
+    if(c.userData.wrap) c.userData.wrap.visible = true;
+  }
 }
 
 // 手を照準(レーザー)空間 getController に装着
@@ -1397,6 +1542,7 @@ function renderLoop(t, frame){
     if(pendingPlace){ pendingPlace = false; placeInFront(); }
     pollInput(dt);      // 呼び戻し + グリップ回転 + スティックでモード切替
     updateHands(dt);    // トリガーで指を曲げる
+    updateSculpt(dt);   // 彫刻モードなら盛り上げ/へこませ(それ以外はブラシ輪を消すだけ)
     if(mode==='parallax'||mode==='wiggle'||mode==='light') updatePanelXR(sec);   // パネルの頭視差/光
     if(xrMode==='vr'){ if(controllers.length) updatePinch(); }
     else if(xrMode==='ar'){
@@ -1422,7 +1568,7 @@ function renderLoop(t, frame){
     return;
   }
 
-  if(mode==='relief'){
+  if(mode==='relief' || mode==='sculpt'){
     if(!dragging){ ctl.th+=ctl.vth; ctl.ph=clamp(ctl.ph+ctl.vph,.05,Math.PI-.05); ctl.vth*=.9; ctl.vph*=.9; }
     applyCam();
     renderer.render(scene, camera);
