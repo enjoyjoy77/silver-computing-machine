@@ -38,6 +38,8 @@
   #nameList { min-height: 3.5rem; }
   .hint { font-size: 0.72rem; color: var(--muted); margin: 0.2rem 0 0; }
   .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.7rem; }
+  .fileload { display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:0.4rem 0.8rem; background:var(--card); font-size:0.85rem; white-space:nowrap; }
+  .fileload:hover { border-color: var(--accent); }
   button {
     border: 1px solid var(--line); border-radius: 10px; background: var(--card);
     color: var(--ink); padding: 0.55rem 0.9rem; font-size: 0.9rem; cursor: pointer;
@@ -83,10 +85,17 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章の実名をA・B・Cに置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-05f スクロール枠・ボタン上部版</span></p>
+  <p class="sub">文章やWord（.docx / .doc）の実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-09b Word(.doc/.docx)対応版</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
-  <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください"></textarea>
+  <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
+
+  <div class="row" style="margin-top:0.4rem">
+    <label class="fileload">📄 Word（.docx / .doc）／テキストを読み込む
+      <input type="file" id="fileInput" accept=".docx,.txt,.text,.doc" hidden>
+    </label>
+    <span id="fileMsg" class="hint" style="margin:0"></span>
+  </div>
 
   <div class="row">
     <button class="primary" id="execBtn">▶ 匿名化を実行！</button>
@@ -29889,6 +29898,196 @@ window.TinySegmenter = { segment: segment };
     toast("本文と対応表を別ファイルで保存しました");
   });
   $("nameList").addEventListener("change", persist);
+
+  // ---- Wordファイル(.docx)／テキストの読み込み（外部ライブラリなし・端末内で完結） ----
+  const _u32 = (dv,o) => dv.getUint32(o,true), _u16 = (dv,o) => dv.getUint16(o,true);
+  function xmlToText(xml){
+    // 段落=改行、表のセル=タブ、表の行=改行に変換してからタグを除去
+    let s = xml
+      .replace(/<w:tab\b[^>]*\/?>/g, "\t")
+      .replace(/<w:br\b[^>]*\/?>/g, "\n")
+      .replace(/<\/w:p>/g, "\n")
+      .replace(/<\/w:tc>/g, "\t")
+      .replace(/<\/w:tr>/g, "\n")
+      .replace(/<[^>]+>/g, "");
+    s = s.replace(/&#x([0-9a-fA-F]+);/g, (_,h) => String.fromCodePoint(parseInt(h,16)))
+         .replace(/&#(\d+);/g, (_,d) => String.fromCodePoint(parseInt(d,10)))
+         .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+    // セル内の段落末＋セル区切りが重なるのを整理
+    s = s.replace(/\n\t/g,"\t").replace(/\t+\n/g,"\n").replace(/[ \t]+$/gm,"").replace(/\n{3,}/g,"\n\n");
+    return s.trim();
+  }
+  async function docxToText(arrayBuffer){
+    if (typeof DecompressionStream === "undefined") throw new Error("このブラウザは.docx読み込みに未対応です。最新のChrome/Edgeでお試しください");
+    const buf = new Uint8Array(arrayBuffer), dv = new DataView(arrayBuffer);
+    // ZIPの中央ディレクトリ終端(EOCD)を末尾から探す
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65536; i--) {
+      if (_u32(dv,i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Wordファイルの形式が読めません（ZIP終端なし）");
+    const cdCount = _u16(dv, eocd+10), cdOffset = _u32(dv, eocd+16);
+    let p = cdOffset, target = null;
+    for (let n = 0; n < cdCount; n++) {
+      if (_u32(dv,p) !== 0x02014b50) break;
+      const method = _u16(dv,p+10), compSize = _u32(dv,p+20);
+      const fnLen = _u16(dv,p+28), extraLen = _u16(dv,p+30), commLen = _u16(dv,p+32);
+      const localOff = _u32(dv,p+42);
+      const fn = new TextDecoder("utf-8").decode(buf.subarray(p+46, p+46+fnLen));
+      if (fn === "word/document.xml") { target = {method, compSize, localOff}; break; }
+      p += 46 + fnLen + extraLen + commLen;
+    }
+    if (!target) throw new Error("Word本文が見つかりません（対応外のファイルかもしれません）");
+    const lo = target.localOff;
+    if (_u32(dv,lo) !== 0x04034b50) throw new Error("Wordファイルの内部構造が読めません");
+    const dataStart = lo + 30 + _u16(dv,lo+26) + _u16(dv,lo+28);
+    const comp = buf.subarray(dataStart, dataStart + target.compSize);
+    let xmlBytes;
+    if (target.method === 0) { xmlBytes = comp; }   // 無圧縮
+    else {
+      const stream = new Blob([comp]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      xmlBytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    return xmlToText(new TextDecoder("utf-8").decode(xmlBytes));
+  }
+  // ---- 古い .doc (Word97-2003) : OLE複合ファイル+ピーステーブルで本文を正しく取り出す（外部ライブラリ不要） ----
+  function cleanDocText(text){
+    let o = "";
+    for (const ch of text){
+      const c = ch.codePointAt(0);
+      if (ch === "\r" || c === 0x0B || c === 0x0C) o += "\n";
+      else if (c === 0x07) o += "\t";
+      else if (ch === "\t" || ch === "\n") o += ch;
+      else if (c < 0x20) continue;
+      else if (c === 0xFFFF || c === 0xFFFE) continue;
+      else o += ch;
+    }
+    o = o.split("\n").map(l => l.replace(/[ \t]+$/,"")).join("\n").replace(/\n{3,}/g,"\n\n");
+    return o.trim();
+  }
+  function docToText(arrayBuffer){
+    const d = new Uint8Array(arrayBuffer), dv = new DataView(arrayBuffer);
+    if (d.length < 512 || d[0]!==0xD0 || d[1]!==0xCF || d[2]!==0x11 || d[3]!==0xE0)
+      throw new Error("古いWord形式(OLE)ではありません");
+    const secSize = 1 << _u16(dv,30), miniSize = 1 << _u16(dv,32);
+    const dirStart = dv.getInt32(48,true), miniCutoff = _u32(dv,56);
+    const miniFatStart = dv.getInt32(60,true);
+    const difatStart = dv.getInt32(68,true), nDifat = dv.getInt32(72,true);
+    const eps = secSize >> 2;                       // FAT entries / sector
+    const secOff = (sid) => 512 + sid*secSize;
+    const concat = (parts) => { let n=0; for(const p of parts) n+=p.length; const out=new Uint8Array(n); let o=0; for(const p of parts){ out.set(p,o); o+=p.length; } return out; };
+
+    // DIFAT -> FAT
+    const difat = [];
+    for (let i=0;i<109;i++){ const v=dv.getInt32(76+i*4,true); if(v>=0) difat.push(v); }
+    let sid=difatStart, cnt=nDifat, g=0;
+    while (cnt>0 && sid>=0 && g<100000){
+      const base=secOff(sid);
+      for (let i=0;i<eps-1;i++){ const v=dv.getInt32(base+i*4,true); if(v>=0) difat.push(v); }
+      sid=dv.getInt32(base+(eps-1)*4,true); cnt--; g++;
+    }
+    const fat=[];
+    for (const s of difat){ const base=secOff(s); if(base+secSize>d.length) continue; for(let i=0;i<eps;i++) fat.push(dv.getInt32(base+i*4,true)); }
+
+    const chainRead=(start,size)=>{ const parts=[]; let s=start,gg=0; while(s>=0 && s<fat.length && gg<=fat.length+10){ const o=secOff(s); parts.push(d.subarray(o,Math.min(o+secSize,d.length))); s=fat[s]; gg++; } let a=concat(parts); if(size>0 && a.length>size) a=a.subarray(0,size); return a; };
+
+    // directory
+    const dirRaw=chainRead(dirStart,0), ddv=new DataView(dirRaw.buffer,dirRaw.byteOffset,dirRaw.byteLength);
+    const entries=[];
+    for (let o=0;o+128<=dirRaw.length;o+=128){
+      const nameLen=ddv.getUint16(o+64,true);
+      const name = nameLen>=2 ? new TextDecoder("utf-16le").decode(dirRaw.subarray(o,o+nameLen-2)) : "";
+      entries.push({name, type:dirRaw[o+66], start:ddv.getInt32(o+116,true), size:ddv.getUint32(o+120,true)});
+    }
+    const root=entries.find(e=>e.type===5);
+
+    // mini FAT + mini stream
+    const minifat=[];
+    if (miniFatStart>=0){ const mf=chainRead(miniFatStart,0), mdv=new DataView(mf.buffer,mf.byteOffset,mf.byteLength); for(let i=0;i+4<=mf.length;i+=4) minifat.push(mdv.getInt32(i,true)); }
+    const ministream = root ? chainRead(root.start,root.size) : new Uint8Array(0);
+    const miniRead=(start,size)=>{ const parts=[]; let s=start,gg=0; while(s>=0 && s<minifat.length && gg<=minifat.length+10){ const o=s*miniSize; parts.push(ministream.subarray(o,Math.min(o+miniSize,ministream.length))); s=minifat[s]; gg++; } let a=concat(parts); if(size>0 && a.length>size) a=a.subarray(0,size); return a; };
+    const getStream=(nm)=>{ const e=entries.find(x=>x.name===nm && x.type===2); if(!e) return null; return e.size<miniCutoff ? miniRead(e.start,e.size) : chainRead(e.start,e.size); };
+
+    // WordDocument stream + FIB
+    const wd=getStream("WordDocument");
+    if(!wd || wd.length<512) throw new Error("本文ストリームが見つかりません");
+    const wdv=new DataView(wd.buffer,wd.byteOffset,wd.byteLength);
+    const tblName = (wdv.getUint16(10,true) & 0x0200) ? "1Table" : "0Table";
+    const table = getStream(tblName) || getStream("1Table") || getStream("0Table");
+
+    let pos=32;
+    const csw=wdv.getUint16(pos,true); pos+=2; pos+=csw*2;
+    const cslw=wdv.getUint16(pos,true); pos+=2; const lwPos=pos;
+    const ccpText=wdv.getInt32(lwPos+12,true);
+    pos+=cslw*4; pos+=2; const blob=pos;
+    if(blob+33*8+8>wd.length) throw new Error("FIBが読めません");
+    const fcClx=wdv.getUint32(blob+33*8,true), lcbClx=wdv.getUint32(blob+33*8+4,true);
+
+    let out="";
+    if(table && lcbClx>0 && fcClx+lcbClx<=table.length){
+      const clx=table.subarray(fcClx,fcClx+lcbClx), cdv=new DataView(clx.buffer,clx.byteOffset,clx.byteLength);
+      let i=0, plc=null;
+      while(i<clx.length){
+        const t=clx[i];
+        if(t===1){ i+=3+cdv.getUint16(i+1,true); }
+        else if(t===2){ const lcb=cdv.getInt32(i+1,true), st=i+5; if(lcb>0 && st+lcb<=clx.length) plc=clx.subarray(st,st+lcb); break; }
+        else break;
+      }
+      if(plc){
+        const pdv=new DataView(plc.buffer,plc.byteOffset,plc.byteLength);
+        const n=Math.floor((plc.length-4)/12), cps=[];
+        for(let k=0;k<=n;k++) cps.push(pdv.getUint32(k*4,true));
+        const dec16=new TextDecoder("utf-16le"), dec1252=new TextDecoder("windows-1252");
+        for(let k=0;k<n;k++){
+          const fc=pdv.getUint32((n+1)*4+k*8+2,true), cch=cps[k+1]-cps[k];
+          if(cch<=0) continue;
+          const baseFc=fc & 0x3FFFFFFF;
+          if(fc & 0x40000000){ const off=baseFc>>>1; if(off>=0 && off+cch<=wd.length) out+=dec1252.decode(wd.subarray(off,off+cch)); }
+          else { const off=baseFc; if(off>=0 && off+cch*2<=wd.length) out+=dec16.decode(wd.subarray(off,off+cch*2)); }
+        }
+      }
+    }
+    if(ccpText>0 && out.length>=ccpText) out=out.slice(0,ccpText);
+    if(!out || !out.trim()) throw new Error("本文を取り出せませんでした");
+    return cleanDocText(out);
+  }
+  function decodeTextBytes(arrayBuffer){
+    try { return new TextDecoder("utf-8", {fatal:true}).decode(arrayBuffer); }
+    catch(e){ try { return new TextDecoder("shift_jis").decode(arrayBuffer); } catch(e2){ return new TextDecoder("utf-8").decode(arrayBuffer); } }
+  }
+  $("fileInput").addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    const msg = (t) => { $("fileMsg").textContent = t; };
+    const name = f.name.toLowerCase();
+    try {
+      if (name.endsWith(".docx")) {
+        msg("読み込み中…");
+        const text = await docxToText(await f.arrayBuffer());
+        $("inputText").value = text;
+        msg("✅ " + f.name + " を読み込みました（" + text.length + "文字）。匿名化しました↓");
+        run();
+      } else if (name.endsWith(".txt") || name.endsWith(".text")) {
+        $("inputText").value = decodeTextBytes(await f.arrayBuffer());
+        msg("✅ " + f.name + " を読み込みました。匿名化しました↓");
+        run();
+      } else if (name.endsWith(".doc")) {
+        msg("読み込み中…");
+        try {
+          const text = docToText(await f.arrayBuffer());
+          $("inputText").value = text;
+          msg("✅ " + f.name + " を読み込みました（" + text.length + "文字）。匿名化しました↓");
+          run();
+        } catch (e2) {
+          msg("⚠ この .doc は読み取れませんでした（" + ((e2 && e2.message) || e2) + "）。Wordで開いて『名前を付けて保存』→種類を『Word 文書(.docx)』にし直すか、ツールボックスの File-2-Text でテキストにしてから貼ってください。");
+        }
+      } else {
+        msg("⚠ 対応していない形式です（.docx と .txt に対応）");
+      }
+    } catch (err) {
+      msg("⚠ 読み込みに失敗しました：" + ((err && err.message) || err));
+    }
+    e.target.value = "";   // 同じファイルを続けて選べるように
+  });
 })();
 </script>
 </body>
