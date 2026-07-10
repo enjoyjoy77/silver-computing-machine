@@ -165,6 +165,11 @@
     <button class="btn" id="arBtn" disabled>🥽 AR</button>
     <button class="btn" id="vrBtn" disabled>🌐 VR</button>
   </div>
+  <!-- 体えらび(複数体のとき。立体の強さ等はこの選んだ体に効く) -->
+  <div class="row" id="figPickerRow" style="display:none">
+    <span style="font-size:10px;letter-spacing:.1em;color:var(--dim);align-self:center">調整する体</span>
+    <div id="figPicker" style="display:flex;gap:6px;overflow-x:auto;max-width:80vw;padding:2px"></div>
+  </div>
   <!-- レリーフ用 -->
   <div class="row" id="reliefRow1">
     <div class="card">
@@ -218,7 +223,7 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev7c";
+const REV = "v2 rev7d";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -385,7 +390,31 @@ function setActive(it){
   imgTexSRGB = it ? it.imgTexSRGB : null;
   imgTexLinear = it ? it.imgTexLinear : null;
   depthTex = it ? it.depthTex : null;
-  if(it){ S.aspect = it.aspect; S.depthMap = it.depthMap; S.alphaMap = it.alphaMap; }
+  if(it){ S.aspect = it.aspect; S.depthMap = it.depthMap; S.alphaMap = it.alphaMap;
+    S.depthCm = it.depthCm ?? 35; S.invert = it.invert ?? false; S.res = it.res ?? 300; }   // 体ごとの立体設定を反映
+}
+// 立体スライダーのUIを active の設定に合わせる(体を選び直したとき)
+function syncDepthUI(){
+  if(!activeItem) return;
+  $('depthRange').value = S.depthCm; $('depthVal').textContent = S.depthCm;
+  $('invChk').checked = !!S.invert;
+  [...$('resSeg').children].forEach(x=>x.classList.toggle('on', parseInt(x.dataset.r)===S.res));
+}
+// 2Dで「どの体を調整するか」を選ぶサムネ列(複数体のレリーフ時だけ)
+function renderFigPicker(){
+  const row = $('figPickerRow'), box = $('figPicker');
+  const show = (mode === 'relief') && items.length > 1;
+  row.style.display = show ? 'flex' : 'none';
+  box.innerHTML = '';
+  if(!show) return;
+  for(const it of items){
+    const b = document.createElement('button');
+    b.style.cssText = 'flex:0 0 auto;width:44px;height:44px;border-radius:9px;padding:0;cursor:pointer;overflow:hidden;'
+      + 'background:var(--panel2);border:2px solid ' + (it===activeItem ? 'var(--accent)' : 'var(--line)');
+    b.innerHTML = '<img src="'+it.thumb+'" style="width:100%;height:100%;object-fit:contain">';
+    b.addEventListener('click', ()=>{ setActive(it); syncDepthUI(); refresh2DActive(); setMode('relief'); });
+    box.appendChild(b);
+  }
 }
 
 /* ============ 画像→ピクセルマップ ============ */
@@ -440,6 +469,7 @@ async function makeItem(figure){
     imgEl: img.img, depEl: dep.img,   // GC防止に保持(revokeしない)
     group: new THREE.Group(), tiltGroup: new THREE.Group(),
     reliefMesh: null, reliefGeo: null,
+    depthCm: 35, invert: false, res: 300,   // ← 体ごとに個別の立体設定
   };
   it.group.add(it.tiltGroup);
   it.imgTexLinear = makeTex(img.img, false);
@@ -448,6 +478,10 @@ async function makeItem(figure){
   it.aspect   = img.img.naturalWidth / img.img.naturalHeight;
   it.depthMap = imageToMap(dep.img, 640);
   it.alphaMap = imageToMap(img.img, 512);
+  // 体選択用サムネ(64px)
+  { const tc=document.createElement('canvas'); const T=64; tc.width=T; tc.height=T; const g=tc.getContext('2d');
+    const s=Math.min(T/img.img.naturalWidth, T/img.img.naturalHeight); const w=img.img.naturalWidth*s, h=img.img.naturalHeight*s;
+    g.drawImage(img.img, (T-w)/2, (T-h)/2, w, h); it.thumb = tc.toDataURL('image/png'); }
   URL.revokeObjectURL(img.url); URL.revokeObjectURL(dep.url);   // 復号済みなので解放してよい(リーク防止)
   scene.add(it.group);
   setActive(it);
@@ -797,6 +831,7 @@ function setMode(m){
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
   if(isRelief && !inXR) frameCamera();
+  renderFigPicker();   // 体えらび列の表示更新(reliefかつ複数体のみ)
 }
 $('modeSeg').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setMode(b.dataset.m); });
 
@@ -822,16 +857,15 @@ addEventListener('deviceorientation', e=>{
 
 /* ============ コントロール ============ */
 let amt=0.45, speed=0.45;
-// 立体の強さ/反転/精細は全itemに効かせる(activeだけだと他の体が初期値のまま)
-function applyToAllItems(fn){ const cur = activeItem; for(const it of items){ setActive(it); fn(); } setActive(cur); }
+// 立体の強さ/反転/精細は「選択中の体」だけに効かせる(体ごとに別々に調整できる)
 $('amtRange').addEventListener('input', ()=>{ amt=parseInt($('amtRange').value)/100; $('amtVal').textContent=$('amtRange').value; });
 $('spdRange').addEventListener('input', ()=>{ speed=parseInt($('spdRange').value)/100; $('spdVal').textContent=$('spdRange').value; });
-$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; applyToAllItems(displace); });
-$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; applyToAllItems(displace); });
+$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; if(activeItem) activeItem.depthCm=S.depthCm; displace(); });
+$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; if(activeItem) activeItem.invert=S.invert; displace(); });
 $('resSeg').addEventListener('click', e=>{
   const b=e.target.closest('button'); if(!b) return;
   [...$('resSeg').children].forEach(x=>x.classList.toggle('on', x===b));
-  S.res=parseInt(b.dataset.r); applyToAllItems(buildRelief);
+  S.res=parseInt(b.dataset.r); if(activeItem) activeItem.res=S.res; buildRelief();
 });
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
@@ -1319,7 +1353,7 @@ async function start(selected){
     }
     if(!items.length){ showErr('フィギュアがありません'); return; }
     setActive(items[0]);
-    refresh2DActive();
+    refresh2DActive(); syncDepthUI();
     $('drop').style.display='none'; $('ui').style.display='flex';
     setMode(mode);
     toast(items.length>1 ? items.length+'体を読み込みました。AR/VRで並べられます' : 'モードを切り替えて楽しんでください');
