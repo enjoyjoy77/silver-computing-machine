@@ -221,9 +221,10 @@
 import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev7d";
+const REV = "v2 rev7e";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1176,7 +1177,40 @@ function makeHand(sign){
   return hand;
 }
 
-// 手を照準(レーザー)空間 getController に装着。指がレーザーに沿い、人差し指の先からビームが出る
+// コントローラー用: ハンドトラッキングと同じ写実的な手(GLB)を静止で装着。読めなければ低ポリにフォールバック
+const gltfLoader = new GLTFLoader();
+const handGLB = { left: null, right: null };
+const HANDGLB_EULER = { x: 0, y: 0, z: 0 };       // 実機で手の向きが変ならここを直す(1箇所)
+const HANDGLB_POS   = { x: 0, y: -0.02, z: 0.02 };
+const HANDGLB_SCALE = 1.0;
+(function loadHandGLBs(){
+  for(const hd of ['left','right']){
+    gltfLoader.load('https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/'+hd+'.glb',
+      g => { const s=g.scene; s.rotation.set(HANDGLB_EULER.x,HANDGLB_EULER.y,HANDGLB_EULER.z); s.position.set(HANDGLB_POS.x,HANDGLB_POS.y,HANDGLB_POS.z); s.scale.setScalar(HANDGLB_SCALE); handGLB[hd]=s; },
+      undefined, err => console.warn('手GLBの読込失敗（低ポリで代替）', hd, err));
+  }
+})();
+// コントローラーcに手(GLB優先・無ければ低ポリ)を付ける
+function buildControllerHand(c, hd, sign){
+  let obj, isGLB = false;
+  if(handGLB[hd]){ obj = handGLB[hd]; isGLB = true; c.userData.hand = null; }   // 写実GLB(共有・静止)
+  else {
+    const wrap = new THREE.Group(); const h = makeHand(sign); wrap.add(h);
+    wrap.rotation.set(HAND_ATTACH_EULER.x, HAND_ATTACH_EULER.y, HAND_ATTACH_EULER.z);
+    wrap.position.set(HAND_ATTACH_POS.x - FINGER_INDEX_X*sign*MM, HAND_ATTACH_POS.y, HAND_ATTACH_POS.z);
+    obj = wrap; c.userData.hand = h;   // 低ポリは指を曲げられる
+  }
+  c.add(obj);
+  c.userData.wrap = obj; c.userData.handSign = sign; c.userData.isGLB = isGLB;
+}
+function disposeControllerHand(c){
+  if(!c.userData.wrap) return;
+  c.remove(c.userData.wrap);
+  if(!c.userData.isGLB){ c.userData.wrap.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
+  c.userData.wrap = null; c.userData.hand = null; c.userData.isGLB = false;
+}
+
+// 手を照準(レーザー)空間 getController に装着
 function setupHands(){
   if(handMeshes[0]) return;
   for(let i=0;i<2;i++){
@@ -1184,30 +1218,21 @@ function setupHands(){
     scene.add(c);                              // setupControllersでも追加されるが冪等
     c.addEventListener('connected', e=>{
       c.userData.src = e.data;
-      const sign = (e.data && e.data.handedness === 'left') ? -1 : 1;
-      // 左右が入れ替わって再接続したら古い手を捨てて作り直す(index↔handednessは保証されない)
-      if(c.userData.hand && c.userData.handSign !== sign){
-        const old = c.userData.wrap;
-        if(old){ c.remove(old); old.traverse(o=>{ o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); }); }
-        c.userData.hand = null;
-      }
-      if(!c.userData.hand){
-        const wrap = new THREE.Group();
-        const hand = makeHand(sign);
-        wrap.add(hand);
-        wrap.rotation.set(HAND_ATTACH_EULER.x, HAND_ATTACH_EULER.y, HAND_ATTACH_EULER.z);
-        // 人差し指(ローカルx=FINGER_INDEX_X*sign)をレーザー中心 x=0 に寄せる
-        wrap.position.set(HAND_ATTACH_POS.x - FINGER_INDEX_X*sign*MM, HAND_ATTACH_POS.y, HAND_ATTACH_POS.z);
-        c.add(wrap);
-        c.userData.hand = hand;
-        c.userData.wrap = wrap;
-        c.userData.handSign = sign;
-      }
       c.userData.handedness = e.data && e.data.handedness;   // 回転対象を手ごとに選ぶのに使う
-      // 素手(ハンドトラッキング)のときは作り物の手を出さない → 本物の手モデルに任せる
       const isHand = !!(e.data && e.data.hand);
-      c.userData.wrap.visible = !isHand;
-      if(handTrackers[i]) handTrackers[i].visible = isHand;   // 素手の時だけ本物の手を出す(コントローラー時は静止した手を残さない)
+      const hd = (e.data && e.data.handedness === 'left') ? 'left' : 'right';
+      const sign = hd === 'left' ? -1 : 1;
+      if(!isHand){
+        // コントローラー: 写実的な手を出す。左右が入れ替わって再接続したら作り直す
+        if(c.userData.wrap && c.userData.handSign !== sign) disposeControllerHand(c);
+        if(!c.userData.wrap) buildControllerHand(c, hd, sign);
+        c.userData.wrap.visible = true;
+        if(handTrackers[i]) handTrackers[i].visible = false;
+      } else {
+        // 素手: 作り物の手を隠し、本物の手を出す
+        if(c.userData.wrap) c.userData.wrap.visible = false;
+        if(handTrackers[i]) handTrackers[i].visible = true;
+      }
     });
     // 手とコントローラの自動切替でコントローラーを置くと disconnected → 手だけ隠す(レーザーは残す)
     c.addEventListener('disconnected', ()=>{
