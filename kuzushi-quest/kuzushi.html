@@ -104,7 +104,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev4";
+const REV = "v2 rev6";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -138,7 +138,7 @@ function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + 
 const TUNE = {
   throwMul: 1.4, throwMax: 7.0,
   blockDensity: 550, ballDensity: 1900,
-  restitution: 0.3, friction: 0.9,
+  restitution: 0.12, friction: 0.9,     // 反発低め＝生えた時に跳ねて自壊しにくい
   forceThreshold: 1.0, forceRef: 220,
   collapseDist: 0.12, towerLayers: 8,    // 塔を高く（見上げる高さ）。高すぎると自壊するので8段
   settleGrace: 1.3,     // 生えてから落ち着くまで(s)は崩れ判定をしない（自壊を数えない）
@@ -167,11 +167,13 @@ const canvas = $("view");
 let renderer = null;
 function init3D(){
   if(renderer) return;
-  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true, powerPreference:"high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.xr.enabled = true;
+  // XRの描画解像度を少し下げて軽くする（塊を投げて崩すゲームなので鮮明さより滑らかさ優先。ボケたら上げる）
+  if(renderer.xr.setFramebufferScaleFactor) renderer.xr.setFramebufferScaleFactor(0.85);
   renderer.setAnimationLoop(renderLoop);
 }
 const scene = new THREE.Scene();
@@ -184,14 +186,14 @@ const dirLight = new THREE.DirectionalLight(0xfff0dc, 1.1); dirLight.position.se
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
 
-// 素材（1回だけ作って共有）
-const woodMat = new THREE.MeshStandardMaterial({ color:0xd8a25a, roughness:0.75, metalness:0.0 });
-const lastMat = new THREE.MeshStandardMaterial({ color:0xffe08a, emissive:0xff8a00, emissiveIntensity:0.9, roughness:0.4 });
-const ballMat = new THREE.MeshStandardMaterial({ color:0xffb454, emissive:0x6a3a00, emissiveIntensity:0.55, roughness:0.35 });
-const ballMatCrit = new THREE.MeshStandardMaterial({ color:0xffe08a, emissive:0xffb020, emissiveIntensity:1.1, roughness:0.2, metalness:0.3 });
+// 素材（1回だけ作って共有）。Lambert=モバイルGPUで軽い（PBRのStandardより安い）。見た目はほぼ同じ
+const woodMat = new THREE.MeshLambertMaterial({ color:0xd8a25a });
+const lastMat = new THREE.MeshLambertMaterial({ color:0xffe08a, emissive:0xff8a00, emissiveIntensity:0.9 });
+const ballMat = new THREE.MeshLambertMaterial({ color:0xffb454, emissive:0x6a3a00, emissiveIntensity:0.55 });
+const ballMatCrit = new THREE.MeshLambertMaterial({ color:0xffe08a, emissive:0xffb020, emissiveIntensity:1.1 });
 const blockGeoX = new THREE.BoxGeometry(0.15, 0.05, 0.05);
 const blockGeoZ = new THREE.BoxGeometry(0.05, 0.05, 0.15);
-const ballGeo = new THREE.SphereGeometry(0.04, 20, 16);
+const ballGeo = new THREE.SphereGeometry(0.04, 16, 12);   // 玉のポリゴンを控えめに
 
 /* ============================================================
    3. 物理（Rapier）
@@ -274,7 +276,9 @@ function spawnTower(cx, topY, cz){
     mesh.position.set(p.x, p.y, p.z);
     mesh.scale.set(1, 0.001, 1);
     scene.add(mesh);
-    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z);
+    // 減衰を入れて、生えた直後の微振動をすぐ落ち着かせる（高い塔の自壊防止）。当てられた時は普通に飛ぶ
+    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z)
+      .setLinearDamping(0.2).setAngularDamping(0.4);
     const body = world.createRigidBody(rb);
     const hx = p.ax ? 0.075 : 0.025, hz = p.ax ? 0.025 : 0.075;
     const cd = RAPIER.ColliderDesc.cuboid(hx, 0.025, hz)
@@ -288,7 +292,7 @@ function spawnTower(cx, topY, cz){
     blocks.push(b);
   });
   standing = blocks.length;
-  growT = 0; towerAge = 0; lastOneDone = false; towerStartT = performance.now()/1000;
+  growT = 0; towerAge = 0; settled = false; lastOneDone = false; towerStartT = performance.now()/1000;
   checkpoint("tower", "塔が生えた（" + kind + " / " + blocks.length + "本）");
 }
 
@@ -428,7 +432,7 @@ function pullNearest(i){
 }
 
 /* --- ゲーム進行 --- */
-let standing = 0, growT = 0, towerAge = 0, lastBlock = null, lastOneDone = false;
+let standing = 0, growT = 0, towerAge = 0, settled = false, lastBlock = null, lastOneDone = false;
 let phase = "idle", phaseT = 0;
 // 連鎖・記録
 let comboCount = 0, comboLast = 0, maxCombo = 0, totalDown = 0, bestClear = Infinity;
@@ -462,7 +466,9 @@ function drainEvents(){
       // 「実際に動いているもの」が絡んだ接触だけを叩きとして扱う。
       // 立っているだけの塔が自分の重みで出す接触（＝何もしないのにコンボが上がる・鳴る）を無視する
       const moving = Math.max(bodySpeed(o1), bodySpeed(o2)) > TUNE.impactMinSpeed;
-      if(blk && moving && nowMs - blk.lastSnd > 70){
+      // 生え始めの落ち着くまでは、玉が絡まない自然な揺れ(自壊)では鳴らさない
+      const settling = towerAge < TUNE.settleGrace;
+      if(blk && moving && !(settling && !ball) && nowMs - blk.lastSnd > 70){
         blk.lastSnd = nowMs;
         playImpact(strength);
         // 音階コンボは「崩れる音」の飾り（おまけ）。目立つ表示はしない。
@@ -518,7 +524,13 @@ function endLastOne(){
 
 function checkCollapse(){
   if(phase !== "playing") return;
-  if(towerAge < TUNE.settleGrace) return;   // 生えて落ち着くまでは崩れ判定しない（自壊を数えない）
+  if(towerAge < TUNE.settleGrace) return;   // 生えて落ち着くまでは崩れ判定しない
+  // 落ち着いた瞬間、各ブロックの「今の位置」を基準に取り直す。
+  // これで生えるときに少しズレたブロックも「立っている」扱いになり、投げて動かした時だけ崩れとみなす
+  if(!settled){
+    settled = true;
+    for(const b of blocks){ if(!b.down){ const t=b.body.translation(); b.ox=t.x; b.oy=t.y; b.oz=t.z; } }
+  }
   const prevStanding = standing;
   let fell = 0;
   for(const b of blocks){
@@ -967,7 +979,7 @@ if(navigator.xr && navigator.xr.isSessionSupported){
 /* ============================================================
    9. 毎フレーム
    ============================================================ */
-let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false, critForce = false;
+let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false, critForce = false, hudTick = 0;
 
 function simulate(dt){
   updateTimeEffects(dt);
@@ -989,12 +1001,15 @@ function simulate(dt){
       if(!b.down) b.mesh.scale.y = 0.001 + local*0.999;
     }
   }
-  $("stats").textContent = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1)
-    + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount;
-  // 3Dパネルは「意味が変わったときだけ」再描画する（fps/物理msを含めない＝毎フレームのテクスチャ再アップロードを避ける）
-  const panelLine = "立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount
-    + " / fps " + (Math.round(fpsSmooth/5)*5);
-  if(panelLine !== panelStatus){ panelStatus = panelLine; if(panel.visible) drawPanel(); }
+  // ステータス表示は毎フレームでなく数フレームおきに更新（文字列生成とDOM書き込みを減らす）
+  if((hudTick = (hudTick + 1) % 12) === 0){
+    $("stats").textContent = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1)
+      + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount;
+    // 3Dパネルは「意味が変わったときだけ」再描画（fps/物理msを含めない＝毎フレームのテクスチャ再アップロードを避ける）
+    const panelLine = "立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount
+      + " / fps " + (Math.round(fpsSmooth/5)*5);
+    if(panelLine !== panelStatus){ panelStatus = panelLine; if(panel.visible) drawPanel(); }
+  }
 }
 
 function renderLoop(t, frame){
