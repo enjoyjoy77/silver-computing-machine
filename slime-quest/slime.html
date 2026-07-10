@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v3 rev3";
+const REV = "v4 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -139,6 +139,8 @@ const TUNE = {
   fingerR: 0.026,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
   ctrlR: 0.034,           // コントローラ先端の当たり半径(m)
   coreR: 0.035,           // 真ん中の「芯」の半径(m)。ここを押すとスライム全体が動く
+  grabRadius: 0.06,       // つかむ範囲(m)。この中の表面の粒を掴む
+  grabK: 0.35,            // つかんだ粒が手に付いてくる強さ(0-1/サブステップ)
   maxStep: 0.05,          // 1サブステップの最大移動(m)（暴れ防止）
   squishGap: 85,          // 音の最短間隔(ms)
   squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
@@ -296,6 +298,7 @@ function spawnAt(cx, cy, cz){
     vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
   }
   curVol = restVol; slimeReady = true; slime.visible = true; coreMesh.visible = true;
+  slimeGrab[0]=null; slimeGrab[1]=null;   // 形替え・置き直しで掴みを解除（古い粒番号を触らない）
   updateRenderMesh();
   checkpoint("spawn", "スライムを出した");
 }
@@ -317,6 +320,35 @@ let colN = 0;
 let contactDepth = 0;   // このフレームで一番深くめり込んだ量
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
 
+/* --- つかむ（表面をひとつかみ掴んで、手を動かすと伸びる・こねる） --- */
+const slimeGrab = [null, null];                       // 各手: {idx:[粒], ox/oy/oz:[手からのずれ]}
+const grabHand = [new THREE.Vector3(), new THREE.Vector3()]; // 各手の現在ワールド位置
+function grabSlime(i, hx, hy, hz){
+  if(!slimeReady) return false;
+  const r2 = TUNE.grabRadius*TUNE.grabRadius;
+  const idx=[], ox=[], oy=[], oz=[];
+  for(let p=0;p<N;p++){
+    const dx=pos[p*3]-hx, dy=pos[p*3+1]-hy, dz=pos[p*3+2]-hz;
+    if(dx*dx+dy*dy+dz*dz < r2){ idx.push(p); ox.push(dx); oy.push(dy); oz.push(dz); }  // 掴んだ瞬間の手からのずれを保存
+  }
+  if(idx.length===0) return false;
+  slimeGrab[i] = { idx, ox, oy, oz };
+  return true;
+}
+function solveGrab(){
+  const k = TUNE.grabK;
+  for(let i=0;i<2;i++){
+    const g = slimeGrab[i]; if(!g) continue;
+    const hx=grabHand[i].x, hy=grabHand[i].y, hz=grabHand[i].z;
+    for(let j=0;j<g.idx.length;j++){
+      const p=g.idx[j];
+      pos[p*3]   += (hx+g.ox[j]-pos[p*3])*k;      // 掴んだ粒を「手＋保存したずれ」へ引く＝手に付いてくる
+      pos[p*3+1] += (hy+g.oy[j]-pos[p*3+1])*k;
+      pos[p*3+2] += (hz+g.oz[j]-pos[p*3+2])*k;
+    }
+  }
+}
+
 /* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
 const FIXED = 1/60;
 let physAcc = 0, physMs = 0;
@@ -329,6 +361,7 @@ function softStep(h){
     solveVolume(sdt);
     solveColliders();
     solveCore();
+    solveGrab();
     finalize(sdt);
   }
 }
@@ -597,8 +630,10 @@ function onSelectStart(i){
       if(_v1.distanceTo(_v2) < 0.05){ setShape(b.idx); pulse(i,0.4,30); return; } // 形ボタン
     }
   }
+  // UIに当たらなければ、スライム表面をつかむ
+  if(grabSlime(i, _v1.x, _v1.y, _v1.z)){ grabHand[i].copy(_v1); pulse(i,0.5,30); return; }
 }
-function onSelectEnd(i){ if(grab.ctrl===i){ grab.lever=-1; grab.ctrl=-1; } }
+function onSelectEnd(i){ if(grab.ctrl===i){ grab.lever=-1; grab.ctrl=-1; } slimeGrab[i]=null; }
 function updateGrab(){
   if(grab.lever<0 || !ctrlGroup.visible || !controllers[grab.ctrl]) return;
   const L = LEVERS[grab.lever];
@@ -626,7 +661,7 @@ function setupControllers(){
 function collectXRColliders(frame, ref){
   colN = 0;
   for(let i=0;i<2;i++){
-    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
+    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); grabHand[i].copy(_v1); if(!slimeGrab[i]) addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
   }
   const session = renderer.xr.getSession();
   if(session && frame && ref){
@@ -673,7 +708,7 @@ async function startAR(){
     session.addEventListener("end", ()=>{
       xrSession = null; slime.visible = false; slimeReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
-      ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; coreMesh.visible = false;
+      ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; coreMesh.visible = false; slimeGrab[0]=null; slimeGrab[1]=null;
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -927,6 +962,23 @@ window.__dbg = {
       const o=comOffset(); if(o>maxOff)maxOff=o;
     }
     colN=0; const st=this.tick(1.5); st.maxCoreMove=+maxOff.toFixed(3); return st;
+  },
+  // 表面を掴んで横に引っ張り、伸びるか＆離すと戻るかを測る
+  grabTest(sec){
+    this.spawn();
+    const hx=anchorCenter.x+TUNE.radius*0.9, hy=anchorCenter.y, hz=anchorCenter.z;
+    if(!grabSlime(0, hx,hy,hz)) return "no-grab";
+    grabHand[0].set(hx,hy,hz);
+    const np=slimeGrab[0].idx.length; let maxStretch=0;
+    const steps=Math.max(1,Math.round((sec||0.6)/FIXED));
+    for(let s=0;s<steps;s++){
+      const f=(s+1)/steps;
+      grabHand[0].set(hx + f*0.14, hy, hz);      // 横に14cm引っ張る
+      contactDepth=0; softStep(FIXED);
+      const se=shapeErr(); if(se>maxStretch)maxStretch=se;
+    }
+    slimeGrab[0]=null;
+    const st=this.tick(1.5); st.grabbedParts=np; st.maxStretch=+maxStretch.toFixed(3); return st;
   },
   // 指を離して戻るのを見る
   settle(sec){
