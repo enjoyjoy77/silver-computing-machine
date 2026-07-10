@@ -212,7 +212,7 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev7";
+const REV = "v2 rev7b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -441,6 +441,7 @@ async function makeItem(figure){
   it.aspect   = img.img.naturalWidth / img.img.naturalHeight;
   it.depthMap = imageToMap(dep.img, 640);
   it.alphaMap = imageToMap(img.img, 512);
+  URL.revokeObjectURL(img.url); URL.revokeObjectURL(dep.url);   // 復号済みなので解放してよい(リーク防止)
   scene.add(it.group);
   setActive(it);
   buildRelief();   // itへ組み込む(書き戻し済み)
@@ -679,11 +680,14 @@ function xrAttach(m){
   detachPanels();
   if(m==='relief'){
     // 複数体: 全item表示、各itemのreliefは自分のtiltGroupに(makeItemで既に入っている)
+    let exposed = false;
     for(const it of items){
+      if(!it.group.visible) exposed = true;   // 疑似3Dで隠れていた体が新たに見える
       it.group.visible = true;
       if(it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
     }
     grabTarget = null;   // raycastはitemUnderRayで全item対象
+    if(exposed && renderer && renderer.xr.isPresenting) pendingPlace = true;   // 未配置の体を並べ直す
   } else {
     // 疑似3D(単体): activeItemだけ表示、そのtiltGroupにパネル/多層。activeのreliefは外す
     for(const it of items) it.group.visible = (it === activeItem);
@@ -728,7 +732,7 @@ function updatePanelXR(sec){
     const f = 0.3+speed*1.2;
     panelU.uShift.value.set(Math.sin(sec*f*Math.PI*2)*0.12, 0);
   } else if(mode==='parallax'){
-    if(root.parent !== scene) return;   // 掴み中はパネルが手と一緒に動くので視差を止める(スイム防止)
+    if(pinch || root.parent !== scene) return;   // 掴み/ピンチ中はパネルが動くので視差を止める(スイム防止)
     const cam = renderer.xr.getCamera();
     cam.getWorldPosition(_camPos);
     panelMesh.updateWorldMatrix(true, false);
@@ -811,14 +815,16 @@ addEventListener('deviceorientation', e=>{
 
 /* ============ コントロール ============ */
 let amt=0.45, speed=0.45;
+// 立体の強さ/反転/精細は全itemに効かせる(activeだけだと他の体が初期値のまま)
+function applyToAllItems(fn){ const cur = activeItem; for(const it of items){ setActive(it); fn(); } setActive(cur); }
 $('amtRange').addEventListener('input', ()=>{ amt=parseInt($('amtRange').value)/100; $('amtVal').textContent=$('amtRange').value; });
 $('spdRange').addEventListener('input', ()=>{ speed=parseInt($('spdRange').value)/100; $('spdVal').textContent=$('spdRange').value; });
-$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; displace(); });
-$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; displace(); });
+$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; applyToAllItems(displace); });
+$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; applyToAllItems(displace); });
 $('resSeg').addEventListener('click', e=>{
   const b=e.target.closest('button'); if(!b) return;
   [...$('resSeg').children].forEach(x=>x.classList.toggle('on', x===b));
-  S.res=parseInt(b.dataset.r); buildRelief();
+  S.res=parseInt(b.dataset.r); applyToAllItems(buildRelief);
 });
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
@@ -952,7 +958,7 @@ function deadzone(v){
 function pollInput(dt){
   const sess = renderer.xr.getSession(); if(!sess) return;
   let recallPressed = false, cycleNow = false, recalledThisFrame = false;
-  let bestYaw = 0, bestTilt = 0, bestMag = 0;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
+  let bestYaw = 0, bestTilt = 0, bestMag = 0, bestHd = null;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
   for(const src of sess.inputSources){
     const gp = src.gamepad; if(!gp) continue;
     const b = gp.buttons, ax = gp.axes;
@@ -969,7 +975,7 @@ function pollInput(dt){
       const rawY = (ax.length >= 4) ? ax[3] : (ax[1] || 0);
       const x = deadzone(rawX), y = deadzone(rawY);
       const mag = Math.abs(x) + Math.abs(y);
-      if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; }
+      if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; bestHd = hd; }
     }
   }
   // 呼び戻し(押した瞬間の1回だけ)
@@ -980,11 +986,15 @@ function pollInput(dt){
   recallHeld = recallPressed;
   // モード循環(いずれかの手の押した瞬間の1回だけ)
   if(cycleNow) cycleMode();
-  // 回転は「置いてある時」だけ効かせる(つかみ中はrootがコントローラーの子で座標系が傾くため無効。
-  // 両手ピンチ中・呼び戻しの同フレームも無効。喧嘩しないように)
-  if(!pinch && !recalledThisFrame && bestMag > 0 && root.parent === scene){
-    root.rotation.y += YAW_SIGN * bestYaw * ROT_YAW_SPEED * dt;
-    tiltGroup.rotation.x = clamp(tiltGroup.rotation.x + TILT_SIGN * bestTilt * ROT_TILT_SPEED * dt, -TILT_MAX, TILT_MAX);
+  // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中(コントローラーの子)は座標系が傾くので不可
+  if(!pinch && !recalledThisFrame && bestMag > 0){
+    const gh = (bestHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestHd) : -1;
+    let target = (gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem;
+    if(target && target.group.parent === scene){
+      target.group.rotation.y += YAW_SIGN * bestYaw * ROT_YAW_SPEED * dt;
+      target.tiltGroup.rotation.x = clamp(target.tiltGroup.rotation.x + TILT_SIGN * bestTilt * ROT_TILT_SPEED * dt, -TILT_MAX, TILT_MAX);
+      if(target !== activeItem) setActive(target);
+    }
   }
 }
 const reticle = new THREE.Mesh(
@@ -1152,6 +1162,7 @@ function setupHands(){
         c.userData.wrap = wrap;
         c.userData.handSign = sign;
       }
+      c.userData.handedness = e.data && e.data.handedness;   // 回転対象を手ごとに選ぶのに使う
       // 素手(ハンドトラッキング)のときは作り物の手を出さない → 本物の手モデルに任せる
       const isHand = !!(e.data && e.data.hand);
       c.userData.wrap.visible = !isHand;
@@ -1162,6 +1173,7 @@ function setupHands(){
       c.userData.src = null;
       if(c.userData.wrap) c.userData.wrap.visible = false;
       if(handTrackers[i]) handTrackers[i].visible = false;
+      if(grab[i]) onRelease(i);   // 掴んだまま切断されたら後始末(宙吊り固定を防ぐ)
     });
     handMeshes[i] = c;
   }
@@ -1215,6 +1227,8 @@ async function startAR(){
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
       resetAllItems();
+      if(items[0]) setActive(items[0]);   // XR中に別の体を掴んでactiveがずれても基準体へ戻す
+      refresh2DActive();
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
     s.addEventListener('select', ()=>{
@@ -1249,6 +1263,8 @@ async function startVR(){
       scene.background=bgTex;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
       resetAllItems();
+      if(items[0]) setActive(items[0]);   // XR中に別の体を掴んでactiveがずれても基準体へ戻す
+      refresh2DActive();
       xrDetachAll(); setMode(mode);   // 2D表示へ復帰(選択中モードのまま)
     });
   }catch(e){
@@ -1272,26 +1288,35 @@ function disposeItem(it){
     (Array.isArray(it.reliefMesh.material)?it.reliefMesh.material:[it.reliefMesh.material]).forEach(m=>m.dispose&&m.dispose());
   }
 }
-// selected = 棚のfigure配列。全体を組んで表示
-async function start(selected){
-  init3D();
-  detachPanels();
-  for(const it of items){ scene.remove(it.group); disposeItem(it); }
-  items = []; setActive(null);
-  for(const fig of selected){
-    try { await makeItem(fig); } catch(e){ console.error(e); showErr('読み込み失敗: ' + (fig.name||'')); }
-  }
-  if(!items.length){ showErr('フィギュアがありません'); return; }
-  setActive(items[0]);
-  // 2D疑似3D用の共有uniforms/多層をactiveから用意
+// 2Dの疑似3D(quad/多層)をactiveItemに合わせ直す
+function refresh2DActive(){
+  if(!activeItem) return;
   quadUniforms.uImage.value = imgTexLinear;
   quadUniforms.uDepth.value = depthTex;
   quadUniforms.uAspect.value = S.aspect;
   quadUniforms.uViewAspect.value = innerWidth/innerHeight;
-  buildLayers();     // 2D多層(active)
-  $('drop').style.display='none'; $('ui').style.display='flex';
-  setMode(mode);
-  toast(items.length>1 ? items.length+'体を読み込みました。AR/VRで並べられます' : 'モードを切り替えて楽しんでください');
+  buildLayers();
+}
+// selected = 棚のfigure配列。全体を組んで表示
+let starting = false;
+async function start(selected){
+  if(starting) return;   // 二度押し再入で items が二重化するのを防ぐ
+  starting = true; $('goBtn').classList.remove('ready');
+  try{
+    init3D();
+    detachPanels();
+    for(const it of items){ scene.remove(it.group); disposeItem(it); }
+    items = []; setActive(null);
+    for(const fig of selected){
+      try { await makeItem(fig); } catch(e){ console.error(e); showErr('読み込み失敗: ' + (fig.name||'')); }
+    }
+    if(!items.length){ showErr('フィギュアがありません'); return; }
+    setActive(items[0]);
+    refresh2DActive();
+    $('drop').style.display='none'; $('ui').style.display='flex';
+    setMode(mode);
+    toast(items.length>1 ? items.length+'体を読み込みました。AR/VRで並べられます' : 'モードを切り替えて楽しんでください');
+  } finally { starting = false; }
 }
 
 /* ============ ループ ============ */
