@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る向き／クリック＝スライムをつつく／ホイール＝寄る引く／R＝元に戻す
+  <b>PC確認モード</b>　ドラッグ＝見る向き／クリック＝つつく／ホイール＝寄る引く／1〜4＝感触切替／[ ]＝弾力上下／R＝戻す
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v1 rev1";
+const REV = "v2 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -123,12 +123,16 @@ function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + 
 const TUNE = {
   radius: 0.11,           // スライムの半径(m)。手のひらより少し大きい
   detail: 3,              // 球の細かさ。3=162点/320面。粒が粗いと指がすり抜けるので3以上
-  substeps: 10,           // XPBDのサブステップ（反復より歩幅を刻む方が効く）
-  edgeCompliance: 5e-5,   // 表面のやわらかさ（大きいほどふにゃふにゃ）
-  volCompliance: 0.0,     // 体積のやわらかさ（0=戻る力最大＝ぷにぷにの要）
+  substeps: 12,           // XPBDのサブステップ（反復より歩幅を刻む方が効く。硬め対応で少し増やす）
+  // ↓ ここから下は「弾力(firm)」と「感触プリセット」で毎回上書きされる（applyFeelが設定）
+  firm: 0.55,             // 弾力スライダー 0=とろとろ 1=ぽよん(硬く弾む)。初期値
+  edgeCompliance: 5e-5,   // 表面のハリ（firmで自動設定）
+  radialCompliance: 1e-4, // 中心からの張り＝弾力の主役。小さいほど硬く弾み、手が中に入らない（firmで自動設定）
+  volCompliance: 0.0,     // 体積のやわらかさ（0=非圧縮＝ぷに/ちゃぷんの要）
   pressure: 1.0,          // 目標体積の倍率（>1でパンパンに張る）
-  velDamping: 1.4,        // 速度の減衰（揺れが収まる速さ）
-  shapeK: 18.0,           // 元の丸い形＆定位置へ戻る力（形状記憶。これが無いと凹んだまま固まる）
+  velDamping: 1.4,        // 速度の減衰（小さいほどぷるぷる長く揺れる。プリセットで設定）
+  shapeK: 18.0,           // 定位置へ戻る力（firmで自動設定）
+  // ↑ ここまで applyFeel が上書き
   gravity: 0.0,           // 重力(m/s^2)。0=空中に浮く
   fingerR: 0.022,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
   ctrlR: 0.03,            // コントローラ先端の当たり半径(m)
@@ -232,6 +236,33 @@ function meshVolume(){
 const restVol = meshVolume();
 let curVol = restVol;
 
+// 各粒の「中心からの静止半径」＝弾力(radial制約)の基準
+const restR = new Float32Array(N);
+for(let i=0;i<N;i++){ restR[i]=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2]); }
+
+// 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
+const FEELS = [
+  { name:"ぷにぷに",         firm:0.50, velDamping:1.6,  volCompliance:0.0, pressure:1.0  }, // 柔らかく押せて静かに戻る
+  { name:"ぽよんぽよん",     firm:0.55, velDamping:0.32, volCompliance:0.0, pressure:1.05 }, // 大きくゆっくり弾む（張った風船）
+  { name:"ぷるぷる",         firm:0.82, velDamping:0.30, volCompliance:0.0, pressure:1.0  }, // 硬めで細かく速く震える
+  { name:"ちゃぷんちゃぷん", firm:0.16, velDamping:0.72, volCompliance:0.0, pressure:1.0  }, // とろっと重く揺れる（水風船）
+];
+let feelIdx = 0;
+function lerp(a,b,t){ return a+(b-a)*t; }
+// firm(0..1)＋プリセットの性格 → 実際の物理パラメータを決める
+function applyFeel(){
+  const f = Math.max(0, Math.min(1, TUNE.firm));
+  const p = FEELS[feelIdx];
+  TUNE.radialCompliance = lerp(8e-4, 2.5e-6, f);   // 柔→硬（弾力の主役。手が中に入らない要）
+  TUNE.edgeCompliance   = lerp(3e-4, 1.5e-5, f);   // 表面のハリ
+  TUNE.shapeK           = lerp(5, 34, f);          // 戻る速さ
+  TUNE.velDamping       = p.velDamping;            // 揺れの残り方
+  TUNE.volCompliance    = p.volCompliance;
+  TUNE.pressure         = p.pressure;
+}
+function setFeel(idx){ feelIdx = ((idx%FEELS.length)+FEELS.length)%FEELS.length; TUNE.firm = FEELS[feelIdx].firm; applyFeel(); }
+setFeel(0);
+
 const slime = new THREE.Mesh(geo, slimeMat);
 slime.frustumCulled = false; slime.visible = false; scene.add(slime);
 
@@ -267,6 +298,7 @@ function softStep(h){
   for(let s=0;s<sub;s++){
     integrate(sdt);
     solveEdges(sdt);
+    solveRadial(sdt);
     solveVolume(sdt);
     solveColliders();
     finalize(sdt);
@@ -304,6 +336,17 @@ function solveEdges(sdt){
     const s=-C/(wa+wb+alpha);
     pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
     pos[b*3]-=gx*s*wb; pos[b*3+1]-=gy*s*wb; pos[b*3+2]-=gz*s*wb;
+  }
+}
+function solveRadial(sdt){
+  // 中心(重心)から静止半径へ引き戻す＝弾力。凹ませても中心を越えさせない＝手が中に入るのを防ぐ主役
+  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
+  const alpha = TUNE.radialCompliance/(sdt*sdt);
+  for(let i=0;i<N;i++){
+    let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
+    const d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
+    const C=d-restR[i], w=invMass[i], s=-C/(w+alpha), inv=1/d;
+    pos[i*3]+=dx*inv*s*w; pos[i*3+1]+=dy*inv*s*w; pos[i*3+2]+=dz*inv*s*w;
   }
 }
 function solveVolume(sdt){
@@ -407,6 +450,82 @@ const markerGeo = new THREE.SphereGeometry(1, 10, 8);
 const markers = [];
 for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo, markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
 
+/* --- 弾力レバー＆感触ボタン（VR内で握って調整する操作盤） --- */
+const ctrlGroup = new THREE.Group(); ctrlGroup.visible = false; scene.add(ctrlGroup);
+const RAIL_LEN = 0.30;
+const railMesh = new THREE.Mesh(new THREE.BoxGeometry(RAIL_LEN, 0.008, 0.008),
+  new THREE.MeshStandardMaterial({ color:0x2a3a48, roughness:0.75 }));
+ctrlGroup.add(railMesh);
+const handleMesh = new THREE.Mesh(new THREE.SphereGeometry(0.024, 16, 12),
+  new THREE.MeshStandardMaterial({ color:0x7fe0a0, emissive:0x1c5b3a, emissiveIntensity:0.7, roughness:0.35 }));
+ctrlGroup.add(handleMesh);
+// 「弾力 xx%」ラベル
+const railLabelCv = document.createElement("canvas"); railLabelCv.width=512; railLabelCv.height=96;
+const railLabelCtx = railLabelCv.getContext("2d");
+const railLabelTex = new THREE.CanvasTexture(railLabelCv); railLabelTex.colorSpace = THREE.SRGBColorSpace;
+const railLabel = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.05), new THREE.MeshBasicMaterial({ map:railLabelTex, transparent:true }));
+railLabel.position.set(0, 0.06, 0); ctrlGroup.add(railLabel);
+// 感触ボタン4つ
+const btnMeshes = [];
+for(let i=0;i<FEELS.length;i++){
+  const cv=document.createElement("canvas"); cv.width=256; cv.height=96;
+  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace;
+  const g=new THREE.Group(); g.position.set((i-1.5)*0.086, -0.075, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.036,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
+  bg.position.set(0,0,-0.007); g.add(bg);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.078,0.032), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  lm.position.set(0,0,0.001); g.add(lm);
+  ctrlGroup.add(g);
+  btnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
+}
+function drawFeelLabels(){
+  const c=railLabelCtx, W=railLabelCv.width, H=railLabelCv.height;
+  c.clearRect(0,0,W,H); c.fillStyle="rgba(8,12,16,0.8)"; c.fillRect(0,0,W,H);
+  c.textAlign="center"; c.textBaseline="middle"; c.font="bold 46px sans-serif"; c.fillStyle="#b6f5cf";
+  c.fillText("弾力 "+Math.round(TUNE.firm*100)+"%", W/2, H/2); railLabelTex.needsUpdate=true;
+  for(const b of btnMeshes){
+    const cc=b.ctx, WW=b.cv.width, HH=b.cv.height, on=b.idx===feelIdx;
+    cc.clearRect(0,0,WW,HH); cc.textAlign="center"; cc.textBaseline="middle"; cc.font="bold 38px sans-serif";
+    cc.fillStyle = on ? "#06231a" : "#dff5e8"; cc.fillText(FEELS[b.idx].name, WW/2, HH/2); b.tex.needsUpdate=true;
+    b.bg.material.color.setHex(on ? 0x7fe0a0 : 0x141d26);
+  }
+}
+const railOrigin = new THREE.Vector3(), railDir = new THREE.Vector3(), _wp = new THREE.Vector3();
+function positionControlPanel(){
+  const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
+  ctrlGroup.position.set(anchorCenter.x + _v2.x*0.02, anchorCenter.y - 0.24, anchorCenter.z + _v2.z*0.02);
+  ctrlGroup.lookAt(_v1.x, ctrlGroup.position.y, _v1.z);   // 水平に正対
+  ctrlGroup.updateMatrixWorld(true);
+  railDir.set(1,0,0).applyQuaternion(ctrlGroup.quaternion).normalize();
+  railOrigin.copy(ctrlGroup.localToWorld(_wp.set(-RAIL_LEN/2, 0, 0)));
+  ctrlGroup.visible = true; updateHandle(); drawFeelLabels();
+}
+function updateHandle(){ handleMesh.position.set((TUNE.firm-0.5)*RAIL_LEN, 0, 0); }
+let grabHandleBy = -1;
+function onSelectStart(i){
+  ensureAudio();
+  if(!controllers[i]) return;
+  controllers[i].getWorldPosition(_v1);
+  if(ctrlGroup.visible){
+    handleMesh.getWorldPosition(_v2);
+    if(_v1.distanceTo(_v2) < 0.07){ grabHandleBy=i; pulse(i,0.3,20); return; }      // レバーを握る
+    for(const b of btnMeshes){
+      b.group.getWorldPosition(_v2);
+      if(_v1.distanceTo(_v2) < 0.06){ setFeel(b.idx); updateHandle(); drawFeelLabels(); pulse(i,0.4,30); return; } // 感触ボタン
+    }
+  }
+}
+function onSelectEnd(i){ if(grabHandleBy===i) grabHandleBy=-1; }
+function updateGrab(){
+  if(grabHandleBy<0 || !ctrlGroup.visible || !controllers[grabHandleBy]) return;
+  controllers[grabHandleBy].getWorldPosition(_v1);
+  _v1.sub(railOrigin);
+  const t = Math.max(0, Math.min(1, _v1.dot(railDir)/RAIL_LEN));
+  TUNE.firm = t; applyFeel(); updateHandle(); drawFeelLabels();
+}
+
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
@@ -415,7 +534,8 @@ function setupControllers(){
     c.addEventListener("connected", e => { ctrlOn[i]=true; if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
     c.addEventListener("disconnected", () => { ctrlOn[i]=false; gamepads[i]=null; });
     c.addEventListener("squeezestart", () => respawnInFront());   // 握ると目の前に呼び戻す
-    c.addEventListener("selectstart", () => { ensureAudio(); respawnInFront(); }); // トリガーでも呼び戻し
+    c.addEventListener("selectstart", () => onSelectStart(i));    // トリガー＝レバー/感触ボタン操作
+    c.addEventListener("selectend", () => onSelectEnd(i));
     scene.add(c);
     controllers.push(c);
   }
@@ -471,6 +591,7 @@ async function startAR(){
     session.addEventListener("end", ()=>{
       xrSession = null; slime.visible = false; slimeReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
+      ctrlGroup.visible = false; grabHandleBy = -1;
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -491,6 +612,7 @@ function respawnInFront(){
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y = 0;
   if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1); else _v2.normalize();
   spawnAt(_v1.x + _v2.x*0.45, _v1.y - 0.15, _v1.z + _v2.z*0.45);
+  positionControlPanel();
 }
 
 /* --- AR中に読める3Dパネル（fps・体積・記録。頭追従なし） --- */
@@ -532,7 +654,7 @@ function startPC(){
   pcMode = true;
   $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
   spawnAt(pcTarget.x, pcTarget.y, pcTarget.z);
-  updatePCCamera(); setupPCInput();
+  updatePCCamera(); positionControlPanel(); setupPCInput();
 }
 function updatePCCamera(){
   const cpp=Math.cos(pcPitch), spp=Math.sin(pcPitch);
@@ -556,7 +678,12 @@ function setupPCInput(){
   });
   addEventListener("pointerup", e=>{ if(dragging && moved<6) pcPokeFrom(e.clientX, e.clientY); dragging=false; });
   canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
-  addEventListener("keydown", e=>{ if(e.key==="r"||e.key==="R") spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); });
+  addEventListener("keydown", e=>{
+    if(e.key==="r"||e.key==="R"){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); positionControlPanel(); }
+    else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateHandle(); drawFeelLabels(); }
+    else if(e.key==="["||e.key==="-"){ TUNE.firm=Math.max(0,TUNE.firm-0.05); applyFeel(); updateHandle(); drawFeelLabels(); }
+    else if(e.key==="]"||e.key==="+"||e.key==="="){ TUNE.firm=Math.min(1,TUNE.firm+0.05); applyFeel(); updateHandle(); drawFeelLabels(); }
+  });
 }
 // クリック位置から中心へ向かうレイを求め、その向きから1回つつく（凹みを目視するため）
 function pcPokeFrom(sx, sy){
@@ -625,7 +752,7 @@ function simulate(dt){
   stepSoft(dt);
   handleContactFX();
   const V = curVol/restVol;
-  const statLine = "fps "+Math.round(fpsSmooth)+" / 物理 "+physMs.toFixed(1)+"ms / 体積 "+(V*100).toFixed(0)+"% / 点 "+N;
+  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"% / 体積"+(V*100).toFixed(0)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -640,6 +767,7 @@ function renderLoop(t, frame){
     const ref = renderer.xr.getReferenceSpace();
     if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); }
     collectXRColliders(frame, ref);
+    updateGrab();
   }
 
   simulate(dt);
@@ -669,6 +797,7 @@ window.__dbg = {
   state(){
     return {
       slimeReady, N, tris:triN, edges:edgeN, colN,
+      feel:FEELS[feelIdx].name, firm:+TUNE.firm.toFixed(2),
       volRatio:+(curVol/restVol).toFixed(3),
       comOffset:+comOffset().toFixed(4),
       shapeErr:+shapeErr().toFixed(4),
@@ -702,6 +831,18 @@ window.__dbg = {
   },
   tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
   spawn(){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); return this.state(); },
+  setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, radialCompliance:+TUNE.radialCompliance.toExponential(2)}; },
+  preset(i){ setFeel(i); return {feel:FEELS[feelIdx].name, firm:TUNE.firm}; },
+  // 凹ませて離し、戻る間の最大速度(弾みの強さ)を測る。硬い/減衰小ほど大きい
+  bounceTest(depth, sec){
+    if(!slimeReady) this.spawn();
+    this.poke(depth||0.02, 0.35);
+    colN=0; let peak=0;
+    const steps=Math.max(1,Math.round((sec||1.2)/FIXED));
+    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); const ms=maxSpeed(); if(ms>peak)peak=ms; }
+    updateRenderMesh();
+    const st=this.state(); st.peakReturnSpeed=+peak.toFixed(3); return st;
+  },
   render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
   tune: TUNE,
 };

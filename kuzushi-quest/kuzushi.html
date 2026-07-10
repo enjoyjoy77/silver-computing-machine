@@ -104,7 +104,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev2";
+const REV = "v2 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -156,6 +156,7 @@ const TUNE = {
   comboWindow: 4.0,     // 連鎖が続く時間(s)
   pullRange: 0.8,       // 引き寄せが届く距離(m)。これより遠い玉は引けない
   hitstopMinSpeed: 0.8, // ヒットストップを出す玉の最低速度(m/s)。静止接触では出さない
+  impactMinSpeed: 0.5,  // 音・コンボを出す最低速度(m/s)。立っているだけの塔の重み接触は無視
 };
 
 /* ============================================================
@@ -442,6 +443,11 @@ function stepPhysics(dtReal){
 }
 
 let drainErrLogged = false;
+// 剛体の速さ(m/s)。handleToObj に無いもの(台など)や body 無しは 0
+function bodySpeed(o){
+  if(o && o.ref && o.ref.body){ const lv = o.ref.body.linvel(); return Math.hypot(lv.x, lv.y, lv.z); }
+  return 0;
+}
 function drainEvents(){
   try{
     eventQueue.drainContactForceEvents(ev => {
@@ -452,7 +458,10 @@ function drainEvents(){
       const nowMs = performance.now(), nowS = nowMs/1000;
       const blk = (o1 && o1.kind==="block") ? o1.ref : (o2 && o2.kind==="block") ? o2.ref : null;
       const ball = (o1 && o1.kind==="ball") ? o1.ref : (o2 && o2.kind==="ball") ? o2.ref : null;
-      if(blk && nowMs - blk.lastSnd > 70){
+      // 「実際に動いているもの」が絡んだ接触だけを叩きとして扱う。
+      // 立っているだけの塔が自分の重みで出す接触（＝何もしないのにコンボが上がる・鳴る）を無視する
+      const moving = Math.max(bodySpeed(o1), bodySpeed(o2)) > TUNE.impactMinSpeed;
+      if(blk && moving && nowMs - blk.lastSnd > 70){
         blk.lastSnd = nowMs;
         playImpact(strength);
         // 音階コンボ：叩くたび音が上がる。4秒空くとリセット
