@@ -104,7 +104,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev3";
+const REV = "v2 rev4";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -138,16 +138,17 @@ function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + 
 const TUNE = {
   throwMul: 1.4, throwMax: 7.0,
   blockDensity: 550, ballDensity: 1900,
-  restitution: 0.3, friction: 0.8,
+  restitution: 0.3, friction: 0.9,
   forceThreshold: 1.0, forceRef: 220,
-  collapseDist: 0.12, towerLayers: 6,
+  collapseDist: 0.12, towerLayers: 8,    // 塔を高く（見上げる高さ）。高すぎると自壊するので8段
+  settleGrace: 1.3,     // 生えてから落ち着くまで(s)は崩れ判定をしない（自壊を数えない）
   hapHit: 0.5, hapThrow: 0.25, hapSpawn: 0.2, hapClear: 0.9,
   // --- 段階2（脳汁）---
   critChance: 0.08,     // 会心の一撃の確率
   critScale: 2.2,       // 会心の玉の大きさ倍率
   chargeDelay: 0.4,     // 溜め開始までの保持時間(s)
-  chargeTime: 1.2,      // 最大まで溜まる時間(s)
-  chargeMax: 2.5,       // 溜め玉の最大倍率
+  chargeTime: 1.8,      // 最大まで溜まる時間(s)。溜め＝主役なので長めに
+  chargeMax: 5.0,       // 溜め玉の最大倍率（直径約40cmの破壊鉄球）
   hitstop: 0.07,        // ヒットストップ(s)
   hitstopCrit: 0.13,
   slowThreshold: 5,     // 一度にこれだけ崩れたらスローモ
@@ -245,14 +246,14 @@ function setupStage(cx, topY, cz){
 function buildLayout(kind, cx, topY, cz){
   const out = [];
   if(kind === "pyramid"){
-    for(let layer=0; layer<4; layer++){
-      const n = 4 - layer, y = topY + 0.025 + layer*0.05;
+    for(let layer=0; layer<6; layer++){           // 大きめのピラミッド（6+5+4+3+2+1=21本）
+      const n = 6 - layer, y = topY + 0.025 + layer*0.05;
       for(let k=0;k<n;k++){ out.push({ x:cx, y, z: cz + (k-(n-1)/2)*0.052, ax:true }); }
     }
   } else if(kind === "wall"){
-    for(let layer=0; layer<4; layer++){
+    for(let layer=0; layer<6; layer++){           // 高い壁（6段×5本=30本）
       const y = topY + 0.025 + layer*0.05, shift = (layer%2)?0.026:0;
-      for(let k=0;k<4;k++){ out.push({ x:cx, y, z: cz + (k-1.5)*0.052 + shift, ax:true }); }
+      for(let k=0;k<5;k++){ out.push({ x:cx, y, z: cz + (k-2)*0.052 + shift, ax:true }); }
     }
   } else { // jenga（既定）
     const off = [-0.05, 0, 0.05];
@@ -282,12 +283,12 @@ function spawnTower(cx, topY, cz){
       .setContactForceEventThreshold(TUNE.forceThreshold);
     const col = world.createCollider(cd, body);
     const b = { mesh, body, colHandle: col.handle, ox:p.x, oy:p.y, oz:p.z, down:false, lastSnd:0,
-                growDelay: idx*0.03 };
+                growDelay: idx*0.018 };   // 本数が多くても伸び切るよう、遅延は控えめに
     handleToObj.set(col.handle, { kind:"block", ref:b });
     blocks.push(b);
   });
   standing = blocks.length;
-  growT = 0; lastOneDone = false; towerStartT = performance.now()/1000;
+  growT = 0; towerAge = 0; lastOneDone = false; towerStartT = performance.now()/1000;
   checkpoint("tower", "塔が生えた（" + kind + " / " + blocks.length + "本）");
 }
 
@@ -427,7 +428,7 @@ function pullNearest(i){
 }
 
 /* --- ゲーム進行 --- */
-let standing = 0, growT = 0, lastBlock = null, lastOneDone = false;
+let standing = 0, growT = 0, towerAge = 0, lastBlock = null, lastOneDone = false;
 let phase = "idle", phaseT = 0;
 // 連鎖・記録
 let comboCount = 0, comboLast = 0, maxCombo = 0, totalDown = 0, bestClear = Infinity;
@@ -464,13 +465,12 @@ function drainEvents(){
       if(blk && moving && nowMs - blk.lastSnd > 70){
         blk.lastSnd = nowMs;
         playImpact(strength);
-        // 音階コンボ：叩くたび音が上がる。4秒空くとリセット
+        // 音階コンボは「崩れる音」の飾り（おまけ）。目立つ表示はしない。
+        // 叩くたび音が上がるのは残す＝崩壊の手ざわり。4秒空くとリセット
         if(nowS - comboLast > TUNE.comboWindow) comboCount = 0;
         comboCount++; comboLast = nowS;
         playComboNote(comboCount);
         if(comboCount > maxCombo){ maxCombo = comboCount; }
-        if(comboCount===5 || comboCount===10 || comboCount===15 || (comboCount>=20 && comboCount%10===0))
-          flashBanner(comboCount + " れんさ！", "#9ff0c8");
       }
       // 自分の投げた玉がブロックに当たった：振動＋ヒットストップ
       if(ball && blk && !ball.held && strength > 0.15){
@@ -518,6 +518,7 @@ function endLastOne(){
 
 function checkCollapse(){
   if(phase !== "playing") return;
+  if(towerAge < TUNE.settleGrace) return;   // 生えて落ち着くまでは崩れ判定しない（自壊を数えない）
   const prevStanding = standing;
   let fell = 0;
   for(const b of blocks){
@@ -979,9 +980,10 @@ function simulate(dt){
   updateBanner(dt);
   // 連鎖が途切れたら（4秒以上叩いていない）カウントを戻す
   if(comboCount > 0 && performance.now()/1000 - comboLast > TUNE.comboWindow) comboCount = 0;
-  // にょき演出
-  if(growT < 1 && blocks.length){
-    growT += dt/0.4;
+  if(stagePlaced && blocks.length) towerAge += dt;   // 塔が生えてからの経過（崩れ判定の猶予に使う）
+  // にょき演出（growT は秒。塔が高くても全段が伸び切るよう 1.2 まで回す）
+  if(growT < 1.2 && blocks.length){
+    growT += dt;
     for(const b of blocks){
       const local = Math.max(0, Math.min(1, (growT - b.growDelay)/0.3 ));
       if(!b.down) b.mesh.scale.y = 0.001 + local*0.999;

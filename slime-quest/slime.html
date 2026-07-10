@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る向き／クリック＝つつく／ホイール＝寄る引く／1〜4＝感触切替／[ ]＝弾力上下／R＝戻す
+  <b>PC確認モード</b>　ドラッグ＝見る向き／クリック＝つつく／ホイール＝寄る引く／1〜4＝感触／N＝形／[ ]＝弾力／R＝戻す
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v2 rev1";
+const REV = "v3 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -124,7 +124,8 @@ const TUNE = {
   radius: 0.13,           // スライムの大きさ(m)。手のひらが沈む感触のため大きめ
   detail: 3,              // 球の細かさ。3=162点/320面。粒が粗いと指がすり抜けるので3以上
   substeps: 12,           // XPBDのサブステップ（反復より歩幅を刻む方が効く）
-  homeK: 8.0,             // 本当の位置(ホーム)へ戻る力。小さいほど押すとよく動いて、離すとゆっくりボヨンと戻る
+  homeK: 13.0,            // 本当の位置(ホーム)へ戻る力。小さいほど押すとよく動く（旅する）
+  homeDamp: 5.0,          // 「旅」だけの減衰。表面の揺れは残しつつ、位置は数回のボヨンで定位置に収める
   // ↓ ここから下は「弾力(firm)」と「感触プリセット」で applyFeel が毎回上書きする
   firm: 0.45,             // 弾力/戻す力 0=とろとろ深く沈む 1=硬く弾く。小さいほど深く沈み込む
   edgeCompliance: 5e-5,   // 表面のハリ（firmで自動設定）
@@ -185,43 +186,20 @@ slimeMat.onBeforeCompile = (sh) => {
   );
 };
 
-// --- 球メッシュを作り、頂点を「粒」に溶接（共有頂点をまとめる） ---
-const geo = new THREE.IcosahedronGeometry(TUNE.radius, TUNE.detail); // 非indexed（3頂点=1三角）
-const posAttr = geo.attributes.position;
-const vCount = posAttr.count;
-const vmap = new Int32Array(vCount);         // 幾何頂点 → 粒index
-const plist = [];
-const keyToIdx = new Map();
-const QUANT = 1e5;
-for(let v=0; v<vCount; v++){
-  const x=posAttr.getX(v), y=posAttr.getY(v), z=posAttr.getZ(v);
-  const key = Math.round(x*QUANT)+"_"+Math.round(y*QUANT)+"_"+Math.round(z*QUANT);
-  let idx = keyToIdx.get(key);
-  if(idx===undefined){ idx = plist.length/3; keyToIdx.set(key, idx); plist.push(x,y,z); }
-  vmap[v] = idx;
-}
-const N = plist.length/3;
-const pos  = new Float32Array(plist);        // 現在位置（ワールド）
-const prev = new Float32Array(pos);          // 直前位置
-const vel  = new Float32Array(N*3);          // 速度
-const rest = new Float32Array(plist);        // 静止形（原点中心のローカル形）
-const invMass = new Float32Array(N).fill(1); // 全粒 等質量
-const grad = new Float32Array(N*3);          // 体積制約の勾配スクラッチ
+// --- 形の種類（球以外も選べる） ---
+const SHAPES = [
+  { name:"たま",     kind:"ball"  },
+  { name:"はこ",     kind:"box"   },
+  { name:"さんかく", kind:"tetra" },
+  { name:"たまご",   kind:"egg"   },
+  { name:"ドーナツ", kind:"torus" },
+];
+let shapeIdx = 0;
 
-// 三角形（非indexedなので3連続頂点＝1面）
-const triN = vCount/3;
-const tri = new Int32Array(triN*3);
-for(let t=0;t<triN;t++){ tri[t*3]=vmap[t*3]; tri[t*3+1]=vmap[t*3+1]; tri[t*3+2]=vmap[t*3+2]; }
-// 辺（重複を除く）
-const edgeSet = new Set(); const elist=[];
-function addEdge(a,b){ const k = a<b ? a+"_"+b : b+"_"+a; if(!edgeSet.has(k)){ edgeSet.add(k); elist.push(a,b); } }
-for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; addEdge(a,b); addEdge(b,c); addEdge(c,a); }
-const edge = new Int32Array(elist);
-const edgeN = edge.length/2;
-const edgeLen = new Float32Array(edgeN);
-function edist(a,b){ const dx=pos[a*3]-pos[b*3], dy=pos[a*3+1]-pos[b*3+1], dz=pos[a*3+2]-pos[b*3+2]; return Math.hypot(dx,dy,dz); }
-for(let e=0;e<edgeN;e++){ edgeLen[e]=edist(edge[e*2], edge[e*2+1]); }
-// 静止体積
+// メッシュ(粒・辺・三角・体積)。形の切替で作り直すので let で持つ
+let geo, posAttr, vCount, vmap, N, pos, prev, vel, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol, curVol;
+
+// 閉じた三角メッシュの符号つき体積
 function meshVolume(){
   let V=0;
   for(let t=0;t<triN;t++){
@@ -233,8 +211,45 @@ function meshVolume(){
   }
   return V;
 }
-const restVol = meshVolume();
-let curVol = restVol;
+
+// 形を作る：基本形状→非indexed化→頂点を溶接して粒・辺・三角・静止体積を組み、描画メッシュを差し替える
+function buildShape(kind){
+  let g;
+  if(kind==="box")        g = new THREE.BoxGeometry(TUNE.radius*1.7, TUNE.radius*1.15, TUNE.radius*1.15, 5, 4, 4);
+  else if(kind==="tetra") g = new THREE.TetrahedronGeometry(TUNE.radius*1.28, 5); // 粗いと指がすり抜けるので細かく
+  else if(kind==="egg")   g = new THREE.IcosahedronGeometry(TUNE.radius, 3);
+  else if(kind==="torus") g = new THREE.TorusGeometry(TUNE.radius*0.72, TUNE.radius*0.34, 8, 16);
+  else                    g = new THREE.IcosahedronGeometry(TUNE.radius, TUNE.detail); // ball
+  if(g.index) g = g.toNonIndexed();           // 全形を「3頂点=1三角」に揃える
+  const pa = g.attributes.position;
+  if(kind==="egg"){ for(let v=0;v<pa.count;v++){ pa.setXYZ(v, pa.getX(v)*0.82, pa.getY(v)*1.4, pa.getZ(v)*0.82); } } // 縦長のたまご
+  const vc = pa.count;
+  const vm = new Int32Array(vc);
+  const plist = []; const k2i = new Map(); const Q = 1e5;
+  for(let v=0;v<vc;v++){
+    const x=pa.getX(v), y=pa.getY(v), z=pa.getZ(v);
+    const key = Math.round(x*Q)+"_"+Math.round(y*Q)+"_"+Math.round(z*Q);
+    let idx = k2i.get(key);
+    if(idx===undefined){ idx = plist.length/3; k2i.set(key, idx); plist.push(x,y,z); }
+    vm[v] = idx;
+  }
+  const nn = plist.length/3, tn = vc/3;
+  const tt = new Int32Array(tn*3);
+  for(let t=0;t<tn;t++){ tt[t*3]=vm[t*3]; tt[t*3+1]=vm[t*3+1]; tt[t*3+2]=vm[t*3+2]; }
+  const eset = new Set(); const el = [];
+  const addE = (a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
+  for(let t=0;t<tn;t++){ const a=tt[t*3],b=tt[t*3+1],c=tt[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
+  const ee = new Int32Array(el), en = ee.length/2;
+  // モジュール変数へ反映
+  geo=g; posAttr=pa; vCount=vc; vmap=vm; N=nn; triN=tn; tri=tt; edge=ee; edgeN=en;
+  pos=new Float32Array(plist); prev=new Float32Array(pos); vel=new Float32Array(N*3);
+  rest=new Float32Array(plist); invMass=new Float32Array(N).fill(1); grad=new Float32Array(N*3);
+  edgeLen=new Float32Array(en);
+  for(let e=0;e<en;e++){ const a=ee[e*2],b=ee[e*2+1]; edgeLen[e]=Math.hypot(pos[a*3]-pos[b*3],pos[a*3+1]-pos[b*3+1],pos[a*3+2]-pos[b*3+2]); }
+  restVol=meshVolume(); curVol=restVol;
+  if(slime && slime.geometry && slime.geometry!==g) slime.geometry.dispose();
+  if(slime) slime.geometry=g;
+}
 
 // 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
 const FEELS = [
@@ -258,8 +273,9 @@ function applyFeel(){
 function setFeel(idx){ feelIdx = ((idx%FEELS.length)+FEELS.length)%FEELS.length; TUNE.firm = FEELS[feelIdx].firm; applyFeel(); }
 setFeel(0);
 
-const slime = new THREE.Mesh(geo, slimeMat);
+const slime = new THREE.Mesh(new THREE.BufferGeometry(), slimeMat);
 slime.frustumCulled = false; slime.visible = false; scene.add(slime);
+buildShape(SHAPES[shapeIdx].kind);   // 初期の形（たま）を組む
 
 const anchorCenter = new THREE.Vector3(0, 0, 0);
 let slimeReady = false;
@@ -275,6 +291,16 @@ function spawnAt(cx, cy, cz){
   curVol = restVol; slimeReady = true; slime.visible = true;
   updateRenderMesh();
   checkpoint("spawn", "スライムを出した");
+}
+
+// 形を切り替える（今の位置に作り直して置く）
+function setShape(idx){
+  shapeIdx = ((idx%SHAPES.length)+SHAPES.length)%SHAPES.length;
+  const wasReady = slimeReady;
+  buildShape(SHAPES[shapeIdx].kind);
+  if(wasReady) spawnAt(anchorCenter.x, anchorCenter.y, anchorCenter.z);
+  else updateRenderMesh();
+  if(typeof drawFeelLabels==="function") drawFeelLabels();
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PCつつき） --- */
@@ -299,22 +325,23 @@ function softStep(h){
   }
 }
 function integrate(sdt){
-  // 重心（COM）を出す。形の戻りはCOM相対、位置の戻りはCOM→ホーム、と別々にするのが肝
-  let cx=0,cy=0,cz=0;
-  for(let i=0;i<N;i++){ cx+=pos[i*3]; cy+=pos[i*3+1]; cz+=pos[i*3+2]; }
-  cx/=N; cy/=N; cz/=N;
-  // 位置の戻り：COMをホーム(anchor)へ。小さいほど押すとよく動いて、離すとボヨンと戻る
+  // 重心(COM)と重心の速度を出す。形の戻りはCOM相対、位置の戻り＆減衰はCOM単位で、と別々にするのが肝
+  let cx=0,cy=0,cz=0, vcx=0,vcy=0,vcz=0;
+  for(let i=0;i<N;i++){ cx+=pos[i*3]; cy+=pos[i*3+1]; cz+=pos[i*3+2]; vcx+=vel[i*3]; vcy+=vel[i*3+1]; vcz+=vel[i*3+2]; }
+  cx/=N; cy/=N; cz/=N; vcx/=N; vcy/=N; vcz/=N;
+  // 位置の戻り：COMをホーム(anchor)へ引く。小さいほどよく旅する
   const hx=(anchorCenter.x-cx)*TUNE.homeK, hy=(anchorCenter.y-cy)*TUNE.homeK, hz=(anchorCenter.z-cz)*TUNE.homeK;
-  const damp = Math.max(0, 1 - TUNE.velDamping*sdt);
+  const damp = Math.max(0, 1 - TUNE.velDamping*sdt);   // 表面の揺れの減衰（プリセット）
+  const hd = TUNE.homeDamp*sdt;                         // 「旅」だけの減衰（形の揺れは残す）
   const k = TUNE.shapeMemK, mx = TUNE.maxStep;
   for(let i=0;i<N;i++){
     // 形の戻り：COM+静止形 へ引く（COM相対なので全体が旅するのを邪魔しない＝深く沈む・横に動く）
     const sx=(cx+rest[i*3]  -pos[i*3])*k;
     const sy=(cy+rest[i*3+1]-pos[i*3+1])*k;
     const sz=(cz+rest[i*3+2]-pos[i*3+2])*k;
-    let vx=(vel[i*3]   + (sx+hx)*sdt)*damp;
-    let vy=(vel[i*3+1] + (sy+hy+TUNE.gravity)*sdt)*damp;
-    let vz=(vel[i*3+2] + (sz+hz)*sdt)*damp;
+    let vx=(vel[i*3]   + (sx+hx)*sdt)*damp - vcx*hd;
+    let vy=(vel[i*3+1] + (sy+hy+TUNE.gravity)*sdt)*damp - vcy*hd;
+    let vz=(vel[i*3+2] + (sz+hz)*sdt)*damp - vcz*hd;
     vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
     prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
     let dx=vx*sdt, dy=vy*sdt, dz=vz*sdt;
@@ -467,6 +494,19 @@ for(let i=0;i<FEELS.length;i++){
   ctrlGroup.add(g);
   btnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
+// 形ボタン5つ（レールの上の段）
+const shapeBtnMeshes = [];
+for(let i=0;i<SHAPES.length;i++){
+  const cv=document.createElement("canvas"); cv.width=200; cv.height=88;
+  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace;
+  const g=new THREE.Group(); g.position.set((i-2)*0.07, 0.14, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.064,0.03,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
+  bg.position.set(0,0,-0.007); g.add(bg);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.062,0.028), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  lm.position.set(0,0,0.001); g.add(lm);
+  ctrlGroup.add(g);
+  shapeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
+}
 function drawFeelLabels(){
   const c=railLabelCtx, W=railLabelCv.width, H=railLabelCv.height;
   c.clearRect(0,0,W,H); c.fillStyle="rgba(8,12,16,0.8)"; c.fillRect(0,0,W,H);
@@ -478,13 +518,19 @@ function drawFeelLabels(){
     cc.fillStyle = on ? "#06231a" : "#dff5e8"; cc.fillText(FEELS[b.idx].name, WW/2, HH/2); b.tex.needsUpdate=true;
     b.bg.material.color.setHex(on ? 0x7fe0a0 : 0x141d26);
   }
+  for(const b of shapeBtnMeshes){
+    const cc=b.ctx, WW=b.cv.width, HH=b.cv.height, on=b.idx===shapeIdx;
+    cc.clearRect(0,0,WW,HH); cc.textAlign="center"; cc.textBaseline="middle"; cc.font="bold 34px sans-serif";
+    cc.fillStyle = on ? "#062231" : "#dff5e8"; cc.fillText(SHAPES[b.idx].name, WW/2, HH/2); b.tex.needsUpdate=true;
+    b.bg.material.color.setHex(on ? 0x8fd0ff : 0x141d26);
+  }
 }
 const railOrigin = new THREE.Vector3(), railDir = new THREE.Vector3(), _wp = new THREE.Vector3();
 function positionControlPanel(){
   const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  ctrlGroup.position.set(anchorCenter.x + _v2.x*0.02, anchorCenter.y - 0.24, anchorCenter.z + _v2.z*0.02);
+  ctrlGroup.position.set(anchorCenter.x + _v2.x*0.02, anchorCenter.y - 0.30, anchorCenter.z + _v2.z*0.02);
   ctrlGroup.lookAt(_v1.x, ctrlGroup.position.y, _v1.z);   // 水平に正対
   ctrlGroup.updateMatrixWorld(true);
   railDir.set(1,0,0).applyQuaternion(ctrlGroup.quaternion).normalize();
@@ -503,6 +549,10 @@ function onSelectStart(i){
     for(const b of btnMeshes){
       b.group.getWorldPosition(_v2);
       if(_v1.distanceTo(_v2) < 0.06){ setFeel(b.idx); updateHandle(); drawFeelLabels(); pulse(i,0.4,30); return; } // 感触ボタン
+    }
+    for(const b of shapeBtnMeshes){
+      b.group.getWorldPosition(_v2);
+      if(_v1.distanceTo(_v2) < 0.05){ setShape(b.idx); pulse(i,0.4,30); return; } // 形ボタン
     }
   }
 }
@@ -672,6 +722,7 @@ function setupPCInput(){
     else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateHandle(); drawFeelLabels(); }
     else if(e.key==="["||e.key==="-"){ TUNE.firm=Math.max(0,TUNE.firm-0.05); applyFeel(); updateHandle(); drawFeelLabels(); }
     else if(e.key==="]"||e.key==="+"||e.key==="="){ TUNE.firm=Math.min(1,TUNE.firm+0.05); applyFeel(); updateHandle(); drawFeelLabels(); }
+    else if(e.key==="n"||e.key==="N"){ setShape(shapeIdx+1); }
   });
 }
 // クリック位置から中心へ向かうレイを求め、その向きから1回つつく（凹みを目視するため）
@@ -741,7 +792,7 @@ function simulate(dt){
   stepSoft(dt);
   handleContactFX();
   const V = curVol/restVol;
-  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"% / 体積"+(V*100).toFixed(0)+"%";
+  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"・"+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -833,6 +884,7 @@ window.__dbg = {
   spawn(){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); return this.state(); },
   setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, edgeCompliance:+TUNE.edgeCompliance.toExponential(2), shapeMemK:+TUNE.shapeMemK.toFixed(1)}; },
   preset(i){ setFeel(i); return {feel:FEELS[feelIdx].name, firm:TUNE.firm}; },
+  shape(i){ setShape(i); return {shape:SHAPES[shapeIdx].name, N, tris:triN, edges:edgeN}; },
   // 凹ませて離し、戻る間の最大速度(弾みの強さ)を測る。硬い/減衰小ほど大きい
   bounceTest(depth, sec){
     if(!slimeReady) this.spawn();
