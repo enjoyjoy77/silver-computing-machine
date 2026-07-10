@@ -121,22 +121,22 @@ function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + 
    物理編 physics-game.md の黄金律: 表面(edge)は柔らかく・体積(vol)はほぼ固く
    ============================================================ */
 const TUNE = {
-  radius: 0.11,           // スライムの半径(m)。手のひらより少し大きい
+  radius: 0.13,           // スライムの大きさ(m)。手のひらが沈む感触のため大きめ
   detail: 3,              // 球の細かさ。3=162点/320面。粒が粗いと指がすり抜けるので3以上
-  substeps: 12,           // XPBDのサブステップ（反復より歩幅を刻む方が効く。硬め対応で少し増やす）
-  // ↓ ここから下は「弾力(firm)」と「感触プリセット」で毎回上書きされる（applyFeelが設定）
-  firm: 0.55,             // 弾力スライダー 0=とろとろ 1=ぽよん(硬く弾む)。初期値
+  substeps: 12,           // XPBDのサブステップ（反復より歩幅を刻む方が効く）
+  homeK: 8.0,             // 本当の位置(ホーム)へ戻る力。小さいほど押すとよく動いて、離すとゆっくりボヨンと戻る
+  // ↓ ここから下は「弾力(firm)」と「感触プリセット」で applyFeel が毎回上書きする
+  firm: 0.45,             // 弾力/戻す力 0=とろとろ深く沈む 1=硬く弾く。小さいほど深く沈み込む
   edgeCompliance: 5e-5,   // 表面のハリ（firmで自動設定）
-  radialCompliance: 1e-4, // 中心からの張り＝弾力の主役。小さいほど硬く弾み、手が中に入らない（firmで自動設定）
-  volCompliance: 0.0,     // 体積のやわらかさ（0=非圧縮＝ぷに/ちゃぷんの要）
+  shapeMemK: 18.0,        // 形の戻り＝沈み込みの浅さ。小さいほど深く沈む（firmで自動設定）
+  volCompliance: 0.0,     // 体積のやわらかさ（0=非圧縮＝押すと他が膨らんで手を包む＝沈み込みの要）
   pressure: 1.0,          // 目標体積の倍率（>1でパンパンに張る）
-  velDamping: 1.4,        // 速度の減衰（小さいほどぷるぷる長く揺れる。プリセットで設定）
-  shapeK: 18.0,           // 定位置へ戻る力（firmで自動設定）
+  velDamping: 1.0,        // 速度の減衰（小さいほどボヨンと長く弾む。プリセットで設定）
   // ↑ ここまで applyFeel が上書き
   gravity: 0.0,           // 重力(m/s^2)。0=空中に浮く
-  fingerR: 0.022,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
-  ctrlR: 0.03,            // コントローラ先端の当たり半径(m)
-  maxStep: 0.04,          // 1サブステップの最大移動(m)（暴れ防止）
+  fingerR: 0.026,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
+  ctrlR: 0.034,           // コントローラ先端の当たり半径(m)
+  maxStep: 0.05,          // 1サブステップの最大移動(m)（暴れ防止）
   squishGap: 85,          // 音の最短間隔(ms)
   squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
   hapPoke: 0.5,           // 触れた時の振動の強さ（コントローラのみ有効）
@@ -236,16 +236,12 @@ function meshVolume(){
 const restVol = meshVolume();
 let curVol = restVol;
 
-// 各粒の「中心からの静止半径」＝弾力(radial制約)の基準
-const restR = new Float32Array(N);
-for(let i=0;i<N;i++){ restR[i]=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2]); }
-
 // 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
 const FEELS = [
-  { name:"ぷにぷに",         firm:0.50, velDamping:1.6,  volCompliance:0.0, pressure:1.0  }, // 柔らかく押せて静かに戻る
-  { name:"ぽよんぽよん",     firm:0.55, velDamping:0.32, volCompliance:0.0, pressure:1.05 }, // 大きくゆっくり弾む（張った風船）
-  { name:"ぷるぷる",         firm:0.82, velDamping:0.30, volCompliance:0.0, pressure:1.0  }, // 硬めで細かく速く震える
-  { name:"ちゃぷんちゃぷん", firm:0.16, velDamping:0.72, volCompliance:0.0, pressure:1.0  }, // とろっと重く揺れる（水風船）
+  { name:"ぷにぷに",         firm:0.40, velDamping:1.2,  volCompliance:0.0, pressure:1.0  }, // 柔らかく深く沈み、静かに戻る
+  { name:"ぽよんぽよん",     firm:0.50, velDamping:0.28, volCompliance:0.0, pressure:1.04 }, // 大きくゆっくりボヨンと弾む
+  { name:"ぷるぷる",         firm:0.72, velDamping:0.26, volCompliance:0.0, pressure:1.0  }, // 硬めで細かく速く震える
+  { name:"ちゃぷんちゃぷん", firm:0.13, velDamping:0.55, volCompliance:0.0, pressure:1.0  }, // とろっと重く深く沈む（水風船）
 ];
 let feelIdx = 0;
 function lerp(a,b,t){ return a+(b-a)*t; }
@@ -253,12 +249,11 @@ function lerp(a,b,t){ return a+(b-a)*t; }
 function applyFeel(){
   const f = Math.max(0, Math.min(1, TUNE.firm));
   const p = FEELS[feelIdx];
-  TUNE.radialCompliance = lerp(8e-4, 2.5e-6, f);   // 柔→硬（弾力の主役。手が中に入らない要）
-  TUNE.edgeCompliance   = lerp(3e-4, 1.5e-5, f);   // 表面のハリ
-  TUNE.shapeK           = lerp(5, 34, f);          // 戻る速さ
-  TUNE.velDamping       = p.velDamping;            // 揺れの残り方
-  TUNE.volCompliance    = p.volCompliance;
-  TUNE.pressure         = p.pressure;
+  TUNE.edgeCompliance = lerp(6e-4, 5e-6, f);   // 柔→硬（表面のハリ。硬いほど浅く弾く）
+  TUNE.shapeMemK      = lerp(4, 45, f);        // 柔→硬（形の戻り＝沈み込みの浅さ。小さいほど深く沈む）
+  TUNE.velDamping     = p.velDamping;
+  TUNE.volCompliance  = p.volCompliance;
+  TUNE.pressure       = p.pressure;
 }
 function setFeel(idx){ feelIdx = ((idx%FEELS.length)+FEELS.length)%FEELS.length; TUNE.firm = FEELS[feelIdx].firm; applyFeel(); }
 setFeel(0);
@@ -298,24 +293,28 @@ function softStep(h){
   for(let s=0;s<sub;s++){
     integrate(sdt);
     solveEdges(sdt);
-    solveRadial(sdt);
     solveVolume(sdt);
     solveColliders();
     finalize(sdt);
   }
 }
 function integrate(sdt){
+  // 重心（COM）を出す。形の戻りはCOM相対、位置の戻りはCOM→ホーム、と別々にするのが肝
+  let cx=0,cy=0,cz=0;
+  for(let i=0;i<N;i++){ cx+=pos[i*3]; cy+=pos[i*3+1]; cz+=pos[i*3+2]; }
+  cx/=N; cy/=N; cz/=N;
+  // 位置の戻り：COMをホーム(anchor)へ。小さいほど押すとよく動いて、離すとボヨンと戻る
+  const hx=(anchorCenter.x-cx)*TUNE.homeK, hy=(anchorCenter.y-cy)*TUNE.homeK, hz=(anchorCenter.z-cz)*TUNE.homeK;
   const damp = Math.max(0, 1 - TUNE.velDamping*sdt);
-  const k = TUNE.shapeK, mx = TUNE.maxStep;
-  const ax=anchorCenter.x, ay=anchorCenter.y, az=anchorCenter.z;
+  const k = TUNE.shapeMemK, mx = TUNE.maxStep;
   for(let i=0;i<N;i++){
-    // 各粒を「元の家（定位置＋静止形）」へ引く＝形状記憶。凹んだまま固まるのを防ぐ
-    const hx=ax+rest[i*3]  -pos[i*3];
-    const hy=ay+rest[i*3+1]-pos[i*3+1];
-    const hz=az+rest[i*3+2]-pos[i*3+2];
-    let vx=(vel[i*3]   + hx*k*sdt)*damp;
-    let vy=(vel[i*3+1] + (hy*k + TUNE.gravity)*sdt)*damp;
-    let vz=(vel[i*3+2] + hz*k*sdt)*damp;
+    // 形の戻り：COM+静止形 へ引く（COM相対なので全体が旅するのを邪魔しない＝深く沈む・横に動く）
+    const sx=(cx+rest[i*3]  -pos[i*3])*k;
+    const sy=(cy+rest[i*3+1]-pos[i*3+1])*k;
+    const sz=(cz+rest[i*3+2]-pos[i*3+2])*k;
+    let vx=(vel[i*3]   + (sx+hx)*sdt)*damp;
+    let vy=(vel[i*3+1] + (sy+hy+TUNE.gravity)*sdt)*damp;
+    let vz=(vel[i*3+2] + (sz+hz)*sdt)*damp;
     vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
     prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
     let dx=vx*sdt, dy=vy*sdt, dz=vz*sdt;
@@ -336,17 +335,6 @@ function solveEdges(sdt){
     const s=-C/(wa+wb+alpha);
     pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
     pos[b*3]-=gx*s*wb; pos[b*3+1]-=gy*s*wb; pos[b*3+2]-=gz*s*wb;
-  }
-}
-function solveRadial(sdt){
-  // 中心(重心)から静止半径へ引き戻す＝弾力。凹ませても中心を越えさせない＝手が中に入るのを防ぐ主役
-  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-  const alpha = TUNE.radialCompliance/(sdt*sdt);
-  for(let i=0;i<N;i++){
-    let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
-    const d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
-    const C=d-restR[i], w=invMass[i], s=-C/(w+alpha), inv=1/d;
-    pos[i*3]+=dx*inv*s*w; pos[i*3+1]+=dy*inv*s*w; pos[i*3+2]+=dz*inv*s*w;
   }
 }
 function solveVolume(sdt){
@@ -442,7 +430,8 @@ function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); 
    ============================================================ */
 const controllers = [];
 const ctrlOn = [false, false];
-const TIP_JOINTS = ["index-finger-tip","thumb-tip","middle-finger-tip"];
+const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip",
+  "wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"]; // 指先＋手のひら（手のひらが沈む感触のため）
 
 // 触れている所を示す小さな球（コントローラ・指先ぶん）
 const markerMat = new THREE.MeshBasicMaterial({ color:0xb6f5cf, transparent:true, opacity:0.5, depthWrite:false });
@@ -809,17 +798,28 @@ window.__dbg = {
   // 外から指を当てて depth(m) だけ凹ませ、その状態を保持 → 凹み量(maxShapeDuring)を測る
   poke(depth, sec){
     if(!slimeReady) return "no-slime";
-    depth = Math.min(depth||0.015, TUNE.fingerR*0.95); sec = sec||0.4;   // 単一指の凹みは指半径まで
-    const cxHold = anchorCenter.x + TUNE.radius + TUNE.fingerR - depth;  // 外から接触を保つ位置
-    const steps = Math.max(1, Math.round(sec/FIXED));
+    depth = Math.min(depth||0.05, TUNE.radius*0.85); sec = sec||0.5;      // 深い沈み込みも試せるよう解放
+    const x0 = anchorCenter.x + TUNE.radius + TUNE.fingerR;               // 外から近づいて
+    const steps = Math.max(1, Math.round(sec/FIXED)), inSteps = Math.max(1, Math.round(steps*0.4));
     let maxShape = 0;
     for(let s=0;s<steps;s++){
-      colN=0; addCol(cxHold, anchorCenter.y, anchorCenter.z, TUNE.fingerR);
+      const f = s<inSteps ? (s+1)/inSteps : 1;                            // 押し込み→保持（連続移動で表面が包む）
+      colN=0; addCol(x0 - depth*f, anchorCenter.y, anchorCenter.z, TUNE.fingerR);
       contactDepth=0; softStep(FIXED); handleContactFX();
       const se = shapeErr(); if(se>maxShape) maxShape=se;
     }
     updateRenderMesh();
     const st = this.state(); st.maxShapeDuring = +maxShape.toFixed(4); return st;
+  },
+  // 横から一斉に押して「どれだけ旅して」「ちゃんと戻るか」を測る（travel＋ボヨン戻り）
+  shoveTest(v, sec){
+    this.spawn();
+    for(let i=0;i<N;i++){ vel[i*3]=(v==null?0.7:v); }
+    let maxOff=0;
+    const steps=Math.max(1,Math.round((sec||2.0)/FIXED));
+    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); const o=comOffset(); if(o>maxOff)maxOff=o; }
+    updateRenderMesh();
+    const st=this.state(); st.maxTravel=+maxOff.toFixed(3); return st;
   },
   // 指を離して戻るのを見る
   settle(sec){
@@ -831,7 +831,7 @@ window.__dbg = {
   },
   tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
   spawn(){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); return this.state(); },
-  setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, radialCompliance:+TUNE.radialCompliance.toExponential(2)}; },
+  setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, edgeCompliance:+TUNE.edgeCompliance.toExponential(2), shapeMemK:+TUNE.shapeMemK.toFixed(1)}; },
   preset(i){ setFeel(i); return {feel:FEELS[feelIdx].name, firm:TUNE.firm}; },
   // 凹ませて離し、戻る間の最大速度(弾みの強さ)を測る。硬い/減衰小ほど大きい
   bounceTest(depth, sec){
