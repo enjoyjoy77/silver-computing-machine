@@ -83,7 +83,7 @@
 
 <script type="module">
 import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
-import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, agoText, detectBackend } from "./assets/common.js";
+import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, figuresAdd, agoText, detectBackend } from "./assets/common.js";
 
 const REV = "v2 rev4";
 document.getElementById("rev-badge").textContent = REV;
@@ -316,15 +316,15 @@ async function processOne({ blob, name, card }) {
       saveBlob(await canvasToBlob(outCv), baseName + "_深度.png"));
     card.querySelector(".btn-to-view").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
-      btn.disabled = true; btn.textContent = "受け渡し中…";
+      btn.disabled = true; btn.textContent = "棚に追加中…";
       try {
-        await handoffSend("source", blob, { name });
-        await handoffSend("depth", await canvasToBlob(outCv), { name: baseName + "_深度.png" });
+        // 棚(コレクション)に1体追加(上書きせず貯まる)→ 立体ビューアへ
+        await figuresAdd({ name, image: blob, depth: await canvasToBlob(outCv) });
         location.href = "mitate.html";
       } catch (err) {
         console.error(err);
         btn.disabled = false; btn.textContent = "🧊 立体で見る →";
-        setStatus("error", "受け渡しに失敗しました。深度PNGを保存して「立体で見る」で読み込んでください。");
+        setStatus("error", "棚への追加に失敗しました。深度PNGを保存して「立体で見る」で読み込んでください。");
       }
     });
   } catch (e) {

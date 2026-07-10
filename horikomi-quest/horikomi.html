@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>ほうりこみ屋（物理疎通テスト版）</title>
+<title>ほうりこみ屋（気持ちよさ版）</title>
 <style>
   :root{
     --bg:#0c1116; --panel:#141d26; --line:#243342; --ink:#eef4fa;
@@ -89,7 +89,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v1 rev1";
+const REV = "v2 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -138,6 +138,8 @@ const TUNE = {
   binDepth: 0.14,       // トロッコの深さ(m)
   binSettleV: 0.6,      // この速さ以下でトロッコ内なら「入った」判定(m/s)
   hapGrab:0.3, hapThrow:0.25, hapIn:0.7, hapHit:0.4,
+  comboWindow: 4.0,     // 前の納品からこの秒数内に入れるとコンボ継続
+  comboMax: 12,         // コンボで音が上がる上限（半音）
 };
 
 /* ============================================================
@@ -173,6 +175,94 @@ const binLipMat= new THREE.MeshStandardMaterial({ color:0x4fd1c5, emissive:0x123
 const ballGeo  = new THREE.SphereGeometry(TUNE.ballR, 20, 16);
 
 /* ============================================================
+   2b. 演出（紙吹雪＝Points1個 / 「+N」浮き文字＝プール）
+       xr-quest教訓の型: draw call極小・毎フレームnewしない・NaN使わない
+   ============================================================ */
+// --- 紙吹雪：THREE.Points 1個（draw call 1）。粒プールを数値配列で持つ ---
+const CONF_N = 140;
+const confPos = new Float32Array(CONF_N*3);
+const confCol = new Float32Array(CONF_N*3);
+const confVel = new Float32Array(CONF_N*3);
+const confLife = new Float32Array(CONF_N);          // 残り寿命（秒）。0以下=死
+for(let i=0;i<CONF_N;i++){ confPos[i*3+1] = -9999; }
+const confGeo = new THREE.BufferGeometry();
+confGeo.setAttribute("position", new THREE.BufferAttribute(confPos, 3));
+confGeo.setAttribute("color", new THREE.BufferAttribute(confCol, 3));
+const confMat = new THREE.PointsMaterial({ size:0.02, vertexColors:true, transparent:true, depthWrite:false });
+const confetti = new THREE.Points(confGeo, confMat);
+confetti.frustumCulled = false; scene.add(confetti);
+let confHead = 0;
+const CONF_COLORS = [[0.31,0.82,0.77],[1,0.84,0.4],[0.65,0.95,0.92],[1,0.6,0.6],[0.66,0.9,0.63]];
+function burstConfetti(x, y, z, n){
+  for(let k=0;k<n;k++){
+    const i = confHead; confHead = (confHead+1) % CONF_N;
+    confPos[i*3]=x; confPos[i*3+1]=y; confPos[i*3+2]=z;
+    const ang = (k/n)*Math.PI*2, up = 1.4+Math.random()*1.8, out = 0.5+Math.random()*1.2;
+    confVel[i*3]   = Math.cos(ang)*out;
+    confVel[i*3+1] = up;
+    confVel[i*3+2] = Math.sin(ang)*out;
+    const c = CONF_COLORS[(Math.floor(k+confHead))%CONF_COLORS.length];
+    confCol[i*3]=c[0]; confCol[i*3+1]=c[1]; confCol[i*3+2]=c[2];
+    confLife[i] = 0.9+Math.random()*0.5;
+  }
+  confGeo.attributes.color.needsUpdate = true;
+}
+function updateConfetti(dt){
+  let any = false;
+  for(let i=0;i<CONF_N;i++){
+    if(confLife[i] <= 0) continue;
+    any = true;
+    confLife[i] -= dt;
+    if(confLife[i] <= 0){ confPos[i*3+1] = -9999; continue; }
+    confVel[i*3+1] -= 3.2*dt;                        // 重力
+    confPos[i*3]   += confVel[i*3]*dt;
+    confPos[i*3+1] += confVel[i*3+1]*dt;
+    confPos[i*3+2] += confVel[i*3+2]*dt;
+  }
+  if(any) confGeo.attributes.position.needsUpdate = true;
+}
+
+// --- 「+N」浮き文字：小さなプール。各自canvasテクスチャを持ち、上へ昇って消える ---
+const POP_N = 6;
+const popups = [];
+for(let i=0;i<POP_N;i++){
+  const cv = document.createElement("canvas"); cv.width=256; cv.height=128;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.08),
+    new THREE.MeshBasicMaterial({ map:tex, transparent:true, depthWrite:false, depthTest:false }));
+  mesh.visible = false; mesh.renderOrder = 10; scene.add(mesh);
+  popups.push({ mesh, cv, ctx: cv.getContext("2d"), tex, life:0, ttl:0.9 });
+}
+let popHead = 0;
+function spawnPopup(text, x, y, z, big){
+  const p = popups[popHead]; popHead = (popHead+1) % POP_N;
+  const c = p.ctx, W=p.cv.width, H=p.cv.height;
+  c.clearRect(0,0,W,H);
+  c.textAlign="center"; c.textBaseline="middle";
+  c.font = "900 "+(big?96:76)+"px 'Arial Black',sans-serif";
+  c.lineWidth=10; c.strokeStyle="rgba(6,10,14,0.85)"; c.strokeText(text, W/2, H/2);
+  c.fillStyle = big ? "#ffd766" : "#a7f3ea"; c.fillText(text, W/2, H/2);
+  p.tex.needsUpdate = true;
+  p.mesh.position.set(x, y, z);
+  p.mesh.scale.setScalar(big?1.5:1.0);
+  p.mesh.visible = true; p.life = p.ttl;
+}
+function updatePopups(dt){
+  for(const p of popups){
+    if(p.life <= 0) continue;
+    p.life -= dt;
+    if(p.life <= 0){ p.mesh.visible = false; continue; }
+    p.mesh.position.y += dt*0.35;                    // ゆっくり上昇
+    const k = p.life / p.ttl;                        // 1→0
+    p.mesh.material.opacity = Math.min(1, k*1.6);    // 最後にフェード
+    // カメラの方を向く（ビルボード：水平回転のみで文字を傾けない）
+    const cam = renderer && renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+    cam.getWorldPosition(_v1);
+    p.mesh.rotation.y = Math.atan2(_v1.x - p.mesh.position.x, _v1.z - p.mesh.position.z);
+  }
+}
+
+/* ============================================================
    3. 物理（Rapier）
    ============================================================ */
 let world = null, eventQueue = null, rapierReady = false;
@@ -181,6 +271,7 @@ let physAcc = 0, timeScale = 1;
 const handleToObj = new Map();          // colliderハンドル → {kind, ref}
 const balls = [];                       // {mesh, body, colHandle, held, owner, kinematic, home, onTray, hist, hi, hlen}
 let delivered = 0;                      // トロッコに入れた数
+let combo = 0, comboTimer = 0, bestCombo = 0;   // 連続納品
 
 async function initRapier(){
   try{
@@ -215,6 +306,7 @@ function addStaticBox(cx, cy, cz, hx, hy, hz, fr, re){
 function setupStage(fx, fy, fz){
   clearAll();
   floorY = fy; stagePlaced = true;
+  delivered = 0; combo = 0; comboTimer = 0; bestCombo = 0;   // 置き直しは新しい回
 
   // カメラの水平前方向（プレイヤーの正面）
   camera.getWorldPosition(_v1);
@@ -420,8 +512,16 @@ function checkDelivery(){
       if(sp < TUNE.binSettleV){
         b.delivered = true;
         delivered++;
-        playDing();
-        // 一番近い手に喜びの振動
+        // コンボ：前の納品から comboWindow 秒以内なら継続
+        if(comboTimer > 0) combo++; else combo = 1;
+        comboTimer = TUNE.comboWindow;
+        if(combo > bestCombo) bestCombo = combo;
+        const step = Math.min(combo - 1, TUNE.comboMax);
+        playDing(step);
+        // 演出：紙吹雪＋「+1」（コンボ2以上は「x3」など大きめ金色）
+        burstConfetti(binCx, binTopY + 0.03, binCz, combo>=3 ? 26 : 16);
+        if(combo >= 2) spawnPopup("x"+combo, binCx, binTopY + 0.16, binCz, true);
+        else spawnPopup("+1", binCx, binTopY + 0.14, binCz, false);
         pulseAll(TUNE.hapIn, 90);
         checkpoint("in", "トロッコに入れた（納品成功）");
         removeBall(b);
@@ -520,10 +620,11 @@ function playThrow(){
   const g = actx.createGain(); g.gain.setValueAtTime(0.12, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.13);
   src.connect(bp).connect(g).connect(actx.destination); src.start(now); src.stop(now+0.13);
 }
-function playDing(){
+function playDing(step){
   if(!actx) return; const now = actx.currentTime;
+  const semi = Math.pow(2, (step||0)/12);            // コンボで半音ずつ上げる
   // コインが入ったような、気持ちいい2音上がり
-  [784, 1175].forEach((f,i)=>{
+  [784*semi, 1175*semi].forEach((f,i)=>{
     const t = now + i*0.07;
     const o = actx.createOscillator(); o.type="triangle"; o.frequency.value=f;
     const g = actx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.24,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
@@ -777,8 +878,13 @@ function simulate(dt){
   physMs = physMs*0.9 + (performance.now()-p0)*0.1;
   syncMeshes();
   checkDelivery();
-  // つかめる玉をほのかに光らせる（手が近い玉）※AR時のみ手位置が取れる
-  const statLine = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1) + "ms / 納品 " + delivered + " / 玉 " + balls.length;
+  // コンボの時間切れ
+  if(comboTimer > 0){ comboTimer -= dt; if(comboTimer <= 0) combo = 0; }
+  // 演出の更新
+  updateConfetti(dt);
+  updatePopups(dt);
+  const comboStr = combo >= 2 ? (" / コンボ x" + combo) : "";
+  const statLine = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1) + "ms / 納品 " + delivered + comboStr;
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -855,7 +961,7 @@ addEventListener("resize", ()=>{
    ============================================================ */
 window.__dbg = {
   state(){ let onTray=0, free=0, held=0; for(const b of balls){ if(b.held) held++; else if(b.onTray) onTray++; else free++; }
-    return { rapierReady, stagePlaced, delivered, balls: balls.length, onTray, free, held,
+    return { rapierReady, stagePlaced, delivered, combo, bestCombo, balls: balls.length, onTray, free, held,
              fps: Math.round(fpsSmooth), physMs: +physMs.toFixed(2), cp: {...cp} }; },
   // 台の玉を1個、トロッコへ確実に入れる（納品カウントの決定論テスト）
   deliver(){

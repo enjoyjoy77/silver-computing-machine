@@ -101,10 +101,15 @@ export async function makeZip(files) {
 // 画像を次のツールへ渡せる。slot: "source"(元画像) / "depth"(深度マップ)
 const DB_NAME = "kobo-handoff";
 const STORE = "slots";
+const FIG_STORE = "figures";   // 棚(複数フィギュアを貯める)
 function dbOpen() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    const r = indexedDB.open(DB_NAME, 2);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+      if (!db.objectStoreNames.contains(FIG_STORE)) db.createObjectStore(FIG_STORE, { keyPath: "id", autoIncrement: true });
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
@@ -141,6 +146,60 @@ export async function handoffClear(slot) {
       await new Promise((res, rej) => {
         const tx = db.transaction(STORE, "readwrite");
         tx.objectStore(STORE).delete(slot);
+        tx.oncomplete = res;
+        tx.onerror = () => rej(tx.error);
+      });
+    } finally { db.close(); }
+  } catch { /* 無視 */ }
+}
+
+// ---------- 棚(コレクション): 複数フィギュアを貯める ----------
+// figure = { id(自動採番), name, image:Blob(元画像/切り抜き), depth:Blob(深度PNG), ts }
+export async function figuresAdd({ name, image, depth }) {
+  const db = await dbOpen();
+  try {
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(FIG_STORE, "readwrite");
+      const rq = tx.objectStore(FIG_STORE).add({ name, image, depth, ts: Date.now() });
+      rq.onsuccess = () => res(rq.result);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error("ブラウザの保存領域が足りません"));
+    });
+  } finally { db.close(); }
+}
+export async function figuresAll() {
+  try {
+    const db = await dbOpen();
+    try {
+      return await new Promise((res, rej) => {
+        const tx = db.transaction(FIG_STORE, "readonly");
+        const rq = tx.objectStore(FIG_STORE).getAll();
+        rq.onsuccess = () => res((rq.result || []).sort((a, b) => a.ts - b.ts));  // 古い順
+        rq.onerror = () => rej(rq.error);
+      });
+    } finally { db.close(); }
+  } catch { return []; }
+}
+export async function figuresRemove(id) {
+  try {
+    const db = await dbOpen();
+    try {
+      await new Promise((res, rej) => {
+        const tx = db.transaction(FIG_STORE, "readwrite");
+        tx.objectStore(FIG_STORE).delete(id);
+        tx.oncomplete = res;
+        tx.onerror = () => rej(tx.error);
+      });
+    } finally { db.close(); }
+  } catch { /* 無視 */ }
+}
+export async function figuresClear() {
+  try {
+    const db = await dbOpen();
+    try {
+      await new Promise((res, rej) => {
+        const tx = db.transaction(FIG_STORE, "readwrite");
+        tx.objectStore(FIG_STORE).clear();
         tx.oncomplete = res;
         tx.onerror = () => rej(tx.error);
       });
