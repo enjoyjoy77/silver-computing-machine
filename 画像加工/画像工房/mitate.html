@@ -236,7 +236,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev8d";
+const REV = "v2 rev8e";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -605,7 +605,7 @@ function updateSculpt(dt){
     const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
     if(!gp) continue;
     // 筆の太さ: スティック左右で調整
-    const ax = gp.axes; if(ax && ax.length){ const rx=(ax.length>=4)?ax[2]:(ax[0]||0); if(Math.abs(rx)>0.4){ sculptRadius=clamp(sculptRadius + rx*0.25*dt, 0.02, 0.4); $('brushRange').value=Math.round(sculptRadius*100); $('brushVal').textContent=Math.round(sculptRadius*100)+'cm'; } }
+    const ax = gp.axes; if(ax && ax.length){ const rx=(ax.length>=4)?ax[2]:(ax[0]||0), ry=(ax.length>=4)?ax[3]:(ax[1]||0); if(Math.abs(rx)>0.4 && Math.abs(rx)>Math.abs(ry)){ sculptRadius=clamp(sculptRadius + rx*0.25*dt, 0.02, 0.4); $('brushRange').value=Math.round(sculptRadius*100); $('brushVal').textContent=Math.round(sculptRadius*100)+'cm'; } }   // 左右が優勢な時だけ筆太さ(上下=手元寄せと競合しない)
     tmpV.setFromMatrixPosition(c.matrixWorld);
     _dir.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
     const lh = sculptHit(mesh, tmpV, _dir);
@@ -962,12 +962,12 @@ function setMode(m){
     $('gyroBtn').style.display = (m==='parallax'&&hasGyro) ? 'flex' : 'none';
   }
   const hints = {
-    relief: 'ドラッグで回転・ホイール/二本指でズーム。AR/VRなら実寸cmで置けます',
+    relief: 'ドラッグで回転・ホイール/二本指でズーム。AR/VRは実寸cmで置ける・スティック上下で手元に寄せる',
     parallax: '指でドラッグ／ジャイロで視点が動きます',
     wiggle: '自動で左右に揺れます。「動画で保存」でSNS用にどうぞ',
     light: '光源が回って陰影が流れます',
     layers: '指でドラッグすると層がジオラマのようにズレます',
-    sculpt: 'AR/VRで狙って引き金＝彫る。にぎる＝つかんで移動／両手で大きさ変え。A/Xボタンで盛り上げ⇄へこませ。スティック左右＝筆の太さ',
+    sculpt: 'AR/VRで狙って引き金＝彫る。にぎる＝つかむ/両手で大きさ変え。スティック上下＝手元に寄せる・左右＝筆の太さ。A/Xで盛り上げ⇄へこませ',
   };
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
@@ -1142,6 +1142,9 @@ const ROT_TILT_SPEED = 1.2;       // 前後傾きの最高速(rad/s ≒ 69°/s)
 const TILT_MAX       = Math.PI/4; // 傾きの上限 ±45°
 const YAW_SIGN  = -1;             // 回転方向。実機で「逆」なら +1 に
 const TILT_SIGN = 1;              // 傾き方向。実機で「逆」なら -1 に
+const DOLLY_SPEED = 1.1;          // 手元寄せの最高速(m/s)
+const DOLLY_SIGN  = 1;            // スティック上下と 寄る/離れる が実機で逆なら -1
+const DOLLY_MIN = 0.25, DOLLY_MAX = 4.0;   // カメラからの水平距離の下限/上限(近すぎ・見失い防止)
 function deadzone(v){
   const a = Math.abs(v);
   if(a < STICK_DEADZONE) return 0;
@@ -1153,6 +1156,7 @@ function pollInput(dt){
   const sess = renderer.xr.getSession(); if(!sess) return;
   let recallPressed = false, cycleNow = false, recalledThisFrame = false, anyDirBtn = false;
   let bestYaw = 0, bestTilt = 0, bestMag = 0, bestHd = null;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
+  let bestDollyY = 0, bestDollyHd = null;   // 手元寄せ: 上下が最も大きい手だけ採用
   for(const src of sess.inputSources){
     const gp = src.gamepad; if(!gp) continue;
     const b = gp.buttons, ax = gp.axes;
@@ -1174,6 +1178,13 @@ function pollInput(dt){
       const mag = Math.abs(x) + Math.abs(y);
       if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; bestHd = hd; }
     }
+    else if(!gripHeld && ax && ax.length){
+      // 手元寄せ: グリップ非押下時の上下スティック(上下が優勢な時だけ=彫刻の筆太さ〈左右〉と競合しない)
+      const rawX = (ax.length >= 4) ? ax[2] : (ax[0] || 0);
+      const rawY = (ax.length >= 4) ? ax[3] : (ax[1] || 0);
+      const y = deadzone(rawY);
+      if(y !== 0 && Math.abs(rawY) > Math.abs(rawX) && Math.abs(y) > Math.abs(bestDollyY)){ bestDollyY = y; bestDollyHd = hd; }
+    }
   }
   // 彫る向き切替: 左右まとめて単一エッジ(両手同時押しでも1回=相殺しない)
   if(mode==='sculpt'){ if(anyDirBtn && !dirToggleHeld) toggleSculptDir(); dirToggleHeld = anyDirBtn; }
@@ -1193,6 +1204,24 @@ function pollInput(dt){
     if(target && target.group.parent === scene){
       target.group.rotation.y += YAW_SIGN * bestYaw * ROT_YAW_SPEED * dt;
       target.tiltGroup.rotation.x = clamp(target.tiltGroup.rotation.x + TILT_SIGN * bestTilt * ROT_TILT_SPEED * dt, -TILT_MAX, TILT_MAX);
+      if(target !== activeItem) setActive(target);
+    }
+  }
+  // 手元寄せ: スティック上下で、指す/活動中の体を視線の前後へ寄せる/遠ざける(掴み・ピンチ中は不可。立像モードのみ)
+  if(!pinch && !recalledThisFrame && bestDollyY !== 0 && (mode === 'relief' || mode === 'sculpt')){
+    const gh = (bestDollyHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestDollyHd) : -1;
+    let target = (gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem;
+    if(target && target.group.parent === scene){
+      const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos); cam.getWorldQuaternion(_camQ);
+      _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
+      if(_fwd.lengthSq() > 1e-6){
+        _fwd.normalize();
+        const step = DOLLY_SIGN * bestDollyY * DOLLY_SPEED * dt;   // 視線の前後へ移動(スティック上下で 手元/奥)
+        target.group.position.addScaledVector(_fwd, step);
+        const ddx = target.group.position.x - _camPos.x, ddz = target.group.position.z - _camPos.z;
+        const dist = Math.hypot(ddx, ddz);
+        if(dist < DOLLY_MIN || dist > DOLLY_MAX) target.group.position.addScaledVector(_fwd, -step);   // 近すぎ/見失いは戻す
+      }
       if(target !== activeItem) setActive(target);
     }
   }
@@ -1472,7 +1501,7 @@ async function startAR(){
     pendingPlace = true;   // 最初のフレームで視線の先へ横一列
     setupControllers();
     toast(mode==='sculpt'
-      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／A・Xで彫る向き／B・Yで呼び戻し'
+      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／スティック上下＝手元に寄せる／A・Xで彫る向き'
       : '目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
@@ -1509,7 +1538,7 @@ async function startVR(){
     pendingPlace = true;   // 最初のフレームで視線の先の床上へ横一列
     setupControllers();
     toast(mode==='sculpt'
-      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／A・Xで彫る向き／B・Yで呼び戻し'
+      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／スティック上下＝手元に寄せる／A・Xで彫る向き'
       : '実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
     // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
     s.addEventListener('end', ()=>{
