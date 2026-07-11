@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev1";
+const REV = "v3 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -141,6 +141,9 @@ const TUNE = {
   // --- 上半身の素体(段階3-1) ---
   torsoNippleY: 1.24,    // 素体の足元からバストの高さ(m)。ここが胸板の中心に合う(画像検証で調整)
   torsoChestZ: 0.075,    // 素体の胸の面の前後位置(m)。ふくらみの付け根が胸の面に乗るよう調整
+  cutNeckY: 1.40,        // マネキン化: これより上(首・頭)を落とす(モデル座標・足元0)
+  cutHipY: 0.78,         // マネキン化: これより下(脚)を落とす
+  cutArmX: 0.20,         // マネキン化: 中心からこれより外(腕)を落とす(y>0.9の範囲)
   sagShape: 0.20,        // 涙型: 先端が下へ垂れる量(半径×これ)
   fullBottom: 0.12,      // 涙型: 下半分のふくらみ増し
   breath: 0.0035,        // 呼吸: 板の前後の微かな動き(m)
@@ -328,19 +331,41 @@ plateMesh.position.set(0,0,-0.010); plateGroup.add(plateMesh);
 let torso = null;
 new GLTFLoader().load("./lib/models/female_base.glb", (gltf)=>{
   torso = gltf.scene;
+  bustMat.side = THREE.DoubleSide;   // カット断面から内側が見えても肌色に(ふくらみは閉じているので無害)
+  // ※ズレ(x≈+1.34)は頂点でなく「ノードの位置」に入っている→必ずシーン座標(ノード変換込み)で測る
+  torso.updateMatrixWorld(true);
+  let kminx=1e9,kmaxx=-1e9,kminz=1e9,kmaxz=-1e9, kfeet=1e9;   // 残した部分のシーン座標bbox(中心合わせ用)
+  const _pv = new THREE.Vector3();
   torso.traverse(o=>{ if(o.isMesh){
-    o.geometry.computeVertexNormals();   // 滑らかな法線=カクカクした面の継ぎ目を消す
-    o.material = bustMat;   // ふくらみと同じ肌素材(色・質感を完全に一致させる)
+    const g=o.geometry, pa=g.attributes.position, idx=g.index?g.index.array:null, vc=pa.count;
+    const W = o.matrixWorld;
+    const sx=new Float32Array(vc), sy=new Float32Array(vc), sz=new Float32Array(vc);   // 全頂点のシーン座標
+    let fminx=1e9,fmaxx=-1e9,fminy=1e9;
+    for(let v=0;v<vc;v++){ _pv.set(pa.getX(v),pa.getY(v),pa.getZ(v)).applyMatrix4(W);
+      sx[v]=_pv.x; sy[v]=_pv.y; sz[v]=_pv.z;
+      if(_pv.x<fminx)fminx=_pv.x; if(_pv.x>fmaxx)fmaxx=_pv.x; if(_pv.y<fminy)fminy=_pv.y; }
+    const cx0=(fminx+fmaxx)/2, y0=fminy;   // 体の左右中心と足元
+    // マネキン化: 首から上・肩の外(腕)・腰から下の三角形を落とす(足元からの高さで判定)
+    const cut=(v)=>{ const x=Math.abs(sx[v]-cx0), y=sy[v]-y0;
+      return (y>TUNE.cutNeckY) || (y<TUNE.cutHipY) || (x>TUNE.cutArmX) || (x>0.165 && y>1.02); };   // 腕: 全高で外側+わき高さは内側の面も落とす(腰の張りは残す)
+    if(idx){
+      const keep=[];
+      for(let t=0;t<idx.length;t+=3){ if(!(cut(idx[t])||cut(idx[t+1])||cut(idx[t+2]))){ keep.push(idx[t],idx[t+1],idx[t+2]);
+        for(let k=0;k<3;k++){ const v=idx[t+k]; if(sx[v]<kminx)kminx=sx[v]; if(sx[v]>kmaxx)kmaxx=sx[v]; if(sz[v]<kminz)kminz=sz[v]; if(sz[v]>kmaxz)kmaxz=sz[v]; } } }
+      g.setIndex(new THREE.BufferAttribute(new Uint32Array(keep), 1));   // ※indexはUint必須
+    }
+    if(y0<kfeet) kfeet=y0;
+    g.computeVertexNormals();   // 滑らかな法線=カクカクした面の継ぎ目を消す
+    o.material = bustMat;       // ふくらみと同じ肌素材(色・質感を完全に一致させる)
     o.frustumCulled = false;
   }});
-  // バンドル内で原点からズレて置かれているので、まず自動で中心合わせ(足元y=0・左右/前後センター)してから配置
-  const bb = new THREE.Box3().setFromObject(torso);
-  const cx=(bb.min.x+bb.max.x)/2, cz=(bb.min.z+bb.max.z)/2;
-  torso.position.set(-cx, -TUNE.torsoNippleY - bb.min.y, -cz - TUNE.torsoChestZ);   // バスト位置が板の中心に合うよう配置
+  const cx=(kminx+kmaxx)/2, cz=(kminz+kmaxz)/2;
+  torso.position.set(-cx, -(kfeet + TUNE.torsoNippleY), -cz - TUNE.torsoChestZ);   // バスト位置(足元+torsoNippleY)が板の中心に合うよう配置
   plateGroup.add(torso);
   window.__torsoObj = torso;   // 検証用(位置合わせの目視デバッグ)
   plateMesh.visible = false;
-  checkpoint("torso", "上半身モデルを読み込んだ(CC0素体)");
+  checkpoint("torso", "上半身モデルを読み込んだ(CC0素体・マネキン型)");
+  fitBustsToTorso();   // ふくらみが既に居れば曲面フィット(まだなら arrangeBusts 側で)
 }, undefined, (e)=>{ log("上半身モデルの読み込みに失敗(板のまま続行): "+(e&&e.message||e), true); });
 
 // ふくらみ2つ（左右）。pos/prev/vel/geometryは各自、トポロジは共有
@@ -363,11 +388,12 @@ let breathT = 0, breathZ = 0;   // 呼吸: 板の表面が微かに前後する(
 function computeTargets(B){
   plateGroup.updateMatrixWorld(true);
   const M = plateGroup.matrixWorld.elements;
-  const off = R*TUNE.standoff + breathZ;
+  const off = R*TUNE.standoff;
+  const F = B.fit;   // 曲面フィット済みならその板ローカル座標を使う(付け根が素体の胸の曲面に沿う=ボール感の根治)
   for(let i=0;i<N;i++){
-    const lx = B.mount.x + rest[i*3]*R;
-    const ly = B.mount.y + rest[i*3+1]*R;
-    const lz = off + rest[i*3+2]*R;
+    const lx = F ? F[i*3]   : (B.mount.x + rest[i*3]*R);
+    const ly = F ? F[i*3+1] : (B.mount.y + rest[i*3+1]*R);
+    const lz = (F ? F[i*3+2] : (off + rest[i*3+2]*R)) + breathZ;
     B.tgt[i*3]   = M[0]*lx + M[4]*ly + M[8]*lz  + M[12];
     B.tgt[i*3+1] = M[1]*lx + M[5]*ly + M[9]*lz  + M[13];
     B.tgt[i*3+2] = M[2]*lx + M[6]*ly + M[10]*lz + M[14];
@@ -382,13 +408,55 @@ function computeTargets(B){
 function placeBust(B){
   computeTargets(B);
   for(let i=0;i<N*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }
-  B.curVol = restVolU*R*R*R;
+  B.curVol = B.restVol || restVolU*R*R*R;
   B.mesh.visible = true;
+}
+// 付け根を素体の胸の曲面に沿わせる(段階3-2の核心)。板の後ろからレイを飛ばし、付け根の粒を素体表面に置く。
+// フィット座標は板ローカルなので、板をどこへ動かしても崩れない。大きさ変更(setSize)時は再フィット。
+const _rayc = new THREE.Raycaster(); const _ro = new THREE.Vector3(), _rd = new THREE.Vector3(), _inv = new THREE.Matrix4();
+function fitBustsToTorso(){
+  if(!torso || busts.length===0) return false;
+  plateGroup.updateMatrixWorld(true);
+  _inv.copy(plateGroup.matrixWorld).invert();
+  const off = R*TUNE.standoff;
+  for(const B of busts){
+    const fit = new Float32Array(N*3);
+    for(let i=0;i<N;i++){
+      const lx = B.mount.x + rest[i*3]*R, ly = B.mount.y + rest[i*3+1]*R, lz = off + rest[i*3+2]*R;
+      fit[i*3]=lx; fit[i*3+1]=ly; fit[i*3+2]=lz;
+      if(invMass[i]===0){   // 付け根の粒: 素体表面へ(見つからなければ球のまま)
+        _ro.set(lx, ly, 0.5).applyMatrix4(plateGroup.matrixWorld);
+        _rd.set(0,0,-1).transformDirection(plateGroup.matrixWorld);
+        _rayc.set(_ro, _rd);
+        const hits = _rayc.intersectObject(torso, true);
+        if(hits.length){ const p = hits[0].point.applyMatrix4(_inv); fit[i*3+2] = p.z + 0.004; }
+      }
+    }
+    B.fit = fit;
+    // フィット後の「付け根からの静止距離」(芯の非線形・硬い下限が使う)。球のままだと芯が効かなくなる
+    B.drA = new Float32Array(N);
+    for(let i=0;i<N;i++){ B.drA[i] = Math.hypot(fit[i*3]-B.mount.x, fit[i*3+1]-B.mount.y, fit[i*3+2]); }
+    // フィット後の「辺の基準長」(表面のハリの基準)。球のままだと付け根まわりが常に押し合って柔らかく暴れる
+    B.edgeLen = new Float32Array(edgeN);
+    for(let e=0;e<edgeN;e++){ const a=edge[e*2], b=edge[e*2+1];
+      B.edgeLen[e] = Math.hypot(fit[a*3]-fit[b*3], fit[a*3+1]-fit[b*3+1], fit[a*3+2]-fit[b*3+2]); }
+    // フィット後の静止体積(体積制約の目標)を実形状から再計算(座標系は剛体変換なのでローカルで計算可)
+    let V=0;
+    for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
+      const ax=fit[a*3],ay=fit[a*3+1],az=fit[a*3+2], bx=fit[b*3],by=fit[b*3+1],bz=fit[b*3+2], cx=fit[c*3],cy=fit[c*3+1],cz=fit[c*3+2];
+      V += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
+    B.restVol = V;
+    placeBust(B);
+  }
+  updateRenderMesh();
+  checkpoint("fit", "ふくらみを胸の曲面に沿わせた");
+  return true;
 }
 function setSize(idx){
   sizeIdx = Math.max(0, Math.min(SIZES.length-1, idx));
   R = SIZES[sizeIdx].R;
-  for(const B of busts) placeBust(B);
+  for(const B of busts){ B.fit=null; B.restVol=0; placeBust(B); }   // 大きさが変わったら作り直してから再フィット
+  if(torso) fitBustsToTorso();
   updateRenderMesh();
   if(typeof drawUILabels==="function") drawUILabels();
 }
@@ -402,6 +470,7 @@ function arrangeBusts(){
   plateGroup.visible = true;
   for(const B of busts) placeBust(B);
   bustReady = true;
+  if(torso && !busts[0].fit) fitBustsToTorso();   // 素体が先に読めていたら、ここで曲面フィット
   updateRenderMesh();
   checkpoint("spawn", "胸板とふくらみを出した");
 }
@@ -420,7 +489,8 @@ const eColX=new Float32Array(MAXCOL), eColY=new Float32Array(MAXCOL), eColZ=new 
 /* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
 const FIXED = 1/60;
 let physAcc = 0, physMs = 0;
-function usePtr(B){ pos=B.pos; prev=B.prev; vel=B.vel; curVol=B.curVol; }
+let restVolCur = 0, edgeLenCur = null;   // 現在処理中のふくらみの静止体積・辺基準長(曲面フィット後は各自の値)
+function usePtr(B){ pos=B.pos; prev=B.prev; vel=B.vel; curVol=B.curVol; restVolCur = B.restVol || restVolU*R*R*R; edgeLenCur = B.edgeLen || null; }
 
 function softStep(h){
   if(!bustReady) return;
@@ -458,7 +528,7 @@ function solveCore(B){
     if(invMass[i]===0) continue;
     let dx=pos[i*3]-ax, dy=pos[i*3+1]-ay, dz=pos[i*3+2]-az;
     const d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
-    const dr=drU[i]*R;
+    const dr = B.drA ? B.drA[i] : drU[i]*R;   // 曲面フィット後は実際の静止距離で(芯・硬い下限の正しさの要)
     const q = 1 - d/dr;                     // 圧縮率(0=静止どおり)
     if(q > start){
       const targetD = dr*(1-start);
@@ -507,7 +577,7 @@ function solveEdges(sdt){
     let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
     const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
     const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const C=len-edgeLenU[e]*R;
+    const C=len-(edgeLenCur ? edgeLenCur[e] : edgeLenU[e]*R);   // フィット後は実形状の辺長を基準に
     const wa=invMass[a], wb=invMass[b];
     const wsum=wa+wb; if(wsum<1e-9) continue;
     const s=-C/(wsum+alpha);
@@ -536,7 +606,7 @@ function solveVolume(sdt){
   let denom = alpha;
   for(let i=0;i<N;i++){ const gx=grad[i*3],gy=grad[i*3+1],gz=grad[i*3+2]; denom += invMass[i]*(gx*gx+gy*gy+gz*gz); }
   if(denom<1e-12) return;
-  const C = V - restVolU*R*R*R*TUNE.pressure;
+  const C = V - restVolCur*TUNE.pressure;   // 曲面フィット後は各ふくらみの実際の静止体積を目標に
   const s = -C/denom;
   for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
 }
@@ -652,6 +722,21 @@ for(let i=0;i<SIZES.length;i++){
   ctrlGroup.add(g);
   sizeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
+// ゆらしボタン2つ(よこゆれ/たてゆれ)＝PCのT/Yキーと同じ自動揺れをVRでも(実機⑥要望)
+const swayBtnMeshes = [];
+[["よこゆれ","x"],["たてゆれ","y"]].forEach((spec,i)=>{
+  const cv=document.createElement("canvas"); cv.width=224; cv.height=88;
+  const cc=cv.getContext("2d"); cc.textAlign="center"; cc.textBaseline="middle"; cc.font="bold 38px sans-serif";
+  cc.fillStyle="#ffe3ea"; cc.fillText(spec[0], 112, 46);
+  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace; tex.needsUpdate=true;
+  const g=new THREE.Group(); g.position.set((i-0.5)*0.13, 0.125, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.11,0.036,0.012), new THREE.MeshStandardMaterial({ color:0x2a1d26, roughness:0.6 }));
+  bg.position.set(0,0,-0.007); g.add(bg);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.106,0.032), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  lm.position.set(0,0,0.001); g.add(lm);
+  ctrlGroup.add(g);
+  swayBtnMeshes.push({ group:g, axis:spec[1] });
+});
 function drawUILabels(){
   for(const L of LEVERS){
     const c=L.ctx, W=L.cv.width, H=L.cv.height;
@@ -671,7 +756,7 @@ function positionControlPanel(){
   const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  ctrlGroup.position.set(plateGroup.position.x + _v2.x*0.30, plateGroup.position.y - 0.36, plateGroup.position.z + _v2.z*0.30);   // 体の30cm手前に浮かべる(体と重ならないように)
+  ctrlGroup.position.set(plateGroup.position.x - _v2.x*0.26, plateGroup.position.y - 0.36, plateGroup.position.z - _v2.z*0.26);   // 体の26cm【手前=ユーザー側】に浮かべる(前回は符号ミスで体の向こう側に置いていた)
   ctrlGroup.lookAt(_v1.x, ctrlGroup.position.y, _v1.z);
   ctrlGroup.updateMatrixWorld(true);
   for(const L of LEVERS){
@@ -696,6 +781,10 @@ function onSelectStart(i){
     for(const b of sizeBtnMeshes){
       b.group.getWorldPosition(_v2);
       if(_v1.distanceTo(_v2) < 0.055){ setSize(b.idx); pulse(i,0.4,30); return; }
+    }
+    for(const b of swayBtnMeshes){
+      b.group.getWorldPosition(_v2);
+      if(_v1.distanceTo(_v2) < 0.055){ startSway(b.axis); pulse(i,0.4,30); return; }   // よこゆれ/たてゆれ
     }
   }
 }
@@ -871,7 +960,12 @@ function placePanelInFront(){
 let pcMode = false, pcYaw = 0.0, pcPitch = 0.1, pcRadius = 0.7;
 const pcTarget = new THREE.Vector3(0, 0, 0.5);
 let pokeAnim = null;
-let swayAnim = null;     // {t,dur,amp} 板を左右に揺らす自動テスト
+let swayAnim = null;     // {t,dur,amp,axis} 体を自動で揺らす(よこ/たて)。PCキーとVRボタンの両方から使う
+function startSway(axis){
+  if(swayAnim) plateGroup.position.copy(plateHome);          // 連打対策: 前の揺れを戻してから
+  plateHome.copy(plateGroup.position);
+  swayAnim = { t:0, dur:1.2, amp: axis==="y" ? 0.045 : 0.05, axis: axis };
+}
 function startPC(){
   init3D(); ensureAudio();
   pcMode = true;
@@ -905,7 +999,8 @@ function setupPCInput(){
   addEventListener("keydown", e=>{
     const mv = 0.03;
     if(e.key==="r"||e.key==="R"){ arrangeBusts(); positionControlPanel(); plateHome.copy(plateGroup.position); }
-    else if(e.key==="t"||e.key==="T"){ swayAnim = { t:0, dur:1.2, amp:0.05 }; }
+    else if(e.key==="t"||e.key==="T"){ startSway("x"); }
+    else if(e.key==="y"||e.key==="Y"){ startSway("y"); }
     else if(e.key==="ArrowLeft"){ plateGroup.position.x -= mv; }
     else if(e.key==="ArrowRight"){ plateGroup.position.x += mv; }
     else if(e.key==="ArrowUp"){ plateGroup.position.y += mv; }
@@ -996,7 +1091,8 @@ function simulate(dt){
     swayAnim.t += dt;
     const f = swayAnim.t/swayAnim.dur;
     if(f>=1){ swayAnim=null; plateGroup.position.copy(plateHome); }
-    else plateGroup.position.x = plateHome.x + Math.sin(f*Math.PI*4)*swayAnim.amp;   // 2往復
+    else if(swayAnim.axis==="y") plateGroup.position.y = plateHome.y + Math.sin(f*Math.PI*4)*swayAnim.amp;   // たてゆれ2往復
+    else plateGroup.position.x = plateHome.x + Math.sin(f*Math.PI*4)*swayAnim.amp;   // よこゆれ2往復
   }
   stepSoft(dt);
   handleContactFX();
@@ -1046,7 +1142,7 @@ window.__dbg = {
     const B=busts[0];
     return {
       bustReady, N, pinCount, size:SIZES[sizeIdx].name, R,
-      volRatio: B ? +(B.curVol/(restVolU*R*R*R)).toFixed(3) : 0,
+      volRatio: B ? +(B.curVol/(B.restVol||restVolU*R*R*R)).toFixed(3) : 0,
       shapeErr: B ? +shapeErrOf(B).toFixed(4) : 0,
       maxSpeed: B ? +maxSpeedOf(B).toFixed(3) : 0,
       sagTip: B ? +(B.tgt[TIP*3+1]-B.pos[TIP*3+1]).toFixed(4) : 0,   // 先端がどれだけ垂れているか(m)
