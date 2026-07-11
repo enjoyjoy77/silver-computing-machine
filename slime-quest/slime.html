@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／R＝戻す
+  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく（ガラスは突いて割る）／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／<b>G＝ガラス⇄やわらか</b>／R＝戻す（出し直す）
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v5 rev1";
+const REV = "v6 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -147,6 +147,15 @@ const TUNE = {
   squishGap: 85,          // 音の最短間隔(ms)
   squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
   hapPoke: 0.5,           // 触れた時の振動の強さ（コントローラのみ有効）
+  // --- 割れる素材（ガラス）段階6-1 ---
+  glassR: 0.10,           // ガラス玉の半径(m)
+  crackRate: 3.2,         // 押し込み量→ヒビの溜まる速さ（大きいほど早く割れる）
+  crackDecay: 0.9,        // 離すとヒビが引く速さ（毎秒）
+  crackInstant: 0.05,     // これ以上ひと突きで深く押し込んだら即割れ(m)
+  shardCount: 12,         // 割れたときの破片の数
+  debrisLife: 3.0,        // 破片が消えるまで(秒)
+  debrisGravity: 3.5,     // 破片の落下(m/s^2)。MRで軽やかに見える程度
+  debrisSpeed: 0.9,       // 破片の飛び散る速さ(m/s)
 };
 
 /* ============================================================
@@ -639,6 +648,193 @@ function pulse(i, intensity, ms){
 function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); }
 
 /* ============================================================
+   5b. 割れる素材（ガラス）段階6-1
+   軟体(スライム)とは別の「硬くて脆い」素材。押すとヒビが溜まり、限界でパリンと割れて
+   鋭い破片が飛び散って消える。剛体エンジン(Rapier)は使わず自前の軽い飛散で作る。
+   ============================================================ */
+// ガラスの見た目（フェイク透明：clearcoat＋鋭い白フレネル縁。本物の屈折transmissionは0で軽い）
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color:0xbfe6f5, roughness:0.06, metalness:0.0,
+  clearcoat:1.0, clearcoatRoughness:0.03,
+  emissive:0x2a6f8f, emissiveIntensity:0.15,             // ヒビが溜まるほど明るく（割れる予感）
+  transmission:0.0, transparent:true, opacity:0.42, side:THREE.DoubleSide, depthWrite:false,
+});
+glassMat.onBeforeCompile = (sh)=>{
+  sh.fragmentShader = sh.fragmentShader.replace(
+    "#include <dithering_fragment>",
+    `float _gf = pow(1.0 - abs(dot(normalize(vViewPosition), normal)), 3.5);
+     gl_FragColor.rgb += vec3(0.85,0.95,1.0) * _gf * 1.1;      // 鋭い白い縁の光り＝ガラスらしさ
+     gl_FragColor.a = clamp(gl_FragColor.a + _gf*0.5, 0.0, 1.0);
+     #include <dithering_fragment>`
+  );
+};
+const glassRenderGeo = new THREE.IcosahedronGeometry(TUNE.glassR, 2);          // 割れる前の玉（丸い）
+const glassShardBaseNI = new THREE.IcosahedronGeometry(TUNE.glassR, 1); // 破片の元（少ない三角＝大きめの破片。Icoは元々non-indexed）
+
+const glass = { mesh:null, alive:false, crack:0 };
+const debris = [];                 // 飛び散る破片 {mesh, vx,vy,vz, axis, spin, life, maxLife, mat}
+let glassMode = false, matMode = 0;
+let pcGlassPoke = null;            // PC確認モードのクリックつつき
+let lastCreak = 0;
+const _qd = new THREE.Quaternion();
+
+function computeFrontCenter(out){   // カメラの正面・少し下（arrangeSlimes と同じ基準）
+  const camN = (renderer && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
+  out.set(_v1.x + _v2.x*0.5, _v1.y - 0.06, _v1.z + _v2.z*0.5);
+}
+function spawnGlass(){
+  if(!glass.mesh){ glass.mesh = new THREE.Mesh(glassRenderGeo, glassMat); glass.mesh.frustumCulled=false; scene.add(glass.mesh); }
+  computeFrontCenter(groupCenter);
+  glass.mesh.position.copy(groupCenter);
+  glass.mesh.quaternion.identity(); glass.mesh.scale.setScalar(1);
+  glass.mesh.visible = true; glass.alive = true; glass.crack = 0;
+  glassMat.emissiveIntensity = 0.15;
+  checkpoint("glass","ガラスを出した（押すと割れます）");
+}
+function clearDebris(){
+  for(const d of debris){ scene.remove(d.mesh); d.mesh.geometry.dispose(); if(d.mat && d.mat.dispose) d.mat.dispose(); }
+  debris.length = 0;
+}
+function enterGlassMode(){
+  glassMode = true; matMode = 1;
+  for(const S of slimes){ S.mesh.visible=false; S.core.visible=false; }
+  slimeGrab[0]=null; slimeGrab[1]=null;
+  spawnGlass();
+  positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels();
+}
+function exitGlassMode(){
+  glassMode = false; matMode = 0;
+  clearDebris();
+  if(glass.mesh) glass.mesh.visible=false; glass.alive=false;
+  arrangeSlimes(slimes.length||3);
+  positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels();
+}
+function setMaterial(idx){ if(idx===1){ if(!glassMode) enterGlassMode(); } else { if(glassMode) exitGlassMode(); } }
+
+// 割れる：硬いメッシュを隠し、鋭い凸破片を作って外向きに飛ばす（自前の飛散）
+function shatterGlass(){
+  if(!glass.alive) return;
+  glass.alive = false; if(glass.mesh) glass.mesh.visible=false;
+  const C = glass.mesh.position, pa = glassShardBaseNI.attributes.position.array, triN = pa.length/9;
+  const K = Math.max(4, TUNE.shardCount|0);
+  const seeds = [];                                   // 破片の“核”になる方向をK個まく
+  for(let k=0;k<K;k++){ let sx=Math.random()*2-1,sy=Math.random()*2-1,sz=Math.random()*2-1; const L=Math.hypot(sx,sy,sz)||1; seeds.push([sx/L,sy/L,sz/L]); }
+  const groups = []; for(let k=0;k<K;k++) groups.push([]);
+  for(let t=0;t<triN;t++){                            // 各三角を一番近い核へ振り分け（表面のVoronoi分割）
+    const a=t*9, mx=(pa[a]+pa[a+3]+pa[a+6])/3, my=(pa[a+1]+pa[a+4]+pa[a+7])/3, mz=(pa[a+2]+pa[a+5]+pa[a+8])/3;
+    const L=Math.hypot(mx,my,mz)||1, ux=mx/L,uy=my/L,uz=mz/L;
+    let best=0,bestD=-2; for(let k=0;k<K;k++){ const s=seeds[k], dot=ux*s[0]+uy*s[1]+uz*s[2]; if(dot>bestD){bestD=dot;best=k;} }
+    groups[best].push(t);
+  }
+  let made=0;
+  for(let k=0;k<K;k++){
+    const grp=groups[k]; if(grp.length===0) continue;
+    const verts=[]; let ccx=0,ccy=0,ccz=0,cn=0;
+    for(const t of grp){                              // 外側の三角＋中心(0,0,0)へのフタ3枚＝閉じたクサビ形の破片
+      const a=t*9;
+      const ax=pa[a],ay=pa[a+1],az=pa[a+2], bx=pa[a+3],by=pa[a+4],bz=pa[a+5], cx=pa[a+6],cy=pa[a+7],cz=pa[a+8];
+      verts.push(ax,ay,az, bx,by,bz, cx,cy,cz);
+      verts.push(0,0,0, bx,by,bz, ax,ay,az);
+      verts.push(0,0,0, cx,cy,cz, bx,by,bz);
+      verts.push(0,0,0, ax,ay,az, cx,cy,cz);
+      ccx+=ax+bx+cx; ccy+=ay+by+cy; ccz+=az+bz+cz; cn+=3;
+    }
+    ccx/=cn; ccy/=cn; ccz/=cn;                        // 破片の重心（この点で回す）
+    const arr=new Float32Array(verts.length);
+    for(let i=0;i<verts.length;i+=3){ arr[i]=verts[i]-ccx; arr[i+1]=verts[i+1]-ccy; arr[i+2]=verts[i+2]-ccz; }
+    const g=new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(arr,3)); g.computeVertexNormals();
+    const m=new THREE.Mesh(g, glassMat.clone()); m.frustumCulled=false;
+    m.position.set(C.x+ccx, C.y+ccy, C.z+ccz); scene.add(m);
+    const dl=Math.hypot(ccx,ccy,ccz)||1, dx=ccx/dl,dy=ccy/dl,dz=ccz/dl;    // 外向きに飛ばす
+    const sp=TUNE.debrisSpeed*(0.6+Math.random()*0.8);
+    let axv=Math.random()*2-1,ayv=Math.random()*2-1,azv=Math.random()*2-1; const al=Math.hypot(axv,ayv,azv)||1;
+    debris.push({ mesh:m, mat:m.material,
+      vx:dx*sp+(Math.random()-0.5)*0.2, vy:dy*sp+0.15+(Math.random()-0.5)*0.2, vz:dz*sp+(Math.random()-0.5)*0.2,
+      axis:new THREE.Vector3(axv/al,ayv/al,azv/al), spin:(2+Math.random()*6),
+      life:TUNE.debrisLife, maxLife:TUNE.debrisLife });
+    made++;
+  }
+  playGlassBreak(); pulseAll(0.9, 70);
+  checkpoint("shatter","ガラスが割れた（破片"+made+"個）");
+}
+function updateDebris(dt){
+  for(let i=debris.length-1;i>=0;i--){
+    const d=debris[i];
+    d.life -= dt;
+    if(d.life<=0){ scene.remove(d.mesh); d.mesh.geometry.dispose(); if(d.mat.dispose) d.mat.dispose(); debris.splice(i,1); continue; }
+    d.vy -= TUNE.debrisGravity*dt;
+    d.mesh.position.x += d.vx*dt; d.mesh.position.y += d.vy*dt; d.mesh.position.z += d.vz*dt;
+    _qd.setFromAxisAngle(d.axis, d.spin*dt); d.mesh.quaternion.premultiply(_qd);
+    if(d.life < 0.7){ d.mat.opacity = 0.42*(d.life/0.7); }   // 最後の0.7秒でフェード
+  }
+}
+function updateGlass(dt){
+  if(pcGlassPoke){                                    // PC：クリック方向から中心へ指コライダを押し込む
+    pcGlassPoke.t += dt; const f=pcGlassPoke.t/pcGlassPoke.dur;
+    if(f>=1){ pcGlassPoke=null; colN=0; }
+    else{
+      const depth=Math.sin(f*Math.PI)*TUNE.glassR*0.95, dd=TUNE.glassR+TUNE.fingerR-depth;
+      colN=0; addCol(glass.mesh.position.x+pcGlassPoke.dx*dd, glass.mesh.position.y+pcGlassPoke.dy*dd, glass.mesh.position.z+pcGlassPoke.dz*dd, TUNE.fingerR);
+      for(let i=0;i<colN;i++){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
+    }
+  }
+  if(!glass.alive) return;
+  const C=glass.mesh.position; let pen=0;
+  for(let k=0;k<colN;k++){                             // 指/コントローラが玉にどれだけめり込んだか
+    const dx=colX[k]-C.x, dy=colY[k]-C.y, dz=colZ[k]-C.z, dist=Math.hypot(dx,dy,dz), surf=TUNE.glassR+colR[k];
+    if(dist<surf){ const p=surf-dist; if(p>pen) pen=p; }
+  }
+  if(pen>0){
+    glass.crack += pen*TUNE.crackRate*(dt*60);
+    glass.mesh.scale.setScalar(1 - Math.min(0.08, pen*2.5));   // ぐっと押される硬い手応え
+    playCreak(Math.min(1,glass.crack));
+    if(pen>=TUNE.crackInstant) glass.crack = 1;                // 深く一気に突いたら即割れ
+  }else{
+    glass.crack = Math.max(0, glass.crack - dt*TUNE.crackDecay);
+    glass.mesh.scale.setScalar(1);
+  }
+  glassMat.emissiveIntensity = 0.15 + Math.min(1,glass.crack)*1.2;
+  if(glass.crack>=1) shatterGlass();
+}
+// 割れる音（低い一撃→高い非調和倍音の“シャリーン”→ノイズ→粒が散るテール。ファイル無しで合成）
+function playGlassBreak(){
+  if(!actx) return; const now=actx.currentTime;
+  const o0=actx.createOscillator(); o0.type="triangle"; o0.frequency.setValueAtTime(330,now); o0.frequency.exponentialRampToValueAtTime(120,now+0.08);
+  const g0=actx.createGain(); g0.gain.setValueAtTime(0.22,now); g0.gain.exponentialRampToValueAtTime(0.0001,now+0.11);
+  o0.connect(g0).connect(actx.destination); o0.start(now); o0.stop(now+0.12);
+  const partials=[3200,5300,6900,8700,11300];
+  for(let i=0;i<partials.length;i++){
+    const o=actx.createOscillator(); o.type="sine"; o.frequency.value=partials[i]*(0.98+Math.random()*0.05);
+    const dur=0.25+Math.random()*0.25, g=actx.createGain();
+    g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.05/(1+i*0.55),now+0.004); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+    o.connect(g).connect(actx.destination); o.start(now); o.stop(now+dur);
+  }
+  const dur=0.5, n=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/n,1.5); }
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const hp=actx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=2500;
+  const gg=actx.createGain(); gg.gain.setValueAtTime(0.14,now); gg.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  src.connect(hp).connect(gg).connect(actx.destination); src.start(now); src.stop(now+dur);
+  for(let k=0;k<10;k++){                               // 破片が散らばる粒状のテール
+    const t=now+0.05+Math.random()*0.35, o=actx.createOscillator(); o.type="square"; o.frequency.value=1800+Math.random()*4200;
+    const g2=actx.createGain(); g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.02,t+0.002); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.03+Math.random()*0.04);
+    o.connect(g2).connect(actx.destination); o.start(t); o.stop(t+0.09);
+  }
+}
+// 割れる前のキシむ音（押すほど高く・大きく。連発しすぎない）
+function playCreak(level){
+  if(!actx) return; const nowMs=performance.now(); if(nowMs-lastCreak<70) return; lastCreak=nowMs;
+  const t=actx.currentTime, dur=0.05, nn=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,nn,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<nn;i++) d[i]=(Math.random()*2-1);
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const bp=actx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1200+level*3200; bp.Q.value=6;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.02+level*0.05,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  src.connect(bp).connect(g).connect(actx.destination); src.start(t); src.stop(t+dur);
+}
+
+/* ============================================================
    6. AR：セッション・コントローラ・ハンド（浮かぶスライムを手で押す）
    ============================================================ */
 const controllers = [];
@@ -697,6 +893,20 @@ for(let i=0;i<SHAPES.length;i++){
   ctrlGroup.add(g);
   shapeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
+// 素材ボタン（やわらか／ガラス）＝レールのさらに上の段。ガラスを選ぶと割れる素材モードへ
+const MATERIALS = ["やわらか","ガラス"];
+const matBtnMeshes = [];
+for(let i=0;i<MATERIALS.length;i++){
+  const cv=document.createElement("canvas"); cv.width=220; cv.height=88;
+  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace;
+  const g=new THREE.Group(); g.position.set((i-0.5)*0.15, 0.255, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.038,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
+  bg.position.set(0,0,-0.007); g.add(bg);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.116,0.034), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  lm.position.set(0,0,0.001); g.add(lm);
+  ctrlGroup.add(g);
+  matBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
+}
 // ふやす(＋)/へらす(－) ボタン。パネルの左右
 const countBtns = [];
 [["＋", 0.185, 1], ["－", -0.185, -1]].forEach(function(spec){
@@ -729,6 +939,12 @@ function drawFeelLabels(){
     cc.clearRect(0,0,WW,HH); cc.textAlign="center"; cc.textBaseline="middle"; cc.font="bold 34px sans-serif";
     cc.fillStyle = on ? "#062231" : "#dff5e8"; cc.fillText(SHAPES[b.idx].name, WW/2, HH/2); b.tex.needsUpdate=true;
     b.bg.material.color.setHex(on ? 0x8fd0ff : 0x141d26);
+  }
+  for(const b of matBtnMeshes){
+    const cc=b.ctx, WW=b.cv.width, HH=b.cv.height, on=b.idx===matMode;
+    cc.clearRect(0,0,WW,HH); cc.textAlign="center"; cc.textBaseline="middle"; cc.font="bold 36px sans-serif";
+    cc.fillStyle = on ? "#2a1206" : "#dff5e8"; cc.fillText(MATERIALS[b.idx], WW/2, HH/2); b.tex.needsUpdate=true;
+    b.bg.material.color.setHex(on ? 0xffab73 : 0x141d26);
   }
 }
 const _wp = new THREE.Vector3();
@@ -768,7 +984,12 @@ function onSelectStart(i){
       b.group.getWorldPosition(_v2);
       if(_v1.distanceTo(_v2) < 0.045){ arrangeSlimes(slimes.length + b.delta); positionControlPanel(); pulse(i,0.4,30); return; } // ふやす/へらす
     }
+    for(const b of matBtnMeshes){
+      b.group.getWorldPosition(_v2);
+      if(_v1.distanceTo(_v2) < 0.055){ setMaterial(b.idx); pulse(i,0.4,30); return; } // 素材（やわらか／ガラス）
+    }
   }
+  if(glassMode) return;   // ガラスは掴めない（手で押して割るだけ）
   // UIに当たらなければ、スライム表面をつかむ
   if(grabSlime(i, _v1.x, _v1.y, _v1.z)){ grabHand[i].copy(_v1); pulse(i,0.5,30); return; }
 }
@@ -848,6 +1069,7 @@ async function startAR(){
       xrSession = null; for(const S of slimes){ S.mesh.visible=false; S.core.visible=false; } slimeReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
       ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; slimeGrab[0]=null; slimeGrab[1]=null;
+      clearDebris(); if(glass.mesh) glass.mesh.visible=false; glass.alive=false; pcGlassPoke=null;
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -863,6 +1085,7 @@ async function startAR(){
 
 // カメラの正面 0.45m・少し下にスライムを置き直す
 function respawnInFront(){
+  if(glassMode){ spawnGlass(); positionControlPanel(); return; }   // ガラスは1個を目の前に出し直す
   arrangeSlimes(slimes.length||3);   // 目の前に横一列で並べ直す
   positionControlPanel();
 }
@@ -930,7 +1153,8 @@ function setupPCInput(){
   addEventListener("pointerup", e=>{ if(dragging && moved<6) pcPokeFrom(e.clientX, e.clientY); dragging=false; });
   canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
   addEventListener("keydown", e=>{
-    if(e.key==="r"||e.key==="R"){ arrangeSlimes(slimes.length||3); positionControlPanel(); }
+    if(e.key==="r"||e.key==="R"){ if(glassMode){ spawnGlass(); positionControlPanel(); } else { arrangeSlimes(slimes.length||3); positionControlPanel(); } }
+    else if(e.key==="g"||e.key==="G"){ setMaterial(glassMode?0:1); }
     else if(e.key==="o"||e.key==="O"){ arrangeSlimes(slimes.length+1); positionControlPanel(); }
     else if(e.key==="p"||e.key==="P"){ arrangeSlimes(slimes.length-1); positionControlPanel(); }
     else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateLeverHandles(); drawFeelLabels(); }
@@ -944,6 +1168,15 @@ function setupPCInput(){
 // クリック位置から中心へ向かうレイを求め、その向きから1回つつく（凹みを目視するため）
 function pcPokeFrom(sx, sy){
   ensureAudio();
+  if(glassMode){                                      // ガラス：クリックした向きから中心へ突く
+    const gnx=(sx/innerWidth)*2-1, gny=-(sy/innerHeight)*2+1;
+    _v1.set(gnx,gny,0.5).unproject(camera); _v1.sub(camera.position).normalize();
+    _v2.copy(glass.mesh.position).sub(camera.position); const gt=_v2.dot(_v1);
+    _v2.copy(camera.position).addScaledVector(_v1,gt).sub(glass.mesh.position);
+    if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); _v2.normalize();
+    pcGlassPoke={ t:0, dur:0.4, dx:_v2.x, dy:_v2.y, dz:_v2.z };
+    return;
+  }
   const nx=(sx/innerWidth)*2-1, ny=-(sy/innerHeight)*2+1;
   _v1.set(nx, ny, 0.5).unproject(camera);            // 画面上の点をワールドへ
   _v1.sub(camera.position).normalize();               // カメラからのレイ方向
@@ -994,6 +1227,14 @@ let lastSquish = 0;
 
 function simulate(dt){
   contactDepth = 0;
+  if(glassMode){                                     // 割れる素材（ガラス）モード
+    updateGlass(dt);
+    updateDebris(dt);
+    const statLine = "fps "+Math.round(fpsSmooth)+" / ガラス"+(glass.alive?"（ヒビ"+Math.round(Math.min(1,glass.crack)*100)+"%）":"割れた")+" / 破片"+debris.length;
+    $("stats").textContent = statLine;
+    if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
+    return;
+  }
   // PCのつつきアニメ：中心から dir 方向の表面へ球を押し込む
   if(pokeAnim){
     pokeAnim.t += dt;
@@ -1182,6 +1423,26 @@ window.__dbg = {
     updateRenderMesh();
     const st=this.state(); st.peakReturnSpeed=+peak.toFixed(3); return st;
   },
+  // --- 割れる素材（ガラス）段階6-1 の検証窓口 ---
+  glass(){ if(!renderer) return "no-renderer"; enterGlassMode(); return this.glassState(); },
+  glassState(){
+    let nan=false; for(const d of debris){ const p=d.mesh.position; if(Number.isNaN(p.x)||Number.isNaN(p.y)||Number.isNaN(p.z)){nan=true;break;} }
+    return { glassMode, alive:glass.alive, crack:+Math.min(1,glass.crack).toFixed(2), shards:debris.length, nan };
+  },
+  // 外から押し込んで割れるまで／割れたら破片が出るのを測る
+  crackTest(sec){
+    enterGlassMode(); const C=glass.mesh.position;
+    const steps=Math.max(1,Math.round((sec||1.2)/FIXED)); let broke=false, brokeAt=-1;
+    for(let s=0;s<steps;s++){
+      colN=0; addCol(C.x+TUNE.glassR+TUNE.fingerR-0.03, C.y, C.z, TUNE.fingerR);   // 外から3cm押し込む
+      updateGlass(FIXED);
+      if(!glass.alive){ broke=true; brokeAt=+(s*FIXED).toFixed(2); break; }
+    }
+    return { broke, brokeAt, shards:debris.length, nan:this.glassState().nan };
+  },
+  // 破片が時間で落ちて消える（漏れずに0になる）ことを測る
+  debrisTick(sec){ const n=Math.max(1,Math.round((sec||4)/FIXED)); for(let i=0;i<n;i++) updateDebris(FIXED); return { shards:debris.length, nan:this.glassState().nan }; },
+  toSoft(){ exitGlassMode(); return { glassMode, slimeCount:slimes.length }; },
   render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
   tune: TUNE,
 };
