@@ -83,8 +83,8 @@
 
 <div id="start">
   <div class="mark">ねんりき崩し</div>
-  <h1>塔を、玉を投げて<br>崩すゲームです</h1>
-  <p>机か床に塔が生えます。玉を投げて崩してください。<br>崩すほど音が上がり、たまに会心の一撃が出ます。</p>
+  <h1>積んだ塔を、<br>一撃でぶっ壊す</h1>
+  <p>トリガーを長く握るほど玉が大きく育ちます。<br>溜めた鉄球を、積んである塔に叩き込んでください。</p>
   <button id="goBtn" disabled>じゅんび中…</button>
   <div id="best"></div>
   <div id="note">
@@ -110,7 +110,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev8";
+const REV = "v3 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -148,6 +148,7 @@ const TUNE = {
   forceThreshold: 1.0, forceRef: 220,
   collapseDist: 0.12, towerLayers: 12,   // 塔を高く（見上げる高さ）。InstancedMeshで軽いので大きくできる
   settleGrace: 1.8,     // 生えてから落ち着くまで(s)は崩れ判定をしない。大きい塔は落ち着くのが遅いので長め
+  resolveTime: 1.7,     // 崩れが止まってからこの秒数で得点＆次の塔へ（後片づけ不要）
   hapHit: 0.5, hapThrow: 0.25, hapSpawn: 0.2, hapClear: 0.9,
   // --- 段階2（脳汁）---
   critBase: 0.02,       // 会心率のベース（小玉ほぼ運任せ）
@@ -227,15 +228,8 @@ const handleToObj = new Map();
 const blocks = [];
 const balls = [];
 
-// --- 時間演出（ヒットストップ・スローモ・ラストワンを1本化。互いに喧嘩しない） ---
-let hitstopT = 0, bigSlowT = 0, lastOneActive = false, lastOneT = 0;
-function updateTimeEffects(dt){
-  if(hitstopT > 0) hitstopT -= dt;
-  if(bigSlowT > 0) bigSlowT -= dt;
-  if(lastOneActive){ lastOneT -= dt; if(lastOneT <= 0) endLastOne(); }
-  timeScale = (hitstopT > 0) ? 0
-    : Math.min(bigSlowT > 0 ? TUNE.slowScale : 1, lastOneActive ? TUNE.lastSlow : 1);
-}
+// 時間を弄る演出（ヒットストップ・スローモ・ラストワン）は「処理落ちに見える」という実機の指摘で撤去。
+// timeScale は常に 1（実速度）。手応えは音・振動・崩れそのもので出す。
 
 async function initRapier(){
   try{
@@ -322,7 +316,7 @@ function spawnTower(cx, topY, cz){
   blockInst.count = blocks.length;
   if(blockInst.instanceColor) blockInst.instanceColor.needsUpdate = true;
   standing = blocks.length;
-  growT = 0; towerAge = 0; settled = false; lastOneDone = false; towerStartT = performance.now()/1000;
+  growT = 0; towerAge = 0; settled = false; downThisRound = 0; towerStartT = performance.now()/1000;
   checkpoint("tower", "塔が生えた（" + kind + " / " + blocks.length + "本）");
 }
 
@@ -427,7 +421,7 @@ function clearBlocks(){
   blocks.length = 0;
   blockInst.count = 0;              // インスタンスは描かなくなる（mesh削除は不要）
   while(balls.length) removeBall(balls[0]);
-  standing = 0; lastOneActive = false; lastBlock = null;
+  standing = 0;
 }
 function clearAll(){
   clearBlocks();
@@ -467,12 +461,15 @@ function pullNearest(i){
   return true;
 }
 
-/* --- ゲーム進行 --- */
-let standing = 0, growT = 0, towerAge = 0, settled = false, lastBlock = null, lastOneDone = false;
+/* --- ゲーム進行 ---
+   流れ: playing（塔が立って待つ）→ 玉が当たって崩れ始めたら resolving（崩れを眺める窓・追い打ちOK）
+   → 崩れが止まったら得点＆ sinking（残りごと片づけ）→ 次の塔。全部崩す必要は無い＝後片づけの作業を無くす */
+let standing = 0, growT = 0, towerAge = 0, settled = false;
 let taughtCharge = false, towerTier = 0;   // 溜めを教えたか／塔の育ち段階（崩した数で上がる）
+let downThisRound = 0, resolveT = 0, maxRound = 0;   // 今の一撃で崩した数／崩れ収束タイマー／自己ベスト(一撃)
 let phase = "idle", phaseT = 0;
 // 連鎖・記録
-let comboCount = 0, comboLast = 0, maxCombo = 0, totalDown = 0, bestClear = Infinity;
+let comboCount = 0, comboLast = 0, maxCombo = 0, totalDown = 0;
 const penta = [261.63, 293.66, 329.63, 392.00, 440.00];
 
 function stepPhysics(dtReal){
@@ -519,13 +516,8 @@ function drainEvents(){
       if(ball && blk && !ball.held && strength > 0.15){
         const sz = ball.scaleMul || 1;                    // 1.0〜5.0（＋会心で×2.2）
         const big = Math.min(1, (sz - 1) / (TUNE.chargeMax - 1));   // 溜め度 0〜1
-        pulse(ball.owner, TUNE.hapHit * (0.4+0.6*strength) * (0.7+0.6*big), 60 + 60*big);
-        // ヒットストップは「動いている玉が当たった瞬間」だけ。大玉ほど長く止めて手応えを増す
-        if(strength > 0.3 && ball.body){
-          const lv = ball.body.linvel();
-          if(lv.x*lv.x + lv.y*lv.y + lv.z*lv.z > TUNE.hitstopMinSpeed*TUNE.hitstopMinSpeed)
-            hitstopT = Math.max(hitstopT, (ball.crit ? TUNE.hitstopCrit : TUNE.hitstop) * (0.7 + 0.9*big));
-        }
+        // 手応えは振動で（時間は弄らない）。大玉ほど強く・長く
+        pulse(ball.owner, TUNE.hapHit * (0.4+0.6*strength) * (0.7+0.6*big), 60 + 80*big);
         // フルチャージ級の一撃を塔に当てた初回だけ「MAX!」で褒める（一番偉い行いに一番大きく返す）
         if(!ball.maxShown && sz >= TUNE.chargeMax*0.85){
           ball.maxShown = true; flashBanner("MAX!", "#9ff0ff"); playMax(); pulseAll(1.0, 120);
@@ -566,66 +558,49 @@ function syncMeshes(){
   }
 }
 
-function startLastOne(){
-  lastOneActive = true; lastOneDone = true; lastOneT = TUNE.lastMax;
-  lastBlock = blocks.find(b => !b.down) || null;
-  if(lastBlock){ blockInst.setColorAt(lastBlock.idx, _colHi); blockInst.instanceColor.needsUpdate = true; }
-}
-function endLastOne(){
-  lastOneActive = false;
-  if(lastBlock){ blockInst.setColorAt(lastBlock.idx, _col0); blockInst.instanceColor.needsUpdate = true; }
-  lastBlock = null;
-}
-
 function checkCollapse(){
-  if(phase !== "playing") return;
+  if(phase !== "playing" && phase !== "resolving") return;
   if(towerAge < TUNE.settleGrace) return;   // 生えて落ち着くまでは崩れ判定しない
-  // 落ち着いた瞬間、各ブロックの「今の位置」を基準に取り直す。
-  // これで生えるときに少しズレたブロックも「立っている」扱いになり、投げて動かした時だけ崩れとみなす
+  // 落ち着いた瞬間、各ブロックの「今の位置」を基準に取り直す（生えのズレを立っている扱いに）
   if(!settled){
     settled = true;
     for(const b of blocks){ if(!b.down){ const t=b.body.translation(); b.ox=t.x; b.oy=t.y; b.oz=t.z; } }
   }
-  const prevStanding = standing;
   let fell = 0;
   for(const b of blocks){
     if(b.down) continue;
     const t = b.body.translation();
     const dx=t.x-b.ox, dy=t.y-b.oy, dz=t.z-b.oz;
     if(dx*dx+dy*dy+dz*dz > TUNE.collapseDist*TUNE.collapseDist || t.y < stageTopY - 0.05){
-      b.down = true; standing--; fell++; totalDown++;
+      b.down = true; standing--; fell++; totalDown++; downThisRound++;
     }
   }
-  if(fell >= TUNE.slowThreshold) bigSlowT = Math.max(bigSlowT, TUNE.slowDur);
-  if(!lastOneDone && prevStanding >= 2 && standing === 1) startLastOne();
-  if(standing <= 0 && blocks.length){
-    if(lastOneActive) endLastOne();
-    phase = "cleared"; phaseT = 0;
-    onCleared(true);              // 本当に崩し切った＝記録対象
+  // 崩れ始めたら「この塔の勝負」が始まる。崩れが続く限りタイマーを延ばし、
+  // 崩れが止まってから resolveTime 秒で得点＆片づけ（全部崩す必要なし＝後片づけの作業を消す）
+  if(fell > 0){
+    if(phase === "playing") phase = "resolving";
+    resolveT = TUNE.resolveTime;
   }
 }
 
-function onCleared(isRealClear){
+function onResolve(){
+  // 一撃の結果を得点。積んであった塔を一撃でどれだけ崩したか、が主役
   playClear();
   pulseAll(TUNE.hapClear, 150);
-  // 「最速クリア」記録は、実際に崩し切った時だけ更新する。
-  // グリップ等での塔スキップ(isRealClear=false)では記録も演出も出さない（記録汚染防止）。
-  if(isRealClear){
-    const clearTime = performance.now()/1000 - towerStartT;
-    if(clearTime < bestClear && clearTime > 0.05){
-      bestClear = clearTime;
-      flashBanner("きろく更新！", "#ffd24a");
-      playFanfare();
-    }
-    checkpoint("clear", "塔を全部崩した（全壊）");
+  if(downThisRound > 0){
+    const isBest = downThisRound > maxRound;
+    if(isBest) maxRound = downThisRound;
+    flashBanner(downThisRound + " 本 こわした！" + (isBest ? "  さいこう記録！" : ""), isBest ? "#ffd24a" : "#9ff0c8");
+    if(isBest) playFanfare();
+    checkpoint("clear", "塔を崩した");
   }
-  saveRecords();   // 最高れんさ・崩した数は常に保存
+  saveRecords();
 }
 
 function advancePhase(dt){
-  if(phase === "cleared"){
-    phaseT += dt;
-    if(phaseT >= 2.0){ phase = "sinking"; phaseT = 0; }
+  if(phase === "resolving"){
+    resolveT -= dt;                          // 崩れが止まって resolveTime 経ったら
+    if(resolveT <= 0){ onResolve(); phase = "sinking"; phaseT = 0; }
   }else if(phase === "sinking"){
     phaseT += dt;
     const k = Math.min(1, phaseT/0.6);
@@ -638,13 +613,10 @@ function advancePhase(dt){
   }
 }
 
+// グリップの「次の塔」＝得点せずそのまま片づけて次へ（崩し途中でも投げ直したい時用）
 function forceNextTower(){
   if(!stagePlaced) return;
-  if(phase === "playing"){
-    for(const b of blocks){ b.down = true; } standing = 0;
-    if(lastOneActive) endLastOne();
-    phase = "cleared"; phaseT = 0; onCleared(false);   // スキップ＝記録には残さない
-  }
+  if(phase === "playing" || phase === "resolving"){ phase = "sinking"; phaseT = 0; }
 }
 
 /* ============================================================
@@ -762,24 +734,20 @@ function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); 
 function loadRecords(){
   try{
     const r = JSON.parse(localStorage.getItem("kuzushi.v2") || "{}");
-    maxCombo = r.maxCombo || 0; totalDown = r.totalDown || 0;
-    bestClear = (r.bestClear && r.bestClear > 0) ? r.bestClear : Infinity;
+    maxCombo = r.maxCombo || 0; totalDown = r.totalDown || 0; maxRound = r.maxRound || 0;
   }catch(_){}
   towerTier = Math.min(TUNE.maxTier, Math.floor(totalDown / TUNE.tierEvery));   // 続きから遊ぶ人は稼いだ大きさで再開
   updateBestText();
 }
 function saveRecords(){
   try{
-    localStorage.setItem("kuzushi.v2", JSON.stringify({
-      maxCombo, totalDown, bestClear: isFinite(bestClear) ? +bestClear.toFixed(2) : 0
-    }));
+    localStorage.setItem("kuzushi.v2", JSON.stringify({ maxCombo, totalDown, maxRound }));
   }catch(_){}
   updateBestText();
 }
 function updateBestText(){
-  const bc = isFinite(bestClear) ? bestClear.toFixed(1) + "秒" : "—";
-  $("best").innerHTML = '<span class="lbl">これまで</span> 最高れんさ ' + maxCombo +
-    ' ／ 最速クリア ' + bc + ' ／ 崩した数 ' + totalDown +
+  $("best").innerHTML = '<span class="lbl">これまで</span> 一撃さいこう ' + maxRound + ' 本' +
+    ' ／ 崩した数 ' + totalDown +
     '<br><span class="lbl" style="font-size:11px">（記録はこの端末に保存。ブラウザのデータ削除で消えます）</span>';
 }
 
@@ -1049,7 +1017,6 @@ if(navigator.xr && navigator.xr.isSessionSupported){
 let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false, critForce = false, hudTick = 0;
 
 function simulate(dt){
-  updateTimeEffects(dt);
   // 塔が生えてからの経過と、にょき演出の進行（syncMeshesが行列に反映するので先に進める）
   if(stagePlaced && blocks.length){ towerAge += dt; if(growT < 1.2) growT += dt; }
   const p0 = performance.now();
@@ -1063,16 +1030,17 @@ function simulate(dt){
   if(comboCount > 0 && performance.now()/1000 - comboLast > TUNE.comboWindow) comboCount = 0;
   // ステータス表示は毎フレームでなく数フレームおきに更新（文字列生成とDOM書き込みを減らす）
   if((hudTick = (hudTick + 1) % 12) === 0){
-    // 次のご褒美（1-5: 次にもらえるものを画面に）
+    // 今の一撃で崩した数（主役の得点）＋ 次のご褒美メーター（1-5: 次にもらえるものを画面に）
     const remain = Math.max(0, TUNE.tierEvery - (totalDown % TUNE.tierEvery));
-    const reward = (towerTier >= TUNE.maxTier) ? "塔さいだい級！ こわしまくれ" : ("つぎのデカい塔まで あと " + remain + " 本");
+    const meter = (towerTier >= TUNE.maxTier) ? "塔さいだい級" : ("つぎの大塔まで あと " + remain + "本");
+    const reward = (downThisRound > 0 ? ("こわした " + downThisRound + "本　｜　") : "") + meter;
     const rEl = $("reward");
     if(stagePlaced && rEl.style.display !== "block") rEl.style.display = "block";
     rEl.textContent = reward;
     $("stats").textContent = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1)
-      + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount;
+      + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length;
     // 3Dパネルは「意味が変わったときだけ」再描画（fps/物理msを含めない＝毎フレームのテクスチャ再アップロードを避ける）
-    const panelLine = reward + "  ｜ 立 " + Math.max(0,standing) + " れんさ " + comboCount + " fps " + (Math.round(fpsSmooth/5)*5);
+    const panelLine = reward + "  ｜ 立 " + Math.max(0,standing) + " fps " + (Math.round(fpsSmooth/5)*5);
     if(panelLine !== panelStatus){ panelStatus = panelLine; if(panel.visible) drawPanel(); }
   }
 }
@@ -1145,7 +1113,7 @@ addEventListener("resize", ()=>{
    ============================================================ */
 window.__dbg = {
   state(){ return { rapierReady, stagePlaced, phase, standing, blocks: blocks.length, balls: balls.length,
-    combo: comboCount, maxCombo, totalDown, towerTier, taughtCharge, bestClear: isFinite(bestClear)?+bestClear.toFixed(2):null,
+    combo: comboCount, maxCombo, totalDown, towerTier, taughtCharge, downThisRound, maxRound, resolveT:+resolveT.toFixed(2),
     timeScale: +timeScale.toFixed(3), fps: Math.round(fpsSmooth), physMs: +physMs.toFixed(2), cp: {...cp} }; },
   shoot(vx, vy, vz){ if(!stagePlaced) return "no-stage"; pcSpawnThrown(camera.position, new THREE.Vector3(vx||0, vy||0, vz||-6)); return "ok"; },
   blast(){
