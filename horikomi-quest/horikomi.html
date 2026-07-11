@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>ほうりこみ屋（タイムアタック版）</title>
+<title>ほうりこみ屋（色わけ版）</title>
 <style>
   :root{
     --bg:#0c1116; --panel:#141d26; --line:#243342; --ink:#eef4fa;
@@ -89,7 +89,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v3 rev1";
+const REV = "v4 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -168,12 +168,18 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.05); dirLight.position.s
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
 
-// 素材（1回だけ作って共有）
-const ballMat  = new THREE.MeshStandardMaterial({ color:0x4fd1c5, emissive:0x0a3b36, emissiveIntensity:0.5, roughness:0.4 });
-const ballHiMat= new THREE.MeshStandardMaterial({ color:0xa7f3ea, emissive:0x1c6b62, emissiveIntensity:0.9, roughness:0.35 }); // つかめる時に光る
+// 色の定義（玉とトロッコを色で対応させる＝仕分け）
+const COLORS = [
+  { name:"みどり", col:0x4fd1c5, emis:0x0a3b36, hi:0xa7f3ea, hiEmis:0x1c6b62, conf:[0.31,0.82,0.77] },
+  { name:"だいだい", col:0xffb454, emis:0x4a2a00, hi:0xffd79a, hiEmis:0x6a3a00, conf:[1,0.7,0.26] },
+  { name:"もも",   col:0xff7b9c, emis:0x4a1524, hi:0xffb3c7, hiEmis:0x6a2036, conf:[1,0.48,0.61] },
+];
+// 各色の玉マテリアル（通常・つかめる時に光る用）を1回だけ作って共有
+const ballMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color:c.col, emissive:c.emis, emissiveIntensity:0.5, roughness:0.4 }));
+const ballHiMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color:c.hi, emissive:c.hiEmis, emissiveIntensity:0.95, roughness:0.35 }));
+const binMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color:c.col, emissive:c.emis, emissiveIntensity:0.35, roughness:0.6, metalness:0.1 }));
+const binLipMats = COLORS.map(c => new THREE.MeshStandardMaterial({ color:c.hi, emissive:c.emis, emissiveIntensity:0.7, roughness:0.5 }));
 const trayMat  = new THREE.MeshStandardMaterial({ color:0x9a7b52, roughness:0.85 });
-const binMat   = new THREE.MeshStandardMaterial({ color:0x37506a, roughness:0.6, metalness:0.1 });
-const binLipMat= new THREE.MeshStandardMaterial({ color:0x4fd1c5, emissive:0x123f3a, emissiveIntensity:0.6, roughness:0.5 });
 const ballGeo  = new THREE.SphereGeometry(TUNE.ballR, 20, 16);
 
 /* ============================================================
@@ -205,6 +211,20 @@ function burstConfetti(x, y, z, n){
     confVel[i*3+2] = Math.sin(ang)*out;
     const c = CONF_COLORS[(Math.floor(k+confHead))%CONF_COLORS.length];
     confCol[i*3]=c[0]; confCol[i*3+1]=c[1]; confCol[i*3+2]=c[2];
+    confLife[i] = 0.9+Math.random()*0.5;
+  }
+  confGeo.attributes.color.needsUpdate = true;
+}
+// 指定色の紙吹雪（正解の色でパッと出す）
+function burstConfettiCol(x, y, z, n, rgb){
+  for(let k=0;k<n;k++){
+    const i = confHead; confHead = (confHead+1) % CONF_N;
+    confPos[i*3]=x; confPos[i*3+1]=y; confPos[i*3+2]=z;
+    const ang = (k/n)*Math.PI*2, up = 1.4+Math.random()*1.8, out = 0.5+Math.random()*1.2;
+    confVel[i*3]=Math.cos(ang)*out; confVel[i*3+1]=up; confVel[i*3+2]=Math.sin(ang)*out;
+    // 正解色を主にしつつ少し明るい混色（単調にしない）
+    const bright = 0.7 + Math.random()*0.3;
+    confCol[i*3]=Math.min(1,rgb[0]*bright+0.15); confCol[i*3+1]=Math.min(1,rgb[1]*bright+0.15); confCol[i*3+2]=Math.min(1,rgb[2]*bright+0.15);
     confLife[i] = 0.9+Math.random()*0.5;
   }
   confGeo.attributes.color.needsUpdate = true;
@@ -293,9 +313,10 @@ async function initRapier(){
   }
 }
 
-/* --- 舞台：トロッコ＋玉台。playerPos(カメラ)から前方向に並べる --- */
+/* --- 舞台：色ごとのトロッコ＋玉台。playerPos(カメラ)から前方向に並べる --- */
 let stagePlaced = false, floorY = 0;
-let binCx = 0, binCz = 0, binTopY = 0;         // トロッコ内側の中心と縁の高さ
+const bins = [];                                // {cx, cz, topY, colorIdx, group}
+let stageCx = 0, stageCz = 0, stageTopY = 0;    // 演出・結果表示の中心
 const staticBodies = [];                        // 片づけ用（トロッコ・台の固定ボディ）
 
 // 見えない固定の箱を1枚（床/壁1面ぶん）作る
@@ -322,9 +343,9 @@ function endRound(){
   roundCleared = (delivered >= TUNE.quota);
   resultText = roundCleared ? "クリア！ " : "タイムアップ ";
   resultText += "納品 " + delivered + " / 目標 " + TUNE.quota + "　最高コンボ x" + bestCombo;
-  if(roundCleared){ playFanfare(); burstConfetti(binCx, binTopY+0.05, binCz, 60); pulseAll(0.9, 200); }
+  if(roundCleared){ playFanfare(); burstConfetti(stageCx, stageTopY+0.05, stageCz, 60); pulseAll(0.9, 200); }
   else { playTimeUp(); pulseAll(0.3, 120); }
-  spawnPopup(roundCleared ? "クリア!" : "終了", binCx, binTopY+0.2, binCz, true);
+  spawnPopup(roundCleared ? "クリア!" : "終了", stageCx, stageTopY+0.2, stageCz, true);
   log("結果：" + resultText);
 }
 // もう1回（トロッコ・台はそのまま、玉と時間だけリセット）
@@ -345,44 +366,49 @@ function setupStage(fx, fy, fz){
   if(_v2.lengthSq() < 1e-4) _v2.set(0,0,-1); else _v2.normalize();  // 前方向
   _v3.set(-_v2.z, 0, _v2.x);                                        // 右方向（水平）
 
-  // トロッコ：正面 0.8m、台：正面 0.42m（座ったまま台に手が届き、トロッコへ投げる距離）
-  binCx = _v1.x + _v2.x*0.8; binCz = _v1.z + _v2.z*0.8;
-  const trayCx = _v1.x + _v2.x*0.42, trayCz = _v1.z + _v2.z*0.42;
+  // 色ごとのトロッコを正面0.85mに扇状に並べる（左=色0, 中=色1, 右=色2）
+  stageTopY = fy + TUNE.binDepth;
+  const R = 0.85, offs = [-0.42, 0, 0.42];   // 右方向へのずらし幅（m）
+  for(let i=0;i<COLORS.length;i++){
+    const cx = _v1.x + _v2.x*R + _v3.x*offs[i];
+    const cz = _v1.z + _v2.z*R + _v3.z*offs[i];
+    buildBin(cx, fy, cz, i);
+  }
+  stageCx = _v1.x + _v2.x*R; stageCz = _v1.z + _v2.z*R;   // 中央のトロッコ付近
 
-  buildBin(binCx, fy, binCz);
+  // 台：正面 0.42m（座ったまま台に手が届き、トロッコへ投げる距離）
+  const trayCx = _v1.x + _v2.x*0.42, trayCz = _v1.z + _v2.z*0.42;
   buildTray(trayCx, fy, trayCz, _v3);
-  checkpoint("stage", "舞台を置いた（トロッコと台）");
+  checkpoint("stage", "舞台を置いた（色わけトロッコ" + COLORS.length + "個と台）");
   startRound();
 }
 
-// トロッコ＝上が開いた箱（床＋4枚の壁）。見た目もつける
-let binGroup = null;
-function buildBin(cx, fy, cz){
+// トロッコ＝上が開いた箱（床＋4枚の壁）。色つきで見た目もつける
+function buildBin(cx, fy, cz, colorIdx){
   const hi = TUNE.binInner, dp = TUNE.binDepth, wall = 0.02;
   const floorT = 0.02;
-  binTopY = fy + dp;
-  // 物理：床
+  const topY = fy + dp;
+  // 物理：床＋4枚の壁
   addStaticBox(cx, fy + floorT, cz, hi+wall, floorT, hi+wall, 0.9, 0.1);
-  // 物理：4枚の壁
-  addStaticBox(cx, fy + dp/2, cz - (hi+wall), hi+wall, dp/2, wall, 0.9, 0.2); // 手前
-  addStaticBox(cx, fy + dp/2, cz + (hi+wall), hi+wall, dp/2, wall, 0.9, 0.2); // 奥
-  addStaticBox(cx - (hi+wall), fy + dp/2, cz, wall, dp/2, hi+wall, 0.9, 0.2); // 左
-  addStaticBox(cx + (hi+wall), fy + dp/2, cz, wall, dp/2, hi+wall, 0.9, 0.2); // 右
-  // 見た目
-  binGroup = new THREE.Group();
-  const floorMesh = new THREE.Mesh(new THREE.BoxGeometry((hi+wall)*2, floorT*2, (hi+wall)*2), binMat);
-  floorMesh.position.set(cx, fy + floorT, cz); binGroup.add(floorMesh);
+  addStaticBox(cx, fy + dp/2, cz - (hi+wall), hi+wall, dp/2, wall, 0.9, 0.2);
+  addStaticBox(cx, fy + dp/2, cz + (hi+wall), hi+wall, dp/2, wall, 0.9, 0.2);
+  addStaticBox(cx - (hi+wall), fy + dp/2, cz, wall, dp/2, hi+wall, 0.9, 0.2);
+  addStaticBox(cx + (hi+wall), fy + dp/2, cz, wall, dp/2, hi+wall, 0.9, 0.2);
+  // 見た目（この色のマテリアル）
+  const bm = binMats[colorIdx], lm = binLipMats[colorIdx];
+  const group = new THREE.Group();
+  const floorMesh = new THREE.Mesh(new THREE.BoxGeometry((hi+wall)*2, floorT*2, (hi+wall)*2), bm);
+  floorMesh.position.set(cx, fy + floorT, cz); group.add(floorMesh);
   const wallGeoNS = new THREE.BoxGeometry((hi+wall)*2, dp, wall*2);
   const wallGeoEW = new THREE.BoxGeometry(wall*2, dp, (hi+wall)*2);
-  const w1 = new THREE.Mesh(wallGeoNS, binMat); w1.position.set(cx, fy+dp/2, cz-(hi+wall)); binGroup.add(w1);
-  const w2 = new THREE.Mesh(wallGeoNS, binMat); w2.position.set(cx, fy+dp/2, cz+(hi+wall)); binGroup.add(w2);
-  const w3 = new THREE.Mesh(wallGeoEW, binMat); w3.position.set(cx-(hi+wall), fy+dp/2, cz); binGroup.add(w3);
-  const w4 = new THREE.Mesh(wallGeoEW, binMat); w4.position.set(cx+(hi+wall), fy+dp/2, cz); binGroup.add(w4);
-  // 上の縁（入れる場所が光って分かる）
-  const lip = new THREE.Mesh(
-    new THREE.TorusGeometry(hi*1.15, 0.008, 8, 28).rotateX(Math.PI/2), binLipMat);
-  lip.position.set(cx, fy+dp+0.004, cz); binGroup.add(lip);
-  scene.add(binGroup);
+  const w1 = new THREE.Mesh(wallGeoNS, bm); w1.position.set(cx, fy+dp/2, cz-(hi+wall)); group.add(w1);
+  const w2 = new THREE.Mesh(wallGeoNS, bm); w2.position.set(cx, fy+dp/2, cz+(hi+wall)); group.add(w2);
+  const w3 = new THREE.Mesh(wallGeoEW, bm); w3.position.set(cx-(hi+wall), fy+dp/2, cz); group.add(w3);
+  const w4 = new THREE.Mesh(wallGeoEW, bm); w4.position.set(cx+(hi+wall), fy+dp/2, cz); group.add(w4);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(hi*1.15, 0.009, 8, 28).rotateX(Math.PI/2), lm);
+  lip.position.set(cx, fy+dp+0.004, cz); group.add(lip);
+  scene.add(group);
+  bins.push({ cx, cz, topY, colorIdx, group });
 }
 
 // 台＝低い板。その上に玉が並ぶ
@@ -411,12 +437,15 @@ function traySlotPos(i, out){
   return out;
 }
 
-function makeBallMesh(){ const m = new THREE.Mesh(ballGeo, ballMat); scene.add(m); return m; }
+function makeBallMesh(colorIdx){ const m = new THREE.Mesh(ballGeo, ballMats[colorIdx]); scene.add(m); return m; }
+// 疑似ランダム（Math.randomはこの環境で使える。色の偏りは実害なし）
+function pickColor(){ return Math.floor(Math.random()*COLORS.length); }
 
-// 台の上に静かに置く玉（dynamicだが最初は台に載って静止）
+// 台の上に静かに置く玉（dynamicだが最初は台に載って静止）。色はランダム
 function spawnTrayBall(slot){
   traySlotPos(slot, _v1);
-  const mesh = makeBallMesh(); mesh.position.copy(_v1);
+  const colorIdx = pickColor();
+  const mesh = makeBallMesh(colorIdx); mesh.position.copy(_v1);
   const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(_v1.x, _v1.y, _v1.z).setLinearDamping(0.4);
   const body = world.createRigidBody(rb);
   const cd = RAPIER.ColliderDesc.ball(TUNE.ballR).setDensity(TUNE.ballDensity)
@@ -426,7 +455,7 @@ function spawnTrayBall(slot){
   const col = world.createCollider(cd, body);
   const hist = []; for(let i=0;i<10;i++) hist.push({t:0,x:0,y:0,z:0});
   const b = { mesh, body, colHandle: col.handle, held:false, owner:-1, kinematic:false,
-              onTray:true, delivered:false, hist, hi:0, hlen:0 };
+              onTray:true, delivered:false, colorIdx, hist, hi:0, hlen:0 };
   handleToObj.set(col.handle, { kind:"ball", ref:b });
   balls.push(b);
   return b;
@@ -470,7 +499,7 @@ function grabBall(b, owner){
   b.body = body; b.colHandle = col.handle; b.held = true; b.kinematic = true;
   b.owner = owner; b.onTray = false;
   b.hi = 0; b.hlen = 0;
-  b.mesh.material = ballHiMat;
+  b.mesh.material = ballHiMats[b.colorIdx];
   handleToObj.set(col.handle, { kind:"ball", ref:b });
   playPop();
   pulse(owner, TUNE.hapGrab, 30);
@@ -511,7 +540,7 @@ function throwBall(b, now){
     .setContactForceEventThreshold(TUNE.forceThreshold);
   const col = world.createCollider(cd, body);
   b.body = body; b.colHandle = col.handle; b.held = false; b.kinematic = false;
-  b.mesh.material = ballMat;
+  b.mesh.material = ballMats[b.colorIdx];
   handleToObj.set(col.handle, { kind:"ball", ref:b });
   playThrow();
   pulse(b.owner, TUNE.hapThrow, 40);
@@ -528,43 +557,60 @@ function removeBall(b){
   const i = balls.indexOf(b); if(i>=0) balls.splice(i,1);
 }
 
-// トロッコ判定：入って落ち着いた玉を「納品」＝数える＋消す
+// どのトロッコの中か（入っていなければ null）
+function binContaining(t){
+  const hi = TUNE.binInner;
+  for(const bin of bins){
+    if(Math.abs(t.x - bin.cx) < hi && Math.abs(t.z - bin.cz) < hi &&
+       t.y < bin.topY && t.y > floorY - 0.02) return bin;
+  }
+  return null;
+}
+
+// トロッコ判定：入って落ち着いた玉を、色が合えば「納品」／違えば「はずれ」
 function checkDelivery(){
   if(!stagePlaced) return;
   const counting = (roundState === "playing");   // 時間内だけカウント。演出は常に出す
-  const hi = TUNE.binInner;
   for(const b of balls){
     if(b.held || b.delivered) continue;
     const t = b.body.translation();
-    const inX = Math.abs(t.x - binCx) < hi;
-    const inZ = Math.abs(t.z - binCz) < hi;
-    const inY = (t.y < binTopY) && (t.y > floorY - 0.02);
-    if(inX && inZ && inY){
+    const bin = binContaining(t);
+    if(bin){
       const lv = b.body.linvel();
       const sp = Math.hypot(lv.x, lv.y, lv.z);
       if(sp < TUNE.binSettleV){
         b.delivered = true;
         if(!counting){ removeBall(b); continue; }   // 時間外は数えず片づけるだけ
-        delivered++;
-        // コンボ：前の納品から comboWindow 秒以内なら継続
-        if(comboTimer > 0) combo++; else combo = 1;
-        comboTimer = TUNE.comboWindow;
-        if(combo > bestCombo) bestCombo = combo;
-        const step = Math.min(combo - 1, TUNE.comboMax);
-        if(step >= TUNE.comboMax) playOneUp();       // 上がり切ったら1UP音
-        else playDing(step);
-        // 演出：紙吹雪＋「+1」（コンボ2以上は「x3」など大きめ金色）
-        burstConfetti(binCx, binTopY + 0.03, binCz, combo>=3 ? 26 : 16);
-        if(combo >= 2) spawnPopup("x"+combo, binCx, binTopY + 0.16, binCz, true);
-        else spawnPopup("+1", binCx, binTopY + 0.14, binCz, false);
-        pulseAll(TUNE.hapIn, 90);
-        checkpoint("in", "トロッコに入れた（納品成功）");
+        const conf = COLORS[b.colorIdx].conf;
+        if(bin.colorIdx === b.colorIdx){
+          // 色が合った＝正解
+          delivered++;
+          if(comboTimer > 0) combo++; else combo = 1;
+          comboTimer = TUNE.comboWindow;
+          if(combo > bestCombo) bestCombo = combo;
+          const step = Math.min(combo - 1, TUNE.comboMax);
+          if(step >= TUNE.comboMax) playOneUp();
+          else playDing(step);
+          burstConfettiCol(bin.cx, bin.topY + 0.03, bin.cz, combo>=3 ? 26 : 16, conf);
+          if(combo >= 2) spawnPopup("x"+combo, bin.cx, bin.topY + 0.16, bin.cz, true);
+          else spawnPopup("+1", bin.cx, bin.topY + 0.14, bin.cz, false);
+          pulseAll(TUNE.hapIn, 90);
+          checkpoint("in", "色の合ったトロッコに入れた（正解）");
+        }else{
+          // 色ちがい＝はずれ。数えず、コンボが切れる
+          combo = 0; comboTimer = 0;
+          playWrong();
+          spawnPopup("×", bin.cx, bin.topY + 0.14, bin.cz, false);
+          pulseAll(0.2, 60);
+          checkpoint("wrong", "色ちがいのトロッコに入れた（はずれ）");
+        }
         removeBall(b);
         replenishTray();
+        continue;
       }
     }
     // 遠くへ落ちた玉は片づけて補充（無限に増やさない）
-    if(t.y < floorY - 1.5 || Math.abs(t.x-binCx) > 4 || Math.abs(t.z-binCz) > 4){
+    if(t.y < floorY - 1.5 || Math.abs(t.x-stageCx) > 4 || Math.abs(t.z-stageCz) > 4){
       removeBall(b); replenishTray();
     }
   }
@@ -575,7 +621,8 @@ function clearAll(){
   while(balls.length) removeBall(balls[0]);
   for(const bd of staticBodies){ try{ world.removeRigidBody(bd); }catch(_){} }
   staticBodies.length = 0;
-  if(binGroup){ scene.remove(binGroup); binGroup = null; }
+  for(const bin of bins){ scene.remove(bin.group); }
+  bins.length = 0;
   if(trayGroup){ scene.remove(trayGroup); trayGroup = null; }
   standingReady = false;
 }
@@ -684,6 +731,16 @@ function playTimeUp(){
   o.frequency.setValueAtTime(440, now); o.frequency.exponentialRampToValueAtTime(180, now+0.5);
   const g = actx.createGain(); g.gain.setValueAtTime(0.22, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.55);
   o.connect(g).connect(actx.destination); o.start(now); o.stop(now+0.55);
+}
+// 色ちがいの「ブブッ」（はずれ）
+function playWrong(){
+  if(!actx) return; const now = actx.currentTime;
+  [180,150].forEach((f,i)=>{
+    const t = now + i*0.1;
+    const o = actx.createOscillator(); o.type="square"; o.frequency.value=f;
+    const g = actx.createGain(); g.gain.setValueAtTime(0.18,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t+0.1);
+  });
 }
 function playDing(step){
   if(!actx) return; const now = actx.currentTime;
@@ -896,9 +953,12 @@ function pcGrabThrowFrom(sx, sy){
   for(const x of balls){ if(!x.held && !x.delivered && x.onTray){ b = x; break; } }
   if(!b){ for(const x of balls){ if(!x.held && !x.delivered){ b=x; break; } } }
   if(!b) return;
+  // 玉の色に合ったトロッコを狙う（無ければ最初のトロッコ）
+  let bin = bins.find(bn => bn.colorIdx === b.colorIdx) || bins[0];
+  if(!bin) return;
   // つかんだ位置から、トロッコ中心へ届く初速をざっくり計算（山なり）
   const p = b.mesh.position;
-  const dx = binCx - p.x, dz = binCz - p.z, dy = (binTopY - p.y);
+  const dx = bin.cx - p.x, dz = bin.cz - p.z, dy = (bin.topY - p.y);
   const g = 9.81, t = 0.6; // 0.6秒で届く想定
   const vx = dx/t, vz = dz/t, vy = (dy + 0.5*g*t*t)/t;
   handleToObj.delete(b.colHandle);
@@ -1020,13 +1080,13 @@ function renderLoop(t, frame){
 
 function highlightGrabbable(){
   if(!stagePlaced) return;
-  // まず台の玉を通常色に戻す
-  for(const b of balls){ if(!b.held && !b.delivered && b.mesh.material === ballHiMat) b.mesh.material = ballMat; }
+  // まず台の玉を通常色に戻す（各色の通常マテリアルへ）
+  for(const b of balls){ if(!b.held && !b.delivered && b.mesh.material === ballHiMats[b.colorIdx]) b.mesh.material = ballMats[b.colorIdx]; }
   for(let i=0;i<2;i++){
     if(!controllers[i]) continue;
     controllers[i].getWorldPosition(_v1);
     const b = nearestGrabbable(_v1.x, _v1.y, _v1.z);
-    if(b && !b.held) b.mesh.material = ballHiMat;
+    if(b && !b.held) b.mesh.material = ballHiMats[b.colorIdx];
   }
 }
 
@@ -1046,14 +1106,16 @@ window.__dbg = {
   setTime(sec){ timeLeft = sec; return "ok"; },        // 時間切れテスト用
   endRound(){ endRound(); return this.state(); },
   restart(){ restartRound(); return this.state(); },
-  // 台の玉を1個、トロッコへ確実に入れる（納品カウントの決定論テスト）
-  deliver(){
+  // 台の玉を1個、トロッコへ確実に入れる。wrong=trueで色ちがいのトロッコに入れる（はずれテスト）
+  deliver(wrong){
     if(!stagePlaced) return "no-stage";
     let b=null; for(const x of balls){ if(!x.held && !x.delivered){ b=x; break; } }
     if(!b) return "no-ball";
-    // トロッコ真上に瞬間移動させて落とす
+    // 合う色のトロッコ（wrong指定なら違う色）を選ぶ
+    let bin = wrong ? bins.find(bn => bn.colorIdx !== b.colorIdx) : bins.find(bn => bn.colorIdx === b.colorIdx);
+    if(!bin) bin = bins[0];
     handleToObj.delete(b.colHandle); try{ world.removeRigidBody(b.body); }catch(_){}
-    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(binCx, binTopY+0.05, binCz).setCcdEnabled(true).setLinvel(0,-0.2,0);
+    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(bin.cx, bin.topY+0.05, bin.cz).setCcdEnabled(true).setLinvel(0,-0.2,0);
     const body = world.createRigidBody(rb);
     const cd = RAPIER.ColliderDesc.ball(TUNE.ballR).setDensity(TUNE.ballDensity).setRestitution(TUNE.restitution).setFriction(TUNE.friction)
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(TUNE.forceThreshold);

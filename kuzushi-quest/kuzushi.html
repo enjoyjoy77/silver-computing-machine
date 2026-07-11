@@ -104,7 +104,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev6";
+const REV = "v2 rev7";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -140,8 +140,8 @@ const TUNE = {
   blockDensity: 550, ballDensity: 1900,
   restitution: 0.12, friction: 0.9,     // 反発低め＝生えた時に跳ねて自壊しにくい
   forceThreshold: 1.0, forceRef: 220,
-  collapseDist: 0.12, towerLayers: 8,    // 塔を高く（見上げる高さ）。高すぎると自壊するので8段
-  settleGrace: 1.3,     // 生えてから落ち着くまで(s)は崩れ判定をしない（自壊を数えない）
+  collapseDist: 0.12, towerLayers: 12,   // 塔を高く（見上げる高さ）。InstancedMeshで軽いので大きくできる
+  settleGrace: 1.8,     // 生えてから落ち着くまで(s)は崩れ判定をしない。大きい塔は落ち着くのが遅いので長め
   hapHit: 0.5, hapThrow: 0.25, hapSpawn: 0.2, hapClear: 0.9,
   // --- 段階2（脳汁）---
   critChance: 0.08,     // 会心の一撃の確率
@@ -157,7 +157,7 @@ const TUNE = {
   comboWindow: 4.0,     // 連鎖が続く時間(s)
   pullRange: 0.8,       // 引き寄せが届く距離(m)。これより遠い玉は引けない
   hitstopMinSpeed: 0.8, // ヒットストップを出す玉の最低速度(m/s)。静止接触では出さない
-  impactMinSpeed: 0.5,  // 音・コンボを出す最低速度(m/s)。立っているだけの塔の重み接触は無視
+  impactMinSpeed: 1.0,  // 音・コンボを出す最低速度(m/s)。落ち着き際のゆっくりした揺れは無視（本当の衝突は数m/s）
 };
 
 /* ============================================================
@@ -191,9 +191,21 @@ const woodMat = new THREE.MeshLambertMaterial({ color:0xd8a25a });
 const lastMat = new THREE.MeshLambertMaterial({ color:0xffe08a, emissive:0xff8a00, emissiveIntensity:0.9 });
 const ballMat = new THREE.MeshLambertMaterial({ color:0xffb454, emissive:0x6a3a00, emissiveIntensity:0.55 });
 const ballMatCrit = new THREE.MeshLambertMaterial({ color:0xffe08a, emissive:0xffb020, emissiveIntensity:1.1 });
-const blockGeoX = new THREE.BoxGeometry(0.15, 0.05, 0.05);
-const blockGeoZ = new THREE.BoxGeometry(0.05, 0.05, 0.15);
 const ballGeo = new THREE.SphereGeometry(0.04, 16, 12);   // 玉のポリゴンを控えめに
+
+// ブロックは全部まとめて1回で描く（InstancedMesh）＝何個でもドローコール1。
+// 単位立方体を各インスタンスの行列で「位置×回転×寸法」に変形（向きの違いも寸法scaleで吸収）
+const MAX_BLOCKS = 120;
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const blockInst = new THREE.InstancedMesh(boxGeo, woodMat, MAX_BLOCKS);
+blockInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+blockInst.count = 0;
+blockInst.frustumCulled = false;
+scene.add(blockInst);
+blockInst.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_BLOCKS*3).fill(1), 3);
+const _col0 = new THREE.Color(1, 1, 1);              // 通常（＝woodの素の色）
+const _colHi = new THREE.Color(1.6, 1.2, 0.45);      // ラストワン強調（>1で明るく光る）
+const _sclV = new THREE.Vector3();
 
 /* ============================================================
    3. 物理（Rapier）
@@ -248,14 +260,14 @@ function setupStage(cx, topY, cz){
 function buildLayout(kind, cx, topY, cz){
   const out = [];
   if(kind === "pyramid"){
-    for(let layer=0; layer<6; layer++){           // 大きめのピラミッド（6+5+4+3+2+1=21本）
-      const n = 6 - layer, y = topY + 0.025 + layer*0.05;
+    for(let layer=0; layer<8; layer++){           // 大きいピラミッド（8+7+…+1=36本）
+      const n = 8 - layer, y = topY + 0.025 + layer*0.05;
       for(let k=0;k<n;k++){ out.push({ x:cx, y, z: cz + (k-(n-1)/2)*0.052, ax:true }); }
     }
   } else if(kind === "wall"){
-    for(let layer=0; layer<6; layer++){           // 高い壁（6段×5本=30本）
+    for(let layer=0; layer<8; layer++){           // 高い壁（8段×6本=48本）
       const y = topY + 0.025 + layer*0.05, shift = (layer%2)?0.026:0;
-      for(let k=0;k<5;k++){ out.push({ x:cx, y, z: cz + (k-2)*0.052 + shift, ax:true }); }
+      for(let k=0;k<6;k++){ out.push({ x:cx, y, z: cz + (k-2.5)*0.052 + shift, ax:true }); }
     }
   } else { // jenga（既定）
     const off = [-0.05, 0, 0.05];
@@ -272,10 +284,6 @@ function spawnTower(cx, topY, cz){
   const kind = kinds[Math.floor(Math.random()*kinds.length)];
   const layout = buildLayout(kind, cx, topY, cz);
   layout.forEach((p, idx) => {
-    const mesh = new THREE.Mesh(p.ax ? blockGeoX : blockGeoZ, woodMat);
-    mesh.position.set(p.x, p.y, p.z);
-    mesh.scale.set(1, 0.001, 1);
-    scene.add(mesh);
     // 減衰を入れて、生えた直後の微振動をすぐ落ち着かせる（高い塔の自壊防止）。当てられた時は普通に飛ぶ
     const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z)
       .setLinearDamping(0.2).setAngularDamping(0.4);
@@ -286,11 +294,15 @@ function spawnTower(cx, topY, cz){
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
       .setContactForceEventThreshold(TUNE.forceThreshold);
     const col = world.createCollider(cd, body);
-    const b = { mesh, body, colHandle: col.handle, ox:p.x, oy:p.y, oz:p.z, down:false, lastSnd:0,
-                growDelay: idx*0.018 };   // 本数が多くても伸び切るよう、遅延は控えめに
+    // mesh は持たず InstancedMesh の idx 番を使う。dimX/Y/Z は箱の実寸（＝当たり判定の2倍）
+    const b = { body, colHandle: col.handle, idx, dimX: hx*2, dimY: 0.05, dimZ: hz*2,
+                ox:p.x, oy:p.y, oz:p.z, down:false, lastSnd:0, growDelay: idx*0.018 };
     handleToObj.set(col.handle, { kind:"block", ref:b });
     blocks.push(b);
+    blockInst.setColorAt(idx, _col0);   // 前の塔の強調色が残らないよう白に戻す
   });
+  blockInst.count = blocks.length;
+  if(blockInst.instanceColor) blockInst.instanceColor.needsUpdate = true;
   standing = blocks.length;
   growT = 0; towerAge = 0; settled = false; lastOneDone = false; towerStartT = performance.now()/1000;
   checkpoint("tower", "塔が生えた（" + kind + " / " + blocks.length + "本）");
@@ -388,8 +400,9 @@ function removeBall(b){
 }
 
 function clearBlocks(){
-  for(const b of blocks){ handleToObj.delete(b.colHandle); try{ world.removeRigidBody(b.body); }catch(_){} scene.remove(b.mesh); }
+  for(const b of blocks){ handleToObj.delete(b.colHandle); try{ world.removeRigidBody(b.body); }catch(_){} }
   blocks.length = 0;
+  blockInst.count = 0;              // インスタンスは描かなくなる（mesh削除は不要）
   while(balls.length) removeBall(balls[0]);
   standing = 0; lastOneActive = false; lastBlock = null;
 }
@@ -497,12 +510,25 @@ function drainEvents(){
 }
 
 function syncMeshes(){
-  if(phase === "sinking") return;
+  const sinking = (phase === "sinking");
+  const sinkK = sinking ? Math.min(1, phaseT/0.6) : 0;
   for(const b of blocks){
     const t = b.body.translation(), r = b.body.rotation();
-    b.mesh.position.set(t.x, t.y, t.z);
-    b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+    _q1.set(r.x, r.y, r.z, r.w);
+    if(sinking){
+      _v1.set(t.x, t.y - phaseT*0.5, t.z);           // 沈める
+      const s = Math.max(0.001, 1 - sinkK);          // 縮めて消す
+      _sclV.set(b.dimX*s, b.dimY*s, b.dimZ*s);
+    }else{
+      _v1.set(t.x, t.y, t.z);
+      let gy = 1;                                     // にょき演出：下から伸びる
+      if(growT < 1.2 && !b.down) gy = Math.max(0.001, Math.min(1, (growT - b.growDelay)/0.3));
+      _sclV.set(b.dimX, b.dimY*gy, b.dimZ);
+    }
+    _m1.compose(_v1, _q1, _sclV);
+    blockInst.setMatrixAt(b.idx, _m1);
   }
+  if(blocks.length) blockInst.instanceMatrix.needsUpdate = true;
   for(const b of balls){
     if(b.held || !b.body) continue;
     const t = b.body.translation(), r = b.body.rotation();
@@ -514,11 +540,11 @@ function syncMeshes(){
 function startLastOne(){
   lastOneActive = true; lastOneDone = true; lastOneT = TUNE.lastMax;
   lastBlock = blocks.find(b => !b.down) || null;
-  if(lastBlock) lastBlock.mesh.material = lastMat;
+  if(lastBlock){ blockInst.setColorAt(lastBlock.idx, _colHi); blockInst.instanceColor.needsUpdate = true; }
 }
 function endLastOne(){
   lastOneActive = false;
-  if(lastBlock && lastBlock.mesh){ lastBlock.mesh.material = woodMat; }
+  if(lastBlock){ blockInst.setColorAt(lastBlock.idx, _col0); blockInst.instanceColor.needsUpdate = true; }
   lastBlock = null;
 }
 
@@ -574,8 +600,7 @@ function advancePhase(dt){
   }else if(phase === "sinking"){
     phaseT += dt;
     const k = Math.min(1, phaseT/0.6);
-    for(const b of blocks){ b.mesh.position.y -= dt*0.5; b.mesh.visible = (k < 1); }
-    for(const b of balls){ b.mesh.visible = (k < 1); }
+    for(const b of balls){ b.mesh.visible = (k < 1); }   // 玉を消す（ブロックは syncMeshes で沈めて縮める）
     if(phaseT >= 0.6 + 0.5){
       clearBlocks();
       spawnTower(stageCx, stageTopY, stageCz);
@@ -983,6 +1008,8 @@ let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false, crit
 
 function simulate(dt){
   updateTimeEffects(dt);
+  // 塔が生えてからの経過と、にょき演出の進行（syncMeshesが行列に反映するので先に進める）
+  if(stagePlaced && blocks.length){ towerAge += dt; if(growT < 1.2) growT += dt; }
   const p0 = performance.now();
   stepPhysics(dt);
   physMs = physMs*0.9 + (performance.now()-p0)*0.1;
@@ -992,15 +1019,6 @@ function simulate(dt){
   updateBanner(dt);
   // 連鎖が途切れたら（4秒以上叩いていない）カウントを戻す
   if(comboCount > 0 && performance.now()/1000 - comboLast > TUNE.comboWindow) comboCount = 0;
-  if(stagePlaced && blocks.length) towerAge += dt;   // 塔が生えてからの経過（崩れ判定の猶予に使う）
-  // にょき演出（growT は秒。塔が高くても全段が伸び切るよう 1.2 まで回す）
-  if(growT < 1.2 && blocks.length){
-    growT += dt;
-    for(const b of blocks){
-      const local = Math.max(0, Math.min(1, (growT - b.growDelay)/0.3 ));
-      if(!b.down) b.mesh.scale.y = 0.001 + local*0.999;
-    }
-  }
   // ステータス表示は毎フレームでなく数フレームおきに更新（文字列生成とDOM書き込みを減らす）
   if((hudTick = (hudTick + 1) % 12) === 0){
     $("stats").textContent = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1)
@@ -1089,6 +1107,18 @@ window.__dbg = {
   nextTower(){ forceNextTower(); return "ok"; },
   tick(seconds){ const n = Math.round((seconds||1)/FIXED); for(let i=0;i<n;i++) simulate(FIXED); return this.state(); },
   render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
+  // 描画(InstancedMesh)の行列が物理ボディと一致しているか確認（見た目のズレ検出）
+  blockCheck(){
+    if(!blocks.length) return "no-blocks";
+    const b = blocks[Math.floor(blocks.length/2)];
+    const m = new THREE.Matrix4(); blockInst.getMatrixAt(b.idx, m);
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+    m.decompose(p, q, sc);
+    const t = b.body.translation();
+    return { count: blockInst.count, colorBufOK: !!blockInst.instanceColor,
+      instPos:[+p.x.toFixed(3),+p.y.toFixed(3),+p.z.toFixed(3)], bodyPos:[+t.x.toFixed(3),+t.y.toFixed(3),+t.z.toFixed(3)],
+      instScale:[+sc.x.toFixed(3),+sc.y.toFixed(3),+sc.z.toFixed(3)], dims:[b.dimX,b.dimY,b.dimZ] };
+  },
   tune: TUNE,
 };
 
