@@ -88,8 +88,9 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
+import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v5 rev1";
+const REV = "v5 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -822,19 +823,26 @@ reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
 
 const controllers = [];
 const heldByController = [null, null];
+const ctrlIsHand = [false, false];
+const ctrlTips = [null, null];
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
     c.userData.index = i;
-    c.addEventListener("connected", e => { if(e.data && e.data.gamepad) gamepads[i] = e.data.gamepad; });
-    c.addEventListener("disconnected", () => { gamepads[i] = null; heldByController[i] = null; });
+    c.addEventListener("connected", e => {
+      if(e.data && e.data.gamepad) gamepads[i] = e.data.gamepad;
+      ctrlIsHand[i] = isHandInput(e);
+      if(ctrlTips[i]) ctrlTips[i].visible = !ctrlIsHand[i];   // 素手のときは偽コントローラ球を隠す
+    });
+    c.addEventListener("disconnected", () => { gamepads[i] = null; heldByController[i] = null; ctrlIsHand[i] = false; if(ctrlTips[i]) ctrlTips[i].visible = true; });
     c.addEventListener("selectstart", () => onSelectStart(i));
     c.addEventListener("selectend", () => onSelectEnd(i));
     c.addEventListener("squeezestart", () => { if(roundState==="over") restartRound(); else replenishTray(); });
     const tip = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 10),
       new THREE.MeshBasicMaterial({ color:0xa7f3ea }));
     c.add(tip);
+    ctrlTips[i] = tip;
     scene.add(c);
     controllers.push(c);
   }
@@ -873,13 +881,14 @@ async function startAR(){
   try{
     log("ARを開始します…");
     session = await navigator.xr.requestSession("immersive-ar", {
-      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor"],
+      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor", "hand-tracking"],
     });
     xrSession = session;
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(session);
     scene.background = null;
     setupControllers();
+    setupHands(renderer, scene);   // 素手のとき本物の手メッシュを表示
     hitSource = null; hitReq = false; hitTries = 0; stagePlaced = false; clearAll();
     heldByController[0] = heldByController[1] = null;
     $("start").style.display = "none"; $("goBtn").textContent = "AR中…";

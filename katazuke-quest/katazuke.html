@@ -92,8 +92,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
+import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v1 rev2";
+const REV = "v1 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 画面内ログ（DOM＋AR中は3Dパネル） ============ */
@@ -382,6 +383,7 @@ function drawLogPanel(){
 /* ============ コントローラ（トリガー／レイ） ============ */
 const controllers = [];
 const ctrlConnected = [false, false];
+const ctrlIsHand = [false, false];
 const raycaster = new THREE.Raycaster();
 const _origin = new THREE.Vector3();
 const _dirv = new THREE.Vector3();
@@ -390,11 +392,16 @@ function setupControllers(){
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
     c.addEventListener("select", ()=>onSelect(c));
-    c.addEventListener("connected", ()=>{ ctrlConnected[i] = true; });
-    c.addEventListener("disconnected", ()=>{ ctrlConnected[i] = false; });
-    // 細い光の線（ボタンを狙うときの目印）
+    c.addEventListener("connected", (e)=>{
+      ctrlConnected[i] = true;
+      ctrlIsHand[i] = isHandInput(e);
+      if(rayLine) rayLine.visible = !ctrlIsHand[i];
+    });
+    c.addEventListener("disconnected", ()=>{ ctrlConnected[i] = false; ctrlIsHand[i] = false; });
+    // 細い光の線（ボタンを狙うときの目印。素手の時は消す＝偽コントローラ線の防止）
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-2.5)]);
-    c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x57e0a0, transparent:true, opacity:0.5 })));
+    const rayLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x57e0a0, transparent:true, opacity:0.5 }));
+    c.add(rayLine);
     scene.add(c); controllers.push(c);
   }
 }
@@ -495,13 +502,14 @@ async function startAR(){
   try{
     log("ARを開始します…");
     const session = await navigator.xr.requestSession("immersive-ar", {
-      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor"],
+      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor", "hand-tracking"],
     });
     xrSession = session;
     renderer.xr.setReferenceSpaceType("local");
     await renderer.xr.setSession(session);
     scene.background = null;
     setupControllers();
+    setupHands(renderer, scene);
     hitSource = null; hitReq = false;
     postPlaced = false; post.visible = false; playing = false;
     countPanel.visible = false; undoBtn.mesh.visible = false;

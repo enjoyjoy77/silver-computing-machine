@@ -87,8 +87,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
+import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v5 rev1";
+const REV = "v5 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -425,7 +426,7 @@ function pulseAll(i,ms){ pulse(0,i,ms); pulse(1,i,ms); }
 /* ============================================================
    6. AR：セッション・コントローラ・ハンド
    ============================================================ */
-const controllers=[]; const ctrlOn=[false,false];
+const controllers=[]; const ctrlOn=[false,false]; const ctrlIsHand=[false,false];
 const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip","wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"];
 const markerMat=new THREE.MeshBasicMaterial({color:0xf0c19a,transparent:true,opacity:0.5,depthWrite:false});
 const markerGeo=new THREE.SphereGeometry(1,10,8); const markers=[];
@@ -450,8 +451,8 @@ function onSelectStart(i){ ensureAudio(); if(!controllers[i]) return; controller
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){ const c=renderer.xr.getController(i); c.userData.index=i;
-    c.addEventListener("connected",e=>{ ctrlOn[i]=true; if(e.data&&e.data.gamepad) gamepads[i]=e.data.gamepad; });
-    c.addEventListener("disconnected",()=>{ ctrlOn[i]=false; gamepads[i]=null; });
+    c.addEventListener("connected",e=>{ ctrlOn[i]=true; ctrlIsHand[i]=isHandInput(e); if(e.data&&e.data.gamepad) gamepads[i]=e.data.gamepad; });
+    c.addEventListener("disconnected",()=>{ ctrlOn[i]=false; ctrlIsHand[i]=false; gamepads[i]=null; });
     c.addEventListener("squeezestart",()=>respawnInFront());
     c.addEventListener("selectstart",()=>onSelectStart(i));
     scene.add(c); controllers.push(c);
@@ -459,12 +460,14 @@ function setupControllers(){
 }
 function collectXRColliders(frame,ref){
   colN=0;
-  for(let i=0;i<2;i++){ if(controllers[i]&&ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z,TUNE.ctrlR); } }
+  for(let i=0;i<2;i++){ if(controllers[i]&&ctrlOn[i]&&!ctrlIsHand[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z,TUNE.ctrlR); } }
+  const ctrlColN=colN;   // ここまで＝本物のコントローラ由来。マーカー(見える印)はこれだけに出す
   const session=renderer.xr.getSession();
   if(session&&frame&&ref){ for(const src of session.inputSources){ if(!src.hand) continue;
     for(const jn of TIP_JOINTS){ const j=src.hand.get(jn); if(!j) continue; const p=frame.getJointPose(j,ref); if(!p) continue;
       const r=(p.radius&&p.radius>0)?p.radius+0.004:TUNE.fingerR; addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); } } }
-  for(let i=0;i<MAXCOL;i++){ if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; }
+  // マーカー表示：素手には何も描かない＝本物の手メッシュをそのまま見る。コントローラ先端だけ印を出す
+  for(let i=0;i<MAXCOL;i++){ if(i<ctrlColN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; }
 }
 let xrSession=null, arStarting=false, pendingSpawn=false;
 async function startAR(){
@@ -476,7 +479,7 @@ async function startAR(){
     log("ARを開始します…");
     session=await navigator.xr.requestSession("immersive-ar",{ optionalFeatures:["hand-tracking","local-floor"] });
     xrSession=session; renderer.xr.setReferenceSpaceType("local"); await renderer.xr.setSession(session);
-    scene.background=null; setupControllers(); clayReady=false;
+    scene.background=null; setupControllers(); setupHands(renderer,scene); clayReady=false;
     $("start").style.display="none"; $("goBtn").textContent="AR中…"; $("stats").style.display="block";
     checkpoint("ar","AR開始OK（土台の起動に成功）"); log("目の前にねんどを出します。手やコントローラで押してみてください"); pendingSpawn=true;
     session.addEventListener("end",()=>{ xrSession=null; if(mesh) mesh.visible=false; clayReady=false; panel.visible=false;
