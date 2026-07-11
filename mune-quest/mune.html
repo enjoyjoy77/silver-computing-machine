@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev7";
+const REV = "v3 rev8";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -178,9 +178,10 @@ function applyFeel(){
   const s = Math.max(0, Math.min(1, TUNE.soft));
   const k = Math.max(0, Math.min(1, TUNE.keep));
   // 実測ベース(調査2026-07-12): 皮膚=張力膜(脂肪の10倍硬い)が力を広く分散/戻りは即座(クリープ僅か)/揺れは減衰比0.2-0.5・1-3Hz
-  TUNE.edgeCompliance = lerp2(2e-5, 6e-5, 5e-4, s);     // 皮膚の張力。硬め=指の力が広くなだらかに分散(局所の深い穴=人工物っぽさの元)
-  TUNE.hariK          = lerp2(240, 120, 45, s);         // 塊の戻り。中央120=固有振動数約1.7Hz(実測1-3Hz)。沈みは"塊ごと"沈む
-  TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.46=1〜2回ぷるんと揺れて収まる(アンダーダンプ=生体の実測)
+  // 実機⑫「レバー0でもまだ柔らかい」→旧0の硬さを新しい真ん中に再配置し、左半分をさらに硬い側へ延長(3回目の再配置)
+  TUNE.edgeCompliance = lerp2(6e-6, 2e-5, 5e-4, s);     // 皮膚の張力。硬め=指の力が広くなだらかに分散(局所の深い穴=人工物っぽさの元)
+  TUNE.hariK          = lerp2(420, 240, 45, s);         // 塊の戻り。中央240=固有振動数約2.5Hz(実測1-3Hzの上寄り=張りのある胸)
+  TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.32=2回ほどぷるんと揺れて収まる(アンダーダンプ=生体の実測)
 }
 applyFeel();
 
@@ -592,7 +593,7 @@ function integrate(B, sdt){
   const tgt = B.tgt, cr = B.creep;
   const cl = 1 - Math.exp(-sdt/TUNE.creepTau);          // 馴染みの追従率(クリープ)
   const cd = Math.max(0, 1 - TUNE.creepRecover*sdt);    // 馴染みの戻り(小さいほどゆっくり=もちもち)
-  const cmax = TUNE.creepMax;
+  const cmax = TUNE.creepMax * (0.35 + 0.65*TUNE.soft);   // 硬い設定ほど馴染み(give)も小さく(硬いのに馴染むと違和感)
   for(let i=0;i<N;i++){
     if(invMass[i]===0){
       // 根元＝板に固定（キネマティック。posもprevも上書き＝速度を持たせない）
