@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v4 rev2";
+const REV = "v4 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -202,7 +202,7 @@ let shapeIdx = 0;
 
 // メッシュのトポロジ(全スライム共有)＋「今処理中のスライム」を指す現在ポインタ。形替えで作り直すので let
 let baseGeo, vCount, vmap, N, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol;
-let pos, prev, vel, curVol;   // ← softStep が各スライムのものに毎回差し替える
+let pos, prev, vel, curVol, curScale = 1;   // ← softStep が各スライムのものに毎回差し替える（curScale=大きさ）
 
 // 閉じた三角メッシュの符号つき体積
 function meshVolume(){
@@ -293,9 +293,9 @@ const MAX_SLIMES = 6;
 const slimes = [];                               // {pos,prev,vel,curVol,anchor,mesh,core,geoAttr}
 let slimeReady = false;
 
-function usePtr(S){ pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; }   // 現在ポインタを差し替え
+function usePtr(S){ pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; curScale=S.scale; }   // 現在ポインタを差し替え
 function makeSlime(){
-  const S = { curVol: restVol, anchor: new THREE.Vector3(),
+  const S = { curVol: restVol, scale: 1, anchor: new THREE.Vector3(),
     mesh: new THREE.Mesh(baseGeo.clone(), slimeMat), core: new THREE.Mesh(coreGeo, coreMat) };
   S.mesh.frustumCulled = false; S.core.frustumCulled = false;
   S.geoAttr = S.mesh.geometry.attributes.position;
@@ -303,12 +303,14 @@ function makeSlime(){
   scene.add(S.mesh); scene.add(S.core);
   return S;
 }
-function placeSlime(S, cx, cy, cz){                // 静止形を平行移動して置く
+function placeSlime(S, cx, cy, cz, scale){         // 静止形を(大きさscaleで)平行移動して置く
+  S.scale = (scale==null ? (S.scale||1) : scale);
+  const sc = S.scale;
   S.anchor.set(cx, cy, cz);
-  for(let i=0;i<N;i++){ S.pos[i*3]=rest[i*3]+cx; S.pos[i*3+1]=rest[i*3+1]+cy; S.pos[i*3+2]=rest[i*3+2]+cz;
+  for(let i=0;i<N;i++){ S.pos[i*3]=rest[i*3]*sc+cx; S.pos[i*3+1]=rest[i*3+1]*sc+cy; S.pos[i*3+2]=rest[i*3+2]*sc+cz;
     S.prev[i*3]=S.pos[i*3]; S.prev[i*3+1]=S.pos[i*3+1]; S.prev[i*3+2]=S.pos[i*3+2];
     S.vel[i*3]=0; S.vel[i*3+1]=0; S.vel[i*3+2]=0; }
-  S.curVol = restVol; S.mesh.visible = true; S.core.visible = true;
+  S.curVol = restVol*sc*sc*sc; S.core.scale.setScalar(sc); S.mesh.visible = true; S.core.visible = true;
 }
 function reinitSlimes(){                            // 形替え時：全スライムのジオメトリ＋配列を作り直し、今の位置へ
   for(const S of slimes){
@@ -329,7 +331,7 @@ function arrangeSlimes(count){                      // count個を目の前に�
   const spacing = TUNE.radius*2.7;
   for(let si=0; si<slimes.length; si++){
     const t = si - (slimes.length-1)/2;
-    placeSlime(slimes[si], groupCenter.x + rx*t*spacing, groupCenter.y, groupCenter.z + rz*t*spacing);
+    placeSlime(slimes[si], groupCenter.x + rx*t*spacing, groupCenter.y, groupCenter.z + rz*t*spacing, 1);
   }
   slimeGrab[0]=null; slimeGrab[1]=null;
   slimeReady = true;
@@ -382,6 +384,60 @@ function solveGrab(si){
   }
 }
 
+/* --- ちぎって分裂・くっつけて合体（入れ替え方式：体積を保って大きさを変える） --- */
+const _ca=new THREE.Vector3(), _cb=new THREE.Vector3(), _sv=new THREE.Vector3(), _bv=new THREE.Vector3();
+let smCooldown = 0;   // 分裂/合体の連発防止
+function slimeCOM(S, out){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=S.pos[i*3];cy+=S.pos[i*3+1];cz+=S.pos[i*3+2];} out.set(cx/N,cy/N,cz/N); return out; }
+function slimeVel(S, out){ let vx=0,vy=0,vz=0; for(let i=0;i<N;i++){vx+=S.vel[i*3];vy+=S.vel[i*3+1];vz+=S.vel[i*3+2];} out.set(vx/N,vy/N,vz/N); return out; }
+function setSlimeVel(S, vx,vy,vz){ for(let i=0;i<N;i++){ S.vel[i*3]=vx; S.vel[i*3+1]=vy; S.vel[i*3+2]=vz; S.prev[i*3]=S.pos[i*3]-vx*FIXED; S.prev[i*3+1]=S.pos[i*3+1]-vy*FIXED; S.prev[i*3+2]=S.pos[i*3+2]-vz*FIXED; } }
+function removeSlimeObj(S){ scene.remove(S.mesh); scene.remove(S.core); S.mesh.geometry.dispose(); }
+function splitSlime(si){                            // 両手で掴んだスライムを2つに（各体積半分）
+  if(slimes.length >= MAX_SLIMES) return false;
+  const S = slimes[si]; if(!S || S.scale < 0.55) return false;
+  const ns = S.scale * 0.7937;                      // 体積半分＝scale×2^(-1/3)
+  slimeVel(S,_sv);
+  removeSlimeObj(S); slimes.splice(si,1); slimeGrab[0]=null; slimeGrab[1]=null;
+  const A=makeSlime(), B=makeSlime();
+  placeSlime(A, grabHand[0].x, grabHand[0].y, grabHand[0].z, ns);
+  placeSlime(B, grabHand[1].x, grabHand[1].y, grabHand[1].z, ns);
+  _cb.copy(grabHand[0]).sub(grabHand[1]); if(_cb.lengthSq()<1e-6)_cb.set(1,0,0); _cb.normalize();  // 互いに離れる向きへ少し弾く
+  setSlimeVel(A, _sv.x+_cb.x*0.5, _sv.y+_cb.y*0.5, _sv.z+_cb.z*0.5);
+  setSlimeVel(B, _sv.x-_cb.x*0.5, _sv.y-_cb.y*0.5, _sv.z-_cb.z*0.5);
+  slimes.push(A); slimes.push(B); updateRenderMesh();
+  playTear(); pulseAll(0.9, 60); checkpoint("split","ちぎれた");
+  return true;
+}
+function mergeSlimes(ia, ib){                        // 2つを1つに（体積合算）
+  const A=slimes[ia], B=slimes[ib]; if(!A||!B) return false;
+  const nv = Math.cbrt(A.scale*A.scale*A.scale + B.scale*B.scale*B.scale);
+  if(nv > 1.7) return false;                         // 大きすぎる合体はしない
+  slimeCOM(A,_ca); slimeCOM(B,_cb); slimeVel(A,_sv); slimeVel(B,_bv);
+  const mx=(_ca.x+_cb.x)/2, my=(_ca.y+_cb.y)/2, mz=(_ca.z+_cb.z)/2;
+  removeSlimeObj(A); removeSlimeObj(B);
+  const hi=Math.max(ia,ib), lo=Math.min(ia,ib); slimes.splice(hi,1); slimes.splice(lo,1);
+  slimeGrab[0]=null; slimeGrab[1]=null;
+  const M=makeSlime(); placeSlime(M, mx,my,mz, nv);
+  setSlimeVel(M, (_sv.x+_bv.x)/2, (_sv.y+_bv.y)/2, (_sv.z+_bv.z)/2);
+  slimes.push(M); updateRenderMesh();
+  playMerge(); pulseAll(0.6, 50); checkpoint("merge","くっついた");
+  return true;
+}
+function checkSplitMerge(dt){
+  if(smCooldown>0){ smCooldown-=dt; if(smCooldown>0) return; }
+  const g0=slimeGrab[0], g1=slimeGrab[1];            // 分裂：両手が同じスライムを掴んで直径以上に引き離したら
+  if(g0 && g1 && g0.slime===g1.slime && slimes[g0.slime]){
+    if(grabHand[0].distanceTo(grabHand[1]) > TUNE.radius*slimes[g0.slime].scale*2.4){
+      if(splitSlime(g0.slime)){ smCooldown=0.5; return; }
+    }
+  }
+  for(let a=0;a<slimes.length;a++){ slimeCOM(slimes[a],_ca);     // 合体：重心が十分重なったペア
+    for(let b=a+1;b<slimes.length;b++){ slimeCOM(slimes[b],_cb);
+      const ra=TUNE.radius*slimes[a].scale, rb=TUNE.radius*slimes[b].scale;
+      if(_ca.distanceTo(_cb) < (ra+rb)*0.5){ if(mergeSlimes(a,b)){ smCooldown=0.5; return; } }
+    }
+  }
+}
+
 /* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
 const FIXED = 1/60;
 let physAcc = 0, physMs = 0;
@@ -391,7 +447,7 @@ function softStep(h){
   for(let s=0;s<sub;s++){
     for(let si=0; si<slimes.length; si++){
       const S = slimes[si];
-      pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor;   // 現在ポインタを差し替え
+      pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; curScale=S.scale;   // 現在ポインタを差し替え
       integrate(sdt);
       solveEdges(sdt);
       solveVolume(sdt);
@@ -415,9 +471,9 @@ function integrate(sdt){
   const k = TUNE.shapeMemK, mx = TUNE.maxStep;
   for(let i=0;i<N;i++){
     // 形の戻り：COM+静止形 へ引く（COM相対なので全体が旅するのを邪魔しない＝深く沈む・横に動く）
-    const sx=(cx+rest[i*3]  -pos[i*3])*k;
-    const sy=(cy+rest[i*3+1]-pos[i*3+1])*k;
-    const sz=(cz+rest[i*3+2]-pos[i*3+2])*k;
+    const sx=(cx+rest[i*3]*curScale  -pos[i*3])*k;
+    const sy=(cy+rest[i*3+1]*curScale-pos[i*3+1])*k;
+    const sz=(cz+rest[i*3+2]*curScale-pos[i*3+2])*k;
     let vx=(vel[i*3]   + (sx+hx)*sdt)*damp - vcx*hd;
     let vy=(vel[i*3+1] + (sy+hy+TUNE.gravity)*sdt)*damp - vcy*hd;
     let vz=(vel[i*3+2] + (sz+hz)*sdt)*damp - vcz*hd;
@@ -436,7 +492,7 @@ function solveEdges(sdt){
     let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
     const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
     const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const C=len-edgeLen[e];
+    const C=len-edgeLen[e]*curScale;
     const wa=invMass[a], wb=invMass[b];
     const s=-C/(wa+wb+alpha);
     pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
@@ -464,7 +520,7 @@ function solveVolume(sdt){
   let denom = alpha;
   for(let i=0;i<N;i++){ const gx=grad[i*3],gy=grad[i*3+1],gz=grad[i*3+2]; denom += invMass[i]*(gx*gx+gy*gy+gz*gz); }
   if(denom<1e-12) return;
-  const C = V - restVol*TUNE.pressure;
+  const C = V - restVol*curScale*curScale*curScale*TUNE.pressure;
   const s = -C/denom;
   for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
 }
@@ -492,7 +548,7 @@ function solveCore(){
   let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
   for(let k=0;k<colN;k++){
     const dx=cx-colX[k], dy=cy-colY[k], dz=cz-colZ[k];
-    const d=Math.hypot(dx,dy,dz), R=TUNE.coreR+colR[k];
+    const d=Math.hypot(dx,dy,dz), R=TUNE.coreR*curScale+colR[k];
     if(d<R && d>1e-6){
       const push=(R-d)/d, mx=dx*push, my=dy*push, mz=dz*push;
       // pos と prev を同量ずらす＝速度を注入しない純粋な平行移動（芯押しでエネルギーが暴走しない）
@@ -545,6 +601,24 @@ function playSquish(strength){
   o.connect(lp).connect(g).connect(actx.destination);
   voices++; o.onended = ()=>{ voices--; };
   o.start(now); o.stop(now+dur);
+}
+// ちぎれる音（ビリッ）
+function playTear(){
+  if(!actx) return; const now=actx.currentTime, dur=0.22;
+  const n=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++){ d[i]=(Math.random()*2-1)*(1-i/n); }
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const bp=actx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.setValueAtTime(1500,now); bp.frequency.exponentialRampToValueAtTime(500,now+dur); bp.Q.value=0.8;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.16,now); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  src.connect(bp).connect(g).connect(actx.destination); src.start(now); src.stop(now+dur);
+}
+// くっつく音（ぽふっ）
+function playMerge(){
+  if(!actx) return; const now=actx.currentTime, dur=0.2;
+  const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(200,now); o.frequency.exponentialRampToValueAtTime(90,now+dur);
+  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=600;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.16,now+0.02); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  o.connect(lp).connect(g).connect(actx.destination); o.start(now); o.stop(now+dur);
 }
 
 /* ============================================================
@@ -924,6 +998,7 @@ function simulate(dt){
     }
   }
   stepSoft(dt);
+  checkSplitMerge(dt);
   handleContactFX();
   const V = curVol/restVol;
   const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"×"+slimes.length+"・"+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"%";
@@ -973,7 +1048,7 @@ window.__dbg = {
     return {
       slimeReady, slimeCount:slimes.length, N, tris:triN, edges:edgeN, colN,
       feel:FEELS[feelIdx].name, firm:+TUNE.firm.toFixed(2),
-      volRatio:+(curVol/restVol).toFixed(3),
+      volRatio:+(curVol/(restVol*curScale*curScale*curScale)).toFixed(3),
       comOffset:+comOffset().toFixed(4),
       shapeErr:+shapeErr().toFixed(4),
       maxSpeed:+maxSpeed().toFixed(3),
@@ -1061,6 +1136,22 @@ window.__dbg = {
     for(let s=0;s<20;s++){ colN=0; addCol(S0.anchor.x+TUNE.radius+TUNE.fingerR-0.03, S0.anchor.y, S0.anchor.z, TUNE.fingerR); contactDepth=0; softStep(FIXED); }
     updateRenderMesh();
     return this.perSlime();
+  },
+  // 両手で掴んで引き離す→2つに分裂するか
+  splitTest(){
+    arrangeSlimes(1); const S=slimes[0]; slimeCOM(S,_ca);
+    grabHand[0].set(_ca.x-TUNE.radius, _ca.y, _ca.z); grabSlime(0, grabHand[0].x,grabHand[0].y,grabHand[0].z);
+    grabHand[1].set(_ca.x+TUNE.radius, _ca.y, _ca.z); grabSlime(1, grabHand[1].x,grabHand[1].y,grabHand[1].z);
+    grabHand[0].set(_ca.x-0.3, _ca.y, _ca.z); grabHand[1].set(_ca.x+0.3, _ca.y, _ca.z);   // 引き離す
+    smCooldown=0; checkSplitMerge(1);
+    return { count:slimes.length, scales:slimes.map(function(s){return +s.scale.toFixed(3);}), nan:anyNaN() };
+  },
+  // 2つを重ねる→1つに合体するか
+  mergeTest(){
+    arrangeSlimes(2);
+    placeSlime(slimes[1], slimes[0].anchor.x, slimes[0].anchor.y, slimes[0].anchor.z, slimes[1].scale);  // 重ねる
+    smCooldown=0; checkSplitMerge(1);
+    return { count:slimes.length, scales:slimes.map(function(s){return +s.scale.toFixed(3);}), nan:anyNaN() };
   },
   setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, edgeCompliance:+TUNE.edgeCompliance.toExponential(2)}; },
   setResil(r){ TUNE.resil=Math.max(0,Math.min(1,r)); applyFeel(); return {resil:TUNE.resil, shapeMemK:+TUNE.shapeMemK.toFixed(1)}; },
