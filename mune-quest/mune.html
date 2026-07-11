@@ -82,7 +82,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v2 rev4";
+const REV = "v2 rev5";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -288,7 +288,7 @@ function buildTopology(){
   teardropDeform(rvRest, rvCount);                          // 物理と同じ涙型に
   renderTpl = new THREE.BufferGeometry();
   renderTpl.setAttribute("position", new THREE.BufferAttribute(new Float32Array(rvRest), 3));
-  renderTpl.setIndex(new THREE.BufferAttribute(hw.tris, 1));  // indexed＝computeVertexNormalsが滑らかな法線を出す
+  renderTpl.setIndex(new THREE.BufferAttribute(new Uint32Array(hw.tris), 1));  // indexed＝滑らかな法線。※indexはUint型必須(Int32だと描画が丸ごと拒否され透明になる)
   embI=new Int32Array(rvCount*3); embW=new Float32Array(rvCount*3); embO=new Float32Array(rvCount*3);
   const bary=[0,0,0];
   for(let v=0;v<rvCount;v++){

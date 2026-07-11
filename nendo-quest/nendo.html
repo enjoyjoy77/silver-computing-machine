@@ -3,30 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>ねんど（さわる回）</title>
+<title>ねんど（さわる回・MPM）</title>
 <style>
   :root{ --bg:#12100e; --panel:#241d16; --line:#3a2e22; --ink:#f6efe6; --dim:#b6a48f; --accent:#d98b5f; --accent2:#f0c19a; --danger:#ff8f8f; }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
-    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;overflow:hidden;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;overflow:hidden;}
   canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
   #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;color:var(--dim);pointer-events:none;}
   #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:var(--bg);padding:28px 22px;overflow-y:auto;text-align:center;}
   #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
-  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
+  #start h1{margin:0;font-size:24px;font-weight:900;line-height:1.4;}
   #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:470px;}
-  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);color:#2a1206;box-shadow:0 6px 22px rgba(217,139,95,.35);transition:opacity .2s,transform .1s;}
-  #goBtn:active{transform:translateY(1px);} #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
-  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:470px;}
-  #note b{color:var(--accent2);}
+  #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);color:#2a1206;box-shadow:0 6px 22px rgba(217,139,95,.35);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:470px;} #note b{color:var(--accent2);}
   #stats{position:fixed;top:8px;left:12px;z-index:40;font-size:11px;line-height:1.6;color:var(--dim);pointer-events:none;font-family:"Consolas","Courier New",monospace;background:rgba(6,10,14,.5);padding:5px 8px;border-radius:8px;display:none;white-space:pre;}
-  #pchint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:35;display:none;background:rgba(36,29,22,.9);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:12.5px;line-height:1.7;color:var(--ink);text-align:center;max-width:92vw;}
-  #pchint b{color:var(--accent2);}
+  #pchint{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:35;display:none;background:rgba(36,29,22,.9);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:12.5px;line-height:1.7;color:var(--ink);text-align:center;max-width:92vw;} #pchint b{color:var(--accent2);}
   #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
   #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
-  #log{background:rgba(6,10,14,.82);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);height:108px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;font-family:"Consolas","Courier New",monospace;}
-  #log .e{color:var(--danger);}
-  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+  #log{background:rgba(6,10,14,.82);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);height:108px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;font-family:"Consolas","Courier New",monospace;} #log .e{color:var(--danger);}
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;max-width:92vw;text-align:center;}
 </style>
 </head>
 <body>
@@ -34,345 +30,326 @@
 <span id="rev"></span>
 <div id="stats"></div>
 <div id="start">
-  <div class="mark">ねんど（彫刻版）</div>
-  <h1>ねんどを手で押して<br>掘ったり盛ったりする回です</h1>
-  <p>目の前のねんどを手やコントローラで押すと、そこがへこんで<b>クレーターになり、押しのけた分が縁に盛り上がります。</b><br>掘った跡はそのまま残ります。「丸める」で玉に戻せます。</p>
+  <div class="mark">ねんど（MPM・動きの試作）</div>
+  <h1>粘土の"動き"を物理で<br>作れるか試す回です</h1>
+  <p>映画の粘土と同じ弾塑性シミュ（MPM）の試作。押すと材料が動いて流れ、離しても形が残るかを確かめます。まずは動きと速さの実験です。</p>
   <button id="goBtn" disabled>じゅんび中…</button>
-  <div id="note">
-    <b>英語の画面が出たら</b><br>ボタンを押すと英語の確認が出ることがあります。<br>「<b>Allow</b>（許可）」または「<b>Enter VR / OK</b>」を押してください。<br>うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
-  </div>
+  <div id="note"><b>この回はまず点（粒）で表示します</b><br>見た目より「押した時に材料が粘土っぽく動くか・重いか」を見る回です。なめらかな見た目は動きが合格してから作ります。</div>
 </div>
-<div id="pchint"><b>PC確認モード</b>　ドラッグ＝見る／クリック＝押す（掘る）／ホイール＝寄引／R＝丸める</div>
-<div id="logWrap"><div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div><div id="log"></div></div>
+<div id="pchint"><b>PC確認モード</b>　ドラッグ＝見る／クリック＝押す／ホイール＝寄引／R＝丸める</div>
+<div id="logWrap"><div id="logTitle">記録</div><div id="log"></div></div>
 <div id="err"></div>
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
-import { MarchingCubes } from "./lib/MarchingCubes.js";
+const REV="v4 rev1"; document.getElementById("rev").textContent=REV;
+const $=id=>document.getElementById(id); const logEl=$("log"); const logLines=[];
+function log(m,e){ logLines.push({t:m,e:!!e}); if(logLines.length>40)logLines.shift(); const d=document.createElement("div"); if(e)d.className="e"; d.textContent="・"+m; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+function showErr(m){ const e=$("err"); e.textContent=m; e.style.display="block"; log(m,true); }
+addEventListener("error",ev=>log("エラー: "+(ev.message||ev.error||"不明"),true));
+addEventListener("unhandledrejection",ev=>log("エラー(非同期): "+(ev.reason&&ev.reason.message||ev.reason||"不明"),true));
 
-const REV = "v3 rev2";
-document.getElementById("rev").textContent = REV;
-
-/* 0. 画面内ログ */
-const $ = id => document.getElementById(id);
-const logEl = $("log"); const logLines = [];
-function log(msg,isErr){ logLines.push({t:msg,e:!!isErr}); if(logLines.length>40) logLines.shift();
-  const div=document.createElement("div"); if(isErr)div.className="e"; div.textContent="・"+msg; logEl.appendChild(div); logEl.scrollTop=logEl.scrollHeight; drawPanel(); }
-function showErr(msg){ const e=$("err"); e.textContent=msg; e.style.display="block"; log(msg,true); }
-addEventListener("error",ev=>{ log("エラー: "+(ev.message||ev.error||"不明"),true); });
-addEventListener("unhandledrejection",ev=>{ log("エラー(非同期): "+(ev.reason&&ev.reason.message||ev.reason||"不明"),true); });
-const cp={}; function checkpoint(k,m){ if(cp[k])return; cp[k]=true; log("✔ "+m); }
-
-/* 1. 調整パラメータ */
-const TUNE = {
-  R0: 0.10,            // ねんどの半径(m)
-  size: 32,            // 密度グリッドの解像度（32³。大きいほど滑らか＆重い）
-  fieldHalf: 0.19,     // グリッドが覆う範囲の半分(m)。R0＋盛り上がりが収まる大きさ
-  iso: 0.5,            // 表面のしきい値（密度がこれを超える所が粘土）
-  maxField: 2.2,       // 密度の上限（盛り上がりの高さの上限）
-  wallVox: 1.6,        // 表面のなめらかさ（何ボクセルで密度が変わるか）
-  digStrength: 0.5,    // 1フレームで掘れる量。大きいほど速く掘れる
-  pileRatio: 0.9,      // 掘った分の何割を縁に盛るか（1=全部盛る＝材料保存）
-  brushK: 1.0,         // 筆の太さ＝指の半径×これ
-  pileOuterK: 1.9,     // 盛る縁の外側どこまで（筆半径×これ）
-  fingerR: 0.024,      // 指先の当たり半径(m)
-  tipRMax: 0.016,      // 指先コライダの上限半径(m)。実機の関節半径が大きくても頭打ち（mune実機①で確立）
-  palmR: 0.024,        // 手のひら中心のコライダ半径(m)。手首と中指付け根の中点に1つ置く
-  ctrlR: 0.03,         // コントローラ先端の当たり半径(m)
-  digGap: 16,          // 掘る音の最短間隔(ms相当のフレーム換算に使用)
-  hapPoke: 0.4,
+/* ============================================================
+   MLS-MPM（3D・弾塑性＝粘土）。sim空間[0,1]³で計算し worldへ写す
+   ============================================================ */
+const MPM={
+  n: 20,                 // グリッド解像度（1辺のセル数）
+  substeps: 15,          // 1/60秒あたりのサブステップ
+  dt: 1/60/15,           // サブステップの時間
+  E: 800.0,              // 硬さ（ヤング率。小さいほど柔らかい＝dt大きくできる）
+  nu: 0.2,               // ポアソン比
+  rho: 1.0,              // 密度
+  gravity: 0.0,          // sim重力（0＝浮く。とりあえず0で動きを見る）
+  yield: 8.0,            // 降伏応力（腰＝これを超えると塑性で流れて残る）。大=固い/よく残る
+  pspacing: 0.042,       // 粒の間隔（sim単位）。小さいほど粒増＆重い
+  blobR: 0.30,           // 塊の半径（sim単位）。worldSize×これが実寸半径
+  worldSize: 0.34,       // sim[0,1]をworld何mに写すか（blobR×これ＝実半径）
 };
+let n, ng, dx, inv_dx, mu0, lambda0, pmass, pvol, stressCoeff;
+let P=0, px, pv, pF, pC;         // 粒: 位置/速度/変形勾配F/アフィンC（sim単位）
+let gvx, gvy, gvz, gm;           // グリッド: 速度3成分/質量
+const anchor=new THREE.Vector3(0,0,0.5);
+let ready=false, physMs=0;
 
-/* 2. Three.js 基本 */
+function recalc(){
+  n=MPM.n; ng=(n+1)*(n+1)*(n+1); dx=1/n; inv_dx=n;
+  mu0=MPM.E/(2*(1+MPM.nu)); lambda0=MPM.E*MPM.nu/((1+MPM.nu)*(1-2*MPM.nu));
+  pvol=(dx*0.5)*(dx*0.5)*(dx*0.5); pmass=pvol*MPM.rho;
+  MPM.dt=1/60/MPM.substeps;
+  stressCoeff=-MPM.dt*pvol*4*inv_dx*inv_dx;
+  gvx=new Float32Array(ng); gvy=new Float32Array(ng); gvz=new Float32Array(ng); gm=new Float32Array(ng);
+}
+function buildParticles(){
+  recalc();
+  const s=MPM.pspacing, R=MPM.blobR, R2=R*R, c=0.5; const pts=[];
+  let seed=7; const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff-0.5; };
+  for(let x=c-R;x<=c+R;x+=s)for(let y=c-R;y<=c+R;y+=s)for(let z=c-R;z<=c+R;z+=s){
+    const jx=x+rnd()*s*0.4, jy=y+rnd()*s*0.4, jz=z+rnd()*s*0.4;
+    const ddx=jx-c,ddy=jy-c,ddz=jz-c; if(ddx*ddx+ddy*ddy+ddz*ddz<=R2) pts.push(jx,jy,jz);
+  }
+  P=pts.length/3;
+  px=new Float32Array(pts); pv=new Float32Array(P*3); pF=new Float32Array(P*9); pC=new Float32Array(P*9);
+  for(let p=0;p<P;p++){ pF[p*9]=1; pF[p*9+4]=1; pF[p*9+8]=1; }   // F=I
+}
+function resetClay(){ buildParticles(); ready=true; syncPoints(); }
+
+/* --- 3x3 対称行列のJacobi固有分解 → SVD --- */
+const _V=new Float64Array(9), _eig=new Float64Array(3);
+function jacobiEigen(a00,a01,a02,a11,a12,a22, V, eig){
+  let v00=1,v01=0,v02=0,v10=0,v11=1,v12=0,v20=0,v21=0,v22=1;
+  for(let sweep=0;sweep<6;sweep++){
+    if(Math.abs(a01)+Math.abs(a02)+Math.abs(a12)<1e-13) break;
+    if(Math.abs(a01)>1e-14){ const tau=(a11-a00)/(2*a01); const sg=tau>=0?1:-1; const t=sg/(Math.abs(tau)+Math.sqrt(1+tau*tau)); const c=1/Math.sqrt(1+t*t), s=t*c;
+      const na00=a00-t*a01, na11=a11+t*a01, na02=c*a02-s*a12, na12=s*a02+c*a12; a00=na00;a11=na11;a01=0;a02=na02;a12=na12;
+      let x,y; x=v00;y=v01; v00=c*x-s*y; v01=s*x+c*y; x=v10;y=v11; v10=c*x-s*y; v11=s*x+c*y; x=v20;y=v21; v20=c*x-s*y; v21=s*x+c*y; }
+    if(Math.abs(a02)>1e-14){ const tau=(a22-a00)/(2*a02); const sg=tau>=0?1:-1; const t=sg/(Math.abs(tau)+Math.sqrt(1+tau*tau)); const c=1/Math.sqrt(1+t*t), s=t*c;
+      const na00=a00-t*a02, na22=a22+t*a02, na01=c*a01-s*a12, na12=s*a01+c*a12; a00=na00;a22=na22;a02=0;a01=na01;a12=na12;
+      let x,y; x=v00;y=v02; v00=c*x-s*y; v02=s*x+c*y; x=v10;y=v12; v10=c*x-s*y; v12=s*x+c*y; x=v20;y=v22; v20=c*x-s*y; v22=s*x+c*y; }
+    if(Math.abs(a12)>1e-14){ const tau=(a22-a11)/(2*a12); const sg=tau>=0?1:-1; const t=sg/(Math.abs(tau)+Math.sqrt(1+tau*tau)); const c=1/Math.sqrt(1+t*t), s=t*c;
+      const na11=a11-t*a12, na22=a22+t*a12, na01=c*a01-s*a02, na02=s*a01+c*a02; a11=na11;a22=na22;a12=0;a01=na01;a02=na02;
+      let x,y; x=v01;y=v02; v01=c*x-s*y; v02=s*x+c*y; x=v11;y=v12; v11=c*x-s*y; v12=s*x+c*y; x=v21;y=v22; v21=c*x-s*y; v22=s*x+c*y; }
+  }
+  V[0]=v00;V[1]=v01;V[2]=v02;V[3]=v10;V[4]=v11;V[5]=v12;V[6]=v20;V[7]=v21;V[8]=v22;
+  eig[0]=a00; eig[1]=a11; eig[2]=a22;
+}
+// F(9,row-major) → U(9),S(3),Vt不要（U,S,Vを返す。V列＝固有ベクトル）
+const _U=new Float64Array(9), _S=new Float64Array(3), _Vs=new Float64Array(9);
+function svd3(F){
+  // A = F^T F （対称）
+  const f0=F[0],f1=F[1],f2=F[2],f3=F[3],f4=F[4],f5=F[5],f6=F[6],f7=F[7],f8=F[8];
+  const a00=f0*f0+f3*f3+f6*f6, a01=f0*f1+f3*f4+f6*f7, a02=f0*f2+f3*f5+f6*f8,
+        a11=f1*f1+f4*f4+f7*f7, a12=f1*f2+f4*f5+f7*f8, a22=f2*f2+f5*f5+f8*f8;
+  jacobiEigen(a00,a01,a02,a11,a12,a22,_Vs,_eig);
+  for(let j=0;j<3;j++){ _S[j]=Math.sqrt(Math.max(_eig[j],0)); }
+  // U列 = F * V列 / S
+  for(let j=0;j<3;j++){ const vx=_Vs[j],vy=_Vs[3+j],vz=_Vs[6+j];   // V列j
+    let ux=f0*vx+f1*vy+f2*vz, uy=f3*vx+f4*vy+f5*vz, uz=f6*vx+f7*vy+f8*vz;
+    const s=_S[j]; if(s>1e-9){ ux/=s;uy/=s;uz/=s; } else { ux=0;uy=0;uz=0; }
+    _U[j]=ux;_U[3+j]=uy;_U[6+j]=uz;
+  }
+  // S~0の列は他2列の外積で補完（U直交化）
+  for(let j=0;j<3;j++){ if(_S[j]<=1e-9){ const a=(j+1)%3,b=(j+2)%3;
+    const ux=_U[3+a]*_U[6+b]-_U[6+a]*_U[3+b], uy=_U[6+a]*_U[b]-_U[a]*_U[6+b], uz=_U[a]*_U[3+b]-_U[3+a]*_U[b];
+    _U[j]=ux;_U[3+j]=uy;_U[6+j]=uz; } }
+}
+
+/* --- 指（押す）＝sim空間の球。グリッドで速度を与える --- */
+let fingerOn=false; const fingerP=new THREE.Vector3(), fingerPprev=new THREE.Vector3(); const fingerV=new THREE.Vector3(); let fingerR=0.09;
+function setFinger(on, sx,sy,sz, vr){ // sim座標
+  fingerOn=on; if(on){ fingerPprev.copy(fingerP); fingerP.set(sx,sy,sz); fingerR=vr||0.09; fingerV.copy(fingerP).sub(fingerPprev).multiplyScalar(1/MPM.dt); } }
+
+function substep(){
+  gvx.fill(0); gvy.fill(0); gvz.fill(0); gm.fill(0);
+  const N1=n+1, dt=MPM.dt;
+  // ---- P2G ----
+  for(let p=0;p<P;p++){
+    const x=px[p*3]*inv_dx, y=px[p*3+1]*inv_dx, z=px[p*3+2]*inv_dx;
+    const bx=Math.floor(x-0.5), by=Math.floor(y-0.5), bz=Math.floor(z-0.5);
+    const fx=x-bx, fy=y-by, fz=z-bz;
+    const wx0=0.5*(1.5-fx)*(1.5-fx), wx1=0.75-(fx-1)*(fx-1), wx2=0.5*(fx-0.5)*(fx-0.5);
+    const wy0=0.5*(1.5-fy)*(1.5-fy), wy1=0.75-(fy-1)*(fy-1), wy2=0.5*(fy-0.5)*(fy-0.5);
+    const wz0=0.5*(1.5-fz)*(1.5-fz), wz1=0.75-(fz-1)*(fz-1), wz2=0.5*(fz-0.5)*(fz-0.5);
+    _wx[0]=wx0;_wx[1]=wx1;_wx[2]=wx2; _wy[0]=wy0;_wy[1]=wy1;_wy[2]=wy2; _wz[0]=wz0;_wz[1]=wz1;_wz[2]=wz2;
+    const wx=_wx, wy=_wy, wz=_wz;
+    // Neo-Hookean Kirchhoff応力 τ = mu*(F F^T - I) + lambda*lnJ*I （SVD不要）
+    const F0=pF[p*9],F1=pF[p*9+1],F2=pF[p*9+2],F3=pF[p*9+3],F4=pF[p*9+4],F5=pF[p*9+5],F6=pF[p*9+6],F7=pF[p*9+7],F8=pF[p*9+8];
+    const J=F0*(F4*F8-F5*F7)-F1*(F3*F8-F5*F6)+F2*(F3*F7-F4*F6);
+    const lnJ=Math.log(Math.max(J,1e-4));
+    // FFt
+    const ff0=F0*F0+F1*F1+F2*F2, ff1=F0*F3+F1*F4+F2*F5, ff2=F0*F6+F1*F7+F2*F8,
+          ff4=F3*F3+F4*F4+F5*F5, ff5=F3*F6+F4*F7+F5*F8, ff8=F6*F6+F7*F7+F8*F8;
+    const ll=lambda0*lnJ;
+    // τ (対称)
+    const t0=mu0*(ff0-1)+ll, t1=mu0*ff1, t2=mu0*ff2, t4=mu0*(ff4-1)+ll, t5=mu0*ff5, t8=mu0*(ff8-1)+ll;
+    // affine = stressCoeff*τ + pmass*C
+    const c=pC.subarray?null:null;
+    const a0=stressCoeff*t0+pmass*pC[p*9],   a1=stressCoeff*t1+pmass*pC[p*9+1], a2=stressCoeff*t2+pmass*pC[p*9+2],
+          a3=stressCoeff*t1+pmass*pC[p*9+3], a4=stressCoeff*t4+pmass*pC[p*9+4], a5=stressCoeff*t5+pmass*pC[p*9+5],
+          a6=stressCoeff*t2+pmass*pC[p*9+6], a7=stressCoeff*t5+pmass*pC[p*9+7], a8=stressCoeff*t8+pmass*pC[p*9+8];
+    const vx=pv[p*3],vy=pv[p*3+1],vz=pv[p*3+2];
+    for(let i=0;i<3;i++){ const gx=bx+i; const wgx=wx[i]; const dpx=(i-fx)*dx;
+      for(let j=0;j<3;j++){ const gy=by+j; const wgy=wgx*wy[j]; const dpy=(j-fy)*dx;
+        for(let k=0;k<3;k++){ const gz=bz+k; const w=wgy*wz[k]; const dpz=(k-fz)*dx;
+          const node=gx+gy*N1+gz*N1*N1;
+          gm[node]+=w*pmass;
+          gvx[node]+=w*(pmass*vx + a0*dpx+a1*dpy+a2*dpz);
+          gvy[node]+=w*(pmass*vy + a3*dpx+a4*dpy+a5*dpz);
+          gvz[node]+=w*(pmass*vz + a6*dpx+a7*dpy+a8*dpz);
+        }}}
+  }
+  // ---- grid ----
+  const bnd=2;
+  for(let gz=0;gz<N1;gz++)for(let gy=0;gy<N1;gy++)for(let gx=0;gx<N1;gx++){
+    const node=gx+gy*N1+gz*N1*N1; const m=gm[node]; if(m<=0) continue;
+    let vx=gvx[node]/m, vy=gvy[node]/m, vz=gvz[node]/m;
+    vy+=dt*MPM.gravity;
+    // 指の押し：ノードのworld位置が指球内なら、指の速度側へ寄せる（押し出す）
+    if(fingerOn){ const wxp=(gx*dx-0.5)*MPM.worldSize+anchor.x, wyp=(gy*dx-0.5)*MPM.worldSize+anchor.y, wzp=(gz*dx-0.5)*MPM.worldSize+anchor.z;
+      // 指のsim位置→world
+      const fwx=(fingerP.x-0.5)*MPM.worldSize+anchor.x, fwy=(fingerP.y-0.5)*MPM.worldSize+anchor.y, fwz=(fingerP.z-0.5)*MPM.worldSize+anchor.z;
+      const dxw=wxp-fwx,dyw=wyp-fwy,dzw=wzp-fwz; const dd=Math.sqrt(dxw*dxw+dyw*dyw+dzw*dzw); const fRw=fingerR*MPM.worldSize;
+      if(dd<fRw){ // 指の速度(sim)を与える＋外向きに押す
+        const fvx=fingerV.x, fvy=fingerV.y, fvz=fingerV.z;
+        // 法線方向に押し出す（めり込み解消）
+        const nx=dd>1e-6?dxw/dd:0, ny=dd>1e-6?dyw/dd:0, nz=dd>1e-6?dzw/dd:0;
+        const vn=vx*nx+vy*ny+vz*nz; if(vn<0){ vx-=vn*nx; vy-=vn*ny; vz-=vn*nz; }  // 内向き速度を除去
+        vx+=fvx; vy+=fvy; vz+=fvz;
+      }
+    }
+    // 壁（境界のノードは外向き速度を止める）
+    if(gx<bnd&&vx<0)vx=0; if(gx>n-bnd&&vx>0)vx=0;
+    if(gy<bnd&&vy<0)vy=0; if(gy>n-bnd&&vy>0)vy=0;
+    if(gz<bnd&&vz<0)vz=0; if(gz>n-bnd&&vz>0)vz=0;
+    gvx[node]=vx; gvy[node]=vy; gvz[node]=vz;
+  }
+  // ---- G2P ----
+  const yldThresh=MPM.yield/(2*mu0);
+  for(let p=0;p<P;p++){
+    const x=px[p*3]*inv_dx, y=px[p*3+1]*inv_dx, z=px[p*3+2]*inv_dx;
+    const bx=Math.floor(x-0.5), by=Math.floor(y-0.5), bz=Math.floor(z-0.5);
+    const fx=x-bx, fy=y-by, fz=z-bz;
+    _wx[0]=0.5*(1.5-fx)*(1.5-fx);_wx[1]=0.75-(fx-1)*(fx-1);_wx[2]=0.5*(fx-0.5)*(fx-0.5);
+    _wy[0]=0.5*(1.5-fy)*(1.5-fy);_wy[1]=0.75-(fy-1)*(fy-1);_wy[2]=0.5*(fy-0.5)*(fy-0.5);
+    _wz[0]=0.5*(1.5-fz)*(1.5-fz);_wz[1]=0.75-(fz-1)*(fz-1);_wz[2]=0.5*(fz-0.5)*(fz-0.5);
+    const wx=_wx, wy=_wy, wz=_wz;
+    let nvx=0,nvy=0,nvz=0, c0=0,c1=0,c2=0,c3=0,c4=0,c5=0,c6=0,c7=0,c8=0;
+    for(let i=0;i<3;i++){ const gx=bx+i, wgx=wx[i], dpx=(i-fx);
+      for(let j=0;j<3;j++){ const gy=by+j, wgy=wgx*wy[j], dpy=(j-fy);
+        for(let k=0;k<3;k++){ const gz=bz+k, w=wgy*wz[k], dpz=(k-fz);
+          const node=gx+gy*N1+gz*N1*N1; const gx2=gvx[node],gy2=gvy[node],gz2=gvz[node];
+          nvx+=w*gx2; nvy+=w*gy2; nvz+=w*gz2;
+          const f=4*inv_dx*w;
+          c0+=f*gx2*dpx; c1+=f*gx2*dpy; c2+=f*gx2*dpz;
+          c3+=f*gy2*dpx; c4+=f*gy2*dpy; c5+=f*gy2*dpz;
+          c6+=f*gz2*dpx; c7+=f*gz2*dpy; c8+=f*gz2*dpz;
+        }}}
+    pv[p*3]=nvx; pv[p*3+1]=nvy; pv[p*3+2]=nvz;
+    pC[p*9]=c0;pC[p*9+1]=c1;pC[p*9+2]=c2;pC[p*9+3]=c3;pC[p*9+4]=c4;pC[p*9+5]=c5;pC[p*9+6]=c6;pC[p*9+7]=c7;pC[p*9+8]=c8;
+    px[p*3]+=dt*nvx; px[p*3+1]+=dt*nvy; px[p*3+2]+=dt*nvz;
+    // F = (I+dt*C) F
+    const F0=pF[p*9],F1=pF[p*9+1],F2=pF[p*9+2],F3=pF[p*9+3],F4=pF[p*9+4],F5=pF[p*9+5],F6=pF[p*9+6],F7=pF[p*9+7],F8=pF[p*9+8];
+    const m0=1+dt*c0, m1=dt*c1, m2=dt*c2, m3=dt*c3, m4=1+dt*c4, m5=dt*c5, m6=dt*c6, m7=dt*c7, m8=1+dt*c8;
+    let nF0=m0*F0+m1*F3+m2*F6, nF1=m0*F1+m1*F4+m2*F7, nF2=m0*F2+m1*F5+m2*F8;
+    let nF3=m3*F0+m4*F3+m5*F6, nF4=m3*F1+m4*F4+m5*F7, nF5=m3*F2+m4*F5+m5*F8;
+    let nF6=m6*F0+m7*F3+m8*F6, nF7=m6*F1+m7*F4+m8*F7, nF8=m6*F2+m7*F5+m8*F8;
+    // 塑性（von Mises 降伏へのreturn mapping）：SVD→Hencky歪みの偏差成分を降伏面へ射影
+    _svdF[0]=nF0;_svdF[1]=nF1;_svdF[2]=nF2;_svdF[3]=nF3;_svdF[4]=nF4;_svdF[5]=nF5;_svdF[6]=nF6;_svdF[7]=nF7;_svdF[8]=nF8;
+    svd3(_svdF);
+    let e0=Math.log(Math.max(_S[0],1e-4)), e1=Math.log(Math.max(_S[1],1e-4)), e2=Math.log(Math.max(_S[2],1e-4));
+    const tr=(e0+e1+e2)/3; const d0=e0-tr,d1=e1-tr,d2=e2-tr; const dn=Math.sqrt(d0*d0+d1*d1+d2*d2);
+    if(dn>yldThresh && dn>1e-8){ const sc=yldThresh/dn;
+      e0=tr+d0*sc; e1=tr+d1*sc; e2=tr+d2*sc;
+      const s0=Math.exp(e0),s1=Math.exp(e1),s2=Math.exp(e2);
+      // F = U diag(s) V^T
+      const u0=_U[0],u1=_U[1],u2=_U[2],u3=_U[3],u4=_U[4],u5=_U[5],u6=_U[6],u7=_U[7],u8=_U[8];
+      const v0=_Vs[0],v1=_Vs[1],v2=_Vs[2],v3=_Vs[3],v4=_Vs[4],v5=_Vs[5],v6=_Vs[6],v7=_Vs[7],v8=_Vs[8];
+      // US = U*diag(s)
+      const us0=u0*s0,us1=u1*s1,us2=u2*s2, us3=u3*s0,us4=u4*s1,us5=u5*s2, us6=u6*s0,us7=u7*s1,us8=u8*s2;
+      // F = US * V^T  (V^T row i = V col ... V is _Vs with columns=eigvecs → V^T[i][j]=_Vs[j*3+i])
+      nF0=us0*v0+us1*v1+us2*v2; nF1=us0*v3+us1*v4+us2*v5; nF2=us0*v6+us1*v7+us2*v8;
+      nF3=us3*v0+us4*v1+us5*v2; nF4=us3*v3+us4*v4+us5*v5; nF5=us3*v6+us4*v7+us5*v8;
+      nF6=us6*v0+us7*v1+us8*v2; nF7=us6*v3+us7*v4+us8*v5; nF8=us6*v6+us7*v7+us8*v8;
+    }
+    pF[p*9]=nF0;pF[p*9+1]=nF1;pF[p*9+2]=nF2;pF[p*9+3]=nF3;pF[p*9+4]=nF4;pF[p*9+5]=nF5;pF[p*9+6]=nF6;pF[p*9+7]=nF7;pF[p*9+8]=nF8;
+    // 場外に出さない
+    const pad=(bnd+0.5)*dx;
+    if(px[p*3]<pad)px[p*3]=pad; else if(px[p*3]>1-pad)px[p*3]=1-pad;
+    if(px[p*3+1]<pad)px[p*3+1]=pad; else if(px[p*3+1]>1-pad)px[p*3+1]=1-pad;
+    if(px[p*3+2]<pad)px[p*3+2]=pad; else if(px[p*3+2]>1-pad)px[p*3+2]=1-pad;
+  }
+}
+const _svdF=new Float64Array(9);
+const _wx=new Float64Array(3),_wy=new Float64Array(3),_wz=new Float64Array(3);
+function stepFrame(){ if(!ready)return; const t0=performance.now(); for(let s=0;s<MPM.substeps;s++) substep(); physMs=physMs*0.8+(performance.now()-t0)*0.2; syncPoints(); }
+
+/* ============================================================
+   Three.js（点群で表示。動きが合格したら表面に）
+   ============================================================ */
 const canvas=$("view"); let renderer=null;
-function init3D(){ if(renderer)return;
-  renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+function init3D(){ if(renderer)return; renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
   renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.xr.enabled=true; renderer.setAnimationLoop(renderLoop); }
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.01,100);
 scene.add(new THREE.HemisphereLight(0xffffff,0x30241a,1.0));
 const dir1=new THREE.DirectionalLight(0xfff2e2,1.2); dir1.position.set(0.6,1.6,0.8); scene.add(dir1);
-const dir2=new THREE.DirectionalLight(0xffe6cc,0.35); dir2.position.set(-0.8,-0.4,-0.6); scene.add(dir2);
-const _v1=new THREE.Vector3(),_v2=new THREE.Vector3(),_q1=new THREE.Quaternion();
+let points=null, pointGeo=null, pointPos=null;
+function makePoints(){ if(points){ scene.remove(points); pointGeo.dispose(); }
+  pointGeo=new THREE.BufferGeometry(); pointPos=new Float32Array(P*3); pointGeo.setAttribute("position",new THREE.BufferAttribute(pointPos,3));
+  const mat=new THREE.PointsMaterial({ color:0xc07a4e, size:MPM.worldSize*MPM.pspacing*0.9, sizeAttenuation:true });
+  points=new THREE.Points(pointGeo,mat); points.frustumCulled=false; scene.add(points); }
+function syncPoints(){ if(!points||pointPos.length!==P*3) makePoints();
+  for(let p=0;p<P;p++){ pointPos[p*3]=(px[p*3]-0.5)*MPM.worldSize+anchor.x; pointPos[p*3+1]=(px[p*3+1]-0.5)*MPM.worldSize+anchor.y; pointPos[p*3+2]=(px[p*3+2]-0.5)*MPM.worldSize+anchor.z; }
+  pointGeo.attributes.position.needsUpdate=true; }
 
-const clayMat=new THREE.MeshStandardMaterial({ color:0xc07a4e, roughness:1.0, metalness:0.0, emissive:0x281008, emissiveIntensity:0.22 });
-
-/* 3. ねんど本体（密度の塊＝SDF/ボクセル。MarchingCubesで表面を作る） */
-const SIZE=TUNE.size, SIZE2=SIZE*SIZE;
-let mc=null;                         // MarchingCubes（表面メッシュ）
-const anchor=new THREE.Vector3(0,0,0);
-let clayReady=false, dirty=false, updMs=0;
-const voxM = 2*TUNE.fieldHalf/SIZE;  // 1ボクセルの一辺(m)
-
-function makeClay(){
-  if(mc) return;
-  mc=new MarchingCubes(SIZE, clayMat, false, false, 90000);
-  mc.isolation=TUNE.iso; mc.frustumCulled=false; mc.scale.setScalar(TUNE.fieldHalf);
-  scene.add(mc);
-}
-// 密度場を「半径R0の球」に初期化（丸める＝これ）
-function fillSphere(){
-  const f=mc.field, iso=TUNE.iso, wall=TUNE.wallVox*voxM, mx=TUNE.maxField, R0=TUNE.R0, h=TUNE.fieldHalf;
-  for(let z=0;z<SIZE;z++){ const lz=((z+0.5)/SIZE*2-1)*h;
-    for(let y=0;y<SIZE;y++){ const ly=((y+0.5)/SIZE*2-1)*h;
-      for(let x=0;x<SIZE;x++){ const lx=((x+0.5)/SIZE*2-1)*h;
-        const d=Math.sqrt(lx*lx+ly*ly+lz*lz);
-        let v=iso+(R0-d)/wall*0.5;          // 表面(d=R0)でiso、内側ほど濃い
-        if(v<0)v=0; else if(v>mx)v=mx;
-        f[x+y*SIZE+z*SIZE2]=v;
-      }
-    }
-  }
-}
-function roundUp(){ if(!mc) makeClay(); fillSphere(); dirty=true; clayReady=true; if(mc) mc.update(); checkpoint("spawn","ねんどを出した"); }
-function respawnInFront(){
-  const camN=(renderer&&renderer.xr.isPresenting)?renderer.xr.getCamera():camera;
-  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
-  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  anchor.set(_v1.x+_v2.x*0.5, _v1.y-0.05, _v1.z+_v2.z*0.5);
-  mc.position.copy(anchor); roundUp(); positionButton();
-}
-
-// ワールド座標→ボクセル座標（実数）
-function worldToVox(wx,wy,wz,out){ const inv=1/TUNE.fieldHalf;
-  out.x=((wx-anchor.x)*inv*0.5+0.5)*SIZE; out.y=((wy-anchor.y)*inv*0.5+0.5)*SIZE; out.z=((wz-anchor.z)*inv*0.5+0.5)*SIZE; return out; }
-// その場の密度（表面の内外判定に使う）
-function sampleField(wx,wy,wz){ worldToVox(wx,wy,wz,_v2);
-  const ix=Math.round(_v2.x),iy=Math.round(_v2.y),iz=Math.round(_v2.z);
-  if(ix<1||ix>=SIZE-1||iy<1||iy>=SIZE-1||iz<1||iz>=SIZE-1) return 0;
-  return mc.field[ix+iy*SIZE+iz*SIZE2]; }
-
-const _vc=new THREE.Vector3();
-// 掘る：指の位置で密度を減らし（クレーター）、その分を縁に足す（盛り上がり）＝材料保存
-function digAt(wx,wy,wz, brushRm, strength){
-  if(!clayReady) return 0;
-  worldToVox(wx,wy,wz,_vc); const cx=_vc.x,cy=_vc.y,cz=_vc.z;
-  const bvr=Math.max(1.0, brushRm/TUNE.fieldHalf*0.5*SIZE);   // 筆半径(ボクセル)
-  const f=mc.field;
-  const lo=(v)=>Math.max(1,Math.floor(v)), hi=(v)=>Math.min(SIZE-2,Math.ceil(v));
-  const rOut=bvr*TUNE.pileOuterK;
-  // (1) 掘る：筆の中の密度を削る
-  let removed=0;
-  const x0=lo(cx-bvr),x1=hi(cx+bvr),y0=lo(cy-bvr),y1=hi(cy+bvr),z0=lo(cz-bvr),z1=hi(cz+bvr);
-  for(let z=z0;z<=z1;z++)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
-    const dx=x-cx,dy=y-cy,dz=z-cz,d=Math.sqrt(dx*dx+dy*dy+dz*dz); if(d>bvr) continue;
-    const i=x+y*SIZE+z*SIZE2; const w=1-d/bvr; const take=Math.min(f[i], strength*w);
-    if(take>0){ f[i]-=take; removed+=take; }
-  }
-  if(removed<=0) return 0;
-  // (2) 盛る：削った分を筆の外の縁(シェル)へ配る＝縁が盛り上がる
-  const give=removed*TUNE.pileRatio, mx=TUNE.maxField;
-  const sx0=lo(cx-rOut),sx1=hi(cx+rOut),sy0=lo(cy-rOut),sy1=hi(cy+rOut),sz0=lo(cz-rOut),sz1=hi(cz+rOut);
-  let wsum=0;
-  for(let z=sz0;z<=sz1;z++)for(let y=sy0;y<=sy1;y++)for(let x=sx0;x<=sx1;x++){
-    const dx=x-cx,dy=y-cy,dz=z-cz,d=Math.sqrt(dx*dx+dy*dy+dz*dz); if(d<=bvr||d>rOut) continue;
-    wsum += (d-bvr)/(rOut-bvr)*(1-(d-bvr)/(rOut-bvr));   // 縁で最大の山形
-  }
-  if(wsum>1e-9){ const k=give/wsum;
-    for(let z=sz0;z<=sz1;z++)for(let y=sy0;y<=sy1;y++)for(let x=sx0;x<=sx1;x++){
-      const dx=x-cx,dy=y-cy,dz=z-cz,d=Math.sqrt(dx*dx+dy*dy+dz*dz); if(d<=bvr||d>rOut) continue;
-      const i=x+y*SIZE+z*SIZE2; const w=(d-bvr)/(rOut-bvr)*(1-(d-bvr)/(rOut-bvr));
-      f[i]=Math.min(mx, f[i]+w*k);
-    }
-  }
-  dirty=true; return removed;
-}
-
-/* 当たり判定＝指の位置（掘る筆） */
-const MAXCOL=24;
-const colX=new Float32Array(MAXCOL),colY=new Float32Array(MAXCOL),colZ=new Float32Array(MAXCOL),colR=new Float32Array(MAXCOL);
-let colN=0, dugThisFrame=0;
-function addCol(x,y,z,r){ if(colN>=MAXCOL)return; colX[colN]=x;colY[colN]=y;colZ[colN]=z;colR[colN]=r;colN++; }
-// 各指について、粘土の中に入っていたら掘る。深く入っているほど強く掘る＝腰（軽く触れると跡が付かない）
-function applyFingers(){
-  dugThisFrame=0; const iso=TUNE.iso, mx=TUNE.maxField;
-  for(let k=0;k<colN;k++){
-    const fv=sampleField(colX[k],colY[k],colZ[k]);
-    if(fv>iso){
-      const pen=Math.min(1,(fv-iso)/(mx-iso));   // 表面=0（掘らない）→ 深いほど1（腰）
-      dugThisFrame += digAt(colX[k],colY[k],colZ[k], colR[k]*TUNE.brushK, TUNE.digStrength*pen);
-    }
-  }
-}
-
-/* 4. 音 */
-let actx=null,voices=0;
-function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; } } if(actx&&actx.state==="suspended") actx.resume(); }
-function playDig(strength){ if(!actx||voices>=5) return; const now=actx.currentTime,dur=0.10+strength*0.05, f0=140*(0.9+strength*0.4);
-  const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f0,now); o.frequency.exponentialRampToValueAtTime(f0*0.6,now+dur);
-  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=480+strength*300; lp.Q.value=0.5;
-  const g=actx.createGain(); const vol=Math.min(0.14,0.02+strength*0.14);
-  g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(vol,now+0.012); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
-  o.connect(lp).connect(g).connect(actx.destination); voices++; o.onended=()=>{voices--;}; o.start(now); o.stop(now+dur); }
-function playRound(){ if(!actx)return; const now=actx.currentTime,dur=0.18;
-  const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(240,now); o.frequency.exponentialRampToValueAtTime(120,now+dur);
-  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=700;
-  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.15,now+0.02); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
-  o.connect(lp).connect(g).connect(actx.destination); o.start(now); o.stop(now+dur); }
-
-/* 5. 振動（コントローラのみ） */
-const gamepads=[null,null];
-function pulse(i,inten,ms){ try{ const gp=gamepads[i]; const a=gp&&gp.hapticActuators&&gp.hapticActuators[0]; if(a&&a.pulse) a.pulse(Math.max(0,Math.min(1,inten)),ms); }catch(_){} }
-function pulseAll(i,ms){ pulse(0,i,ms); pulse(1,i,ms); }
-
-/* 6. AR */
-const controllers=[]; const ctrlOn=[false,false];
-const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"]; // 指先5つだけ。手のひらは別に自前で1球（mune方式）
-const markerMat=new THREE.MeshBasicMaterial({color:0xf0c19a,transparent:true,opacity:0.5,depthWrite:false});
-const markerGeo=new THREE.SphereGeometry(1,10,8); const markers=[];
-for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo,markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
-const btnGroup=new THREE.Group(); btnGroup.visible=false; scene.add(btnGroup);
-{ const bg=new THREE.Mesh(new THREE.BoxGeometry(0.13,0.05,0.014),new THREE.MeshStandardMaterial({color:0x3a2e22,roughness:0.7})); bg.position.set(0,0,-0.008); btnGroup.add(bg);
-  const cv=document.createElement("canvas"); cv.width=320; cv.height=112; const c=cv.getContext("2d");
-  c.clearRect(0,0,320,112); c.textAlign="center"; c.textBaseline="middle"; c.font="bold 52px sans-serif"; c.fillStyle="#f0c19a"; c.fillText("丸める",160,60);
-  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace; tex.needsUpdate=true;
-  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.125,0.044),new THREE.MeshBasicMaterial({map:tex,transparent:true})); lm.position.set(0,0,0.001); btnGroup.add(lm); }
-function positionButton(){ const camN=(renderer&&renderer.xr.isPresenting)?renderer.xr.getCamera():camera;
-  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1); _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  btnGroup.position.set(anchor.x+_v2.x*0.02, anchor.y-0.24, anchor.z+_v2.z*0.02); btnGroup.lookAt(_v1.x,btnGroup.position.y,_v1.z); btnGroup.updateMatrixWorld(true); btnGroup.visible=true; }
-function onSelectStart(i){ ensureAudio(); if(!controllers[i])return; controllers[i].getWorldPosition(_v1);
-  if(btnGroup.visible){ btnGroup.getWorldPosition(_v2); if(_v1.distanceTo(_v2)<0.09){ roundUp(); playRound(); pulse(i,0.5,40); } } }
-function setupControllers(){ if(controllers.length)return;
-  for(let i=0;i<2;i++){ const c=renderer.xr.getController(i); c.userData.index=i;
-    c.addEventListener("connected",e=>{ ctrlOn[i]=true; if(e.data&&e.data.gamepad) gamepads[i]=e.data.gamepad; });
-    c.addEventListener("disconnected",()=>{ ctrlOn[i]=false; gamepads[i]=null; });
-    c.addEventListener("squeezestart",()=>respawnInFront());
-    c.addEventListener("selectstart",()=>onSelectStart(i));
-    scene.add(c); controllers.push(c); } }
-function collectXRColliders(frame,ref){ colN=0;
-  for(let i=0;i<2;i++){ if(controllers[i]&&ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z,TUNE.ctrlR); } }
-  const session=renderer.xr.getSession();
-  if(session&&frame&&ref){ for(const src of session.inputSources){ if(!src.hand)continue;
-    for(const jn of TIP_JOINTS){ const j=src.hand.get(jn); if(!j)continue; const p=frame.getJointPose(j,ref); if(!p)continue;
-      const r=Math.min((p.radius&&p.radius>0)?p.radius+0.004:TUNE.fingerR, TUNE.tipRMax); addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); }
-    // 手のひらの中心 = 手首と中指の付け根(第3関節)の中間に1球（mune実機①で確立した方式）
-    const jw=src.hand.get("wrist"), jm=src.hand.get("middle-finger-phalanx-proximal");
-    if(jw&&jm){ const pw=frame.getJointPose(jw,ref), pm=frame.getJointPose(jm,ref);
-      if(pw&&pm){ addCol((pw.transform.position.x+pm.transform.position.x)/2,(pw.transform.position.y+pm.transform.position.y)/2,(pw.transform.position.z+pm.transform.position.z)/2, TUNE.palmR); } } } }
-  for(let i=0;i<MAXCOL;i++){ if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; } }
-
-let xrSession=null,arStarting=false,pendingSpawn=false;
-async function startAR(){ if(xrSession){ xrSession.end(); return; } if(arStarting)return;
-  if(!navigator.xr){ showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return; }
-  init3D(); ensureAudio(); makeClay(); arStarting=true; $("goBtn").disabled=true; let session=null;
-  try{ log("ARを開始します…");
-    session=await navigator.xr.requestSession("immersive-ar",{optionalFeatures:["hand-tracking","local-floor"]});
-    xrSession=session; renderer.xr.setReferenceSpaceType("local"); await renderer.xr.setSession(session);
-    scene.background=null; setupControllers(); clayReady=false;
-    $("start").style.display="none"; $("goBtn").textContent="AR中…"; $("stats").style.display="block";
-    checkpoint("ar","AR開始OK（土台の起動に成功）"); log("目の前にねんどを出します。手やコントローラで押してみてください"); pendingSpawn=true;
-    session.addEventListener("end",()=>{ xrSession=null; if(mc) mc.visible=false; clayReady=false; panel.visible=false;
-      for(const m of markers) m.visible=false; btnGroup.visible=false; scene.background=null;
-      $("start").style.display="flex"; $("goBtn").textContent="もう一度ためす"; $("goBtn").disabled=false; log("ARを終了しました"); });
-  }catch(e){ showErr("AR開始に失敗しました："+(e&&e.message?e.message:e)); log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
-    try{ session&&session.end(); }catch(_){}
-    if(xrSession===session) xrSession=null; $("goBtn").disabled=false; $("goBtn").textContent="もう一度ためす"; }
-  finally{ arStarting=false; } }
-
-/* AR中の3Dパネル */
-const panelCanvas=document.createElement("canvas"); panelCanvas.width=640; panelCanvas.height=360;
-const pctx=panelCanvas.getContext("2d"); const panelTex=new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace=THREE.SRGBColorSpace;
-const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.28),new THREE.MeshBasicMaterial({map:panelTex,transparent:true})); panel.visible=false; scene.add(panel);
-let panelStatus="";
-function drawPanel(){ const c=pctx,W=panelCanvas.width,H=panelCanvas.height;
-  c.clearRect(0,0,W,H); c.fillStyle="rgba(12,9,6,0.9)"; c.fillRect(0,0,W,H); c.strokeStyle="#3a2e22"; c.lineWidth=4; c.strokeRect(2,2,W-4,H-4); c.textBaseline="top";
-  c.font="bold 20px 'Consolas','Courier New',monospace"; c.fillStyle="#f0c19a"; c.fillText(panelStatus,12,10);
-  c.font="17px 'Consolas','Courier New',monospace"; const last=logLines.slice(-11); let y=42;
-  for(const ln of last){ c.fillStyle=ln.e?"#ff9a9a":"#f0e2d2"; let t=ln.t; if(t.length>44)t=t.slice(0,43)+"…"; c.fillText(t,12,y); y+=27; } panelTex.needsUpdate=true; }
-function placePanelInFront(){ const camN=renderer.xr.getCamera(); camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
-  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  panel.position.set(_v1.x+_v2.x*1.4,_v1.y-0.55,_v1.z+_v2.z*1.4); panel.lookAt(_v1.x,_v1.y-0.55,_v1.z); panel.visible=true; drawPanel(); }
-
-/* 7. PC確認モード */
-let pcMode=false,pcYaw=0.0,pcPitch=0.15,pcRadius=0.55; const pcTarget=new THREE.Vector3(0,0,0.5); let pokeAnim=null;
-function startPC(){ init3D(); ensureAudio(); makeClay(); pcMode=true;
-  $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
-  anchor.set(0,0,0.5); mc.position.copy(anchor); updatePCCamera(); roundUp(); positionButton(); setupPCInput(); }
-function updatePCCamera(){ const cpp=Math.cos(pcPitch),spp=Math.sin(pcPitch);
-  camera.position.set(pcTarget.x+pcRadius*cpp*Math.sin(pcYaw),pcTarget.y+pcRadius*spp,pcTarget.z-pcRadius*cpp*Math.cos(pcYaw)); camera.lookAt(pcTarget); }
+/* PC確認モード */
+let pcMode=false,pcYaw=0.3,pcPitch=0.15,pcRadius=0.6; const pcTarget=new THREE.Vector3(0,0,0.5); let pokeAnim=null;
+function startPC(){ init3D(); pcMode=true; $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
+  anchor.set(0,0,0.5); resetClay(); updatePCCamera(); setupPCInput(); }
+function updatePCCamera(){ const cp=Math.cos(pcPitch),sp=Math.sin(pcPitch); camera.position.set(pcTarget.x+pcRadius*cp*Math.sin(pcYaw),pcTarget.y+pcRadius*sp,pcTarget.z-pcRadius*cp*Math.cos(pcYaw)); camera.lookAt(pcTarget); }
 let pcInputReady=false;
-function setupPCInput(){ if(pcInputReady)return; pcInputReady=true; let dragging=false,moved=0,lx=0,ly=0;
-  canvas.addEventListener("pointerdown",e=>{ dragging=true; moved=0; lx=e.clientX; ly=e.clientY; });
-  addEventListener("pointermove",e=>{ if(!dragging)return; const dx=e.clientX-lx,dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; moved+=Math.abs(dx)+Math.abs(dy);
-    pcYaw+=dx*0.008; pcPitch=Math.max(-1.2,Math.min(1.2,pcPitch+dy*0.006)); updatePCCamera(); });
-  addEventListener("pointerup",e=>{ if(dragging&&moved<6) pcPokeFrom(e.clientX,e.clientY); dragging=false; });
+function setupPCInput(){ if(pcInputReady)return; pcInputReady=true; let drag=false,moved=0,lx=0,ly=0;
+  canvas.addEventListener("pointerdown",e=>{drag=true;moved=0;lx=e.clientX;ly=e.clientY;});
+  addEventListener("pointermove",e=>{ if(!drag)return; const dx=e.clientX-lx,dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; moved+=Math.abs(dx)+Math.abs(dy); pcYaw+=dx*0.008; pcPitch=Math.max(-1.2,Math.min(1.2,pcPitch+dy*0.006)); updatePCCamera(); });
+  addEventListener("pointerup",e=>{ if(drag&&moved<6) pcPokeFrom(e.clientX,e.clientY); drag=false; });
   canvas.addEventListener("wheel",e=>{ e.preventDefault(); pcRadius=Math.max(0.3,Math.min(2.0,pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); },{passive:false});
-  addEventListener("keydown",e=>{ if(e.key==="r"||e.key==="R"){ roundUp(); playRound(); } }); }
-function pcPokeFrom(sx,sy){ ensureAudio();
-  const nx=(sx/innerWidth)*2-1,ny=-(sy/innerHeight)*2+1; _v1.set(nx,ny,0.5).unproject(camera); _v1.sub(camera.position).normalize();
-  _v2.copy(anchor).sub(camera.position); const tt=_v2.dot(_v1); _v2.copy(camera.position).addScaledVector(_v1,tt).sub(anchor);
-  if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); _v2.normalize(); pokeAnim={t:0,dur:0.7,dx:_v2.x,dy:_v2.y,dz:_v2.z}; }
+  addEventListener("keydown",e=>{ if(e.key==="r"||e.key==="R"){ resetClay(); } }); }
+function pcPokeFrom(sx,sy){ // 画面クリック→中心へ押し込むアニメ
+  const nx=(sx/innerWidth)*2-1,ny=-(sy/innerHeight)*2+1; const v=new THREE.Vector3(nx,ny,0.5).unproject(camera).sub(camera.position).normalize();
+  const toC=new THREE.Vector3().copy(anchor).sub(camera.position); const tt=toC.dot(v); const near=new THREE.Vector3().copy(camera.position).addScaledVector(v,tt).sub(anchor);
+  if(near.lengthSq()<1e-6)near.set(0,0,-1); near.normalize(); pokeAnim={t:0,dur:0.7,dx:near.x,dy:near.y,dz:near.z}; }
 
-/* 8. ボタン有効化 */
 let arSupported=false;
-$("goBtn").addEventListener("click",()=>{ if(arSupported) startAR(); else startPC(); });
-function enableButton(){ $("goBtn").disabled=false; $("goBtn").textContent=arSupported?"はじめる":"PCでためす（マウス）";
-  log(arSupported?"準備OK。「はじめる」を押せます":"この端末はMR非対応。PC確認モードで動きだけ試せます（手ざわり・見え方はQuestで確認）"); }
-if(navigator.xr&&navigator.xr.isSessionSupported){ navigator.xr.isSessionSupported("immersive-ar").then(ok=>{arSupported=!!ok;enableButton();}).catch(()=>{arSupported=false;enableButton();}); }
-else{ arSupported=false; enableButton(); }
+$("goBtn").addEventListener("click",()=>{ startPC(); });   // この試作はPC/点群のみ。実機は動き合格後
+function enableButton(){ $("goBtn").disabled=false; $("goBtn").textContent="PCでためす（動きを見る）"; log("準備OK。押した時に材料が粘土っぽく動くかを見てください"); }
+enableButton();
 
-/* 9. 毎フレーム */
-let lastMs=performance.now(),fpsSmooth=0,loopErr=false,digFrames=0;
+let lastMs=performance.now(),fpsSmooth=0,loopErr=false;
 function simulate(dt){
-  // PCのつつき：中心から dir 方向の表面へ指を押し込みながら掘る
   if(pokeAnim){ pokeAnim.t+=dt; const f=pokeAnim.t/pokeAnim.dur;
-    if(f>=1){ pokeAnim=null; colN=0; }
-    else{ const depth=Math.sin(f*Math.PI)*(TUNE.R0*0.5); const d=TUNE.R0+TUNE.fingerR*0.5-depth;
-      colN=0; addCol(anchor.x+pokeAnim.dx*d,anchor.y+pokeAnim.dy*d,anchor.z+pokeAnim.dz*d,TUNE.fingerR); } }
-  if(clayReady) applyFingers();
-  if(dirty){ const t0=performance.now(); mc.update(); updMs=updMs*0.8+(performance.now()-t0)*0.2; dirty=false;
-    if(dugThisFrame>0.02){ digFrames++; if(digFrames%2===0){ playDig(Math.min(1,dugThisFrame*3)); pulseAll(TUNE.hapPoke,18); } } }
-  const statLine="fps "+Math.round(fpsSmooth)+" / mesh "+updMs.toFixed(1)+"ms / tris "+(mc?mc.count/3|0:0);
-  $("stats").textContent=statLine; if(statLine!==panelStatus){ panelStatus=statLine; if(panel.visible) drawPanel(); }
+    if(f>=1){ pokeAnim=null; setFinger(false); }
+    else{ const depth=Math.sin(f*Math.PI)*0.42; const r=MPM.blobR+0.06-depth;   // sim半径方向
+      setFinger(true, 0.5+pokeAnim.dx*r, 0.5+pokeAnim.dy*r, 0.5+pokeAnim.dz*r, 0.10); } }
+  stepFrame();
+  const st="fps "+Math.round(fpsSmooth)+" / phys "+physMs.toFixed(1)+"ms / 粒"+P+" 格子"+MPM.n+" 副"+MPM.substeps;
+  $("stats").textContent=st;
 }
-function renderLoop(t,frame){ try{
-  const nowMs=performance.now(); const dt=Math.min((nowMs-lastMs)/1000,0.05); lastMs=nowMs;
+function renderLoop(t,frame){ try{ const now=performance.now(); const dt=Math.min((now-lastMs)/1000,0.05); lastMs=now;
   fpsSmooth=fpsSmooth?fpsSmooth*0.9+(1/Math.max(dt,1e-4))*0.1:1/Math.max(dt,1e-4);
-  if(frame&&renderer.xr.isPresenting){ const ref=renderer.xr.getReferenceSpace();
-    if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); } collectXRColliders(frame,ref); }
   simulate(dt); renderer.render(scene,camera);
- }catch(err){ if(!loopErr){ loopErr=true; showErr("描画エラー："+(err&&err.message||err)); } } }
+ }catch(err){ if(!loopErr){ loopErr=true; showErr("エラー："+(err&&err.message||err)); } } }
 addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); if(renderer) renderer.setSize(innerWidth,innerHeight); });
 
-/* 10. 自動テスト（__dbg） */
-// 中心から dir 方向へ密度場をたどり、表面（iso交差）までの距離＝その向きの半径(m)
-function surfaceRadius(dx,dy,dz){ const st=voxM*0.4; let prev=TUNE.maxField;
-  for(let r=0;r<TUNE.fieldHalf;r+=st){ const v=sampleField(anchor.x+dx*r,anchor.y+dy*r,anchor.z+dz*r);
-    if(v<TUNE.iso){ return r; } }
-  return TUNE.fieldHalf; }
-function fieldSum(){ let s=0; const f=mc.field; for(let i=0;i<f.length;i++) s+=f[i]; return s; }
-function anyNaN(){ const f=mc.field; for(let i=0;i<f.length;i++){ if(Number.isNaN(f[i])) return true; } return false; }
-
+/* ============================================================
+   自動テスト（__dbg）：動き・残り・体積・速さ
+   ============================================================ */
+function com(){ let cx=0,cy=0,cz=0; for(let p=0;p<P;p++){cx+=px[p*3];cy+=px[p*3+1];cz+=px[p*3+2];} return [cx/P,cy/P,cz/P]; }
+function rog(){ const [cx,cy,cz]=com(); let s=0; for(let p=0;p<P;p++){ s+=(px[p*3]-cx)**2+(px[p*3+1]-cy)**2+(px[p*3+2]-cz)**2; } return Math.sqrt(s/P); }
+let rog0=0;
+function maxSpeed(){ let m=0; for(let p=0;p<P;p++){ const s=px[p*3]; const v=Math.hypot(pv[p*3],pv[p*3+1],pv[p*3+2]); if(v>m)m=v; } return m; }
+function anyNaN(){ for(let p=0;p<P*3;p++){ if(Number.isNaN(px[p])) return true; } return false; }
+// +x方向の表面半径（sim）＝一番外の粒の半径
+function surfR(dx,dy,dz){ const [cx,cy,cz]=com(); let mx=0; for(let p=0;p<P;p++){ const ex=px[p*3]-cx,ey=px[p*3+1]-cy,ez=px[p*3+2]-cz; const proj=ex*dx+ey*dy+ez*dz; const perp=Math.hypot(ex-proj*dx,ey-proj*dy,ez-proj*dz); if(perp<0.05 && proj>mx) mx=proj; } return mx; }
 window.__dbg={
-  state(){ return { clayReady, size:SIZE, iso:TUNE.iso, tris:mc?mc.count/3|0:0, meshMs:+updMs.toFixed(2),
-    fieldSum:+fieldSum().toFixed(1), rTop:+surfaceRadius(1,0,0).toFixed(4), nan:anyNaN() }; },
-  spawn(){ anchor.set(0,0,0.5); if(mc)mc.position.copy(anchor); makeClay(); roundUp(); return this.state(); },
-  round(){ roundUp(); return this.state(); },
-  // 指を +x から depth(m) 押し込みながら sec 秒掘り、クレーターの深さ＋縁の盛り上がりを測る
-  digTest(depth,sec){ this.spawn(); depth=depth||0.05; sec=sec||0.6;
-    const rBefore=surfaceRadius(1,0,0); const x0=anchor.x+TUNE.R0+TUNE.fingerR*0.5;
-    const steps=Math.max(1,Math.round(sec/(1/60))), inS=Math.round(steps*0.4); const sumBefore=fieldSum();
-    for(let s=0;s<steps;s++){ const f=s<inS?(s+1)/inS:1; colN=0; addCol(x0-depth*f,anchor.y,anchor.z,TUNE.fingerR); applyFingers(); if(dirty){mc.update();dirty=false;} }
-    // クレーター＝+x方向の表面が引っ込んだ量、リム＝斜め45度の表面がどれだけ外へ出たか
-    const rTop=surfaceRadius(1,0,0), craterDepth=rBefore-rTop;
-    let rimMax=0; for(let a=0;a<8;a++){ const th=a/8*Math.PI*2; const ry=Math.cos(th),rz=Math.sin(th);
-      const dxx=0.72,dd=Math.hypot(dxx,ry*0.69,rz*0.69); const rr=surfaceRadius(dxx/dd,ry*0.69/dd,rz*0.69/dd); if(rr-TUNE.R0>rimMax) rimMax=rr-TUNE.R0; }
-    return { rBefore:+rBefore.toFixed(4), rTopAfter:+rTop.toFixed(4), craterDepth:+craterDepth.toFixed(4), rimBulge:+rimMax.toFixed(4),
-      materialKept:+(fieldSum()/Math.max(sumBefore,1e-6)).toFixed(3), tris:mc.count/3|0, meshMs:+updMs.toFixed(2), nan:anyNaN() }; },
-  // 掘った跡が残るか（掘る→何もせず時間を進める→クレーターが変わらない）
-  staysTest(){ this.digTest(0.06,0.6); const r1=surfaceRadius(1,0,0);
-    for(let s=0;s<60;s++){ colN=0; /* 何もしない */ } const r2=surfaceRadius(1,0,0);
-    return { craterAfterDig:+(TUNE.R0-r1).toFixed(4), craterAfterWait:+(TUNE.R0-r2).toFixed(4), note:"SDFは編集が永続＝ほぼ同じはず" }; },
-  perfTest(){ this.spawn(); // 掘りながらのmesh再生成コストを測る
-    const x0=anchor.x+TUNE.R0; let mmax=0;
-    for(let s=0;s<30;s++){ colN=0; addCol(x0-0.05,anchor.y,anchor.z,TUNE.fingerR); applyFingers(); const t0=performance.now(); if(dirty){mc.update();dirty=false;} const m=performance.now()-t0; if(m>mmax)mmax=m; }
-    return { size:SIZE, tris:mc.count/3|0, meshMsMax:+mmax.toFixed(2), budget90:11.1, budget72:13.7, note:"掘っている間だけmesh再生成。触っていない間は0" }; },
-  render(){ if(renderer) renderer.render(scene,camera); return "ok"; },
-  tune:TUNE,
+  state(){ return { ready, P, n:MPM.n, substeps:MPM.substeps, physMsPerFrame:+physMs.toFixed(2),
+    rogRatio:+(rog0>0?rog()/rog0:1).toFixed(3), maxSpeed:+maxSpeed().toFixed(3), nan:anyNaN() }; },
+  spawn(){ anchor.set(0,0,0.5); resetClay(); rog0=rog(); makePoints&&makePoints(); return this.state(); },
+  // +xから指を押し込みながら掘り、動き→離した後に残るか、体積・暴走を測る
+  digTest(depth,sec){ this.spawn(); depth=depth||0.35; sec=sec||0.6;
+    const rBefore=surfR(1,0,0); const steps=Math.round(sec/(1/60)), inS=Math.round(steps*0.5);
+    for(let s=0;s<steps;s++){ const f=s<inS?(s+1)/inS:1; const r=MPM.blobR+0.06-depth*f; setFinger(true,0.5+r,0.5,0.5,0.10); stepFrame(); }
+    setFinger(false); const rDuring=surfR(1,0,0);
+    for(let s=0;s<60;s++){ stepFrame(); }               // 離して1秒
+    const rAfter=surfR(1,0,0);
+    return { rBefore:+rBefore.toFixed(3), rDuring:+rDuring.toFixed(3), rAfter:+rAfter.toFixed(3),
+      craterDuring:+(rBefore-rDuring).toFixed(3), craterKept:+(rBefore-rAfter).toFixed(3),
+      rimBulge:+(surfR(0,1,0)-rBefore).toFixed(3), rogRatio:+(rog()/rog0).toFixed(3), maxSpeed:+maxSpeed().toFixed(3), nan:anyNaN() }; },
+  perf(){ this.spawn(); const t0=performance.now(); for(let s=0;s<MPM.substeps;s++) substep(); const perStep=(performance.now()-t0)/MPM.substeps;
+    return { P, n:MPM.n, substeps:MPM.substeps, msPerSubstep:+perStep.toFixed(3), msPerFrame:+(perStep*MPM.substeps).toFixed(2), budget90:11.1, budget72:13.7 }; },
+  tick(sec){ const n=Math.round((sec||1)*60); for(let i=0;i<n;i++) stepFrame(); return this.state(); },
+  tune:MPM, recalc:()=>{ resetClay(); rog0=rog(); },
 };
-
-log("読み込みOK（版：" + REV + "）");
+log("読み込みOK（版："+REV+"）");
 </script>
 </body>
 </html>

@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v6 rev6";
+const REV = "v6 rev7";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -293,7 +293,7 @@ function buildShape(kind){
   rvCount = rw.n; const rvRest = rw.verts;
   renderTpl = new THREE.BufferGeometry();
   renderTpl.setAttribute("position", new THREE.BufferAttribute(new Float32Array(rvRest), 3));
-  renderTpl.setIndex(new THREE.BufferAttribute(rw.tris, 1));
+  renderTpl.setIndex(new THREE.BufferAttribute(new Uint32Array(rw.tris), 1));  // ※indexはUint型必須(Int32だと描画が丸ごと拒否され透明になる)
   // 埋め込み：見た目頂点ごとに最も近い物理三角＋バリセントリック＋細部オフセット(丸みぶん)
   embI=new Int32Array(rvCount*3); embW=new Float32Array(rvCount*3); embO=new Float32Array(rvCount*3);
   const bary=[0,0,0];
