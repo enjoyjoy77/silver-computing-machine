@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v6 rev2";
+const REV = "v6 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -147,15 +147,16 @@ const TUNE = {
   squishGap: 85,          // 音の最短間隔(ms)
   squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
   hapPoke: 0.5,           // 触れた時の振動の強さ（コントローラのみ有効）
-  // --- 割れる素材（ガラス）段階6-1 ---
-  glassR: 0.10,           // ガラス玉の半径(m)
-  crackRate: 3.2,         // 押し込み量→ヒビの溜まる速さ（大きいほど早く割れる）
+  // --- 割れる素材（氷/ガラス/陶器）段階6-2/6-3 ---
+  glassR: 0.10,           // 玉の半径(m)
+  breakSlow: 0.6,         // 【レバー】溜めの長さ（右=じっくり割れにくい/左=すぐ割れる）→ crackRate に変換
+  burst: 0.5,             // 【レバー】破片の勢い（右=遠くへ派手/左=控えめ）→ debrisSpeed に変換
+  crackRate: 1.6,         // 押し込み量→ヒビの溜まる速さ（breakSlowから applyBrittle が自動設定）
   crackDecay: 0.9,        // 離すとヒビが引く速さ（毎秒）
-  crackInstant: 0.05,     // これ以上ひと突きで深く押し込んだら即割れ(m)
-  shardCount: 12,         // 割れたときの破片の数
-  debrisLife: 3.0,        // 破片が消えるまで(秒)
-  debrisGravity: 3.5,     // 破片の落下(m/s^2)。MRで軽やかに見える程度
-  debrisSpeed: 0.9,       // 破片の飛び散る速さ(m/s)
+  crackInstant: 0.09,     // これ以上ひと突きで深く押し込んだら即割れ(m)。溜めを飛ばさないよう深め
+  debrisLife: 3.0,        // 破片が消えるまで(秒)。素材ごとに×lifeMul
+  debrisGravity: 3.5,     // 破片の落下(m/s^2)。素材ごとに×gravMul
+  debrisSpeed: 1.1,       // 破片の飛び散る速さ(m/s)（burstから applyBrittle が自動設定。素材ごとに×speedMul）
 };
 
 /* ============================================================
@@ -297,6 +298,14 @@ function applyFeel(){
 }
 function setFeel(idx){ feelIdx = ((idx%FEELS.length)+FEELS.length)%FEELS.length; TUNE.firm = FEELS[feelIdx].firm; TUNE.resil = FEELS[feelIdx].resil; applyFeel(); }
 setFeel(0);
+// 割れる素材のレバー：溜めの長さ(breakSlow)→ヒビの溜まる速さ、破片の勢い(burst)→飛ぶ速さ
+function applyBrittle(){
+  const s = Math.max(0, Math.min(1, TUNE.breakSlow));
+  const b = Math.max(0, Math.min(1, TUNE.burst));
+  TUNE.crackRate   = lerp(3.5, 0.4, s);   // 左=すぐ割れる / 右=じっくり溜まる（割れにくい）
+  TUNE.debrisSpeed = lerp(0.4, 1.9, b);   // 左=控えめ / 右=遠くへ派手に
+}
+applyBrittle();
 
 // 芯（光る小球）の共有素材
 const coreGeo = new THREE.SphereGeometry(TUNE.coreR, 16, 12);
@@ -356,11 +365,12 @@ function arrangeSlimes(count){                      // count個を目の前に�
   checkpoint("spawn", "スライムを並べた");
 }
 
-// 形を切り替える（全スライムを今の位置に作り直して置く）
+// 形を切り替える（やわらか＝全スライムを作り直す／割れる素材＝硬いメッシュの形を作り直して出し直す）
 function setShape(idx){
   shapeIdx = ((idx%SHAPES.length)+SHAPES.length)%SHAPES.length;
-  buildShape(SHAPES[shapeIdx].kind);
-  if(slimeReady){ reinitSlimes(); updateRenderMesh(); }
+  buildShape(SHAPES[shapeIdx].kind);                 // やわらか用トポロジは常に同期
+  if(glassMode){ rebuildBrittleGeo(); spawnGlass(); }
+  else if(slimeReady){ reinitSlimes(); updateRenderMesh(); }
   slimeGrab[0]=null; slimeGrab[1]=null;
   if(typeof drawFeelLabels==="function") drawFeelLabels();
 }
@@ -653,8 +663,36 @@ function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); 
    鋭い破片が飛び散って消える。剛体エンジン(Rapier)は使わず自前の軽い飛散で作る。
    ============================================================ */
 // 割れる素材3種（氷・ガラス・陶器）。すべてフェイク透明（transmission=0で軽い）。emissiveMap＝ヒビの光る線
-const glassRenderGeo = new THREE.IcosahedronGeometry(TUNE.glassR, 2);   // 割れる前の玉（丸い・UVあり）
-const glassShardBaseNI = new THREE.IcosahedronGeometry(TUNE.glassR, 1); // 破片の元（少ない三角＝大きめ。Icoは元々non-indexed）
+// 割れる前の硬いメッシュ＝スライムと同じ5形（たま/はこ/さんかく/たまご/ドーナツ）。UVありでヒビのemissiveMapに使える
+function makeBrittleRenderGeo(kind){
+  const R=TUNE.glassR; let g;
+  if(kind==="box")        g=new THREE.BoxGeometry(R*1.5, R*1.05, R*1.05, 3,2,2);
+  else if(kind==="tetra") g=new THREE.TetrahedronGeometry(R*1.28, 1);
+  else if(kind==="torus") g=new THREE.TorusGeometry(R*0.72, R*0.34, 12, 24);
+  else                    g=new THREE.IcosahedronGeometry(R, 2);                 // たま／たまご
+  if(kind==="egg"){ const pa=g.attributes.position; for(let v=0;v<pa.count;v++) pa.setXYZ(v, pa.getX(v)*0.85, pa.getY(v)*1.28, pa.getZ(v)*0.85); }
+  const ni = g.index ? g.toNonIndexed() : g; ni.computeVertexNormals(); return ni;
+}
+// 破片の元＝同じ形の粗い版（面が大きい＝鋭い破片。表面Voronoi分割で読む三角配列）
+function makeBrittleShardGeo(kind){
+  const R=TUNE.glassR; let g;
+  if(kind==="box")        g=new THREE.BoxGeometry(R*1.5, R*1.05, R*1.05, 2,2,2);
+  else if(kind==="tetra") g=new THREE.TetrahedronGeometry(R*1.28, 1);
+  else if(kind==="torus") g=new THREE.TorusGeometry(R*0.72, R*0.34, 8, 16);
+  else                    g=new THREE.IcosahedronGeometry(R, 1);                 // たま／たまご（粗い＝大きめ破片）
+  if(kind==="egg"){ const pa=g.attributes.position; for(let v=0;v<pa.count;v++) pa.setXYZ(v, pa.getX(v)*0.85, pa.getY(v)*1.28, pa.getZ(v)*0.85); }
+  return g.index ? g.toNonIndexed() : g;
+}
+let brittleGeo = makeBrittleRenderGeo("ball");
+let brittleShardGeo = makeBrittleShardGeo("ball");
+function rebuildBrittleGeo(){
+  const kind = SHAPES[shapeIdx].kind;
+  if(brittleGeo.dispose) brittleGeo.dispose();
+  if(brittleShardGeo.dispose) brittleShardGeo.dispose();
+  brittleGeo = makeBrittleRenderGeo(kind);
+  brittleShardGeo = makeBrittleShardGeo(kind);
+  if(glass.mesh) glass.mesh.geometry = brittleGeo;
+}
 function makeCrackCanvas(){
   const cv=document.createElement("canvas"); cv.width=512; cv.height=256;
   const ctx=cv.getContext("2d"); ctx.fillStyle="#000"; ctx.fillRect(0,0,512,256);
@@ -662,13 +700,18 @@ function makeCrackCanvas(){
   return {cv,ctx,tex};
 }
 // 素材ごと: 見た目params／フレネル縁光り(不透明の陶器はnull)／破片数・破片の不透明度／ヒビの光る色(emissive)／キシむ音の高さ／割れ音
+// 見た目は素材差を強く: 氷=すりガラス青・厚め半透明 / ガラス=ほぼ透明でツヤ鋭い / 陶器=不透明の白磁
+// shatter=割れ方の差(count破片数/speedMul勢い/spread散り/gravMul落下/up上向き/spin回転/lifeMul寿命)
 const BRITTLE = [
-  { name:"氷",   params:{ color:0xdcecfb, roughness:0.42, metalness:0.0, clearcoat:0.55, clearcoatRoughness:0.40, emissive:0xbfe0ff, transmission:0.0, transparent:true,  opacity:0.60, side:THREE.DoubleSide, depthWrite:false },
-    fresnel:{ col:"vec3(0.75,0.88,1.0)", mul:0.6, pow:3.0, alpha:0.25 }, shardCount:8,  shardOpacity:0.60, creakBase:900,  sound:playIceBreak     },
-  { name:"ガラス", params:{ color:0xbfe6f5, roughness:0.06, metalness:0.0, clearcoat:1.00, clearcoatRoughness:0.03, emissive:0x8fdfff, transmission:0.0, transparent:true,  opacity:0.42, side:THREE.DoubleSide, depthWrite:false },
-    fresnel:{ col:"vec3(0.85,0.95,1.0)", mul:1.1, pow:3.5, alpha:0.50 }, shardCount:14, shardOpacity:0.42, creakBase:1300, sound:playGlassBreak   },
-  { name:"陶器", params:{ color:0xf4efe6, roughness:0.28, metalness:0.0, clearcoat:0.60, clearcoatRoughness:0.16, emissive:0xff9a5a, transmission:0.0, transparent:false, opacity:1.00, side:THREE.FrontSide,  depthWrite:true  },
-    fresnel:null, shardCount:10, shardOpacity:1.0, creakBase:600, sound:playCeramicBreak },
+  { name:"氷",   params:{ color:0xa9d4f0, roughness:0.52, metalness:0.0, clearcoat:0.40, clearcoatRoughness:0.45, emissive:0x9fd8ff, transmission:0.0, transparent:true,  opacity:0.74, side:THREE.DoubleSide, depthWrite:false },
+    fresnel:{ col:"vec3(0.70,0.85,1.0)", mul:0.5, pow:2.6, alpha:0.20 }, shardOpacity:0.74, creakBase:820,
+    shatter:{ count:7,  speedMul:0.55, spread:0.12, gravMul:1.1, up:0.05, spin:[1,4],  lifeMul:0.9  }, sound:playIceBreak },     // 大きめの塊がゴロッと落ちる
+  { name:"ガラス", params:{ color:0xd6f2ff, roughness:0.03, metalness:0.0, clearcoat:1.00, clearcoatRoughness:0.02, emissive:0x74e8ff, transmission:0.0, transparent:true,  opacity:0.30, side:THREE.DoubleSide, depthWrite:false },
+    fresnel:{ col:"vec3(0.90,0.98,1.0)", mul:1.4, pow:4.0, alpha:0.55 }, shardOpacity:0.34, creakBase:1500,
+    shatter:{ count:18, speedMul:1.6,  spread:0.40, gravMul:0.6, up:0.30, spin:[4,11], lifeMul:1.15 }, sound:playGlassBreak },  // 細かく速く遠くへ飛び散る
+  { name:"陶器", params:{ color:0xf6efe0, roughness:0.30, metalness:0.0, clearcoat:0.70, clearcoatRoughness:0.14, emissive:0xff8a4a, transmission:0.0, transparent:false, opacity:1.00, side:THREE.FrontSide,  depthWrite:true  },
+    fresnel:null, shardOpacity:1.0, creakBase:560,
+    shatter:{ count:11, speedMul:0.8,  spread:0.18, gravMul:1.5, up:0.0,  spin:[2,6],  lifeMul:0.8  }, sound:playCeramicBreak }, // 中くらいの塊がガシャッと落ちる
 ];
 for(const b of BRITTLE){
   const cc=makeCrackCanvas(); b.cv=cc.cv; b.ctx=cc.ctx; b.tex=cc.tex; b.crackLevel=0;
@@ -713,7 +756,8 @@ function computeFrontCenter(out){   // カメラの正面・少し下（arrangeS
 }
 function spawnGlass(){
   const B = BRITTLE[brittleIdx];
-  if(!glass.mesh){ glass.mesh = new THREE.Mesh(glassRenderGeo, B.mat); glass.mesh.frustumCulled=false; scene.add(glass.mesh); }
+  if(!glass.mesh){ glass.mesh = new THREE.Mesh(brittleGeo, B.mat); glass.mesh.frustumCulled=false; scene.add(glass.mesh); }
+  glass.mesh.geometry = brittleGeo;            // 今の形
   glass.mesh.material = B.mat;                 // 素材を差し替え
   resetCrack(B);                               // ヒビを消して出し直す
   computeFrontCenter(groupCenter);
@@ -740,6 +784,7 @@ function exitGlassMode(){
   clearDebris();
   if(glass.mesh) glass.mesh.visible=false; glass.alive=false;
   arrangeSlimes(slimes.length||3);
+  reinitSlimes(); updateRenderMesh();    // 割れる素材で形を変えていても、やわらかを今の形に作り直す
   positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels();
 }
 // idx: 0=やわらか / 1=氷 / 2=ガラス / 3=陶器
@@ -754,9 +799,9 @@ function setMaterial(idx){
 function shatterGlass(){
   if(!glass.alive) return;
   glass.alive = false; if(glass.mesh) glass.mesh.visible=false;
-  const B = BRITTLE[brittleIdx];
-  const C = glass.mesh.position, pa = glassShardBaseNI.attributes.position.array, triN = pa.length/9;
-  const K = Math.max(4, B.shardCount|0);
+  const B = BRITTLE[brittleIdx], SH = B.shatter;
+  const C = glass.mesh.position, pa = brittleShardGeo.attributes.position.array, triN = pa.length/9;
+  const K = Math.max(4, SH.count|0);
   const seeds = [];                                   // 破片の“核”になる方向をK個まく
   for(let k=0;k<K;k++){ let sx=Math.random()*2-1,sy=Math.random()*2-1,sz=Math.random()*2-1; const L=Math.hypot(sx,sy,sz)||1; seeds.push([sx/L,sy/L,sz/L]); }
   const groups = []; for(let k=0;k<K;k++) groups.push([]);
@@ -787,12 +832,12 @@ function shatterGlass(){
     const m=new THREE.Mesh(g, sm); m.frustumCulled=false;
     m.position.set(C.x+ccx, C.y+ccy, C.z+ccz); scene.add(m);
     const dl=Math.hypot(ccx,ccy,ccz)||1, dx=ccx/dl,dy=ccy/dl,dz=ccz/dl;    // 外向きに飛ばす
-    const sp=TUNE.debrisSpeed*(0.6+Math.random()*0.8);
+    const sp=TUNE.debrisSpeed*SH.speedMul*(0.6+Math.random()*0.8), spr=SH.spread, spin=SH.spin[0]+Math.random()*(SH.spin[1]-SH.spin[0]);
     let axv=Math.random()*2-1,ayv=Math.random()*2-1,azv=Math.random()*2-1; const al=Math.hypot(axv,ayv,azv)||1;
-    debris.push({ mesh:m, mat:sm, baseOpacity:B.shardOpacity,
-      vx:dx*sp+(Math.random()-0.5)*0.2, vy:dy*sp+0.15+(Math.random()-0.5)*0.2, vz:dz*sp+(Math.random()-0.5)*0.2,
-      axis:new THREE.Vector3(axv/al,ayv/al,azv/al), spin:(2+Math.random()*6),
-      life:TUNE.debrisLife, maxLife:TUNE.debrisLife });
+    debris.push({ mesh:m, mat:sm, baseOpacity:B.shardOpacity, gravMul:SH.gravMul,
+      vx:dx*sp+(Math.random()-0.5)*spr, vy:dy*sp+SH.up+(Math.random()-0.5)*spr, vz:dz*sp+(Math.random()-0.5)*spr,
+      axis:new THREE.Vector3(axv/al,ayv/al,azv/al), spin:spin,
+      life:TUNE.debrisLife*SH.lifeMul, maxLife:TUNE.debrisLife*SH.lifeMul });
     made++;
   }
   B.sound(); pulseAll(0.9, 70);
@@ -803,7 +848,7 @@ function updateDebris(dt){
     const d=debris[i];
     d.life -= dt;
     if(d.life<=0){ scene.remove(d.mesh); d.mesh.geometry.dispose(); if(d.mat.dispose) d.mat.dispose(); debris.splice(i,1); continue; }
-    d.vy -= TUNE.debrisGravity*dt;
+    d.vy -= TUNE.debrisGravity*(d.gravMul||1)*dt;
     d.mesh.position.x += d.vx*dt; d.mesh.position.y += d.vy*dt; d.mesh.position.z += d.vz*dt;
     _qd.setFromAxisAngle(d.axis, d.spin*dt); d.mesh.quaternion.premultiply(_qd);
     if(d.life < 0.7){ d.mat.opacity = d.baseOpacity*(d.life/0.7); }   // 最後の0.7秒でフェード
@@ -827,7 +872,8 @@ function updateGlass(dt){
     if(dist<surf){ const p=surf-dist; if(p>pen){ pen=p; const L=dist||1; hdx=dx/L; hdy=dy/L; hdz=dz/L; } }
   }
   if(pen>0){
-    glass.crack += pen*TUNE.crackRate*(dt*60);
+    const penEff = Math.min(pen, 0.035);                       // 深く押しても溜まりすぎない＝ヒビの溜めを見せる
+    glass.crack += penEff*TUNE.crackRate*(dt*60);
     glass.mesh.scale.setScalar(1 - Math.min(0.08, pen*2.5));   // ぐっと押される硬い手応え
     playCreak(Math.min(1,glass.crack), B.creakBase);
     // 溜め演出：ヒビ量が段を超えるたびに、触れた向きから新しいひび線を1本足す
@@ -936,11 +982,14 @@ for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo, markerMat); m.visib
 /* --- 弾力レバー＆感触ボタン（VR内で握って調整する操作盤） --- */
 const ctrlGroup = new THREE.Group(); ctrlGroup.visible = false; scene.add(ctrlGroup);
 const RAIL_LEN = 0.26;
-// 2本のレバー：弾力(firm) と 戻り速さ(resil)
+// 2本のレバー。やわらか時＝弾力/戻り速さ、割れる素材時＝溜めの長さ/破片の勢い に切り替わる
 const LEVERS = [
-  { key:"firm",  label:"弾力",     color:0x7fe0a0, emissive:0x1c5b3a, yRail:0.07  },
-  { key:"resil", label:"戻り速さ", color:0xffcf6b, emissive:0x5b431c, yRail:-0.01 },
+  { key:"firm",  label:"弾力",     briKey:"breakSlow", briLabel:"われにくさ", color:0x7fe0a0, emissive:0x1c5b3a, yRail:0.07  },
+  { key:"resil", label:"戻り速さ", briKey:"burst",     briLabel:"破片の勢い", color:0xffcf6b, emissive:0x5b431c, yRail:-0.01 },
 ];
+function leverKey(L){ return glassMode ? L.briKey : L.key; }
+function leverLabel(L){ return glassMode ? L.briLabel : L.label; }
+function applyLever(){ if(glassMode) applyBrittle(); else applyFeel(); }
 for(const L of LEVERS){
   L.rail = new THREE.Mesh(new THREE.BoxGeometry(RAIL_LEN, 0.007, 0.007), new THREE.MeshStandardMaterial({ color:0x2a3a48, roughness:0.75 }));
   L.rail.position.set(0, L.yRail, 0); ctrlGroup.add(L.rail);
@@ -1011,7 +1060,7 @@ function drawFeelLabels(){
     const c=L.ctx, W=L.cv.width, H=L.cv.height;
     c.clearRect(0,0,W,H); c.fillStyle="rgba(8,12,16,0.75)"; c.fillRect(0,0,W,H);
     c.textAlign="center"; c.textBaseline="middle"; c.font="bold 40px sans-serif"; c.fillStyle="#dff5e8";
-    c.fillText(L.label+" "+Math.round(TUNE[L.key]*100)+"%", W/2, H/2); L.tex.needsUpdate=true;
+    c.fillText(leverLabel(L)+" "+Math.round(TUNE[leverKey(L)]*100)+"%", W/2, H/2); L.tex.needsUpdate=true;
   }
   for(const b of btnMeshes){
     const cc=b.ctx, WW=b.cv.width, HH=b.cv.height, on=b.idx===feelIdx;
@@ -1046,7 +1095,7 @@ function positionControlPanel(){
   }
   ctrlGroup.visible = true; updateLeverHandles(); drawFeelLabels();
 }
-function updateLeverHandles(){ for(const L of LEVERS) L.handle.position.set((TUNE[L.key]-0.5)*RAIL_LEN, L.yRail, 0); }
+function updateLeverHandles(){ for(const L of LEVERS) L.handle.position.set((TUNE[leverKey(L)]-0.5)*RAIL_LEN, L.yRail, 0); }
 let grab = { lever:-1, ctrl:-1 };
 function onSelectStart(i){
   ensureAudio();
@@ -1085,7 +1134,7 @@ function updateGrab(){
   controllers[grab.ctrl].getWorldPosition(_v1);
   _v1.sub(L.railOrigin);
   const t = Math.max(0, Math.min(1, _v1.dot(L.railDir)/RAIL_LEN));
-  TUNE[L.key] = t; applyFeel(); updateLeverHandles(); drawFeelLabels();
+  TUNE[leverKey(L)] = t; applyLever(); updateLeverHandles(); drawFeelLabels();
 }
 
 function setupControllers(){
@@ -1243,10 +1292,10 @@ function setupPCInput(){
     else if(e.key==="o"||e.key==="O"){ arrangeSlimes(slimes.length+1); positionControlPanel(); }
     else if(e.key==="p"||e.key==="P"){ arrangeSlimes(slimes.length-1); positionControlPanel(); }
     else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateLeverHandles(); drawFeelLabels(); }
-    else if(e.key==="["){ TUNE.firm=Math.max(0,TUNE.firm-0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
-    else if(e.key==="]"){ TUNE.firm=Math.min(1,TUNE.firm+0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
-    else if(e.key===","){ TUNE.resil=Math.max(0,TUNE.resil-0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
-    else if(e.key==="."){ TUNE.resil=Math.min(1,TUNE.resil+0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
+    else if(e.key==="["){ const k=leverKey(LEVERS[0]); TUNE[k]=Math.max(0,TUNE[k]-0.05); applyLever(); updateLeverHandles(); drawFeelLabels(); }
+    else if(e.key==="]"){ const k=leverKey(LEVERS[0]); TUNE[k]=Math.min(1,TUNE[k]+0.05); applyLever(); updateLeverHandles(); drawFeelLabels(); }
+    else if(e.key===","){ const k=leverKey(LEVERS[1]); TUNE[k]=Math.max(0,TUNE[k]-0.05); applyLever(); updateLeverHandles(); drawFeelLabels(); }
+    else if(e.key==="."){ const k=leverKey(LEVERS[1]); TUNE[k]=Math.min(1,TUNE[k]+0.05); applyLever(); updateLeverHandles(); drawFeelLabels(); }
     else if(e.key==="n"||e.key==="N"){ setShape(shapeIdx+1); }
   });
 }
@@ -1535,6 +1584,25 @@ window.__dbg = {
       out.push({ material:BRITTLE[mi].name, broke:c.broke, brokeAt:c.brokeAt, maxCrackLevel:c.maxCrackLevel, shardsAfter5s:debris.length, nan:c.nan });
     }
     return out;
+  },
+  // 5形すべて：割れる素材で形を変えて割れるか（破片が出る＋漏れず0）
+  brittleShapeTest(mi){
+    if(mi!=null){ brittleIdx=Math.max(0,Math.min(BRITTLE.length-1,mi)); } enterGlassMode();
+    const out=[];
+    for(let s=0;s<SHAPES.length;s++){
+      setShape(s);
+      const c=this.crackTest(brittleIdx,1.5);
+      for(let i=0;i<Math.round(5/FIXED);i++) updateDebris(FIXED);
+      out.push({ shape:SHAPES[s].name, broke:c.broke, shards:c.shards, shardsAfter5s:debris.length, nan:c.nan });
+    }
+    return out;
+  },
+  // 溜めレバー(breakSlow)を変えると割れるまでの時間が変わるか
+  slowTest(){
+    const r=[];
+    [0.1, 0.6, 0.95].forEach(function(sv){ __dbg.tune.breakSlow=sv; applyBrittle(); const c=__dbg.crackTest(1,1.8); r.push({breakSlow:sv, crackRate:+__dbg.tune.crackRate.toFixed(2), brokeAt:c.brokeAt}); });
+    __dbg.tune.breakSlow=0.6; applyBrittle();
+    return r;
   },
   // 破片が時間で落ちて消える（漏れずに0になる）ことを測る
   debrisTick(sec){ const n=Math.max(1,Math.round((sec||4)/FIXED)); for(let i=0;i<n;i++) updateDebris(FIXED); return { shards:debris.length, nan:this.glassState().nan }; },

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>ほうりこみ屋（色わけ版）</title>
+<title>ほうりこみ屋（駆け引き版）</title>
 <style>
   :root{
     --bg:#0c1116; --panel:#141d26; --line:#243342; --ink:#eef4fa;
@@ -89,7 +89,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v4 rev1";
+const REV = "v5 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -142,6 +142,9 @@ const TUNE = {
   comboMax: 12,         // コンボで音が上がる上限（半音）。ここまで上がると1UP音
   roundSec: 60,         // 1回の制限時間（秒）
   quota: 15,            // クリアに必要な納品数
+  wrongPenalty: 1,      // 色ちがいで減る点（駆け引き: 雑に投げると損）
+  spurtSec: 15,         // 残りこの秒数からラストスパート（得点2倍）
+  spurtMul: 2,          // スパート中の得点倍率
 };
 
 /* ============================================================
@@ -297,6 +300,9 @@ let combo = 0, comboTimer = 0, bestCombo = 0;   // 連続納品
 let roundState = "idle";                // idle → playing → over
 let timeLeft = 0, roundCleared = false; // 制限時間・クリア判定
 let resultText = "";                     // 結果表示の文
+let spurtOn = false, quotaHit = false;   // ラストスパート中か・目標達成済みか
+let bestScore = 0;                       // 自己ベスト（ブラウザに保存）
+try{ bestScore = parseInt(localStorage.getItem("horikomi_best") || "0", 10) || 0; }catch(_){}
 
 async function initRapier(){
   try{
@@ -333,7 +339,7 @@ function addStaticBox(cx, cy, cz, hx, hy, hz, fr, re){
 function startRound(){
   delivered = 0; combo = 0; comboTimer = 0; bestCombo = 0;
   timeLeft = TUNE.roundSec; roundCleared = false; roundState = "playing";
-  resultText = "";
+  resultText = ""; spurtOn = false; quotaHit = false;
   checkpoint("round", "タイムアタック開始（残り" + TUNE.roundSec + "秒）");
 }
 // 時間切れ＝結果を出す
@@ -343,9 +349,18 @@ function endRound(){
   roundCleared = (delivered >= TUNE.quota);
   resultText = roundCleared ? "クリア！ " : "タイムアップ ";
   resultText += "納品 " + delivered + " / 目標 " + TUNE.quota + "　最高コンボ x" + bestCombo;
-  if(roundCleared){ playFanfare(); burstConfetti(stageCx, stageTopY+0.05, stageCz, 60); pulseAll(0.9, 200); }
+  // 自己ベスト: 未達の回でも「昨日の自分に勝った」を作る（負けの納得）
+  const newBest = (delivered > bestScore);
+  if(newBest){
+    bestScore = delivered;
+    try{ localStorage.setItem("horikomi_best", String(bestScore)); }catch(_){}
+    resultText += "　★自己ベスト更新!";
+  }else{
+    resultText += "　自己ベスト " + bestScore;
+  }
+  if(roundCleared || newBest){ playFanfare(); burstConfetti(stageCx, stageTopY+0.05, stageCz, 60); pulseAll(0.9, 200); }
   else { playTimeUp(); pulseAll(0.3, 120); }
-  spawnPopup(roundCleared ? "クリア!" : "終了", stageCx, stageTopY+0.2, stageCz, true);
+  spawnPopup(roundCleared ? "クリア!" : (newBest ? "自己ベスト!" : "終了"), stageCx, stageTopY+0.2, stageCz, true);
   log("結果：" + resultText);
 }
 // もう1回（トロッコ・台はそのまま、玉と時間だけリセット）
@@ -416,7 +431,8 @@ let trayGroup = null, trayRight = new THREE.Vector3();
 let trayCx0 = 0, trayCz0 = 0, trayTopY = 0;
 function buildTray(cx, fy, cz, right){
   trayCx0 = cx; trayCz0 = cz; trayRight.copy(right);
-  const tw = 0.34, th = 0.02, td = 0.14;
+  // 幅は「玉の直径(0.10m)×個数+すき間」より広く。狭いと玉がめり込んで湧き、弾かれて転がる
+  const tw = 0.62, th = 0.02, td = 0.16;
   trayTopY = fy + th*2;
   addStaticBox(cx, fy + th, cz, tw/2, th, td/2, 0.95, 0.05);
   trayGroup = new THREE.Group();
@@ -432,7 +448,7 @@ function buildTray(cx, fy, cz, right){
 function traySlotPos(i, out){
   const n = TUNE.trayCount;
   const t = (n<=1) ? 0 : (i/(n-1) - 0.5);   // -0.5..0.5
-  const spread = 0.26;
+  const spread = 0.5;                        // 間隔0.125m > 玉の直径0.10m（めり込み防止）
   out.set(trayCx0 + trayRight.x*t*spread, trayTopY + TUNE.ballR + 0.005, trayCz0 + trayRight.z*t*spread);
   return out;
 }
@@ -461,14 +477,27 @@ function spawnTrayBall(slot){
   return b;
 }
 
-// 台の玉が減ったら補充（常に trayCount 個は拾える状態にする）
+// スロット i の上に玉が居るか（位置で判定。フラグに頼ると転がった玉とズレる）
+function slotOccupied(i){
+  traySlotPos(i, _v2);
+  // しきい値はスロット間隔(0.125m)より小さく。大きいと隣の玉が空きスロットを塞ぐ
+  const r2 = (TUNE.ballR*1.2)*(TUNE.ballR*1.2);
+  for(const b of balls){
+    if(b.held || b.delivered) continue;
+    const p = b.mesh.position;
+    const dx = p.x-_v2.x, dz = p.z-_v2.z;
+    if(dx*dx + dz*dz < r2 && Math.abs(p.y-_v2.y) < TUNE.ballR*3) return true;
+  }
+  return false;
+}
+
+// 台の玉が減ったら補充: 「実際に空いている場所」にだけ湧かせる
+// （以前は残り個数を場所番号にしていて、玉が残っている所へ重ねて湧き、弾かれて転がっていた）
 function replenishTray(){
   if(!stagePlaced) return;
-  let onTray = 0; for(const b of balls) if(b.onTray && !b.held) onTray++;
-  let guard = 0;
-  while(onTray < TUNE.trayCount && balls.length < 24 && guard < TUNE.trayCount){
-    // 空いていそうなスロットへ
-    spawnTrayBall(onTray); onTray++; guard++;
+  for(let i=0; i<TUNE.trayCount; i++){
+    if(balls.length >= 24) break;
+    if(!slotOccupied(i)) spawnTrayBall(i);
   }
 }
 
@@ -583,8 +612,9 @@ function checkDelivery(){
         if(!counting){ removeBall(b); continue; }   // 時間外は数えず片づけるだけ
         const conf = COLORS[b.colorIdx].conf;
         if(bin.colorIdx === b.colorIdx){
-          // 色が合った＝正解
-          delivered++;
+          // 色が合った＝正解。スパート中は倍率がかかる
+          const gain = spurtOn ? TUNE.spurtMul : 1;
+          delivered += gain;
           if(comboTimer > 0) combo++; else combo = 1;
           comboTimer = TUNE.comboWindow;
           if(combo > bestCombo) bestCombo = combo;
@@ -593,14 +623,28 @@ function checkDelivery(){
           else playDing(step);
           burstConfettiCol(bin.cx, bin.topY + 0.03, bin.cz, combo>=3 ? 26 : 16, conf);
           if(combo >= 2) spawnPopup("x"+combo, bin.cx, bin.topY + 0.16, bin.cz, true);
-          else spawnPopup("+1", bin.cx, bin.topY + 0.14, bin.cz, false);
+          else spawnPopup("+"+gain, bin.cx, bin.topY + 0.14, bin.cz, gain>1);
           pulseAll(TUNE.hapIn, 90);
           checkpoint("in", "色の合ったトロッコに入れた（正解）");
+          // 目標達成の瞬間、その場で祝う（時間切れまで無音で通り過ぎない）
+          if(!quotaHit && delivered >= TUNE.quota){
+            quotaHit = true;
+            playFanfare();
+            burstConfetti(stageCx, stageTopY + 0.05, stageCz, 40);
+            spawnPopup("目標達成!", stageCx, stageTopY + 0.24, stageCz, true);
+            pulseAll(0.8, 150);
+            checkpoint("quota", "目標達成（時間内はまだ稼げる）");
+          }
         }else{
-          // 色ちがい＝はずれ。数えず、コンボが切れる
+          // 色ちがい＝はずれ。点が減り、コンボも切れる（雑に投げると損＝駆け引き）
           combo = 0; comboTimer = 0;
+          if(delivered > 0){
+            delivered = Math.max(0, delivered - TUNE.wrongPenalty);
+            spawnPopup("-" + TUNE.wrongPenalty, bin.cx, bin.topY + 0.14, bin.cz, false);
+          }else{
+            spawnPopup("×", bin.cx, bin.topY + 0.14, bin.cz, false);
+          }
           playWrong();
-          spawnPopup("×", bin.cx, bin.topY + 0.14, bin.cz, false);
           pulseAll(0.2, 60);
           checkpoint("wrong", "色ちがいのトロッコに入れた（はずれ）");
         }
@@ -998,6 +1042,7 @@ if(navigator.xr && navigator.xr.isSessionSupported){
    9. 毎フレーム
    ============================================================ */
 let lastMs = performance.now(), fpsSmooth = 0, physMs = 0, loopErr = false;
+let replenishAcc = 0;
 
 function simulate(dt){
   const p0 = performance.now();
@@ -1005,11 +1050,23 @@ function simulate(dt){
   physMs = physMs*0.9 + (performance.now()-p0)*0.1;
   syncMeshes();
   checkDelivery();
+  // 台の空きを1秒ごとに自動補充（床に転がった玉で台が空になっても遊びが止まらない）
+  replenishAcc += dt;
+  if(replenishAcc >= 1.0){ replenishAcc = 0; if(roundState === "playing") replenishTray(); }
   // コンボの時間切れ
   if(comboTimer > 0){ comboTimer -= dt; if(comboTimer <= 0) combo = 0; }
   // 制限時間
   if(roundState === "playing"){
     timeLeft -= dt;
+    // ラストスパート開始（残りspurtSec秒から得点2倍。坂を作る）
+    if(!spurtOn && timeLeft <= TUNE.spurtSec && timeLeft > 0){
+      spurtOn = true;
+      playDing(7);
+      spawnPopup("ラスト" + TUNE.spurtSec + "秒 ×" + TUNE.spurtMul + "!", stageCx, stageTopY + 0.26, stageCz, true);
+      burstConfetti(stageCx, stageTopY + 0.05, stageCz, 20);
+      pulseAll(0.5, 100);
+      checkpoint("spurt", "ラストスパート突入");
+    }
     if(timeLeft <= 0){ timeLeft = 0; endRound(); }
   }
   // 演出の更新
@@ -1020,7 +1077,8 @@ function simulate(dt){
     statLine = "【結果】" + resultText + "　→ トリガーでもう1回";
   }else if(roundState === "playing"){
     const comboStr = combo >= 2 ? ("  コンボx" + combo) : "";
-    statLine = "残り " + Math.ceil(timeLeft) + "秒  /  納品 " + delivered + " / " + TUNE.quota + comboStr;
+    const spurtStr = spurtOn ? ("【×" + TUNE.spurtMul + "】") : "";
+    statLine = spurtStr + "残り " + Math.ceil(timeLeft) + "秒  /  納品 " + delivered + " / " + TUNE.quota + comboStr;
   }else{
     statLine = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1) + "ms";
   }
@@ -1101,8 +1159,10 @@ addEventListener("resize", ()=>{
 window.__dbg = {
   state(){ let onTray=0, free=0, held=0; for(const b of balls){ if(b.held) held++; else if(b.onTray) onTray++; else free++; }
     return { rapierReady, stagePlaced, roundState, timeLeft: +timeLeft.toFixed(1), roundCleared,
-             delivered, quota: TUNE.quota, combo, bestCombo, balls: balls.length, onTray, free, held,
+             delivered, quota: TUNE.quota, combo, bestCombo, spurtOn, quotaHit, bestScore,
+             balls: balls.length, onTray, free, held,
              fps: Math.round(fpsSmooth), physMs: +physMs.toFixed(2), cp: {...cp} }; },
+  clearBest(){ bestScore = 0; try{ localStorage.removeItem("horikomi_best"); }catch(_){} return "ok"; },
   setTime(sec){ timeLeft = sec; return "ok"; },        // 時間切れテスト用
   endRound(){ endRound(); return this.state(); },
   restart(){ restartRound(); return this.state(); },

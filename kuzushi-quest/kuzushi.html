@@ -41,6 +41,11 @@
     color:var(--dim);pointer-events:none;font-family:"Consolas","Courier New",monospace;
     background:rgba(10,7,4,.5);padding:5px 8px;border-radius:8px;display:none;white-space:pre;}
 
+  /* 次のご褒美メーター（画面上・常時） */
+  #reward{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:40;
+    font-size:13px;font-weight:700;color:var(--accent2);pointer-events:none;display:none;
+    background:rgba(10,7,4,.5);padding:5px 12px;border-radius:8px;white-space:nowrap;}
+
   /* まん中の大きな演出テキスト（会心・れんさ・記録更新など） */
   #banner{position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);z-index:45;
     font-size:46px;font-weight:900;color:#ffd24a;text-shadow:0 3px 14px rgba(0,0,0,.65);
@@ -73,6 +78,7 @@
 <canvas id="view"></canvas>
 <span id="rev"></span>
 <div id="stats"></div>
+<div id="reward"></div>
 <div id="banner"></div>
 
 <div id="start">
@@ -104,7 +110,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import RAPIER from "./lib/rapier.mjs";
 
-const REV = "v2 rev7";
+const REV = "v2 rev8";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -144,11 +150,15 @@ const TUNE = {
   settleGrace: 1.8,     // 生えてから落ち着くまで(s)は崩れ判定をしない。大きい塔は落ち着くのが遅いので長め
   hapHit: 0.5, hapThrow: 0.25, hapSpawn: 0.2, hapClear: 0.9,
   // --- 段階2（脳汁）---
-  critChance: 0.08,     // 会心の一撃の確率
+  critBase: 0.02,       // 会心率のベース（小玉ほぼ運任せ）
+  critPerCharge: 0.055, // 溜め1倍ごとに会心率アップ（フルチャージで高確率＝溜めた人が報われる）
   critScale: 2.2,       // 会心の玉の大きさ倍率
   chargeDelay: 0.4,     // 溜め開始までの保持時間(s)
   chargeTime: 1.8,      // 最大まで溜まる時間(s)。溜め＝主役なので長めに
   chargeMax: 5.0,       // 溜め玉の最大倍率（直径約40cmの破壊鉄球）
+  scaleMax: 6.5,        // 玉の大きさ上限（溜め×会心が巨大化して地面にめり込むのを防ぐ）
+  tierEvery: 45,        // 何本崩したら塔が一回りデカくなるか（次のご褒美）
+  maxTier: 3,           // 塔の育つ上限
   hitstop: 0.07,        // ヒットストップ(s)
   hitstopCrit: 0.13,
   slowThreshold: 5,     // 一度にこれだけ崩れたらスローモ
@@ -257,15 +267,16 @@ function setupStage(cx, topY, cz){
 }
 
 // 塔の形を3種類つくる（毎回ランダム）。{x,y,z,ax=長辺がX向きか}
+// 塔の形（tier 0 の基準サイズ）。大きさは spawnTower で tierScale 倍する（段数は増やさない＝自壊させない）
 function buildLayout(kind, cx, topY, cz){
   const out = [];
   if(kind === "pyramid"){
-    for(let layer=0; layer<8; layer++){           // 大きいピラミッド（8+7+…+1=36本）
+    for(let layer=0; layer<8; layer++){
       const n = 8 - layer, y = topY + 0.025 + layer*0.05;
       for(let k=0;k<n;k++){ out.push({ x:cx, y, z: cz + (k-(n-1)/2)*0.052, ax:true }); }
     }
   } else if(kind === "wall"){
-    for(let layer=0; layer<8; layer++){           // 高い壁（8段×6本=48本）
+    for(let layer=0; layer<8; layer++){
       const y = topY + 0.025 + layer*0.05, shift = (layer%2)?0.026:0;
       for(let k=0;k<6;k++){ out.push({ x:cx, y, z: cz + (k-2.5)*0.052 + shift, ax:true }); }
     }
@@ -282,21 +293,28 @@ function buildLayout(kind, cx, topY, cz){
 function spawnTower(cx, topY, cz){
   const kinds = ["jenga","pyramid","wall"];
   const kind = kinds[Math.floor(Math.random()*kinds.length)];
+  // 崩した数がたまると塔が一回りデカくなる（次のご褒美）。上がった瞬間だけ祝う
+  const newTier = Math.min(TUNE.maxTier, Math.floor(totalDown / TUNE.tierEvery));
+  if(newTier > towerTier){ flashBanner("塔がでかくなった！", "#ffd24a"); playFanfare(); }
+  towerTier = newTier;
+  const sc = 1 + towerTier * 0.16;   // tierごとに塔全体を一回りずつ大きく（段数でなく寸法で。自壊しない）
   const layout = buildLayout(kind, cx, topY, cz);
   layout.forEach((p, idx) => {
-    // 減衰を入れて、生えた直後の微振動をすぐ落ち着かせる（高い塔の自壊防止）。当てられた時は普通に飛ぶ
-    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, p.y, p.z)
+    // 中心(cx,cz)と土台(topY)を基準に位置を sc 倍、ブロック自体も sc 倍
+    const x = cx + (p.x - cx)*sc, y = topY + (p.y - topY)*sc, z = cz + (p.z - cz)*sc;
+    // 減衰を入れて、生えた直後の微振動をすぐ落ち着かせる。当てられた時は普通に飛ぶ
+    const rb = RAPIER.RigidBodyDesc.dynamic().setTranslation(x, y, z)
       .setLinearDamping(0.2).setAngularDamping(0.4);
     const body = world.createRigidBody(rb);
-    const hx = p.ax ? 0.075 : 0.025, hz = p.ax ? 0.025 : 0.075;
-    const cd = RAPIER.ColliderDesc.cuboid(hx, 0.025, hz)
+    const hx = (p.ax ? 0.075 : 0.025)*sc, hz = (p.ax ? 0.025 : 0.075)*sc, hy = 0.025*sc;
+    const cd = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
       .setDensity(TUNE.blockDensity).setRestitution(TUNE.restitution).setFriction(TUNE.friction)
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
       .setContactForceEventThreshold(TUNE.forceThreshold);
     const col = world.createCollider(cd, body);
     // mesh は持たず InstancedMesh の idx 番を使う。dimX/Y/Z は箱の実寸（＝当たり判定の2倍）
-    const b = { body, colHandle: col.handle, idx, dimX: hx*2, dimY: 0.05, dimZ: hz*2,
-                ox:p.x, oy:p.y, oz:p.z, down:false, lastSnd:0, growDelay: idx*0.018 };
+    const b = { body, colHandle: col.handle, idx, dimX: hx*2, dimY: hy*2, dimZ: hz*2,
+                ox:x, oy:y, oz:z, down:false, lastSnd:0, growDelay: idx*0.018 };
     handleToObj.set(col.handle, { kind:"block", ref:b });
     blocks.push(b);
     blockInst.setColorAt(idx, _col0);   // 前の塔の強調色が残らないよう白に戻す
@@ -321,7 +339,8 @@ function makeDynamicBallBody(px, py, pz, vx, vy, vz, radius){
   return { body, col };
 }
 function makeBallMesh(){ const m = new THREE.Mesh(ballGeo, ballMat); scene.add(m); return m; }
-function rollCrit(){ return critForce || Math.random() < TUNE.critChance; }
+// 会心率は溜め量で上がる（小玉ほぼ運、フルチャージで高確率）
+function rollCrit(charge){ return critForce || Math.random() < (TUNE.critBase + (Math.max(1, charge||1) - 1) * TUNE.critPerCharge); }
 
 // 握ると手に湧く（kinematic）
 function spawnHeldBall(owner, pos){
@@ -332,6 +351,7 @@ function spawnHeldBall(owner, pos){
     removeBall(victim);
   }
   const mesh = makeBallMesh();
+  mesh.material = ballMat.clone();   // 溜め中に光らせるため、この玉専用の材質にする
   mesh.position.copy(pos);
   const rb = RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pos.x, pos.y, pos.z);
   const body = world.createRigidBody(rb);
@@ -346,6 +366,8 @@ function spawnHeldBall(owner, pos){
   balls.push(b);
   playPop();
   pulse(owner, TUNE.hapSpawn, 30);
+  // 看板機能「溜め撃ち」を最初の一手で教える（本文はまん中に大きく＝隅の小文字より読める）
+  if(!taughtCharge){ taughtCharge = true; flashBanner("トリガーを ながく握ると 大きくなる", "#ffd79a"); }
   return b;
 }
 
@@ -371,13 +393,14 @@ function throwBall(b, now){
     const sp = Math.hypot(vx,vy,vz);
     if(sp > TUNE.throwMax){ const s = TUNE.throwMax/sp; vx*=s; vy*=s; vz*=s; }
   }
-  const crit = rollCrit();
-  const scaleMul = (b.charge || 1) * (crit ? TUNE.critScale : 1);
+  const crit = rollCrit(b.charge || 1);
+  const scaleMul = Math.min(TUNE.scaleMax, (b.charge || 1) * (crit ? TUNE.critScale : 1));
   // kinematic を消して dynamic を作り直す（型変換に頼らない安全策）
   handleToObj.delete(b.colHandle);
   world.removeRigidBody(b.body);
   const { body, col } = makeDynamicBallBody(px, py, pz, vx, vy, vz, 0.04*scaleMul);
   b.body = body; b.colHandle = col.handle; b.held = false; b.kinematic = false; b.crit = crit;
+  b.scaleMul = scaleMul; b.maxShown = false;
   b.mesh.scale.setScalar(scaleMul);
   b.mesh.material = crit ? ballMatCrit : ballMat;
   handleToObj.set(col.handle, { kind:"ball", ref:b });
@@ -434,7 +457,7 @@ function pullNearest(i){
   const col = world.createCollider(cd, body);
   best.body = body; best.colHandle = col.handle; best.held = true; best.kinematic = true;
   best.owner = i; best.crit = false; best.charge = 1; best.heldSince = performance.now()/1000;
-  best.lastChargePulse = 0; best.mesh.scale.setScalar(1); best.mesh.material = ballMat;
+  best.lastChargePulse = 0; best.mesh.scale.setScalar(1); best.mesh.material = ballMat.clone();
   if(!best.hist){ best.hist = []; for(let k=0;k<10;k++) best.hist.push({t:0,x:0,y:0,z:0}); }
   best.hlen = 0; best.hi = 0;
   handleToObj.set(col.handle, { kind:"ball", ref:best });
@@ -446,6 +469,7 @@ function pullNearest(i){
 
 /* --- ゲーム進行 --- */
 let standing = 0, growT = 0, towerAge = 0, settled = false, lastBlock = null, lastOneDone = false;
+let taughtCharge = false, towerTier = 0;   // 溜めを教えたか／塔の育ち段階（崩した数で上がる）
 let phase = "idle", phaseT = 0;
 // 連鎖・記録
 let comboCount = 0, comboLast = 0, maxCombo = 0, totalDown = 0, bestClear = Infinity;
@@ -491,15 +515,20 @@ function drainEvents(){
         playComboNote(comboCount);
         if(comboCount > maxCombo){ maxCombo = comboCount; }
       }
-      // 自分の投げた玉がブロックに当たった：振動＋ヒットストップ
+      // 自分の投げた玉がブロックに当たった：手応えは「溜め量（玉の大きさ）」に比例させる
       if(ball && blk && !ball.held && strength > 0.15){
-        pulse(ball.owner, TUNE.hapHit * (0.4+0.6*strength), 60);
-        // ヒットストップは「動いている玉が当たった瞬間」だけ。瓦礫の上で静止した重い玉が
-        // 毎ステップ接触力を出して時間が止まりっぱなしになるのを防ぐ
+        const sz = ball.scaleMul || 1;                    // 1.0〜5.0（＋会心で×2.2）
+        const big = Math.min(1, (sz - 1) / (TUNE.chargeMax - 1));   // 溜め度 0〜1
+        pulse(ball.owner, TUNE.hapHit * (0.4+0.6*strength) * (0.7+0.6*big), 60 + 60*big);
+        // ヒットストップは「動いている玉が当たった瞬間」だけ。大玉ほど長く止めて手応えを増す
         if(strength > 0.3 && ball.body){
           const lv = ball.body.linvel();
           if(lv.x*lv.x + lv.y*lv.y + lv.z*lv.z > TUNE.hitstopMinSpeed*TUNE.hitstopMinSpeed)
-            hitstopT = Math.max(hitstopT, ball.crit ? TUNE.hitstopCrit : TUNE.hitstop);
+            hitstopT = Math.max(hitstopT, (ball.crit ? TUNE.hitstopCrit : TUNE.hitstop) * (0.7 + 0.9*big));
+        }
+        // フルチャージ級の一撃を塔に当てた初回だけ「MAX!」で褒める（一番偉い行いに一番大きく返す）
+        if(!ball.maxShown && sz >= TUNE.chargeMax*0.85){
+          ball.maxShown = true; flashBanner("MAX!", "#9ff0ff"); playMax(); pulseAll(1.0, 120);
         }
         checkpoint("hit", "玉が塔に当たった");
       }
@@ -701,6 +730,18 @@ function playFanfare(){
     o.connect(g).connect(actx.destination); o.start(t); o.stop(t+0.28);
   });
 }
+// フルチャージ命中の褒め音（会心とは別の、突き抜ける輝かしい音）
+function playMax(){
+  if(!actx) return; const now = actx.currentTime;
+  const o = actx.createOscillator(); o.type="square";
+  o.frequency.setValueAtTime(660, now); o.frequency.exponentialRampToValueAtTime(1760, now+0.18);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.28, now); g.gain.exponentialRampToValueAtTime(0.0001, now+0.3);
+  o.connect(g).connect(actx.destination); o.start(now); o.stop(now+0.32);
+  [1046,1318,1568].forEach((f,i)=>{ const t=now+0.02+i*0.05;
+    const oo=actx.createOscillator(); oo.type="triangle"; oo.frequency.value=f;
+    const gg=actx.createGain(); gg.gain.setValueAtTime(0.0001,t); gg.gain.linearRampToValueAtTime(0.18,t+0.02); gg.gain.exponentialRampToValueAtTime(0.0001,t+0.24);
+    oo.connect(gg).connect(actx.destination); oo.start(t); oo.stop(t+0.26); });
+}
 
 /* ============================================================
    5. 振動
@@ -724,6 +765,7 @@ function loadRecords(){
     maxCombo = r.maxCombo || 0; totalDown = r.totalDown || 0;
     bestClear = (r.bestClear && r.bestClear > 0) ? r.bestClear : Infinity;
   }catch(_){}
+  towerTier = Math.min(TUNE.maxTier, Math.floor(totalDown / TUNE.tierEvery));   // 続きから遊ぶ人は稼いだ大きさで再開
   updateBestText();
 }
 function saveRecords(){
@@ -969,12 +1011,12 @@ function pcShootAt(sx, sy){
 }
 function pcSpawnThrown(pos, vel){
   while(balls.length >= 3){ const v = balls.find(x=>!x.held); if(!v) break; removeBall(v); }
-  const crit = rollCrit();
+  const crit = rollCrit(1);
   const scaleMul = crit ? TUNE.critScale : 1;
   const mesh = makeBallMesh(); mesh.position.copy(pos); mesh.scale.setScalar(scaleMul);
   mesh.material = crit ? ballMatCrit : ballMat;
   const { body, col } = makeDynamicBallBody(pos.x,pos.y,pos.z, vel.x,vel.y,vel.z, 0.04*scaleMul);
-  const b = { mesh, body, colHandle: col.handle, held:false, owner:0, kinematic:false, crit };
+  const b = { mesh, body, colHandle: col.handle, held:false, owner:0, kinematic:false, crit, scaleMul, maxShown:false };
   handleToObj.set(col.handle, { kind:"ball", ref:b });
   balls.push(b);
   onThrown(b, crit);
@@ -1021,11 +1063,16 @@ function simulate(dt){
   if(comboCount > 0 && performance.now()/1000 - comboLast > TUNE.comboWindow) comboCount = 0;
   // ステータス表示は毎フレームでなく数フレームおきに更新（文字列生成とDOM書き込みを減らす）
   if((hudTick = (hudTick + 1) % 12) === 0){
+    // 次のご褒美（1-5: 次にもらえるものを画面に）
+    const remain = Math.max(0, TUNE.tierEvery - (totalDown % TUNE.tierEvery));
+    const reward = (towerTier >= TUNE.maxTier) ? "塔さいだい級！ こわしまくれ" : ("つぎのデカい塔まで あと " + remain + " 本");
+    const rEl = $("reward");
+    if(stagePlaced && rEl.style.display !== "block") rEl.style.display = "block";
+    rEl.textContent = reward;
     $("stats").textContent = "fps " + Math.round(fpsSmooth) + " / 物理 " + physMs.toFixed(1)
       + "ms / 立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount;
     // 3Dパネルは「意味が変わったときだけ」再描画（fps/物理msを含めない＝毎フレームのテクスチャ再アップロードを避ける）
-    const panelLine = "立 " + Math.max(0,standing) + " / 玉 " + balls.length + " / れんさ " + comboCount
-      + " / fps " + (Math.round(fpsSmooth/5)*5);
+    const panelLine = reward + "  ｜ 立 " + Math.max(0,standing) + " れんさ " + comboCount + " fps " + (Math.round(fpsSmooth/5)*5);
     if(panelLine !== panelStatus){ panelStatus = panelLine; if(panel.visible) drawPanel(); }
   }
 }
@@ -1072,6 +1119,9 @@ function renderLoop(t, frame){
         if(hold > TUNE.chargeDelay){
           b.charge = Math.min(TUNE.chargeMax, 1 + (hold-TUNE.chargeDelay)/TUNE.chargeTime*(TUNE.chargeMax-1));
           b.mesh.scale.setScalar(b.charge);
+          // 溜めるほど玉が光る（育っているのが一目で分かる＝溜めの発見を助ける）
+          const gl = (b.charge - 1) / (TUNE.chargeMax - 1);
+          if(b.mesh.material && b.mesh.material.emissive){ b.mesh.material.emissiveIntensity = 0.55 + gl*1.9; }
           if(nowMs - b.lastChargePulse > 130){ b.lastChargePulse = nowMs; pulse(i, 0.12*b.charge, 20); }
         }
       }
@@ -1095,7 +1145,7 @@ addEventListener("resize", ()=>{
    ============================================================ */
 window.__dbg = {
   state(){ return { rapierReady, stagePlaced, phase, standing, blocks: blocks.length, balls: balls.length,
-    combo: comboCount, maxCombo, totalDown, bestClear: isFinite(bestClear)?+bestClear.toFixed(2):null,
+    combo: comboCount, maxCombo, totalDown, towerTier, taughtCharge, bestClear: isFinite(bestClear)?+bestClear.toFixed(2):null,
     timeScale: +timeScale.toFixed(3), fps: Math.round(fpsSmooth), physMs: +physMs.toFixed(2), cp: {...cp} }; },
   shoot(vx, vy, vz){ if(!stagePlaced) return "no-stage"; pcSpawnThrown(camera.position, new THREE.Vector3(vx||0, vy||0, vz||-6)); return "ok"; },
   blast(){
@@ -1103,6 +1153,21 @@ window.__dbg = {
     const from = new THREE.Vector3(stageCx, stageTopY+0.15, stageCz+1.0);
     pcSpawnThrown(from, new THREE.Vector3(0, 0, -9)); return "ok";
   },
+  // 溜め玉のテスト用: 指定倍率(mul)の玉を塔に撃ち込む（MAX!褒め・手応え連動・会心率の確認）
+  charged(mul){
+    if(!stagePlaced) return "no-stage";
+    const from = new THREE.Vector3(stageCx, stageTopY+0.25, stageCz+1.2);
+    while(balls.length >= 3){ const v = balls.find(x=>!x.held); if(!v) break; removeBall(v); }
+    const sz = mul || TUNE.chargeMax, crit = rollCrit(sz);
+    const scaleMul = Math.min(TUNE.scaleMax, sz * (crit ? TUNE.critScale : 1));
+    const mesh = makeBallMesh(); mesh.position.copy(from); mesh.scale.setScalar(scaleMul);
+    mesh.material = crit ? ballMatCrit : ballMat;
+    const { body, col } = makeDynamicBallBody(from.x,from.y,from.z, 0,0,-9, 0.04*scaleMul);
+    const b = { mesh, body, colHandle: col.handle, held:false, owner:0, kinematic:false, crit, scaleMul, maxShown:false };
+    handleToObj.set(col.handle, { kind:"ball", ref:b });
+    balls.push(b); onThrown(b, crit); return { scaleMul:+scaleMul.toFixed(2), crit };
+  },
+  setDown(n){ totalDown = Math.max(0, n|0); return "totalDown=" + totalDown; },
   crit(on){ critForce = (on !== false); return "critForce=" + critForce; },
   nextTower(){ forceNextTower(); return "ok"; },
   tick(seconds){ const n = Math.round((seconds||1)/FIXED); for(let i=0;i<n;i++) simulate(FIXED); return this.state(); },
