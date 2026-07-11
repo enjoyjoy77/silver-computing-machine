@@ -200,6 +200,7 @@
       <input type="range" id="brushRange" min="2" max="40" value="10">
       <span class="val" id="brushVal">10cm</span>
     </div>
+    <button class="btn" id="sculptDirBtn">🔼 盛り上げ</button>
     <button class="btn" id="sculptResetBtn">↩ 彫刻を戻す</button>
   </div>
   <!-- 疑似3D用 -->
@@ -235,7 +236,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev8b";
+const REV = "v2 rev8d";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -524,6 +525,8 @@ function displace(){
 /* ============ 彫刻(局所変形): 狙った所を盛り上げ/へこませ ============ */
 let sculptRadius = 0.10;             // 筆の太さ(m)
 const SCULPT_RATE = 0.5;             // 押し引きの速さ(m/秒 @ トリガー全引き)
+let sculptDir = 1;                   // 彫る向き: +1=盛り上げ / -1=へこませ(A/Xボタン・2Dの向きボタンで切替)
+const gripPrev = [false, false];     // グリップの押下エッジ(彫刻中の つかむ/放す 判定用)
 // item の hit点(mesh-local p)の周りの頂点を、格子ブロックだけ回して押し引き
 function sculptAt(item, p, radius, delta){
   const geo = item.reliefGeo; if(!geo || !item.sculpt) return;
@@ -580,18 +583,28 @@ function sculptHit(mesh, originWorld, dirWorld){
   _lh.set(_ro.x + _rd.x*t, _ro.y + _rd.y*t, 0);
   return _lh;                                                 // 局所座標(z=0)
 }
-// 毎フレーム(XR・sculptモード): 解析交差で active relief を狙い、トリガーで盛り上げ/グリップでへこませ
+// 毎フレーム(XR・sculptモード): にぎる=つかむ(移動/大きさ変え)、引き金=彫る(向きはsculptDir)
 function updateSculpt(dt){
   brushRing.visible = false;
   if(mode!=='sculpt' || !activeItem || !activeItem.reliefMesh){ _wasCarving = false; return; }
   const sess = renderer.xr.getSession(); if(!sess) return;
+  // --- にぎる(グリップ)で つかむ/放す: 片手=移動 / 両手が同じ体=大きさ変え+回転(既存のピンチ機構を流用) ---
+  for(let i=0;i<controllers.length;i++){
+    const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
+    const gripNow = !!(gp && gp.buttons[1] && gp.buttons[1].pressed);
+    if(gripNow && !gripPrev[i]){ grabItem(i, itemUnderRay(i)); }   // にぎった瞬間つかむ(彫刻は床置き不問)
+    else if(!gripNow && gripPrev[i]){ onRelease(i); }                                                // 放した瞬間おろす
+    gripPrev[i] = gripNow;
+  }
+  if(pinch){ _wasCarving = false; return; }   // 両手で大きさ変え中は彫らない
   const mesh = activeItem.reliefMesh, geo = activeItem.reliefGeo;
   const { w, h, sx, sy } = activeItem; const pos = geo.attributes.position;
   let carved = false;
   for(let i=0;i<controllers.length;i++){
+    if(grab[i]) continue;   // つかんで移動中の手では彫らない
     const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
     if(!gp) continue;
-    // 筆の太さ: スティック左右で調整(グリップは押し引きに使うので上下は使わない)
+    // 筆の太さ: スティック左右で調整
     const ax = gp.axes; if(ax && ax.length){ const rx=(ax.length>=4)?ax[2]:(ax[0]||0); if(Math.abs(rx)>0.4){ sculptRadius=clamp(sculptRadius + rx*0.25*dt, 0.02, 0.4); $('brushRange').value=Math.round(sculptRadius*100); $('brushVal').textContent=Math.round(sculptRadius*100)+'cm'; } }
     tmpV.setFromMatrixPosition(c.matrixWorld);
     _dir.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
@@ -607,11 +620,10 @@ function updateSculpt(dt){
     _sn.set(0,0,1).transformDirection(mesh.matrixWorld);
     brushRing.lookAt(brushRing.position.clone().add(_sn));
     brushRing.scale.setScalar(Math.max(sculptRadius * activeItem.group.scale.x, 0.01));   // 実寸スケール込みの見た目半径
-    // 押し引き: グリップ優先(トリガー全押し+グリップの相殺デッドゾーンを無くす)
+    brushRing.material.color.setHex(sculptDir > 0 ? 0xffd166 : 0x6ec6ff);   // 盛り上げ=黄 / へこませ=水色
+    // 彫る: 引き金の引き具合 × 向き(sculptDir)。にぎる(グリップ)はつかむ用に使うので彫りには使わない
     const trig = gp.buttons[0] ? gp.buttons[0].value : 0;
-    const grip = (gp.buttons[1] && gp.buttons[1].pressed) ? 1 : 0;
-    const delta = grip ? -1 : (trig>0.1 ? trig : 0);   // グリップ=へこませ(-) / トリガー=盛り上げ(+)
-    if(delta !== 0){ sculptAt(activeItem, lh, sculptRadius, delta * SCULPT_RATE * dt); carved = true; }
+    if(trig > 0.1){ sculptAt(activeItem, lh, sculptRadius, sculptDir * trig * SCULPT_RATE * dt); carved = true; }
   }
   // 法線の再計算は重いので彫っている間は間引き(約12回/秒)、彫り終わりに一度だけ確定計算
   if(carved){ _normAccum += dt; if(_normAccum >= 0.08){ geo.computeVertexNormals(); _normAccum = 0; } }
@@ -876,6 +888,7 @@ function enterXR(){
   for(const it of items) if(it.group.parent !== scene) scene.add(it.group);
   // 前セッションから残ったボタンのラッチを消す(突入後の最初の押下を確実にエッジ扱いに)
   recallHeld = false; stickPrev.left = stickPrev.right = stickPrev.none = false;
+  gripPrev[0] = gripPrev[1] = false; dirToggleHeld = false;
   xrAttach(mode);
 }
 // 没入中のモード循環(スティック押し込み)
@@ -921,10 +934,12 @@ function makeTex(img, srgb){
 function setMode(m){
   mode = m;
   brushRing.visible = false;   // 彫刻から抜けたら黄色い輪を残さない(XR外でも消す)
+  clearGrabs();   // モード切替時は掴み/拡縮の途中状態を持ち越さない(彫刻⇄他モードのどちら向きでも取りこぼさない)
   [...$('modeSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   const inXR = renderer && renderer.xr.isPresenting;
   if(inXR){
     xrAttach(m);   // XR: tiltGroupの中身を差し替え(2Dのscene構成は触らない)
+    if(m==='sculpt' && xrMode==='ar'){ reticle.visible = false; }   // 彫刻は床リングを出さない(引き金は彫る用)。placedは触らない=他モードの床置きを壊さない
   } else {
     // 2Dは単体表示(activeItemのみ)。複数の並べ替えはAR/VRの体験
     for(const it of items){ it.group.visible = (it === activeItem); scene.remove(it.group); }
@@ -952,7 +967,7 @@ function setMode(m){
     wiggle: '自動で左右に揺れます。「動画で保存」でSNS用にどうぞ',
     light: '光源が回って陰影が流れます',
     layers: '指でドラッグすると層がジオラマのようにズレます',
-    sculpt: 'AR/VRで狙って トリガー=盛り上げ / グリップ=へこませ。スティック左右で筆の太さ',
+    sculpt: 'AR/VRで狙って引き金＝彫る。にぎる＝つかんで移動／両手で大きさ変え。A/Xボタンで盛り上げ⇄へこませ。スティック左右＝筆の太さ',
   };
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
@@ -999,6 +1014,11 @@ $('resSeg').addEventListener('click', e=>{
 });
 $('brushRange').addEventListener('input', ()=>{ sculptRadius = parseInt($('brushRange').value)/100; $('brushVal').textContent = $('brushRange').value + 'cm'; });
 $('sculptResetBtn').onclick = ()=>{ if(activeItem){ sculptReset(activeItem); toast('彫刻を戻しました'); } };
+// 彫る向き(盛り上げ⇄へこませ)。2Dボタン と AR/VRのA/Xボタン から呼ぶ
+function updateSculptDirUI(){ const b=$('sculptDirBtn'); if(b) b.textContent = sculptDir>0 ? '🔼 盛り上げ' : '🔽 へこませ'; }
+function toggleSculptDir(){ sculptDir = -sculptDir; updateSculptDirUI(); toast(sculptDir>0 ? '彫る向き：盛り上げ' : '彫る向き：へこませ'); }
+$('sculptDirBtn').onclick = toggleSculptDir;
+updateSculptDirUI();
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
   $('sizeCm').value = S.sizeCm;
@@ -1059,6 +1079,7 @@ const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new 
 let pendingPlace = false, recallHeld = false;
 // スティック押し込み(モード切替)のエッジ検出は手ごとに持つ(片手ホールドでもう片手が効かない事故を防ぐ)
 const stickPrev = { left:false, right:false, none:false };
+let dirToggleHeld = false;   // 彫刻: A/Xで彫る向き切替(左右まとめて単一エッジ=両手同時押しでも相殺しない)
 // 表示中の全itemを (cx,cz) 中心・高さpy で横一列に、ユーザーの方を向けて並べる
 function layoutRowAt(cx, cz, py){
   const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos);
@@ -1130,15 +1151,18 @@ function deadzone(v){
 // 毎フレーム: A/B/X/Y(呼び戻し) と グリップ+スティック(回転) をまとめて処理
 function pollInput(dt){
   const sess = renderer.xr.getSession(); if(!sess) return;
-  let recallPressed = false, cycleNow = false, recalledThisFrame = false;
+  let recallPressed = false, cycleNow = false, recalledThisFrame = false, anyDirBtn = false;
   let bestYaw = 0, bestTilt = 0, bestMag = 0, bestHd = null;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
   for(const src of sess.inputSources){
     const gp = src.gamepad; if(!gp) continue;
     const b = gp.buttons, ax = gp.axes;
-    if(b && ((b[4] && b[4].pressed) || (b[5] && b[5].pressed))) recallPressed = true;
+    const hd = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'none';
+    // 呼び戻し: B/Yボタン。彫刻以外ではA/Xでも可(彫刻中のA/Xは彫る向き切替に使うため除外)
+    if(((mode!=='sculpt') && b[4] && b[4].pressed) || (b[5] && b[5].pressed)) recallPressed = true;
+    // 彫刻: A/Xで彫る向き切替。左右どちらでも1機能なので押下は集計だけ(判定はループ後に1回=同時押しで相殺しない)
+    if(mode==='sculpt' && b[4] && b[4].pressed) anyDirBtn = true;
     const gripHeld = b && b[1] && b[1].pressed;   // buttons[1] = グリップ(中指)
     // スティック押し込み(buttons[3])はグリップ非押下時のみモード切替。手ごとに立ち上がりを見る
-    const hd = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'none';
     const stickNow = !!(b && b[3] && b[3].pressed && !gripHeld);
     if(stickNow && !stickPrev[hd]) cycleNow = true;
     stickPrev[hd] = stickNow;
@@ -1151,6 +1175,9 @@ function pollInput(dt){
       if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; bestHd = hd; }
     }
   }
+  // 彫る向き切替: 左右まとめて単一エッジ(両手同時押しでも1回=相殺しない)
+  if(mode==='sculpt'){ if(anyDirBtn && !dirToggleHeld) toggleSculptDir(); dirToggleHeld = anyDirBtn; }
+  else dirToggleHeld = false;
   // 呼び戻し(押した瞬間の1回だけ)
   if(recallPressed && !recallHeld){
     placeInFront(); recalledThisFrame = true;
@@ -1186,8 +1213,8 @@ function setupControllers(){
     const c = renderer.xr.getController(i); scene.add(c);
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,-0.11), new THREE.Vector3(0,0,-3)]);
     c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7fd6a8 })));   // 人差し指の先からビーム
-    c.addEventListener('selectstart', ()=>onGrab(i));
-    c.addEventListener('selectend', ()=>onRelease(i));
+    c.addEventListener('selectstart', ()=>{ if(mode!=='sculpt') onGrab(i); });   // 彫刻中は引き金=彫る。つかむ/放すはグリップ専任
+    c.addEventListener('selectend', ()=>{ if(mode!=='sculpt') onRelease(i); });
     controllers.push(c);
   }
 }
@@ -1219,6 +1246,10 @@ function onGrab(i){
     raycaster.set(tmpV, dir);
     if(raycaster.intersectObject(grabTarget, true).length) it = activeItem;
   }
+  grabItem(i, it);
+}
+// つかむ本体(reliefのトリガー経由・彫刻のグリップ経由で共用)。片手=移動 / 両手が同じ体=拡縮回転
+function grabItem(i, it){
   if(!it) return;
   setActive(it);
   grab[i] = it; const other = i^1;
@@ -1247,6 +1278,14 @@ function beginPinch(it){
     mid0, pos0: g.position.clone() };   // 差分適用でワープを防ぐ
 }
 function endPinch(){ pinch=null; }
+// モード切替などで掴み/拡縮の途中状態を後始末(体をsceneへ戻して手放す)。彫刻突入時に前モードの掴みを持ち越さない
+function clearGrabs(){
+  if(pinch) endPinch();
+  for(let i=0;i<grab.length;i++){
+    if(grab[i]){ scene.attach(grab[i].group); flattenYaw(grab[i].group); grab[i]=null; }
+  }
+  gripPrev[0] = gripPrev[1] = false;
+}
 function updatePinch(){
   if(!pinch) return; const g = pinch.group; const p0=ctrlPos(0), p1=ctrlPos(1);
   const d = Math.max(p0.distanceTo(p1), 1e-4);
@@ -1432,7 +1471,9 @@ async function startAR(){
     scaleAllItems(); placed=false; hitReq=false;
     pendingPlace = true;   // 最初のフレームで視線の先へ横一列
     setupControllers();
-    toast('目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
+    toast(mode==='sculpt'
+      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／A・Xで彫る向き／B・Yで呼び戻し'
+      : '目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
@@ -1467,7 +1508,9 @@ async function startVR(){
     scaleAllItems();
     pendingPlace = true;   // 最初のフレームで視線の先の床上へ横一列
     setupControllers();
-    toast('実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
+    toast(mode==='sculpt'
+      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／A・Xで彫る向き／B・Yで呼び戻し'
+      : '実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
     // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; $('vrBtn').textContent='🌐 VR';
@@ -1555,14 +1598,14 @@ function renderLoop(t, frame){
             .catch(()=>{});
         }
       }
-      if(hitSource && !placed){
+      if(hitSource && !placed && mode!=='sculpt'){   // 彫刻は床リング不要
         const res = frame.getHitTestResults(hitSource);
         if(res.length){
           const pose = res[0].getPose(ref);
           reticle.visible = true; tmpM.fromArray(pose.transform.matrix); reticle.matrix.copy(tmpM);
         } else reticle.visible = false;
       }
-      if(placed && controllers.length) updatePinch();
+      if((placed || mode==='sculpt') && controllers.length) updatePinch();   // 彫刻はplaced不問で両手拡縮を効かせる
     }
     renderer.render(scene, camera);
     return;
