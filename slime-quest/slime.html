@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく（ガラスは突いて割る）／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／<b>G＝ガラス⇄やわらか</b>／R＝戻す（出し直す）
+  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく（ガラスは突いて割る）／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／<b>G＝素材切替(やわらか/氷/ガラス/陶器)</b>／R＝戻す（出し直す）
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v6 rev1";
+const REV = "v6 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -867,13 +867,54 @@ function playGlassBreak(){
     o.connect(g2).connect(actx.destination); o.start(t); o.stop(t+0.09);
   }
 }
-// 割れる前のキシむ音（押すほど高く・大きく。連発しすぎない）
-function playCreak(level){
+// 氷の割れる音（低〜中域の短いパキッを数発ばらまく＝パキパキ。リング少なめ・速い減衰）
+function playIceBreak(){
+  if(!actx) return; const now=actx.currentTime;
+  for(let k=0;k<7;k++){
+    const t=now+k*0.02+Math.random()*0.03, dur=0.04+Math.random()*0.05;
+    const nn=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,nn,actx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<nn;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/nn,1.2);
+    const src=actx.createBufferSource(); src.buffer=buf;
+    const bp=actx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=300+Math.random()*1200; bp.Q.value=2+Math.random()*3;
+    const g=actx.createGain(); g.gain.setValueAtTime(0.12/(1+k*0.15),t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(bp).connect(g).connect(actx.destination); src.start(t); src.stop(t+dur);
+  }
+  const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(180,now); o.frequency.exponentialRampToValueAtTime(90,now+0.1);
+  const g0=actx.createGain(); g0.gain.setValueAtTime(0.10,now); g0.gain.exponentialRampToValueAtTime(0.0001,now+0.12);
+  o.connect(g0).connect(actx.destination); o.start(now); o.stop(now+0.14);
+}
+// 陶器の割れる音（こもったガチャン。Q低め・速い減衰・ローパスで角を丸める）
+function playCeramicBreak(){
+  if(!actx) return; const now=actx.currentTime;
+  const o0=actx.createOscillator(); o0.type="triangle"; o0.frequency.setValueAtTime(240,now); o0.frequency.exponentialRampToValueAtTime(90,now+0.09);
+  const g0=actx.createGain(); g0.gain.setValueAtTime(0.24,now); g0.gain.exponentialRampToValueAtTime(0.0001,now+0.12);
+  o0.connect(g0).connect(actx.destination); o0.start(now); o0.stop(now+0.13);
+  const partials=[900,1500,2300];
+  for(let i=0;i<partials.length;i++){
+    const o=actx.createOscillator(); o.type="sine"; o.frequency.value=partials[i]*(0.97+Math.random()*0.06);
+    const dur=0.12+Math.random()*0.1, g=actx.createGain();
+    g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.06/(1+i*0.6),now+0.004); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+    o.connect(g).connect(actx.destination); o.start(now); o.stop(now+dur);
+  }
+  const dur=0.28, n=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++){ d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2.0); }
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=2600;
+  const gg=actx.createGain(); gg.gain.setValueAtTime(0.13,now); gg.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  src.connect(lp).connect(gg).connect(actx.destination); src.start(now); src.stop(now+dur);
+  for(let k=0;k<6;k++){
+    const t=now+0.04+Math.random()*0.22, o=actx.createOscillator(); o.type="square"; o.frequency.value=800+Math.random()*1800;
+    const g2=actx.createGain(); g2.gain.setValueAtTime(0.0001,t); g2.gain.linearRampToValueAtTime(0.02,t+0.002); g2.gain.exponentialRampToValueAtTime(0.0001,t+0.04+Math.random()*0.03);
+    o.connect(g2).connect(actx.destination); o.start(t); o.stop(t+0.09);
+  }
+}
+// 割れる前のキシむ音（押すほど高く・大きく。素材ごとに基音を変える。連発しすぎない）
+function playCreak(level, base){
   if(!actx) return; const nowMs=performance.now(); if(nowMs-lastCreak<70) return; lastCreak=nowMs;
   const t=actx.currentTime, dur=0.05, nn=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,nn,actx.sampleRate), d=buf.getChannelData(0);
   for(let i=0;i<nn;i++) d[i]=(Math.random()*2-1);
   const src=actx.createBufferSource(); src.buffer=buf;
-  const bp=actx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=1200+level*3200; bp.Q.value=6;
+  const bp=actx.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=(base||1200)*0.8+level*2600; bp.Q.value=6;
   const g=actx.createGain(); g.gain.setValueAtTime(0.02+level*0.05,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
   src.connect(bp).connect(g).connect(actx.destination); src.start(t); src.stop(t+dur);
 }
@@ -937,16 +978,16 @@ for(let i=0;i<SHAPES.length;i++){
   ctrlGroup.add(g);
   shapeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
-// 素材ボタン（やわらか／ガラス）＝レールのさらに上の段。ガラスを選ぶと割れる素材モードへ
-const MATERIALS = ["やわらか","ガラス"];
+// 素材ボタン（やわらか／氷／ガラス／陶器）＝レールのさらに上の段。硬い素材を選ぶと割れる素材モードへ
+const MATERIALS = ["やわらか","氷","ガラス","陶器"];
 const matBtnMeshes = [];
 for(let i=0;i<MATERIALS.length;i++){
-  const cv=document.createElement("canvas"); cv.width=220; cv.height=88;
+  const cv=document.createElement("canvas"); cv.width=176; cv.height=80;
   const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace;
-  const g=new THREE.Group(); g.position.set((i-0.5)*0.15, 0.255, 0);
-  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.038,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
+  const g=new THREE.Group(); g.position.set((i-1.5)*0.105, 0.255, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.092,0.038,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
   bg.position.set(0,0,-0.007); g.add(bg);
-  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.116,0.034), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.088,0.034), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
   lm.position.set(0,0,0.001); g.add(lm);
   ctrlGroup.add(g);
   matBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
@@ -1198,7 +1239,7 @@ function setupPCInput(){
   canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
   addEventListener("keydown", e=>{
     if(e.key==="r"||e.key==="R"){ if(glassMode){ spawnGlass(); positionControlPanel(); } else { arrangeSlimes(slimes.length||3); positionControlPanel(); } }
-    else if(e.key==="g"||e.key==="G"){ setMaterial(glassMode?0:1); }
+    else if(e.key==="g"||e.key==="G"){ setMaterial((matMode+1)%MATERIALS.length); }   // やわらか→氷→ガラス→陶器→…
     else if(e.key==="o"||e.key==="O"){ arrangeSlimes(slimes.length+1); positionControlPanel(); }
     else if(e.key==="p"||e.key==="P"){ arrangeSlimes(slimes.length-1); positionControlPanel(); }
     else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateLeverHandles(); drawFeelLabels(); }
@@ -1467,22 +1508,33 @@ window.__dbg = {
     updateRenderMesh();
     const st=this.state(); st.peakReturnSpeed=+peak.toFixed(3); return st;
   },
-  // --- 割れる素材（ガラス）段階6-1 の検証窓口 ---
-  glass(){ if(!renderer) return "no-renderer"; enterGlassMode(); return this.glassState(); },
+  // --- 割れる素材（氷/ガラス/陶器）段階6-2 の検証窓口 ---
+  glass(mi){ if(!renderer) return "no-renderer"; if(mi!=null){ brittleIdx=Math.max(0,Math.min(BRITTLE.length-1,mi)); } enterGlassMode(); return this.glassState(); },
   glassState(){
     let nan=false; for(const d of debris){ const p=d.mesh.position; if(Number.isNaN(p.x)||Number.isNaN(p.y)||Number.isNaN(p.z)){nan=true;break;} }
-    return { glassMode, alive:glass.alive, crack:+Math.min(1,glass.crack).toFixed(2), shards:debris.length, nan };
+    const B=BRITTLE[brittleIdx];
+    return { glassMode, material:B.name, alive:glass.alive, crack:+Math.min(1,glass.crack).toFixed(2), crackLevel:B.crackLevel, shards:debris.length, nan };
   },
-  // 外から押し込んで割れるまで／割れたら破片が出るのを測る
-  crackTest(sec){
-    enterGlassMode(); const C=glass.mesh.position;
-    const steps=Math.max(1,Math.round((sec||1.2)/FIXED)); let broke=false, brokeAt=-1;
+  // 外から押し込んで割れるまで／割れたら破片が出る＋ヒビが段階的に増えるのを測る
+  crackTest(mi, sec){
+    if(mi!=null){ brittleIdx=Math.max(0,Math.min(BRITTLE.length-1,mi)); } enterGlassMode(); const C=glass.mesh.position;
+    const steps=Math.max(1,Math.round((sec||1.5)/FIXED)); let broke=false, brokeAt=-1, maxCrackLevel=0;
     for(let s=0;s<steps;s++){
-      colN=0; addCol(C.x+TUNE.glassR+TUNE.fingerR-0.03, C.y, C.z, TUNE.fingerR);   // 外から3cm押し込む
+      colN=0; addCol(C.x+TUNE.glassR+TUNE.fingerR-0.02, C.y, C.z, TUNE.fingerR);   // 外から2cm押し込む（ヒビをためてから割る）
       updateGlass(FIXED);
+      if(BRITTLE[brittleIdx].crackLevel>maxCrackLevel) maxCrackLevel=BRITTLE[brittleIdx].crackLevel;
       if(!glass.alive){ broke=true; brokeAt=+(s*FIXED).toFixed(2); break; }
     }
-    return { broke, brokeAt, shards:debris.length, nan:this.glassState().nan };
+    return { material:BRITTLE[brittleIdx].name, broke, brokeAt, maxCrackLevel, shards:debris.length, nan:this.glassState().nan };
+  },
+  // 3素材すべて：割れる→破片が漏れず0に消える を通しで確認
+  allMaterialsTest(){
+    const out=[];
+    for(let mi=0; mi<BRITTLE.length; mi++){
+      const c=this.crackTest(mi,1.5); for(let i=0;i<Math.round(5/FIXED);i++) updateDebris(FIXED);
+      out.push({ material:BRITTLE[mi].name, broke:c.broke, brokeAt:c.brokeAt, maxCrackLevel:c.maxCrackLevel, shardsAfter5s:debris.length, nan:c.nan });
+    }
+    return out;
   },
   // 破片が時間で落ちて消える（漏れずに0になる）ことを測る
   debrisTick(sec){ const n=Math.max(1,Math.round((sec||4)/FIXED)); for(let i=0;i<n;i++) updateDebris(FIXED); return { shards:debris.length, nan:this.glassState().nan }; },

@@ -1216,11 +1216,14 @@ function pollInput(dt){
       _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
       if(_fwd.lengthSq() > 1e-6){
         _fwd.normalize();
+        const before = Math.hypot(target.group.position.x - _camPos.x, target.group.position.z - _camPos.z);
         const step = DOLLY_SIGN * bestDollyY * DOLLY_SPEED * dt;   // 視線の前後へ移動(スティック上下で 手元/奥)
         target.group.position.addScaledVector(_fwd, step);
-        const ddx = target.group.position.x - _camPos.x, ddz = target.group.position.z - _camPos.z;
-        const dist = Math.hypot(ddx, ddz);
-        if(dist < DOLLY_MIN || dist > DOLLY_MAX) target.group.position.addScaledVector(_fwd, -step);   // 近すぎ/見失いは戻す
+        const after = Math.hypot(target.group.position.x - _camPos.x, target.group.position.z - _camPos.z);
+        // [DOLLY_MIN, DOLLY_MAX] から「より外れる」動きだけ取り消す(範囲内へ戻す動きは許可=遠くに置いた体も引き戻せる)
+        const overBefore = Math.max(0, DOLLY_MIN - before) + Math.max(0, before - DOLLY_MAX);
+        const overAfter  = Math.max(0, DOLLY_MIN - after)  + Math.max(0, after  - DOLLY_MAX);
+        if(overAfter > overBefore) target.group.position.addScaledVector(_fwd, -step);
       }
       if(target !== activeItem) setActive(target);
     }
