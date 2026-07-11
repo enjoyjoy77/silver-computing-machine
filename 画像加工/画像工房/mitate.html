@@ -236,7 +236,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev8e";
+const REV = "v2 rev8f";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1210,7 +1210,8 @@ function pollInput(dt){
   // 手元寄せ: スティック上下で、指す/活動中の体を視線の前後へ寄せる/遠ざける(掴み・ピンチ中は不可。立像モードのみ)
   if(!pinch && !recalledThisFrame && bestDollyY !== 0 && (mode === 'relief' || mode === 'sculpt')){
     const gh = (bestDollyHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestDollyHd) : -1;
-    let target = (gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem;
+    // 彫刻中は「今彫っている体」に固定(上下の一撃でレーザーが別の体をかすめても対象がすり替わらない)。立像は指した体を寄せる
+    let target = (mode === 'sculpt') ? activeItem : ((gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem);
     if(target && target.group.parent === scene){
       const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos); cam.getWorldQuaternion(_camQ);
       _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
@@ -1225,7 +1226,7 @@ function pollInput(dt){
         const overAfter  = Math.max(0, DOLLY_MIN - after)  + Math.max(0, after  - DOLLY_MAX);
         if(overAfter > overBefore) target.group.position.addScaledVector(_fwd, -step);
       }
-      if(target !== activeItem) setActive(target);
+      if(mode !== 'sculpt' && target !== activeItem) setActive(target);   // 彫刻中は対象を切り替えない(すり替わり防止)
     }
   }
 }
