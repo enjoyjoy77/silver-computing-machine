@@ -50,7 +50,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { MarchingCubes } from "./lib/MarchingCubes.js";
 
-const REV = "v3 rev1";
+const REV = "v3 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* 0. 画面内ログ */
@@ -76,6 +76,8 @@ const TUNE = {
   brushK: 1.0,         // 筆の太さ＝指の半径×これ
   pileOuterK: 1.9,     // 盛る縁の外側どこまで（筆半径×これ）
   fingerR: 0.024,      // 指先の当たり半径(m)
+  tipRMax: 0.016,      // 指先コライダの上限半径(m)。実機の関節半径が大きくても頭打ち（mune実機①で確立）
+  palmR: 0.024,        // 手のひら中心のコライダ半径(m)。手首と中指付け根の中点に1つ置く
   ctrlR: 0.03,         // コントローラ先端の当たり半径(m)
   digGap: 16,          // 掘る音の最短間隔(ms相当のフレーム換算に使用)
   hapPoke: 0.4,
@@ -216,7 +218,7 @@ function pulseAll(i,ms){ pulse(0,i,ms); pulse(1,i,ms); }
 
 /* 6. AR */
 const controllers=[]; const ctrlOn=[false,false];
-const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip","index-finger-metacarpal","middle-finger-metacarpal"];
+const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"]; // 指先5つだけ。手のひらは別に自前で1球（mune方式）
 const markerMat=new THREE.MeshBasicMaterial({color:0xf0c19a,transparent:true,opacity:0.5,depthWrite:false});
 const markerGeo=new THREE.SphereGeometry(1,10,8); const markers=[];
 for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo,markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
@@ -243,7 +245,11 @@ function collectXRColliders(frame,ref){ colN=0;
   const session=renderer.xr.getSession();
   if(session&&frame&&ref){ for(const src of session.inputSources){ if(!src.hand)continue;
     for(const jn of TIP_JOINTS){ const j=src.hand.get(jn); if(!j)continue; const p=frame.getJointPose(j,ref); if(!p)continue;
-      const r=(p.radius&&p.radius>0)?p.radius:TUNE.fingerR; addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); } } }
+      const r=Math.min((p.radius&&p.radius>0)?p.radius+0.004:TUNE.fingerR, TUNE.tipRMax); addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); }
+    // 手のひらの中心 = 手首と中指の付け根(第3関節)の中間に1球（mune実機①で確立した方式）
+    const jw=src.hand.get("wrist"), jm=src.hand.get("middle-finger-phalanx-proximal");
+    if(jw&&jm){ const pw=frame.getJointPose(jw,ref), pm=frame.getJointPose(jm,ref);
+      if(pw&&pm){ addCol((pw.transform.position.x+pm.transform.position.x)/2,(pw.transform.position.y+pm.transform.position.y)/2,(pw.transform.position.z+pm.transform.position.z)/2, TUNE.palmR); } } } }
   for(let i=0;i<MAXCOL;i++){ if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; } }
 
 let xrSession=null,arStarting=false,pendingSpawn=false;
