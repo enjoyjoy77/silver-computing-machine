@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく（ガラスは突いて割る）／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／<b>G＝素材切替(やわらか/ゆれもの/氷/ガラス/陶器)</b>／R＝戻す（出し直す）
+  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく（ガラスは突いて割る）／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／<b>G＝素材切替(やわらか/氷/ガラス/陶器)</b>／R＝戻す（出し直す）
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v7 rev1";
+const REV = "v6 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -157,15 +157,6 @@ const TUNE = {
   debrisLife: 3.0,        // 破片が消えるまで(秒)。素材ごとに×lifeMul
   debrisGravity: 3.5,     // 破片の落下(m/s^2)。素材ごとに×gravMul
   debrisSpeed: 1.1,       // 破片の飛び散る速さ(m/s)（burstから applyBrittle が自動設定。素材ごとに×speedMul）
-  // --- ゆれもの（揺れ骨＝Kawaii Physics / VRM SpringBone 系の疑似物理）段階7 ---
-  yureSoft: 0.55,         // 【レバー】やわらかさ（右=やわらかく大きく揺れる）→ yureStiff に変換
-  yureKeep: 0.6,          // 【レバー】ゆれのこり（右=長くぷるぷる残る）→ yureDamp に変換
-  yureStiff: 0.10,        // 元の向きへ戻る力（0-1/歩。applyYure が自動設定）
-  yureDamp: 0.05,         // 揺れの減衰（0-1/歩。applyYure が自動設定）
-  yureGravity: 1.4,       // 揺れ毛にかかる重さ(m/s^2)。少しおじぎして垂れる
-  yureSegLen: 0.042,      // 節（ビーズ）1つぶんの長さ(m)
-  yureMaxAng: 1.15,       // 根本の向きからこれ以上曲がらない(ラジアン)＝裏返り防止
-  yureR: 0.017,           // ビーズの見た目半径(m)
 };
 
 /* ============================================================
@@ -283,7 +274,6 @@ function buildShape(kind){
     const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2], bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2], cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2];
     rv += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
   restVol=rv;
-  if(yureAnchorIdx) computeYureAnchors();   // 形が変わったら毛の生え場所も選び直す（初回はまだ空）
 }
 
 // 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
@@ -321,33 +311,7 @@ applyBrittle();
 const coreGeo = new THREE.SphereGeometry(TUNE.coreR, 16, 12);
 const coreMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0x5fd8ff, emissiveIntensity:1.0, roughness:0.3 });
 
-/* --- ゆれもの（揺れ骨）: スライムに生える「揺れる毛」の生え場所 --- */
-// 各毛＝静止形での生える向き（この向きに一番近い表面の粒を根本にする）。lenは節の長さ倍率
-const STRANDS = [
-  { dir:[0,1,0],          len:1.3  },  // アホ毛（てっぺん・長め）
-  { dir:[0.55,0.8,0],     len:1.0  },  // 右耳
-  { dir:[-0.55,0.8,0],    len:1.0  },  // 左耳
-  { dir:[0.7,-0.45,0.55], len:0.85 },  // 右下のしっぽ
-  { dir:[-0.7,-0.45,0.55],len:0.85 },  // 左下のしっぽ
-];
-const YSEGS = 4;                       // 1本の節の数（根本を除く）
-let yureAnchorIdx = [];                // 各毛の根本になる粒の番号（形替えで作り直す）
-let yureMode = false;                  // 「ゆれもの」素材が選ばれているか
-function computeYureAnchors(){
-  yureAnchorIdx = STRANDS.map(st=>{
-    const L=Math.hypot(st.dir[0],st.dir[1],st.dir[2])||1, ux=st.dir[0]/L, uy=st.dir[1]/L, uz=st.dir[2]/L;
-    let best=0, bestDot=-2;
-    for(let i=0;i<N;i++){
-      const rl=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2])||1;
-      const d=(rest[i*3]*ux+rest[i*3+1]*uy+rest[i*3+2]*uz)/rl;
-      if(d>bestDot){ bestDot=d; best=i; }
-    }
-    return best;
-  });
-}
-
 buildShape(SHAPES[shapeIdx].kind);   // 初期の形＝共有トポロジを組む
-computeYureAnchors();
 
 let anchorCenter = new THREE.Vector3(0, 0, 0);   // 「今処理中のスライム」の定位置（softStepで差し替え）
 const groupCenter = new THREE.Vector3(0, 0, 0);  // 並べたスライム全体の中心（操作盤の位置決め用）
@@ -357,7 +321,7 @@ let slimeReady = false;
 
 function usePtr(S){ pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; curScale=S.scale; }   // 現在ポインタを差し替え
 function makeSlime(){
-  const S = { curVol: restVol, scale: 1, yure: null, anchor: new THREE.Vector3(),
+  const S = { curVol: restVol, scale: 1, anchor: new THREE.Vector3(),
     mesh: new THREE.Mesh(baseGeo.clone(), slimeMat), core: new THREE.Mesh(coreGeo, coreMat) };
   S.mesh.frustumCulled = false; S.core.frustumCulled = false;
   S.geoAttr = S.mesh.geometry.attributes.position;
@@ -373,7 +337,6 @@ function placeSlime(S, cx, cy, cz, scale){         // 静止形を(大きさscal
     S.prev[i*3]=S.pos[i*3]; S.prev[i*3+1]=S.pos[i*3+1]; S.prev[i*3+2]=S.pos[i*3+2];
     S.vel[i*3]=0; S.vel[i*3+1]=0; S.vel[i*3+2]=0; }
   S.curVol = restVol*sc*sc*sc; S.core.scale.setScalar(sc); S.mesh.visible = true; S.core.visible = true;
-  S.yure = null;   // 置き直したら毛も生やし直す（次の yureStep で作られる）
 }
 function reinitSlimes(){                            // 形替え時：全スライムのジオメトリ＋配列を作り直し、今の位置へ
   for(const S of slimes){
@@ -766,11 +729,10 @@ function resetCrack(b){ const c=b.ctx; c.fillStyle="#000"; c.fillRect(0,0,b.cv.w
 function dirToUV(dx,dy,dz){ return [ 0.5+Math.atan2(dz,dx)/(Math.PI*2), 0.5-Math.asin(Math.max(-1,Math.min(1,dy)))/Math.PI ]; }
 function drawCrackBranch(b, u, v){   // 触れた所(u,v)からギザギザのひび線を数本、白で描く（色はemissiveが決める）
   const c=b.ctx, W=b.cv.width, H=b.cv.height, cx=u*W, cy=v*H;
-  const sizeMul = 0.7 + Math.max(0,Math.min(1,TUNE.burst))*1.2;   // 「はげしさ」レバーでヒビも大きく
-  c.strokeStyle="#ffffff"; c.lineWidth=(1.4+Math.random()*1.6)*sizeMul; c.lineCap="round";
+  c.strokeStyle="#ffffff"; c.lineWidth=1.4+Math.random()*1.6; c.lineCap="round";
   const branches=2+Math.floor(Math.random()*2);
   for(let br=0;br<branches;br++){
-    let x=cx,y=cy, ang=Math.random()*Math.PI*2; const seg=3+Math.floor(Math.random()*4), len=(24+Math.random()*70)*sizeMul, step=len/seg;
+    let x=cx,y=cy, ang=Math.random()*Math.PI*2; const seg=3+Math.floor(Math.random()*4), len=24+Math.random()*70, step=len/seg;
     c.beginPath(); c.moveTo(x,y);
     for(let s=0;s<seg;s++){ ang+=(Math.random()-0.5)*0.9; x+=Math.cos(ang)*step; y+=Math.sin(ang)*step; c.lineTo(x,y); }
     c.stroke();
@@ -785,15 +747,6 @@ let glassMode = false, matMode = 0, brittleIdx = 1;   // 0=氷,1=ガラス,2=陶
 let pcGlassPoke = null;            // PC確認モードのクリックつつき
 let lastCreak = 0;
 const _qd = new THREE.Quaternion();
-// つかむ・勢いよく投げてパリンと割る（段階6-4）
-let glassHeld = -1;                        // 持っている手(0/1)。-1=持っていない
-let glassThrown = false;                   // 投げて飛行中
-let glassFlightT = 0, glassFloorY = 0;     // 飛行時間・割れる高さ（この高さより下＝着地→割れる）
-const glassVel = new THREE.Vector3();      // 飛行速度
-const glassSpin = new THREE.Vector3(0,1,0);// 飛行中の回転軸
-const glassHandVel = new THREE.Vector3();  // 持っている手の速度推定（離した瞬間の速さ＝投げる勢い）
-const glassHeldOffset = new THREE.Vector3();
-const _ghPrev = new THREE.Vector3();
 
 function computeFrontCenter(out){   // カメラの正面・少し下（arrangeSlimes と同じ基準）
   const camN = (renderer && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
@@ -811,16 +764,15 @@ function spawnGlass(){
   glass.mesh.position.copy(groupCenter);
   glass.mesh.quaternion.identity(); glass.mesh.scale.setScalar(1);
   glass.mesh.visible = true; glass.alive = true; glass.crack = 0;
-  glassHeld = -1; glassThrown = false; glassVel.set(0,0,0);
   B.mat.emissiveIntensity = 0.5;
-  checkpoint("brittle", B.name+"を出した（押す/つかんで投げると割れます）");
+  checkpoint("brittle", B.name+"を出した（押すと割れます）");
 }
 function clearDebris(){
   for(const d of debris){ scene.remove(d.mesh); d.mesh.geometry.dispose(); if(d.mat && d.mat.dispose) d.mat.dispose(); }
   debris.length = 0;
 }
 function enterGlassMode(){
-  glassMode = true; matMode = brittleIdx+2;
+  glassMode = true; matMode = brittleIdx+1;
   for(const S of slimes){ S.mesh.visible=false; S.core.visible=false; }
   slimeGrab[0]=null; slimeGrab[1]=null;
   clearDebris();
@@ -835,21 +787,12 @@ function exitGlassMode(){
   reinitSlimes(); updateRenderMesh();    // 割れる素材で形を変えていても、やわらかを今の形に作り直す
   positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels();
 }
-// idx: 0=やわらか / 1=ゆれもの / 2=氷 / 3=ガラス / 4=陶器
+// idx: 0=やわらか / 1=氷 / 2=ガラス / 3=陶器
 function setMaterial(idx){
-  idx = ((idx%MATERIALS.length)+MATERIALS.length)%MATERIALS.length;
-  if(idx<=1){                                        // やわらか系（1=揺れる毛つき）
-    if(glassMode) exitGlassMode();
-    yureMode = (idx===1); matMode = idx;
-    if(yureMode){ for(const S of slimes) S.yure=null; }   // 生やし直す
-    else { yureInst.count=0; yureInst.visible=false; }
-    updateLeverHandles(); if(typeof drawFeelLabels==="function") drawFeelLabels();
-    return;
-  }
-  const bi = Math.max(0, Math.min(BRITTLE.length-1, idx-2));
-  yureMode=false; yureInst.count=0; yureInst.visible=false;
+  if(idx<=0){ if(glassMode) exitGlassMode(); return; }
+  const bi = Math.max(0, Math.min(BRITTLE.length-1, idx-1));
   if(!glassMode){ brittleIdx=bi; enterGlassMode(); }
-  else{ brittleIdx=bi; matMode=bi+2; clearDebris(); spawnGlass(); positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels(); }
+  else{ brittleIdx=bi; matMode=bi+1; clearDebris(); spawnGlass(); positionControlPanel(); if(typeof drawFeelLabels==="function") drawFeelLabels(); }
 }
 
 // 割れる：硬いメッシュを隠し、鋭い凸破片を作って外向きに飛ばす（自前の飛散）
@@ -858,8 +801,6 @@ function shatterGlass(){
   glass.alive = false; if(glass.mesh) glass.mesh.visible=false;
   const B = BRITTLE[brittleIdx], SH = B.shatter;
   const C = glass.mesh.position, pa = brittleShardGeo.attributes.position.array, triN = pa.length/9;
-  const spreadScale = 0.6 + Math.max(0,Math.min(1,TUNE.burst))*1.4;   // 「はげしさ」レバーで散り（広がり）も大きく
-  const ix = arguments[0]||0, iy = arguments[1]||0, iz = arguments[2]||0; // 投げた勢い（破片に乗せる）
   const K = Math.max(4, SH.count|0);
   const seeds = [];                                   // 破片の“核”になる方向をK個まく
   for(let k=0;k<K;k++){ let sx=Math.random()*2-1,sy=Math.random()*2-1,sz=Math.random()*2-1; const L=Math.hypot(sx,sy,sz)||1; seeds.push([sx/L,sy/L,sz/L]); }
@@ -891,10 +832,10 @@ function shatterGlass(){
     const m=new THREE.Mesh(g, sm); m.frustumCulled=false;
     m.position.set(C.x+ccx, C.y+ccy, C.z+ccz); scene.add(m);
     const dl=Math.hypot(ccx,ccy,ccz)||1, dx=ccx/dl,dy=ccy/dl,dz=ccz/dl;    // 外向きに飛ばす
-    const sp=TUNE.debrisSpeed*SH.speedMul*(0.6+Math.random()*0.8), spr=SH.spread*spreadScale, spin=SH.spin[0]+Math.random()*(SH.spin[1]-SH.spin[0]);
+    const sp=TUNE.debrisSpeed*SH.speedMul*(0.6+Math.random()*0.8), spr=SH.spread, spin=SH.spin[0]+Math.random()*(SH.spin[1]-SH.spin[0]);
     let axv=Math.random()*2-1,ayv=Math.random()*2-1,azv=Math.random()*2-1; const al=Math.hypot(axv,ayv,azv)||1;
     debris.push({ mesh:m, mat:sm, baseOpacity:B.shardOpacity, gravMul:SH.gravMul,
-      vx:ix+dx*sp+(Math.random()-0.5)*spr, vy:iy+dy*sp+SH.up+(Math.random()-0.5)*spr, vz:iz+dz*sp+(Math.random()-0.5)*spr,   // 投げた勢い＋外向き＋散り
+      vx:dx*sp+(Math.random()-0.5)*spr, vy:dy*sp+SH.up+(Math.random()-0.5)*spr, vz:dz*sp+(Math.random()-0.5)*spr,
       axis:new THREE.Vector3(axv/al,ayv/al,azv/al), spin:spin,
       life:TUNE.debrisLife*SH.lifeMul, maxLife:TUNE.debrisLife*SH.lifeMul });
     made++;
@@ -914,26 +855,6 @@ function updateDebris(dt){
   }
 }
 function updateGlass(dt){
-  // つかんでいる間：手に追従し、手の速度を推定（離した瞬間の速さ＝投げる勢い）
-  if(glassHeld>=0 && glass.alive){
-    const hp = grabHand[glassHeld];
-    _v2.copy(hp).sub(_ghPrev).multiplyScalar(1/Math.max(dt,1e-3));   // 手の速度
-    glassHandVel.lerp(_v2, 0.5); _ghPrev.copy(hp);
-    glass.mesh.position.copy(hp).add(glassHeldOffset); glass.mesh.scale.setScalar(1);
-    return;
-  }
-  // 投げて飛行中：重力で飛ばし、着地(高さ)か時間で割れる（投げた勢いを破片に乗せる）
-  if(glassThrown && glass.alive){
-    glassFlightT += dt;
-    glassVel.y -= TUNE.debrisGravity*dt;
-    glass.mesh.position.x += glassVel.x*dt; glass.mesh.position.y += glassVel.y*dt; glass.mesh.position.z += glassVel.z*dt;
-    _qd.setFromAxisAngle(glassSpin, 7*dt); glass.mesh.quaternion.premultiply(_qd);
-    if(glass.mesh.position.y < glassFloorY || glassFlightT > 1.8){
-      glassThrown = false;
-      shatterGlass(glassVel.x*0.5, glassVel.y*0.25, glassVel.z*0.5);   // パリン（勢いを破片へ）
-    }
-    return;
-  }
   if(pcGlassPoke){                                    // PC：クリック方向から中心へ指コライダを押し込む
     pcGlassPoke.t += dt; const f=pcGlassPoke.t/pcGlassPoke.dur;
     if(f>=1){ pcGlassPoke=null; colN=0; }
@@ -1045,132 +966,6 @@ function playCreak(level, base){
 }
 
 /* ============================================================
-   5c. ゆれもの（揺れ骨エンジン YURE）段階7
-   Kawaii Physics / VRM SpringBone / 胸揺れの定石を調べて自前実装した疑似物理。
-   仕組み: 各ビーズを (1)前フレームとの差分＝慣性(Verlet) (2)減衰 (3)重力
-   (4)元の向きへ引き戻す(stiffness) (5)節の長さを固定 (6)曲げ角度制限
-   (7)球コライダ押し出し、の順で毎歩更新。速度を変数で持たないので絶対に爆発しない。
-   XPBDの軟体とは別系統（軟体の粒に「根本」だけ乗せる）。
-   ============================================================ */
-function applyYure(){
-  const s = Math.max(0, Math.min(1, TUNE.yureSoft));
-  const k = Math.max(0, Math.min(1, TUNE.yureKeep));
-  TUNE.yureStiff = lerp(0.32, 0.035, s);   // 左=硬い(ぴん)／右=やわらかい(大きく揺れる)
-  TUNE.yureDamp  = lerp(0.16, 0.012, k);   // 左=すぐ収まる／右=長くぷるぷる残る
-}
-applyYure();
-
-// ビーズの描画＝InstancedMesh 1つ（最大 8体×5本×4節=160個でも1ドローコール）
-const yureGeo = new THREE.SphereGeometry(1, 10, 8);
-const yureMat = new THREE.MeshStandardMaterial({ color:0xff9ec7, emissive:0x5b2038, emissiveIntensity:0.55, roughness:0.4 });
-const yureInst = new THREE.InstancedMesh(yureGeo, yureMat, MAX_SLIMES*STRANDS.length*YSEGS);
-yureInst.count = 0; yureInst.frustumCulled = false; yureInst.visible = false; scene.add(yureInst);
-const _m4 = new THREE.Matrix4(), _qI = new THREE.Quaternion(), _s3 = new THREE.Vector3();
-
-function initYure(S){
-  // 各毛を「根本の粒から外向きにまっすぐ」の姿勢で作る（pts[0]=根本、以降が節）
-  const pts = new Float32Array(STRANDS.length*(YSEGS+1)*3);
-  const prv = new Float32Array(STRANDS.length*(YSEGS+1)*3);
-  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=S.pos[i*3];cy+=S.pos[i*3+1];cz+=S.pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-  for(let st=0; st<STRANDS.length; st++){
-    const p = yureAnchorIdx[st], b = st*(YSEGS+1)*3;
-    const ax=S.pos[p*3], ay=S.pos[p*3+1], az=S.pos[p*3+2];
-    let dx=ax-cx, dy=ay-cy, dz=az-cz; const L=Math.hypot(dx,dy,dz)||1; dx/=L; dy/=L; dz/=L;
-    const seg = TUNE.yureSegLen*STRANDS[st].len*S.scale;
-    for(let i=0;i<=YSEGS;i++){
-      pts[b+i*3]=ax+dx*seg*i; pts[b+i*3+1]=ay+dy*seg*i; pts[b+i*3+2]=az+dz*seg*i;
-      prv[b+i*3]=pts[b+i*3]; prv[b+i*3+1]=pts[b+i*3+1]; prv[b+i*3+2]=pts[b+i*3+2];
-    }
-  }
-  S.yure = { pts, prv };
-}
-
-function yureStep(h){
-  if(!yureMode || glassMode) return;
-  const stiff=TUNE.yureStiff, damp=TUNE.yureDamp, g=TUNE.yureGravity*h*h, maxAng=TUNE.yureMaxAng;
-  const cosMax=Math.cos(maxAng), sinMax=Math.sin(maxAng);
-  for(const S of slimes){
-    if(!S.yure) initYure(S);
-    const { pts, prv } = S.yure;
-    let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=S.pos[i*3];cy+=S.pos[i*3+1];cz+=S.pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-    const bodyR = TUNE.radius*S.scale*0.92;   // 自分の体にめり込まないための近似球
-    for(let st=0; st<STRANDS.length; st++){
-      const p = yureAnchorIdx[st], b = st*(YSEGS+1)*3;
-      const seg = TUNE.yureSegLen*STRANDS[st].len*S.scale;
-      // 根本＝軟体の粒に追従（キネマティック）。根本の向き＝重心→粒
-      const ax=S.pos[p*3], ay=S.pos[p*3+1], az=S.pos[p*3+2];
-      pts[b]=ax; pts[b+1]=ay; pts[b+2]=az; prv[b]=ax; prv[b+1]=ay; prv[b+2]=az;
-      let ddx=ax-cx, ddy=ay-cy, ddz=az-cz; const dl=Math.hypot(ddx,ddy,ddz)||1; ddx/=dl; ddy/=dl; ddz/=dl;
-      for(let i=1;i<=YSEGS;i++){
-        const o=b+i*3, po=b+(i-1)*3;
-        let x=pts[o], y=pts[o+1], z=pts[o+2];
-        // (1)慣性＋(2)減衰: 前フレームの動きを少し弱めて引き継ぐ
-        let nx = x + (x-prv[o])  *(1-damp);
-        let ny = y + (y-prv[o+1])*(1-damp) - g;              // (3)重力＝少し垂れる
-        let nz = z + (z-prv[o+2])*(1-damp);
-        // (4)元の向きへ戻る: 親から根本の向きへまっすぐ、が「本来の姿勢」
-        const tx=pts[po]+ddx*seg, ty=pts[po+1]+ddy*seg, tz=pts[po+2]+ddz*seg;
-        nx += (tx-nx)*stiff; ny += (ty-ny)*stiff; nz += (tz-nz)*stiff;
-        prv[o]=x; prv[o+1]=y; prv[o+2]=z;
-        // (5)節の長さを固定（伸びない・ちぎれない）
-        let vx=nx-pts[po], vy=ny-pts[po+1], vz=nz-pts[po+2];
-        let vl=Math.hypot(vx,vy,vz); if(vl<1e-9){ vx=ddx; vy=ddy; vz=ddz; vl=1; }
-        vx/=vl; vy/=vl; vz/=vl;
-        // (6)曲げ角度制限: 根本の向きから maxAng 以上は曲がらない（裏返り防止）
-        const dot = vx*ddx+vy*ddy+vz*ddz;
-        if(dot < cosMax){
-          let px=vx-ddx*dot, py=vy-ddy*dot, pz=vz-ddz*dot;
-          const pl=Math.hypot(px,py,pz);
-          if(pl>1e-9){ px/=pl; py/=pl; pz/=pl;
-            vx=ddx*cosMax+px*sinMax; vy=ddy*cosMax+py*sinMax; vz=ddz*cosMax+pz*sinMax; }
-          else { vx=ddx; vy=ddy; vz=ddz; }
-        }
-        nx=pts[po]+vx*seg; ny=pts[po+1]+vy*seg; nz=pts[po+2]+vz*seg;
-        // (7)コライダ押し出し: 指・コントローラ（＝はじいて遊べる）
-        for(let k2=0;k2<colN;k2++){
-          const rr=colR[k2]+TUNE.yureR*S.scale;
-          let ex=nx-colX[k2], ey=ny-colY[k2], ez=nz-colZ[k2];
-          const d2=ex*ex+ey*ey+ez*ez;
-          if(d2<rr*rr && d2>1e-12){ const d=Math.sqrt(d2), push=(rr-d)/d;
-            nx+=ex*push; ny+=ey*push; nz+=ez*push;
-            if(rr-d>contactDepth) contactDepth=rr-d; }
-        }
-        // 自分の体にもめり込まない
-        {
-          let ex=nx-cx, ey=ny-cy, ez=nz-cz;
-          const d2=ex*ex+ey*ey+ez*ez, rr=bodyR+TUNE.yureR*S.scale;
-          if(d2<rr*rr && d2>1e-12){ const d=Math.sqrt(d2), push=(rr-d)/d; nx+=ex*push; ny+=ey*push; nz+=ez*push; }
-        }
-        // 押し出し後にもう一度、長さだけ整える（SpringBoneの作法）
-        vx=nx-pts[po]; vy=ny-pts[po+1]; vz=nz-pts[po+2];
-        vl=Math.hypot(vx,vy,vz)||1;
-        pts[o]=pts[po]+vx/vl*seg; pts[o+1]=pts[po+1]+vy/vl*seg; pts[o+2]=pts[po+2]+vz/vl*seg;
-      }
-    }
-  }
-}
-
-function updateYureMesh(){
-  if(!yureMode || glassMode){ yureInst.count=0; yureInst.visible=false; return; }
-  let n=0;
-  for(const S of slimes){
-    if(!S.yure) continue;
-    const pts=S.yure.pts;
-    for(let st=0; st<STRANDS.length; st++){
-      const b=st*(YSEGS+1)*3;
-      for(let i=1;i<=YSEGS;i++){
-        const r = TUNE.yureR*S.scale*(1.15 - 0.16*i);          // 先に行くほど細く（先端だけ丸く残す）
-        _s3.setScalar(Math.max(r, TUNE.yureR*S.scale*0.45));
-        _v1.set(pts[b+i*3], pts[b+i*3+1], pts[b+i*3+2]);
-        _m4.compose(_v1, _qI, _s3);
-        yureInst.setMatrixAt(n++, _m4);
-      }
-    }
-  }
-  yureInst.count=n; yureInst.visible = n>0; yureInst.instanceMatrix.needsUpdate=true;
-}
-
-/* ============================================================
    6. AR：セッション・コントローラ・ハンド（浮かぶスライムを手で押す）
    ============================================================ */
 const controllers = [];
@@ -1189,12 +984,12 @@ const ctrlGroup = new THREE.Group(); ctrlGroup.visible = false; scene.add(ctrlGr
 const RAIL_LEN = 0.26;
 // 2本のレバー。やわらか時＝弾力/戻り速さ、割れる素材時＝溜めの長さ/破片の勢い に切り替わる
 const LEVERS = [
-  { key:"firm",  label:"弾力",     briKey:"breakSlow", briLabel:"われにくさ", yKey:"yureSoft", yLabel:"やわらかさ", color:0x7fe0a0, emissive:0x1c5b3a, yRail:0.07  },
-  { key:"resil", label:"戻り速さ", briKey:"burst",     briLabel:"破片の勢い", yKey:"yureKeep", yLabel:"ゆれのこり", color:0xffcf6b, emissive:0x5b431c, yRail:-0.01 },
+  { key:"firm",  label:"弾力",     briKey:"breakSlow", briLabel:"われにくさ", color:0x7fe0a0, emissive:0x1c5b3a, yRail:0.07  },
+  { key:"resil", label:"戻り速さ", briKey:"burst",     briLabel:"破片の勢い", color:0xffcf6b, emissive:0x5b431c, yRail:-0.01 },
 ];
-function leverKey(L){ return glassMode ? L.briKey : (yureMode ? L.yKey : L.key); }
-function leverLabel(L){ return glassMode ? L.briLabel : (yureMode ? L.yLabel : L.label); }
-function applyLever(){ if(glassMode) applyBrittle(); else if(yureMode) applyYure(); else applyFeel(); }
+function leverKey(L){ return glassMode ? L.briKey : L.key; }
+function leverLabel(L){ return glassMode ? L.briLabel : L.label; }
+function applyLever(){ if(glassMode) applyBrittle(); else applyFeel(); }
 for(const L of LEVERS){
   L.rail = new THREE.Mesh(new THREE.BoxGeometry(RAIL_LEN, 0.007, 0.007), new THREE.MeshStandardMaterial({ color:0x2a3a48, roughness:0.75 }));
   L.rail.position.set(0, L.yRail, 0); ctrlGroup.add(L.rail);
@@ -1232,14 +1027,14 @@ for(let i=0;i<SHAPES.length;i++){
   ctrlGroup.add(g);
   shapeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
-// 素材ボタン（やわらか／ゆれもの／氷／ガラス／陶器）＝レールのさらに上の段。硬い素材を選ぶと割れる素材モードへ
-const MATERIALS = ["やわらか","ゆれもの","氷","ガラス","陶器"];
+// 素材ボタン（やわらか／氷／ガラス／陶器）＝レールのさらに上の段。硬い素材を選ぶと割れる素材モードへ
+const MATERIALS = ["やわらか","氷","ガラス","陶器"];
 const matBtnMeshes = [];
 for(let i=0;i<MATERIALS.length;i++){
   const cv=document.createElement("canvas"); cv.width=176; cv.height=80;
   const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace;
-  const g=new THREE.Group(); g.position.set((i-2)*0.096, 0.255, 0);
-  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.088,0.038,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
+  const g=new THREE.Group(); g.position.set((i-1.5)*0.105, 0.255, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.092,0.038,0.012), new THREE.MeshStandardMaterial({ color:0x141d26, roughness:0.6 }));
   bg.position.set(0,0,-0.007); g.add(bg);
   const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.088,0.034), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
   lm.position.set(0,0,0.001); g.add(lm);
@@ -1328,31 +1123,11 @@ function onSelectStart(i){
       if(_v1.distanceTo(_v2) < 0.055){ setMaterial(b.idx); pulse(i,0.4,30); return; } // 素材（やわらか／ガラス）
     }
   }
-  if(glassMode){          // 割れる素材：近ければ“つかむ”（勢いよく投げるとパリンと割れる）
-    if(glass.alive && !glassThrown && glassHeld<0 && _v1.distanceTo(glass.mesh.position) < TUNE.glassR + 0.10){
-      glassHeld = i; glass.crack = 0; resetCrack(BRITTLE[brittleIdx]);
-      glassHeldOffset.copy(glass.mesh.position).sub(_v1);
-      _ghPrev.copy(_v1); glassHandVel.set(0,0,0); pulse(i,0.5,30);
-    }
-    return;
-  }
+  if(glassMode) return;   // ガラスは掴めない（手で押して割るだけ）
   // UIに当たらなければ、スライム表面をつかむ
   if(grabSlime(i, _v1.x, _v1.y, _v1.z)){ grabHand[i].copy(_v1); pulse(i,0.5,30); return; }
 }
-function onSelectEnd(i){
-  if(grab.ctrl===i){ grab.lever=-1; grab.ctrl=-1; }
-  slimeGrab[i]=null;
-  if(glassHeld===i){                       // 割れる素材を離した
-    glassHeld = -1;
-    if(glassHandVel.length() > 0.6){        // 勢いよく投げた → 飛ばして着地でパリン
-      glassVel.copy(glassHandVel);
-      glassThrown = true; glassFlightT = 0; glassFloorY = glass.mesh.position.y - 0.55;
-      glassSpin.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5); if(glassSpin.lengthSq()<1e-6)glassSpin.set(0,1,0); glassSpin.normalize();
-      pulse(i,0.4,30);
-    }
-    // そっと離した（勢いが弱い）＝その場に浮かべたまま（また押せる/つかめる）
-  }
-}
+function onSelectEnd(i){ if(grab.ctrl===i){ grab.lever=-1; grab.ctrl=-1; } slimeGrab[i]=null; }
 function updateGrab(){
   if(grab.lever<0 || !ctrlGroup.visible || !controllers[grab.ctrl]) return;
   const L = LEVERS[grab.lever];
@@ -1428,8 +1203,7 @@ async function startAR(){
       xrSession = null; for(const S of slimes){ S.mesh.visible=false; S.core.visible=false; } slimeReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
       ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; slimeGrab[0]=null; slimeGrab[1]=null;
-      clearDebris(); if(glass.mesh) glass.mesh.visible=false; glass.alive=false; pcGlassPoke=null; glassHeld=-1; glassThrown=false;
-      yureInst.count=0; yureInst.visible=false;
+      clearDebris(); if(glass.mesh) glass.mesh.visible=false; glass.alive=false; pcGlassPoke=null;
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -1572,11 +1346,10 @@ function stepSoft(dt){
   if(!slimeReady) return;
   physAcc += Math.min(dt, 0.05);
   let n=0; const p0=performance.now();
-  while(physAcc>=FIXED && n<3){ softStep(FIXED); yureStep(FIXED); physAcc-=FIXED; n++; }
+  while(physAcc>=FIXED && n<3){ softStep(FIXED); physAcc-=FIXED; n++; }
   if(n===3) physAcc=0;
   physMs = physMs*0.9 + (performance.now()-p0)*0.1;
   updateRenderMesh();
-  updateYureMesh();
 }
 function handleContactFX(){
   if(contactDepth > TUNE.squishMin){
@@ -1611,7 +1384,7 @@ function simulate(dt){
   checkSplitMerge(dt);
   handleContactFX();
   const V = curVol/restVol;
-  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"×"+slimes.length+"・"+FEELS[feelIdx].name+(yureMode?"＋ゆれ":"")+" 弾力"+Math.round(TUNE.firm*100)+"%";
+  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"×"+slimes.length+"・"+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -1676,7 +1449,7 @@ window.__dbg = {
     for(let s=0;s<steps;s++){
       const f = s<inSteps ? (s+1)/inSteps : 1;                            // 押し込み→保持（連続移動で表面が包む）
       colN=0; addCol(x0 - depth*f, anchorCenter.y, anchorCenter.z, TUNE.fingerR);
-      contactDepth=0; softStep(FIXED); yureStep(FIXED); handleContactFX();
+      contactDepth=0; softStep(FIXED); handleContactFX();
       const se = shapeErr(); if(se>maxShape) maxShape=se;
     }
     updateRenderMesh();
@@ -1724,11 +1497,11 @@ window.__dbg = {
   settle(sec){
     colN=0; pokeAnim=null;
     const steps=Math.max(1, Math.round((sec||1.0)/FIXED));
-    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); yureStep(FIXED); }
-    updateRenderMesh(); updateYureMesh();
+    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); }
+    updateRenderMesh();
     return this.state();
   },
-  tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); yureStep(FIXED); } updateRenderMesh(); updateYureMesh(); return this.state(); },
+  tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
   spawn(){ arrangeSlimes(1); usePtr(slimes[0]); updateRenderMesh(); return this.state(); },
   setCount(n){ arrangeSlimes(n); usePtr(slimes[0]); return {count:slimes.length}; },
   perSlime(){
@@ -1784,61 +1557,6 @@ window.__dbg = {
     updateRenderMesh();
     const st=this.state(); st.peakReturnSpeed=+peak.toFixed(3); return st;
   },
-  // --- ゆれもの（揺れ骨）段階7 の検証窓口 ---
-  yure(){ if(!slimeReady) this.spawn(); setMaterial(1); usePtr(slimes[0]); for(let s=0;s<5;s++){ contactDepth=0; softStep(FIXED); yureStep(FIXED); } updateRenderMesh(); updateYureMesh(); return this.yureState(); },
-  yureState(){
-    const S=slimes[0]; if(!S||!S.yure) return "no-yure";
-    const pts=S.yure.pts; let nan=false, maxLenErr=0, maxDeflect=0, maxTipSpeed=0;
-    let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=S.pos[i*3];cy+=S.pos[i*3+1];cz+=S.pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-    for(let st=0; st<STRANDS.length; st++){
-      const b=st*(YSEGS+1)*3, seg=TUNE.yureSegLen*STRANDS[st].len*S.scale;
-      for(let i=0;i<=(YSEGS)*3+2;i++){ if(Number.isNaN(pts[b+i])){nan=true;break;} }
-      for(let i=1;i<=YSEGS;i++){
-        const o=b+i*3, po=b+(i-1)*3;
-        const L=Math.hypot(pts[o]-pts[po],pts[o+1]-pts[po+1],pts[o+2]-pts[po+2]);
-        const e=Math.abs(L-seg)/seg; if(e>maxLenErr) maxLenErr=e;
-      }
-      // 根本の向きと先端の向きのずれ（ラジアン）＝揺れの振れ幅
-      let ddx=pts[b]-cx, ddy=pts[b+1]-cy, ddz=pts[b+2]-cz; const dl=Math.hypot(ddx,ddy,ddz)||1;
-      const tox=pts[b+YSEGS*3]-pts[b], toy=pts[b+YSEGS*3+1]-pts[b+1], toz=pts[b+YSEGS*3+2]-pts[b+2];
-      const tl=Math.hypot(tox,toy,toz)||1;
-      const ang=Math.acos(Math.max(-1,Math.min(1,(ddx*tox+ddy*toy+ddz*toz)/(dl*tl))));
-      if(ang>maxDeflect) maxDeflect=ang;
-      const o=b+YSEGS*3, sp=Math.hypot(pts[o]-S.yure.prv[o],pts[o+1]-S.yure.prv[o+1],pts[o+2]-S.yure.prv[o+2])/FIXED;
-      if(sp>maxTipSpeed) maxTipSpeed=sp;
-    }
-    return { yureMode, strands:STRANDS.length, beads:yureInst.count, maxLenErr:+maxLenErr.toFixed(4), maxDeflect:+maxDeflect.toFixed(3), maxTipSpeed:+maxTipSpeed.toFixed(3), nan };
-  },
-  // 本体を横に押して旅させ、毛が揺れる（振れ幅が出る）→止まると毛も収まる、を測る
-  yureSwingTest(v, sec, settleSec){
-    this.yure();
-    for(let i=0;i<N;i++){ vel[i*3]=(v==null?0.8:v); }
-    let maxD=0; const steps=Math.max(1,Math.round((sec||2.0)/FIXED));
-    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); yureStep(FIXED);
-      const st=this.yureState(); if(st.maxDeflect>maxD) maxD=st.maxDeflect; if(st.nan) return {nan:true}; }
-    // 収まりを見る（既定3秒。短くすれば「揺れの残り」を測れる）
-    for(let s=0;s<Math.round((settleSec==null?3:settleSec)/FIXED);s++){ contactDepth=0; softStep(FIXED); yureStep(FIXED); }
-    updateRenderMesh(); updateYureMesh();
-    const st=this.yureState(); st.maxSwing=+maxD.toFixed(3); return st;
-  },
-  // アホ毛のまん中を指ではじく→倒れる(角度制限内)→離すと戻る、を測る
-  yureFlickTest(sec){
-    this.yure();
-    const S=slimes[0], pts=S.yure.pts, b=0;   // アホ毛=毛0
-    let maxD=0; const steps=Math.max(1,Math.round((sec||0.6)/FIXED));
-    for(let s=0;s<steps;s++){
-      const o=b+2*3;                            // 2節目の位置に指を重ねて押す
-      colN=0; addCol(pts[o]-0.012, pts[o+1], pts[o+2], TUNE.fingerR);
-      contactDepth=0; softStep(FIXED); yureStep(FIXED);
-      const st=this.yureState(); if(st.maxDeflect>maxD) maxD=st.maxDeflect; if(st.nan) return {nan:true};
-    }
-    colN=0;
-    for(let s=0;s<Math.round(2.5/FIXED);s++){ contactDepth=0; softStep(FIXED); yureStep(FIXED); }
-    updateRenderMesh(); updateYureMesh();
-    const st=this.yureState(); st.maxFlick=+maxD.toFixed(3); st.underLimit=(maxD<=TUNE.yureMaxAng+0.05); return st;
-  },
-  setYureSoft(v){ TUNE.yureSoft=Math.max(0,Math.min(1,v)); applyYure(); return {yureSoft:TUNE.yureSoft, yureStiff:+TUNE.yureStiff.toFixed(3)}; },
-  setYureKeep(v){ TUNE.yureKeep=Math.max(0,Math.min(1,v)); applyYure(); return {yureKeep:TUNE.yureKeep, yureDamp:+TUNE.yureDamp.toFixed(3)}; },
   // --- 割れる素材（氷/ガラス/陶器）段階6-2 の検証窓口 ---
   glass(mi){ if(!renderer) return "no-renderer"; if(mi!=null){ brittleIdx=Math.max(0,Math.min(BRITTLE.length-1,mi)); } enterGlassMode(); return this.glassState(); },
   glassState(){

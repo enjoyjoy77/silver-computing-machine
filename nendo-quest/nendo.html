@@ -23,14 +23,14 @@
     padding:28px 22px;overflow-y:auto;text-align:center;}
   #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
   #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
-  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:460px;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:470px;}
   #goBtn{border:none;border-radius:16px;padding:20px 44px;font:inherit;font-size:19px;
     font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
     color:#2a1206;box-shadow:0 6px 22px rgba(217,139,95,.35);transition:opacity .2s,transform .1s;}
   #goBtn:active{transform:translateY(1px);}
   #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
   #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:460px;}
+    padding:14px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:470px;}
   #note b{color:var(--accent2);}
 
   #stats{position:fixed;top:8px;left:12px;z-index:40;font-size:11px;line-height:1.6;
@@ -62,9 +62,9 @@
 <div id="stats"></div>
 
 <div id="start">
-  <div class="mark">ねんど</div>
+  <div class="mark">ねんど（作り直し版）</div>
   <h1>ねんどを手で押して<br>形を変えてみる回です</h1>
-  <p>目の前のねんどを手やコントローラで押すと、へこみます。<br>スライムと違って、<b>はなしても へこんだまま形が残ります。</b><br>「丸める」で元の玉に戻せます。触りごこちを確かめる、土台の回です。</p>
+  <p>目の前のねんどを手やコントローラで押すと、へこみます。<br><b>押した跡はそのまま残り、押しのけた分は横に寄って盛り上がります。</b><br>中身の詰まった粘土として作り直した、土台の回です。「丸める」で玉に戻せます。</p>
   <button id="goBtn" disabled>じゅんび中…</button>
   <div id="note">
     <b>英語の画面が出たら</b><br>
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v1 rev1";
+const REV = "v2 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -107,41 +107,38 @@ function log(msg, isErr){
   logEl.scrollTop = logEl.scrollHeight;
   drawPanel();
 }
-function showErr(msg){
-  const e = $("err"); e.textContent = msg; e.style.display = "block"; log(msg, true);
-}
+function showErr(msg){ const e=$("err"); e.textContent=msg; e.style.display="block"; log(msg,true); }
 addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
 addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
-
 const cp = {};
 function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + msg); }
 
 /* ============================================================
-   1. 調整パラメータ（実機の往復はこの数値を回す。__dbg.tune で生変更可）
-   ねんど＝塑性(そせい)：スライムの「戻る力」を「今の形を新しい定位置にする」に置き換える。
-   ・shapeMemK＝ねんどの「腰(こし)」。今の“定位置”へ引く強さ。大きいほど硬い粘土
-   ・plasticRate＝へこみが“定着”する速さ。大きいほどすぐ形が残る
-   ・plasticYield＝この深さ(m)までは弾んで戻る（軽く触れた程度は残さない）。超えた分だけ残る
-   ・velDamping＝高くして死んだ手ざわり（ぷるぷる揺れない）
+   1. 調整パラメータ（実機の往復はこの数値。__dbg.tune で生変更可）
+   ねんど＝中身を粒でぎっしり詰めた「ソリッド」。要件3つを別々の係で出す:
+   ・腰(こし)＝ボンド(粒どうしの結び)の硬さ bondCompliance（小さいほど硬い＝押し応え）
+   ・跡が残る＝ボンドの塑性 plasticYield(この歪みまでは戻る)/plasticRate(定着の速さ)
+   ・材料が寄って盛り上がる＝反発 repulsion（粒は縮まない＝押した分よそへ寄る＝非圧縮）
    ============================================================ */
 const TUNE = {
-  radius: 0.12,           // ねんどの大きさ(m)
-  detail: 3,              // 球の細かさ。3=162点/320面。粒が粗いと指がすり抜けるので3以上
-  substeps: 12,           // XPBDのサブステップ（反復より歩幅を刻む方が効く）
-  edgeCompliance: 3e-3,   // 表面のやわらかさ（大きいほど柔らかい。粘土は柔らかい方が形が定着＝残る）
-  volCompliance: 0.0,     // 体積のやわらかさ（0＝押した量だけ他が膨らむ＝粘土は潰しても量が変わらない）
-  shapeMemK: 6.0,         // ねんどの腰（“今の定位置”へ引く弱い力。あくまで安定用。大きいと戻りがち）
-  plasticRate: 26.0,      // へこみが定着する速さ（1秒あたり。大きいほどすぐ形が残る）
-  plasticYield: 0.0025,   // これ(m)までは弾んで戻る。超えた分だけ永久に残る（塑性の“降伏点”）
-  velDamping: 8.0,        // 速度の減衰（高い＝ぷるぷる揺れない、死んだ手ざわり）
-  homeK: 55.0,            // 塊ぜんたいを定位置へ保つ力（強め＝押しても逃げずにへこむ。粘土は宙で固定されている想定）
-  gravity: 0.0,           // 重力(m/s^2)。0＝空中に浮く
-  fingerR: 0.026,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
-  ctrlR: 0.034,           // コントローラ先端の当たり半径(m)
-  maxStep: 0.05,          // 1サブステップの最大移動(m)（暴れ防止）
-  squishGap: 70,          // 音の最短間隔(ms)
-  squishMin: 0.004,       // この深さ(m)以上めり込んだら音・振動
-  hapPoke: 0.5,           // 触れた時の振動の強さ（コントローラのみ有効）
+  R0: 0.10,               // ねんどの半径(m)
+  spac: 0.020,            // 粒の間隔(m)。指(fingerR)より十分小さくないと指がすり抜ける。性能に直結
+  substeps: 6,            // 1/60秒の分割
+  bondRadiusK: 1.55,      // この×間隔 まで届く粒どうしを結ぶ
+  bondCompliance: 3e-6,   // 表面のつながり（柔らかめ＝指でちゃんと掘れる。腰は反発と塑性で作る）
+  plasticYield: 0.08,     // 歪み(伸縮率)がこれ以下は弾性で戻る。超えた分だけ永久に残る＝跡が残る境目
+  plasticRate: 12.0,      // 跡が定着する速さ(1/秒)
+  repDistK: 0.90,         // この×間隔 より近づいたら反発（非圧縮＝盛り上がりの係。1に近いほど縮まず盛る）
+  repCompliance: 3e-7,    // 反発の硬さ（腰＆盛り上がりの主役。小さいほど固い）
+  velDamping: 8.0,        // 速度の減衰（高い＝ぷるぷるせず、粘土の重い手ざわり）
+  homeK: 40.0,            // 塊ぜんたいを定位置へ保つ力（押しても逃げずにへこむ）
+  gravity: 0.0,           // 0＝空中に浮く
+  fingerR: 0.028,         // 指先の当たり半径(m)
+  ctrlR: 0.036,           // コントローラ先端の当たり半径(m)
+  maxStep: 0.04,          // 1サブステップの最大移動(m)（暴れ防止）
+  surfDetail: 3,          // 皮(見た目)の細かさ。3=642頂点
+  skinK: 4,               // 皮の各頂点が追従する粒の数
+  squishGap: 70, squishMin: 0.004, hapPoke: 0.5,
 };
 
 /* ============================================================
@@ -161,655 +158,429 @@ function init3D(){
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 100);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x30241a, 1.0));
-const dirLight = new THREE.DirectionalLight(0xfff2e2, 1.15); dirLight.position.set(1, 2.2, 1.0); scene.add(dirLight);
-
-// 使い回すスクラッチ（毎フレーム new しない：処理落ち＝酔い対策）
+const dirLight = new THREE.DirectionalLight(0xfff2e2, 1.2); dirLight.position.set(0.6, 1.6, 0.8); scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0xffe6cc, 0.35); dirLight2.position.set(-0.8, -0.4, -0.6); scene.add(dirLight2);
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q1 = new THREE.Quaternion();
 
-/* ============================================================
-   3. ねんど本体（自前XPBD：塑性つき軟体）
-   ============================================================ */
-// --- マットな粘土素材（つや消し・不透明。スライムの透け感とは真逆の質感） ---
-const clayMat = new THREE.MeshStandardMaterial({
-  color:0xc27b52, roughness:0.98, metalness:0.0,
-  emissive:0x2a140a, emissiveIntensity:0.25,   // 影の底が沈みすぎない程度の温かみ
-  flatShading:false,
-});
+// マットな粘土素材（つや消し・不透明）
+const clayMat = new THREE.MeshStandardMaterial({ color:0xc07a4e, roughness:1.0, metalness:0.0, emissive:0x281008, emissiveIntensity:0.22, flatShading:false });
 
-// メッシュのトポロジ（球を溶接して粒・辺・三角・静止体積を作る）
-let baseGeo, vCount, vmap, N, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, edgeLen0, restVol;
-// 「今のねんど」の状態（単一）。restShape＝塑性でだんだん変わる“定位置の形”
-let pos, prev, vel, restShape, curVol = 0, scaleC = 1;
-const anchor = new THREE.Vector3(0, 0, 0);   // 塊ぜんたいの定位置
-let mesh = null, geoAttr = null;
+/* ============================================================
+   3. ねんど本体（ソリッド粒子＋塑性ボンド＋非圧縮反発）
+   ============================================================ */
+let N=0, M=0;                       // 粒の数 / ボンドの数
+let rest, pos, prev, vel, invMass;  // Float32Array(N*3), invMass(N)
+let bA, bB, bLen, bLen0;            // ボンド: 粒a,粒b, 目標長(塑性で変わる), 原本
+const anchor = new THREE.Vector3(0,0,0);
 let clayReady = false;
 
-function buildBall(){
-  let g = new THREE.IcosahedronGeometry(TUNE.radius, TUNE.detail);
-  if(g.index) g = g.toNonIndexed();
-  const pa = g.attributes.position;
-  const vc = pa.count;
-  const vm = new Int32Array(vc);
-  const plist = []; const k2i = new Map(); const Q = 1e5;
-  for(let v=0;v<vc;v++){
-    const x=pa.getX(v), y=pa.getY(v), z=pa.getZ(v);
-    const key = Math.round(x*Q)+"_"+Math.round(y*Q)+"_"+Math.round(z*Q);
-    let idx = k2i.get(key);
-    if(idx===undefined){ idx = plist.length/3; k2i.set(key, idx); plist.push(x,y,z); }
-    vm[v] = idx;
-  }
-  const nn = plist.length/3, tn = vc/3;
-  const tt = new Int32Array(tn*3);
-  for(let t=0;t<tn;t++){ tt[t*3]=vm[t*3]; tt[t*3+1]=vm[t*3+1]; tt[t*3+2]=vm[t*3+2]; }
-  const eset = new Set(); const el = [];
-  const addE = (a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
-  for(let t=0;t<tn;t++){ const a=tt[t*3],b=tt[t*3+1],c=tt[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
-  const ee = new Int32Array(el), en = ee.length/2;
-  baseGeo=g; vCount=vc; vmap=vm; N=nn; triN=tn; tri=tt; edge=ee; edgeN=en;
-  rest=new Float32Array(plist); invMass=new Float32Array(N).fill(1); grad=new Float32Array(N*3);
-  edgeLen=new Float32Array(en); edgeLen0=new Float32Array(en);
-  for(let e=0;e<en;e++){ const a=ee[e*2],b=ee[e*2+1]; edgeLen[e]=Math.hypot(rest[a*3]-rest[b*3],rest[a*3+1]-rest[b*3+1],rest[a*3+2]-rest[b*3+2]); edgeLen0[e]=edgeLen[e]; }
-  let rv=0;
-  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
-    const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2], bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2], cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2];
-    rv += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
-  restVol=rv;
-}
-buildBall();
+// 皮(見た目メッシュ)
+let mesh=null, geoAttr=null, sVN=0, sIdx=null, sW=null;
+// 反発用の整数空間ハッシュ（毎ステップ再利用・文字列キーを使わない＝速い）
+const GN = 16;
+let gHead = null, gNext = null;
+let physMs = 0;
 
-function makeClay(){
-  if(mesh) return;
-  mesh = new THREE.Mesh(baseGeo.clone(), clayMat);
-  mesh.frustumCulled = false;
-  geoAttr = mesh.geometry.attributes.position;
-  pos = new Float32Array(N*3); prev = new Float32Array(N*3); vel = new Float32Array(N*3);
-  restShape = new Float32Array(N*3);
-  scene.add(mesh);
-}
-// 玉に戻す（丸める）：位置・速度・“定位置の形”をぜんぶ元の球へ
-function roundUp(cx, cy, cz){
-  if(!mesh) makeClay();
-  if(cx!=null) anchor.set(cx, cy, cz);
-  edgeLen.set(edgeLen0);   // 辺の目標の長さも元の玉へ戻す（塑性で伸び縮みした分をリセット）
-  for(let i=0;i<N;i++){
-    restShape[i*3]=rest[i*3]; restShape[i*3+1]=rest[i*3+1]; restShape[i*3+2]=rest[i*3+2];
-    pos[i*3]=rest[i*3]+anchor.x; pos[i*3+1]=rest[i*3+1]+anchor.y; pos[i*3+2]=rest[i*3+2]+anchor.z;
-    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
-    vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
+function buildClay(){
+  const R0=TUNE.R0, s=TUNE.spac;
+  // (1) 球の中を格子で粒詰め（少し揺らして左右対称の縮退を避ける）
+  const pts=[]; const R2=R0*R0; const n=Math.ceil(R0/s);
+  let seed=1;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return (seed/0x7fffffff-0.5); };
+  for(let ix=-n;ix<=n;ix++)for(let iy=-n;iy<=n;iy++)for(let iz=-n;iz<=n;iz++){
+    let x=ix*s+rnd()*s*0.06, y=iy*s+rnd()*s*0.06, z=iz*s+rnd()*s*0.06;  // 対称を崩す程度の微小な揺らぎ（大きいと反発と衝突）
+    if(x*x+y*y+z*z <= R2*1.001) pts.push(x,y,z);
   }
-  scaleC = 1; curVol = restVol; mesh.visible = true;
-  clayReady = true;
-  updateRenderMesh();
-  checkpoint("spawn", "ねんどを出した");
+  N=pts.length/3;
+  rest=new Float32Array(pts); pos=new Float32Array(N*3); prev=new Float32Array(N*3); vel=new Float32Array(N*3);
+  invMass=new Float32Array(N).fill(1);
+  // (2) 近い粒どうしをボンドで結ぶ（空間ハッシュで近傍探索）
+  const br=s*TUNE.bondRadiusK, br2=br*br;
+  const cell=br; const grid=new Map();
+  const gk=(x,y,z)=>Math.floor(x/cell)+"_"+Math.floor(y/cell)+"_"+Math.floor(z/cell);
+  for(let i=0;i<N;i++){ const k=gk(rest[i*3],rest[i*3+1],rest[i*3+2]); let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push(i); }
+  const ba=[],bb=[],bl=[];
+  for(let i=0;i<N;i++){ const xi=rest[i*3],yi=rest[i*3+1],zi=rest[i*3+2];
+    const cx=Math.floor(xi/cell),cy=Math.floor(yi/cell),cz=Math.floor(zi/cell);
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){
+      const a=grid.get((cx+dx)+"_"+(cy+dy)+"_"+(cz+dz)); if(!a) continue;
+      for(const j of a){ if(j<=i) continue;
+        const ddx=rest[j*3]-xi,ddy=rest[j*3+1]-yi,ddz=rest[j*3+2]-zi; const d2=ddx*ddx+ddy*ddy+ddz*ddz;
+        if(d2<br2 && d2>1e-12){ ba.push(i); bb.push(j); bl.push(Math.sqrt(d2)); }
+      }
+    }
+  }
+  M=ba.length; bA=Int32Array.from(ba); bB=Int32Array.from(bb); bLen=Float32Array.from(bl); bLen0=Float32Array.from(bl);
+  gHead=new Int32Array(GN*GN*GN); gNext=new Int32Array(N);   // 反発用ハッシュを確保
+  buildSkin();
 }
-// カメラ正面・少し下にねんどを置き直す
+
+// 皮：icosphere の各頂点を、一番近い粒 skinK 個に重み付きで追従させる
+function buildSkin(){
+  let g=new THREE.IcosahedronGeometry(TUNE.R0, TUNE.surfDetail);
+  g.deleteAttribute("normal"); g.deleteAttribute("uv");
+  const pa=g.attributes.position; sVN=pa.count;
+  sIdx=new Int32Array(sVN*TUNE.skinK); sW=new Float32Array(sVN*TUNE.skinK);
+  const K=TUNE.skinK; const nd=new Array(K), nw=new Array(K);
+  for(let v=0;v<sVN;v++){
+    const vx=pa.getX(v),vy=pa.getY(v),vz=pa.getZ(v);
+    for(let k=0;k<K;k++){ nd[k]=1e9; nw[k]=-1; }
+    for(let i=0;i<N;i++){ const dx=rest[i*3]-vx,dy=rest[i*3+1]-vy,dz=rest[i*3+2]-vz; const d=dx*dx+dy*dy+dz*dz;
+      let mx=0; for(let k=1;k<K;k++){ if(nd[k]>nd[mx]) mx=k; }
+      if(d<nd[mx]){ nd[mx]=d; nw[mx]=i; }
+    }
+    let sw=0; for(let k=0;k<K;k++){ const w=1/(Math.sqrt(nd[k])+1e-4); sIdx[v*K+k]=nw[k]<0?0:nw[k]; sW[v*K+k]=w; sw+=w; }
+    for(let k=0;k<K;k++) sW[v*K+k]/=sw;
+  }
+  if(mesh){ scene.remove(mesh); mesh.geometry.dispose(); }
+  mesh=new THREE.Mesh(g, clayMat); mesh.frustumCulled=false; geoAttr=g.attributes.position; scene.add(mesh);
+}
+
+function spawnClay(cx,cy,cz){
+  if(N===0) buildClay();
+  anchor.set(cx,cy,cz);
+  for(let i=0;i<N;i++){ pos[i*3]=rest[i*3]+cx; pos[i*3+1]=rest[i*3+1]+cy; pos[i*3+2]=rest[i*3+2]+cz;
+    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2]; vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0; }
+  bLen.set(bLen0);
+  clayReady=true; mesh.visible=true;
+  updateSkin();
+  checkpoint("spawn","ねんどを出した（粒"+N+"・結び"+M+"）");
+}
+// 玉に戻す（丸める）：位置・速度・ボンド目標長をぜんぶ元へ
+function roundUp(){ if(!clayReady) return; spawnClay(anchor.x,anchor.y,anchor.z); }
+
 function respawnInFront(){
-  const camN = (renderer && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+  const camN=(renderer&&renderer.xr.isPresenting)?renderer.xr.getCamera():camera;
   camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  roundUp(_v1.x + _v2.x*0.5, _v1.y - 0.05, _v1.z + _v2.z*0.5);
+  spawnClay(_v1.x+_v2.x*0.5, _v1.y-0.05, _v1.z+_v2.z*0.5);
   positionButton();
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PCつつき） --- */
-const MAXCOL = 24;
-const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
-let colN = 0;
-let contactDepth = 0;   // このフレームで一番深くめり込んだ量
-function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+const MAXCOL=24;
+const colX=new Float32Array(MAXCOL),colY=new Float32Array(MAXCOL),colZ=new Float32Array(MAXCOL),colR=new Float32Array(MAXCOL);
+let colN=0, contactDepth=0;
+function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x;colY[colN]=y;colZ[colN]=z;colR[colN]=r;colN++; }
 
-/* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
-const FIXED = 1/60;
-let physAcc = 0, physMs = 0;
-
+/* --- XPBD 1歩 --- */
+const FIXED=1/60; let physAcc=0;
 function softStep(h){
   if(!clayReady) return;
-  const sub = TUNE.substeps, sdt = h/sub;
+  const sub=TUNE.substeps, sdt=h/sub;
   for(let s=0;s<sub;s++){
     integrate(sdt);
-    solveEdges(sdt);
-    solveVolume(sdt);
+    solveBonds(sdt);
+    solveRepulsion(sdt);   // 非圧縮＝盛り上がりの係
     solveColliders();
     finalize(sdt);
-    plasticUpdate(sdt);   // ← ねんどの心臓：へこみを“定位置”に染み込ませる
+    plasticBonds(sdt);     // 跡が残る係
   }
 }
 function integrate(sdt){
-  // 重心(COM)を出す。形の戻りはCOM相対、塊ぜんたいの位置はCOMをホームへ引く
-  let cx=0,cy=0,cz=0;
-  for(let i=0;i<N;i++){ cx+=pos[i*3]; cy+=pos[i*3+1]; cz+=pos[i*3+2]; }
-  cx/=N; cy/=N; cz/=N;
+  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
   const hx=(anchor.x-cx)*TUNE.homeK, hy=(anchor.y-cy)*TUNE.homeK, hz=(anchor.z-cz)*TUNE.homeK;
-  const damp = Math.max(0, 1 - TUNE.velDamping*sdt);
-  const k = TUNE.shapeMemK, mx = TUNE.maxStep;
+  const damp=Math.max(0,1-TUNE.velDamping*sdt), mx=TUNE.maxStep;
   for(let i=0;i<N;i++){
-    // “今の定位置の形(restShape)”へ引く（COM相対）。restShapeは塑性でだんだん変わる
-    const sx=(cx+restShape[i*3]*scaleC  -pos[i*3])*k;
-    const sy=(cy+restShape[i*3+1]*scaleC-pos[i*3+1])*k;
-    const sz=(cz+restShape[i*3+2]*scaleC-pos[i*3+2])*k;
-    let vx=(vel[i*3]   + (sx+hx)*sdt)*damp;
-    let vy=(vel[i*3+1] + (sy+hy+TUNE.gravity)*sdt)*damp;
-    let vz=(vel[i*3+2] + (sz+hz)*sdt)*damp;
-    vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
-    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
-    let dx=vx*sdt, dy=vy*sdt, dz=vz*sdt;
-    const st=Math.hypot(dx,dy,dz);
-    if(st>mx){ const kk=mx/st; dx*=kk; dy*=kk; dz*=kk; }
-    pos[i*3]+=dx; pos[i*3+1]+=dy; pos[i*3+2]+=dz;
+    let vx=(vel[i*3]+hx*sdt)*damp;
+    let vy=(vel[i*3+1]+(hy+TUNE.gravity)*sdt)*damp;
+    let vz=(vel[i*3+2]+hz*sdt)*damp;
+    vel[i*3]=vx;vel[i*3+1]=vy;vel[i*3+2]=vz;
+    prev[i*3]=pos[i*3];prev[i*3+1]=pos[i*3+1];prev[i*3+2]=pos[i*3+2];
+    let dx=vx*sdt,dy=vy*sdt,dz=vz*sdt; const st=Math.hypot(dx,dy,dz);
+    if(st>mx){const kk=mx/st;dx*=kk;dy*=kk;dz*=kk;}
+    pos[i*3]+=dx;pos[i*3+1]+=dy;pos[i*3+2]+=dz;
   }
 }
-function solveEdges(sdt){
-  const alpha = TUNE.edgeCompliance/(sdt*sdt);
-  for(let e=0;e<edgeN;e++){
-    const a=edge[e*2], b=edge[e*2+1];
-    let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
+function solveBonds(sdt){
+  const alpha=TUNE.bondCompliance/(sdt*sdt);
+  for(let e=0;e<M;e++){
+    const a=bA[e],b=bB[e];
+    let gx=pos[a*3]-pos[b*3],gy=pos[a*3+1]-pos[b*3+1],gz=pos[a*3+2]-pos[b*3+2];
     const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
-    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const C=len-edgeLen[e]*scaleC;
-    const wa=invMass[a], wb=invMass[b];
-    const s=-C/(wa+wb+alpha);
-    pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
-    pos[b*3]-=gx*s*wb; pos[b*3+1]-=gy*s*wb; pos[b*3+2]-=gz*s*wb;
+    const inv=1/len; gx*=inv;gy*=inv;gz*=inv;
+    const C=len-bLen[e], wa=invMass[a],wb=invMass[b], sC=-C/(wa+wb+alpha);
+    pos[a*3]+=gx*sC*wa;pos[a*3+1]+=gy*sC*wa;pos[a*3+2]+=gz*sC*wa;
+    pos[b*3]-=gx*sC*wb;pos[b*3+1]-=gy*sC*wb;pos[b*3+2]-=gz*sC*wb;
   }
 }
-function solveVolume(sdt){
-  grad.fill(0);
-  let V=0;
-  for(let t=0;t<triN;t++){
-    const a=tri[t*3], b=tri[t*3+1], c=tri[t*3+2];
-    const ax=pos[a*3],ay=pos[a*3+1],az=pos[a*3+2];
-    const bx=pos[b*3],by=pos[b*3+1],bz=pos[b*3+2];
-    const cx=pos[c*3],cy=pos[c*3+1],cz=pos[c*3+2];
-    const bcx=by*cz-bz*cy, bcy=bz*cx-bx*cz, bcz=bx*cy-by*cx; // b×c
-    V += (ax*bcx+ay*bcy+az*bcz)/6;
-    grad[a*3]+=bcx/6; grad[a*3+1]+=bcy/6; grad[a*3+2]+=bcz/6;
-    const cax=cy*az-cz*ay, cay=cz*ax-cx*az, caz=cx*ay-cy*ax;
-    grad[b*3]+=cax/6; grad[b*3+1]+=cay/6; grad[b*3+2]+=caz/6;
-    const abx=ay*bz-az*by, aby=az*bx-ax*bz, abz=ax*by-ay*bx;
-    grad[c*3]+=abx/6; grad[c*3+1]+=aby/6; grad[c*3+2]+=abz/6;
+// 非圧縮の反発：間隔より近づいた粒どうしを押し戻す（＝押した分がよそへ寄って盛り上がる）
+// 整数の空間ハッシュ（head/next の連結リスト。文字列キー・毎回のalloc無し＝速い）
+function solveRepulsion(sdt){
+  const minD=TUNE.spac*TUNE.repDistK, minD2=minD*minD, cell=TUNE.spac;
+  const alpha=TUNE.repCompliance/(sdt*sdt);
+  const ox=anchor.x-GN*cell*0.5, oy=anchor.y-GN*cell*0.5, oz=anchor.z-GN*cell*0.5;
+  gHead.fill(-1);
+  for(let i=0;i<N;i++){
+    let ix=(pos[i*3]-ox)/cell|0, iy=(pos[i*3+1]-oy)/cell|0, iz=(pos[i*3+2]-oz)/cell|0;
+    if(ix<0)ix=0;else if(ix>=GN)ix=GN-1; if(iy<0)iy=0;else if(iy>=GN)iy=GN-1; if(iz<0)iz=0;else if(iz>=GN)iz=GN-1;
+    const c=ix+GN*(iy+GN*iz); gNext[i]=gHead[c]; gHead[c]=i;
   }
-  curVol = V;
-  const alpha = TUNE.volCompliance/(sdt*sdt);
-  let denom = alpha;
-  for(let i=0;i<N;i++){ const gx=grad[i*3],gy=grad[i*3+1],gz=grad[i*3+2]; denom += invMass[i]*(gx*gx+gy*gy+gz*gz); }
-  if(denom<1e-12) return;
-  const C = V - restVol*scaleC*scaleC*scaleC;
-  const s = -C/denom;
-  for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
-}
-function solveColliders(){
-  for(let k=0;k<colN;k++){
-    const cx=colX[k], cy=colY[k], cz=colZ[k], R=colR[k], R2=R*R;
-    for(let i=0;i<N;i++){
-      let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
-      const d2=dx*dx+dy*dy+dz*dz;
-      if(d2<R2){
-        if(d2>1e-12){
-          const d=Math.sqrt(d2), push=(R-d)/d;
-          pos[i*3]+=dx*push; pos[i*3+1]+=dy*push; pos[i*3+2]+=dz*push;
-          if(R-d>contactDepth) contactDepth=R-d;
-        }else{
-          pos[i*3+1]+=R; if(R>contactDepth) contactDepth=R;
+  for(let i=0;i<N;i++){ const xi=pos[i*3],yi=pos[i*3+1],zi=pos[i*3+2];
+    let ix=(xi-ox)/cell|0, iy=(yi-oy)/cell|0, iz=(zi-oz)/cell|0;
+    if(ix<1)ix=1;else if(ix>GN-2)ix=GN-2; if(iy<1)iy=1;else if(iy>GN-2)iy=GN-2; if(iz<1)iz=1;else if(iz>GN-2)iz=GN-2;
+    for(let dz=-1;dz<=1;dz++)for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      let j=gHead[(ix+dx)+GN*((iy+dy)+GN*(iz+dz))];
+      while(j>=0){
+        if(j>i){ let gx=xi-pos[j*3],gy=yi-pos[j*3+1],gz=zi-pos[j*3+2]; const d2=gx*gx+gy*gy+gz*gz;
+          if(d2<minD2 && d2>1e-12){ const d=Math.sqrt(d2), inv=1/d; gx*=inv;gy*=inv;gz*=inv;
+            const C=d-minD, sC=-C/(2+alpha);          // 近すぎる時だけ押し離す(C<0)
+            pos[i*3]+=gx*sC;pos[i*3+1]+=gy*sC;pos[i*3+2]+=gz*sC;
+            pos[j*3]-=gx*sC;pos[j*3+1]-=gy*sC;pos[j*3+2]-=gz*sC;
+          }
         }
+        j=gNext[j];
       }
     }
   }
 }
-function finalize(sdt){
-  const inv=1/sdt;
-  for(let i=0;i<N*3;i++){ vel[i]=(pos[i]-prev[i])*inv; }
-}
-// ★塑性：現在の形(pos)へ“定位置の形(restShape)”をだんだん寄せる。
-//   降伏点(plasticYield)までは寄せない＝軽く触れた分は弾んで戻る。超えた分だけ永久に残る。
-function plasticUpdate(sdt){
-  let cx=0,cy=0,cz=0;
-  for(let i=0;i<N;i++){ cx+=pos[i*3]; cy+=pos[i*3+1]; cz+=pos[i*3+2]; }
-  cx/=N; cy/=N; cz/=N;
-  const frac = 1 - Math.exp(-TUNE.plasticRate*sdt);   // このサブステップで寄せる割合
-  const yld = TUNE.plasticYield;
-  const invS = scaleC>1e-6 ? 1/scaleC : 1;
-  // (1)形の記憶(restShape)を今の形へ流す
-  for(let i=0;i<N;i++){
-    const rx=(pos[i*3]-cx)*invS, ry=(pos[i*3+1]-cy)*invS, rz=(pos[i*3+2]-cz)*invS; // 現在の“形”（COM相対）
-    let ox=rx-restShape[i*3], oy=ry-restShape[i*3+1], oz=rz-restShape[i*3+2];
-    const mag=Math.hypot(ox,oy,oz);
-    if(mag<=yld) continue;                            // 降伏点以下＝弾性（残さない）
-    const excess=(mag-yld)/mag * frac;                // 降伏点を超えた分だけ、割合ぶん定着
-    restShape[i*3]  +=ox*excess;
-    restShape[i*3+1]+=oy*excess;
-    restShape[i*3+2]+=oz*excess;
-  }
-  // (2)辺の目標の長さ(edgeLen)も今の長さへ流す＝表面が自分でへこみを押し戻さない（粘土の要）
-  const eyld = yld*0.5;
-  for(let e=0;e<edgeN;e++){
-    const a=edge[e*2], b=edge[e*2+1];
-    const L=Math.hypot(pos[a*3]-pos[b*3], pos[a*3+1]-pos[b*3+1], pos[a*3+2]-pos[b*3+2])*invS;
-    const diff=L-edgeLen[e], mag=Math.abs(diff);
-    if(mag<=eyld) continue;
-    edgeLen[e]+=diff*(mag-eyld)/mag*frac;
+function solveColliders(){
+  for(let k=0;k<colN;k++){ const cx=colX[k],cy=colY[k],cz=colZ[k],R=colR[k],R2=R*R;
+    for(let i=0;i<N;i++){ let dx=pos[i*3]-cx,dy=pos[i*3+1]-cy,dz=pos[i*3+2]-cz; const d2=dx*dx+dy*dy+dz*dz;
+      if(d2<R2){ if(d2>1e-12){ const d=Math.sqrt(d2),push=(R-d)/d; pos[i*3]+=dx*push;pos[i*3+1]+=dy*push;pos[i*3+2]+=dz*push; if(R-d>contactDepth)contactDepth=R-d; }
+        else { pos[i*3+1]+=R; if(R>contactDepth)contactDepth=R; } }
+    }
   }
 }
-
-function updateRenderMesh(){
-  if(!mesh) return;
-  const pa=geoAttr;
-  for(let v=0;v<vCount;v++){ const i=vmap[v]; pa.setXYZ(v, pos[i*3], pos[i*3+1], pos[i*3+2]); }
-  pa.needsUpdate = true; mesh.geometry.computeVertexNormals();
+function finalize(sdt){ const inv=1/sdt; for(let i=0;i<N*3;i++){ vel[i]=(pos[i]-prev[i])*inv; } }
+// 塑性：ボンドの歪み(伸縮率)が降伏点を超えた分だけ、目標長を今の長さへ流す＝跡が永久に残る／こねると伸びる
+function plasticBonds(sdt){
+  const frac=1-Math.exp(-TUNE.plasticRate*sdt), yld=TUNE.plasticYield;
+  for(let e=0;e<M;e++){ const a=bA[e],b=bB[e];
+    const L=Math.hypot(pos[a*3]-pos[b*3],pos[a*3+1]-pos[b*3+1],pos[a*3+2]-pos[b*3+2]);
+    const rest0=bLen[e]; if(rest0<1e-9) continue;
+    const strain=(L-rest0)/rest0, mag=Math.abs(strain);
+    if(mag<=yld) continue;
+    bLen[e]+=(L-rest0)*((mag-yld)/mag)*frac;
+  }
+}
+function updateSkin(){
+  if(!mesh) return; const K=TUNE.skinK, pa=geoAttr;
+  for(let v=0;v<sVN;v++){ let x=0,y=0,z=0; for(let k=0;k<K;k++){ const i=sIdx[v*K+k],w=sW[v*K+k]; x+=pos[i*3]*w;y+=pos[i*3+1]*w;z+=pos[i*3+2]*w; }
+    pa.setXYZ(v,x,y,z); }
+  pa.needsUpdate=true; mesh.geometry.computeVertexNormals();
 }
 
 /* ============================================================
-   4. 音（むにゅ／ぺた、をブラウザ内で合成。音声ファイル同梱ゼロ）
+   4. 音（むにゅ／ぺた）
    ============================================================ */
-let actx = null, voices = 0;
-function ensureAudio(){
-  if(!actx){ try{ actx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return; } }
-  if(actx && actx.state === "suspended") actx.resume();
-}
-// 触れた音：低くて鈍い「むにゅ／ぺた」。粘土なので弾まない・すぐ収まる・控えめ
+let actx=null, voices=0;
+function ensureAudio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; } } if(actx&&actx.state==="suspended") actx.resume(); }
 function playSquish(strength){
-  if(!actx || voices >= 6) return;
-  const now = actx.currentTime, dur = 0.12 + strength*0.05;
-  const f0 = 150*(0.9 + strength*0.35);
-  const o = actx.createOscillator(); o.type="sine";
-  o.frequency.setValueAtTime(f0, now);
-  o.frequency.exponentialRampToValueAtTime(f0*0.55, now+dur);   // 下がって鈍く消える（弾まない）
-  const lp = actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=520+strength*350; lp.Q.value=0.5;
-  const g = actx.createGain();
-  const vol = Math.min(0.17, 0.03 + strength*0.16);
-  g.gain.setValueAtTime(0.0001, now);
-  g.gain.linearRampToValueAtTime(vol, now+0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
-  o.connect(lp).connect(g).connect(actx.destination);
-  voices++; o.onended = ()=>{ voices--; };
-  o.start(now); o.stop(now+dur);
+  if(!actx||voices>=6) return; const now=actx.currentTime, dur=0.12+strength*0.05, f0=150*(0.9+strength*0.35);
+  const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(f0,now); o.frequency.exponentialRampToValueAtTime(f0*0.55,now+dur);
+  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=520+strength*350; lp.Q.value=0.5;
+  const g=actx.createGain(); const vol=Math.min(0.17,0.03+strength*0.16);
+  g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(vol,now+0.012); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  o.connect(lp).connect(g).connect(actx.destination); voices++; o.onended=()=>{voices--;}; o.start(now); o.stop(now+dur);
 }
-// 丸めた音（ぽむっ）
-function playRound(){
-  if(!actx) return; const now=actx.currentTime, dur=0.18;
+function playRound(){ if(!actx) return; const now=actx.currentTime,dur=0.18;
   const o=actx.createOscillator(); o.type="sine"; o.frequency.setValueAtTime(240,now); o.frequency.exponentialRampToValueAtTime(120,now+dur);
   const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=700;
   const g=actx.createGain(); g.gain.setValueAtTime(0.0001,now); g.gain.linearRampToValueAtTime(0.15,now+0.02); g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
-  o.connect(lp).connect(g).connect(actx.destination); o.start(now); o.stop(now+dur);
-}
+  o.connect(lp).connect(g).connect(actx.destination); o.start(now); o.stop(now+dur); }
 
 /* ============================================================
-   5. 振動（コントローラのみ。素手ハンドトラッキングは物理的に振動不可）
+   5. 振動（コントローラのみ）
    ============================================================ */
-const gamepads = [null, null];
-function pulse(i, intensity, ms){
-  try{ const gp=gamepads[i]; const a=gp && gp.hapticActuators && gp.hapticActuators[0]; if(a && a.pulse) a.pulse(Math.max(0,Math.min(1,intensity)), ms); }catch(_){}
-}
-function pulseAll(intensity, ms){ pulse(0,intensity,ms); pulse(1,intensity,ms); }
+const gamepads=[null,null];
+function pulse(i,intensity,ms){ try{ const gp=gamepads[i]; const a=gp&&gp.hapticActuators&&gp.hapticActuators[0]; if(a&&a.pulse) a.pulse(Math.max(0,Math.min(1,intensity)),ms); }catch(_){} }
+function pulseAll(i,ms){ pulse(0,i,ms); pulse(1,i,ms); }
 
 /* ============================================================
-   6. AR：セッション・コントローラ・ハンド（浮かぶねんどを手で押す）
+   6. AR：セッション・コントローラ・ハンド
    ============================================================ */
-const controllers = [];
-const ctrlOn = [false, false];
-const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip",
-  "wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"]; // 指先＋手のひら
+const controllers=[]; const ctrlOn=[false,false];
+const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip","wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"];
+const markerMat=new THREE.MeshBasicMaterial({color:0xf0c19a,transparent:true,opacity:0.5,depthWrite:false});
+const markerGeo=new THREE.SphereGeometry(1,10,8); const markers=[];
+for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo,markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
 
-// 触れている所を示す小さな球
-const markerMat = new THREE.MeshBasicMaterial({ color:0xf0c19a, transparent:true, opacity:0.5, depthWrite:false });
-const markerGeo = new THREE.SphereGeometry(1, 10, 8);
-const markers = [];
-for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo, markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
-
-/* --- 「丸める」ボタン（VR内で握って触ると玉に戻る） --- */
-const btnGroup = new THREE.Group(); btnGroup.visible = false; scene.add(btnGroup);
-{
-  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.13,0.05,0.014), new THREE.MeshStandardMaterial({ color:0x3a2e22, roughness:0.7 }));
-  bg.position.set(0,0,-0.008); btnGroup.add(bg);
-  const cv=document.createElement("canvas"); cv.width=320; cv.height=112;
-  const c=cv.getContext("2d"); c.clearRect(0,0,320,112); c.textAlign="center"; c.textBaseline="middle";
-  c.font="bold 52px sans-serif"; c.fillStyle="#f0c19a"; c.fillText("丸める",160,60);
+const btnGroup=new THREE.Group(); btnGroup.visible=false; scene.add(btnGroup);
+{ const bg=new THREE.Mesh(new THREE.BoxGeometry(0.13,0.05,0.014), new THREE.MeshStandardMaterial({color:0x3a2e22,roughness:0.7})); bg.position.set(0,0,-0.008); btnGroup.add(bg);
+  const cv=document.createElement("canvas"); cv.width=320; cv.height=112; const c=cv.getContext("2d");
+  c.clearRect(0,0,320,112); c.textAlign="center"; c.textBaseline="middle"; c.font="bold 52px sans-serif"; c.fillStyle="#f0c19a"; c.fillText("丸める",160,60);
   const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace; tex.needsUpdate=true;
-  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.125,0.044), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
-  lm.position.set(0,0,0.001); btnGroup.add(lm);
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.125,0.044), new THREE.MeshBasicMaterial({map:tex,transparent:true})); lm.position.set(0,0,0.001); btnGroup.add(lm);
 }
 function positionButton(){
-  const camN = (renderer && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+  const camN=(renderer&&renderer.xr.isPresenting)?renderer.xr.getCamera():camera;
   camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  btnGroup.position.set(anchor.x + _v2.x*0.02, anchor.y - 0.26, anchor.z + _v2.z*0.02);
-  btnGroup.lookAt(_v1.x, btnGroup.position.y, _v1.z);
-  btnGroup.updateMatrixWorld(true);
-  btnGroup.visible = true;
+  btnGroup.position.set(anchor.x+_v2.x*0.02, anchor.y-0.24, anchor.z+_v2.z*0.02);
+  btnGroup.lookAt(_v1.x, btnGroup.position.y, _v1.z); btnGroup.updateMatrixWorld(true); btnGroup.visible=true;
 }
-function onSelectStart(i){
-  ensureAudio();
-  if(!controllers[i]) return;
-  controllers[i].getWorldPosition(_v1);
-  if(btnGroup.visible){
-    btnGroup.getWorldPosition(_v2);
-    if(_v1.distanceTo(_v2) < 0.09){ roundUp(); playRound(); pulse(i,0.5,40); }   // ボタンに触れたら丸める
-  }
-}
-
+function onSelectStart(i){ ensureAudio(); if(!controllers[i]) return; controllers[i].getWorldPosition(_v1);
+  if(btnGroup.visible){ btnGroup.getWorldPosition(_v2); if(_v1.distanceTo(_v2)<0.09){ roundUp(); playRound(); pulse(i,0.5,40); } } }
 function setupControllers(){
   if(controllers.length) return;
-  for(let i=0;i<2;i++){
-    const c = renderer.xr.getController(i);
-    c.userData.index = i;
-    c.addEventListener("connected", e => { ctrlOn[i]=true; if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
-    c.addEventListener("disconnected", () => { ctrlOn[i]=false; gamepads[i]=null; });
-    c.addEventListener("squeezestart", () => respawnInFront());   // 握ると目の前に呼び戻す
-    c.addEventListener("selectstart", () => onSelectStart(i));    // トリガー＝「丸める」ボタン
-    scene.add(c);
-    controllers.push(c);
+  for(let i=0;i<2;i++){ const c=renderer.xr.getController(i); c.userData.index=i;
+    c.addEventListener("connected",e=>{ ctrlOn[i]=true; if(e.data&&e.data.gamepad) gamepads[i]=e.data.gamepad; });
+    c.addEventListener("disconnected",()=>{ ctrlOn[i]=false; gamepads[i]=null; });
+    c.addEventListener("squeezestart",()=>respawnInFront());
+    c.addEventListener("selectstart",()=>onSelectStart(i));
+    scene.add(c); controllers.push(c);
   }
 }
-
-function collectXRColliders(frame, ref){
-  colN = 0;
-  for(let i=0;i<2;i++){
-    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
-  }
-  const session = renderer.xr.getSession();
-  if(session && frame && ref){
-    for(const src of session.inputSources){
-      if(!src.hand) continue;
-      for(const jn of TIP_JOINTS){
-        const j = src.hand.get(jn); if(!j) continue;
-        const p = frame.getJointPose(j, ref); if(!p) continue;
-        const r = (p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR;
-        addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
-      }
-    }
-  }
-  for(let i=0;i<MAXCOL;i++){
-    if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
-    else markers[i].visible=false;
-  }
+function collectXRColliders(frame,ref){
+  colN=0;
+  for(let i=0;i<2;i++){ if(controllers[i]&&ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z,TUNE.ctrlR); } }
+  const session=renderer.xr.getSession();
+  if(session&&frame&&ref){ for(const src of session.inputSources){ if(!src.hand) continue;
+    for(const jn of TIP_JOINTS){ const j=src.hand.get(jn); if(!j) continue; const p=frame.getJointPose(j,ref); if(!p) continue;
+      const r=(p.radius&&p.radius>0)?p.radius+0.004:TUNE.fingerR; addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); } } }
+  for(let i=0;i<MAXCOL;i++){ if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; }
 }
-
-let xrSession = null, arStarting = false, pendingSpawn = false;
+let xrSession=null, arStarting=false, pendingSpawn=false;
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   if(arStarting) return;
   if(!navigator.xr){ showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return; }
-  init3D(); ensureAudio();
-  arStarting = true; $("goBtn").disabled = true;
-  let session = null;
+  init3D(); ensureAudio(); arStarting=true; $("goBtn").disabled=true; let session=null;
   try{
     log("ARを開始します…");
-    session = await navigator.xr.requestSession("immersive-ar", {
-      optionalFeatures: ["hand-tracking","local-floor"],
-    });
-    xrSession = session;
-    renderer.xr.setReferenceSpaceType("local");
-    await renderer.xr.setSession(session);
-    scene.background = null;
-    setupControllers();
-    clayReady = false;
-    $("start").style.display = "none"; $("goBtn").textContent = "AR中…"; $("stats").style.display = "block";
-    checkpoint("ar", "AR開始OK（土台の起動に成功）");
-    log("目の前にねんどを出します。手やコントローラで押してみてください");
-    pendingSpawn = true;
-    session.addEventListener("end", ()=>{
-      xrSession = null; if(mesh){ mesh.visible=false; } clayReady = false; panel.visible = false;
-      for(const m of markers) m.visible = false;
-      btnGroup.visible = false;
-      scene.background = null;
-      $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
-      log("ARを終了しました");
-    });
-  }catch(e){
-    showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
-    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
-    try{ session && session.end(); }catch(_){}
-    if(xrSession === session) xrSession = null;
-    $("goBtn").disabled = false; $("goBtn").textContent = "もう一度ためす";
-  }finally{ arStarting = false; }
+    session=await navigator.xr.requestSession("immersive-ar",{ optionalFeatures:["hand-tracking","local-floor"] });
+    xrSession=session; renderer.xr.setReferenceSpaceType("local"); await renderer.xr.setSession(session);
+    scene.background=null; setupControllers(); clayReady=false;
+    $("start").style.display="none"; $("goBtn").textContent="AR中…"; $("stats").style.display="block";
+    checkpoint("ar","AR開始OK（土台の起動に成功）"); log("目の前にねんどを出します。手やコントローラで押してみてください"); pendingSpawn=true;
+    session.addEventListener("end",()=>{ xrSession=null; if(mesh) mesh.visible=false; clayReady=false; panel.visible=false;
+      for(const m of markers) m.visible=false; btnGroup.visible=false; scene.background=null;
+      $("start").style.display="flex"; $("goBtn").textContent="もう一度ためす"; $("goBtn").disabled=false; log("ARを終了しました"); });
+  }catch(e){ showErr("AR開始に失敗しました：" + (e&&e.message?e.message:e)); log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
+    try{ session&&session.end(); }catch(_){}
+    if(xrSession===session) xrSession=null; $("goBtn").disabled=false; $("goBtn").textContent="もう一度ためす";
+  }finally{ arStarting=false; }
 }
 
-/* --- AR中に読める3Dパネル（fps・体積・記録。頭追従なし） --- */
-const panelCanvas = document.createElement("canvas"); panelCanvas.width=640; panelCanvas.height=360;
-const pctx = panelCanvas.getContext("2d");
-const panelTex = new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace = THREE.SRGBColorSpace;
-const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.28), new THREE.MeshBasicMaterial({ map:panelTex, transparent:true }));
-panel.visible = false; scene.add(panel);
-let panelStatus = "";
-function drawPanel(){
-  const c=pctx, W=panelCanvas.width, H=panelCanvas.height;
-  c.clearRect(0,0,W,H); c.fillStyle="rgba(12,9,6,0.9)"; c.fillRect(0,0,W,H);
-  c.strokeStyle="#3a2e22"; c.lineWidth=4; c.strokeRect(2,2,W-4,H-4);
-  c.textBaseline="top";
-  c.font="bold 20px 'Consolas','Courier New',monospace"; c.fillStyle="#f0c19a"; c.fillText(panelStatus, 12, 10);
-  c.font="17px 'Consolas','Courier New',monospace";
-  const last=logLines.slice(-11); let y=42;
-  for(const ln of last){ c.fillStyle=ln.e?"#ff9a9a":"#f0e2d2"; let t=ln.t; if(t.length>44) t=t.slice(0,43)+"…"; c.fillText(t,12,y); y+=27; }
-  panelTex.needsUpdate=true;
-}
-function placePanelInFront(){
-  const camN = renderer.xr.getCamera();
-  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
-  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0;
-  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1); else _v2.normalize();
-  panel.position.set(_v1.x + _v2.x*1.4, _v1.y - 0.55, _v1.z + _v2.z*1.4);
-  panel.lookAt(_v1.x, _v1.y - 0.55, _v1.z);
-  panel.visible = true; drawPanel();
-}
+/* --- AR中に読める3Dパネル --- */
+const panelCanvas=document.createElement("canvas"); panelCanvas.width=640; panelCanvas.height=360;
+const pctx=panelCanvas.getContext("2d"); const panelTex=new THREE.CanvasTexture(panelCanvas); panelTex.colorSpace=THREE.SRGBColorSpace;
+const panel=new THREE.Mesh(new THREE.PlaneGeometry(0.5,0.28), new THREE.MeshBasicMaterial({map:panelTex,transparent:true})); panel.visible=false; scene.add(panel);
+let panelStatus="";
+function drawPanel(){ const c=pctx,W=panelCanvas.width,H=panelCanvas.height;
+  c.clearRect(0,0,W,H); c.fillStyle="rgba(12,9,6,0.9)"; c.fillRect(0,0,W,H); c.strokeStyle="#3a2e22"; c.lineWidth=4; c.strokeRect(2,2,W-4,H-4); c.textBaseline="top";
+  c.font="bold 20px 'Consolas','Courier New',monospace"; c.fillStyle="#f0c19a"; c.fillText(panelStatus,12,10);
+  c.font="17px 'Consolas','Courier New',monospace"; const last=logLines.slice(-11); let y=42;
+  for(const ln of last){ c.fillStyle=ln.e?"#ff9a9a":"#f0e2d2"; let t=ln.t; if(t.length>44) t=t.slice(0,43)+"…"; c.fillText(t,12,y); y+=27; } panelTex.needsUpdate=true; }
+function placePanelInFront(){ const camN=renderer.xr.getCamera(); camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
+  panel.position.set(_v1.x+_v2.x*1.4,_v1.y-0.55,_v1.z+_v2.z*1.4); panel.lookAt(_v1.x,_v1.y-0.55,_v1.z); panel.visible=true; drawPanel(); }
 
 /* ============================================================
-   7. PC確認モード（Claudeが自分でテストできる。マウス）
+   7. PC確認モード
    ============================================================ */
-let pcMode = false, pcYaw = 0.0, pcPitch = 0.15, pcRadius = 0.65;
-const pcTarget = new THREE.Vector3(0, 0, 0.5);
-let pokeAnim = null;   // {t,dur,dx,dy,dz}  クリックで押す
-function startPC(){
-  init3D(); ensureAudio();
-  pcMode = true;
+let pcMode=false, pcYaw=0.0, pcPitch=0.15, pcRadius=0.6;
+const pcTarget=new THREE.Vector3(0,0,0.5); let pokeAnim=null;
+function startPC(){ init3D(); ensureAudio(); pcMode=true;
   $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
-  anchor.set(0,0,0.5); updatePCCamera(); roundUp(0,0,0.5); positionButton(); setupPCInput();
-}
-function updatePCCamera(){
-  const cpp=Math.cos(pcPitch), spp=Math.sin(pcPitch);
-  camera.position.set(
-    pcTarget.x + pcRadius*cpp*Math.sin(pcYaw),
-    pcTarget.y + pcRadius*spp,
-    pcTarget.z - pcRadius*cpp*Math.cos(pcYaw)
-  );
-  camera.lookAt(pcTarget);
-}
+  anchor.set(0,0,0.5); updatePCCamera(); spawnClay(0,0,0.5); positionButton(); setupPCInput(); }
+function updatePCCamera(){ const cpp=Math.cos(pcPitch),spp=Math.sin(pcPitch);
+  camera.position.set(pcTarget.x+pcRadius*cpp*Math.sin(pcYaw), pcTarget.y+pcRadius*spp, pcTarget.z-pcRadius*cpp*Math.cos(pcYaw)); camera.lookAt(pcTarget); }
 let pcInputReady=false;
-function setupPCInput(){
-  if(pcInputReady) return; pcInputReady=true;
-  let dragging=false, moved=0, lx=0, ly=0;
-  canvas.addEventListener("pointerdown", e=>{ dragging=true; moved=0; lx=e.clientX; ly=e.clientY; });
-  addEventListener("pointermove", e=>{
-    if(!dragging) return;
-    const dx=e.clientX-lx, dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; moved+=Math.abs(dx)+Math.abs(dy);
-    pcYaw += dx*0.008; pcPitch = Math.max(-1.2, Math.min(1.2, pcPitch + dy*0.006));
-    updatePCCamera();
-  });
-  addEventListener("pointerup", e=>{ if(dragging && moved<6) pcPokeFrom(e.clientX, e.clientY); dragging=false; });
-  canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
-  addEventListener("keydown", e=>{
-    if(e.key==="r"||e.key==="R"){ roundUp(); playRound(); }
-  });
+function setupPCInput(){ if(pcInputReady) return; pcInputReady=true; let dragging=false,moved=0,lx=0,ly=0;
+  canvas.addEventListener("pointerdown",e=>{ dragging=true; moved=0; lx=e.clientX; ly=e.clientY; });
+  addEventListener("pointermove",e=>{ if(!dragging) return; const dx=e.clientX-lx,dy=e.clientY-ly; lx=e.clientX; ly=e.clientY; moved+=Math.abs(dx)+Math.abs(dy);
+    pcYaw+=dx*0.008; pcPitch=Math.max(-1.2,Math.min(1.2,pcPitch+dy*0.006)); updatePCCamera(); });
+  addEventListener("pointerup",e=>{ if(dragging&&moved<6) pcPokeFrom(e.clientX,e.clientY); dragging=false; });
+  canvas.addEventListener("wheel",e=>{ e.preventDefault(); pcRadius=Math.max(0.3,Math.min(2.0,pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); },{passive:false});
+  addEventListener("keydown",e=>{ if(e.key==="r"||e.key==="R"){ roundUp(); playRound(); } });
 }
-// クリック位置から中心へ向かうレイを求め、その向きから押す（へこみを目視するため）
-function pcPokeFrom(sx, sy){
-  ensureAudio();
-  const nx=(sx/innerWidth)*2-1, ny=-(sy/innerHeight)*2+1;
-  _v1.set(nx, ny, 0.5).unproject(camera);
-  _v1.sub(camera.position).normalize();
-  _v2.copy(anchor).sub(camera.position);
-  const tt = _v2.dot(_v1);
-  _v2.copy(camera.position).addScaledVector(_v1, tt).sub(anchor);
-  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1);
-  _v2.normalize();
-  pokeAnim = { t:0, dur:0.6, dx:_v2.x, dy:_v2.y, dz:_v2.z };
-}
+function pcPokeFrom(sx,sy){ ensureAudio();
+  const nx=(sx/innerWidth)*2-1, ny=-(sy/innerHeight)*2+1; _v1.set(nx,ny,0.5).unproject(camera); _v1.sub(camera.position).normalize();
+  _v2.copy(anchor).sub(camera.position); const tt=_v2.dot(_v1); _v2.copy(camera.position).addScaledVector(_v1,tt).sub(anchor);
+  if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); _v2.normalize(); pokeAnim={t:0,dur:0.6,dx:_v2.x,dy:_v2.y,dz:_v2.z}; }
 
 /* ============================================================
    8. ボタン有効化
    ============================================================ */
-let arSupported = false;
-$("goBtn").addEventListener("click", ()=>{ if(arSupported) startAR(); else startPC(); });
-function enableButton(){
-  $("goBtn").disabled=false;
-  $("goBtn").textContent = arSupported ? "はじめる" : "PCでためす（マウス）";
-  log(arSupported ? "準備OK。「はじめる」を押せます" : "この端末はMR非対応。PC確認モードで動きだけ試せます（手ざわり・見え方はQuestで確認）");
-}
-if(navigator.xr && navigator.xr.isSessionSupported){
-  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{ arSupported=!!ok; enableButton(); }).catch(()=>{ arSupported=false; enableButton(); });
-}else{ arSupported=false; enableButton(); }
+let arSupported=false;
+$("goBtn").addEventListener("click",()=>{ if(arSupported) startAR(); else startPC(); });
+function enableButton(){ $("goBtn").disabled=false; $("goBtn").textContent=arSupported?"はじめる":"PCでためす（マウス）";
+  log(arSupported?"準備OK。「はじめる」を押せます":"この端末はMR非対応。PC確認モードで動きだけ試せます（手ざわり・見え方はQuestで確認）"); }
+if(navigator.xr&&navigator.xr.isSessionSupported){ navigator.xr.isSessionSupported("immersive-ar").then(ok=>{arSupported=!!ok;enableButton();}).catch(()=>{arSupported=false;enableButton();}); }
+else{ arSupported=false; enableButton(); }
 
 /* ============================================================
    9. 毎フレーム
    ============================================================ */
-let lastMs = performance.now(), fpsSmooth = 0, loopErr = false, lastSquish = 0;
-
-function stepSoft(dt){
-  if(!clayReady) return;
-  physAcc += Math.min(dt, 0.05);
-  let n=0; const p0=performance.now();
-  while(physAcc>=FIXED && n<3){ softStep(FIXED); physAcc-=FIXED; n++; }
-  if(n===3) physAcc=0;
-  physMs = physMs*0.9 + (performance.now()-p0)*0.1;
-  updateRenderMesh();
+let lastMs=performance.now(), fpsSmooth=0, loopErr=false, lastSquish=0;
+function stepSoft(dt){ if(!clayReady) return; physAcc+=Math.min(dt,0.05); let n=0; const p0=performance.now();
+  while(physAcc>=FIXED&&n<3){ softStep(FIXED); physAcc-=FIXED; n++; } if(n===3) physAcc=0;
+  physMs=physMs*0.9+(performance.now()-p0)*0.1; updateSkin(); }
+function handleContactFX(){ if(contactDepth>TUNE.squishMin){ const now=performance.now();
+  if(now-lastSquish>TUNE.squishGap){ lastSquish=now; playSquish(Math.min(1,contactDepth/0.03)); pulseAll(TUNE.hapPoke,22); } } }
+function simulate(dt){ contactDepth=0;
+  if(pokeAnim){ pokeAnim.t+=dt; const f=pokeAnim.t/pokeAnim.dur;
+    if(f>=1){ pokeAnim=null; colN=0; } else { const depth=Math.sin(f*Math.PI)*TUNE.fingerR*1.6; const d=TUNE.R0+TUNE.fingerR-depth;
+      colN=0; addCol(anchor.x+pokeAnim.dx*d, anchor.y+pokeAnim.dy*d, anchor.z+pokeAnim.dz*d, TUNE.fingerR); } }
+  stepSoft(dt); handleContactFX();
+  const statLine="fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / 粒"+N+"結"+M+" / 跡"+dentAmt().toFixed(3)+" 盛"+bulge().toFixed(3);
+  $("stats").textContent=statLine; if(statLine!==panelStatus){ panelStatus=statLine; if(panel.visible) drawPanel(); }
 }
-function handleContactFX(){
-  if(contactDepth > TUNE.squishMin){
-    const now = performance.now();
-    if(now - lastSquish > TUNE.squishGap){ lastSquish=now; playSquish(Math.min(1, contactDepth/0.03)); pulseAll(TUNE.hapPoke, 22); }
-  }
-}
-
-function simulate(dt){
-  contactDepth = 0;
-  if(pokeAnim){
-    pokeAnim.t += dt;
-    const f = pokeAnim.t/pokeAnim.dur;
-    if(f>=1){ pokeAnim=null; colN=0; }
-    else{
-      const depth = Math.sin(f*Math.PI)*TUNE.fingerR*1.5; // 押し込み→戻る（外から接触を保つ。粘土なので少し深め）
-      const d = TUNE.radius + TUNE.fingerR - depth;
-      colN=0; addCol(anchor.x+pokeAnim.dx*d, anchor.y+pokeAnim.dy*d, anchor.z+pokeAnim.dz*d, TUNE.fingerR);
-    }
-  }
-  stepSoft(dt);
-  handleContactFX();
-  const V = restVol>1e-9 ? curVol/(restVol*scaleC*scaleC*scaleC) : 1;
-  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / 体積"+V.toFixed(2)+" / へこみ"+dentAmt().toFixed(3);
-  $("stats").textContent = statLine;
-  if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
-}
-
-function renderLoop(t, frame){
- try{
-  const nowMs = performance.now();
-  const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
-  fpsSmooth = fpsSmooth ? fpsSmooth*0.9 + (1/Math.max(dt,1e-4))*0.1 : 1/Math.max(dt,1e-4);
-
-  if(frame && renderer.xr.isPresenting){
-    const ref = renderer.xr.getReferenceSpace();
-    if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); }
-    collectXRColliders(frame, ref);
-  }
-
-  simulate(dt);
-  renderer.render(scene, camera);
- }catch(err){
-  if(!loopErr){ loopErr=true; showErr("描画エラー：" + (err && err.message || err)); }
- }
-}
-
-addEventListener("resize", ()=>{
-  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-  if(renderer) renderer.setSize(innerWidth, innerHeight);
-});
+function renderLoop(t,frame){ try{
+  const nowMs=performance.now(); const dt=Math.min((nowMs-lastMs)/1000,0.05); lastMs=nowMs;
+  fpsSmooth=fpsSmooth?fpsSmooth*0.9+(1/Math.max(dt,1e-4))*0.1:1/Math.max(dt,1e-4);
+  if(frame&&renderer.xr.isPresenting){ const ref=renderer.xr.getReferenceSpace();
+    if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); } collectXRColliders(frame,ref); }
+  simulate(dt); renderer.render(scene,camera);
+ }catch(err){ if(!loopErr){ loopErr=true; showErr("描画エラー：" + (err&&err.message||err)); } } }
+addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); if(renderer) renderer.setSize(innerWidth,innerHeight); });
 
 /* ============================================================
-   10. 自動テスト用の窓口（PCの preview から叩ける。tab非表示でrAFが止まるため）
+   10. 自動テスト用の窓口（__dbg）
    ============================================================ */
-// 元の玉(rest)からどれだけ形が変わったか＝へこみ量（離しても残っていれば大きいまま＝ねんど）
-function dentAmt(){
-  if(!clayReady) return 0;
-  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-  let se=0; for(let i=0;i<N;i++){ const dx=(pos[i*3]-cx)-rest[i*3]*scaleC, dy=(pos[i*3+1]-cy)-rest[i*3+1]*scaleC, dz=(pos[i*3+2]-cz)-rest[i*3+2]*scaleC; se+=dx*dx+dy*dy+dz*dz; } return Math.sqrt(se/N);
-}
-// “定位置の形(restShape)”が元の玉からどれだけ変形して記憶されたか（塑性がどれだけ染み込んだか）
-function restDent(){
-  if(!clayReady) return 0;
-  let se=0; for(let i=0;i<N*3;i++){ const d=restShape[i]-rest[i]; se+=d*d; } return Math.sqrt(se/N);
-}
-// 現在の形(pos)と“定位置の形(restShape)”のズレ＝落ち着いたか（settle後は0に近いほど安定）
-function relaxErr(){
-  if(!clayReady) return 0;
-  let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
-  let se=0; for(let i=0;i<N;i++){ const dx=(pos[i*3]-cx)-restShape[i*3]*scaleC, dy=(pos[i*3+1]-cy)-restShape[i*3+1]*scaleC, dz=(pos[i*3+2]-cz)-restShape[i*3+2]*scaleC; se+=dx*dx+dy*dy+dz*dz; } return Math.sqrt(se/N);
-}
-function comOffset(){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N; return Math.hypot(cx-anchor.x, cy-anchor.y, cz-anchor.z); }
-function maxSpeed(){ let m=0; for(let i=0;i<N;i++){ const s=Math.hypot(vel[i*3],vel[i*3+1],vel[i*3+2]); if(s>m) m=s; } return m; }
+function com(o){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N; if(o){o.x=cx;o.y=cy;o.z=cz;} return [cx,cy,cz]; }
+// 跡＝元の形(rest)から粒がどれだけズレたまま残っているか（COM相対）。残れば大＝ねんど
+function dentAmt(){ if(!clayReady) return 0; const [cx,cy,cz]=com();
+  let se=0; for(let i=0;i<N;i++){ const dx=(pos[i*3]-cx)-rest[i*3],dy=(pos[i*3+1]-cy)-rest[i*3+1],dz=(pos[i*3+2]-cz)-rest[i*3+2]; se+=dx*dx+dy*dy+dz*dz; } return Math.sqrt(se/N); }
+// 盛り上がり＝元の半径R0より外へ出た粒の最大量（材料が寄って盛り上がった証拠）
+function bulge(){ if(!clayReady) return 0; const [cx,cy,cz]=com(); let mx=0;
+  for(let i=0;i<N;i++){ const rNow=Math.hypot(pos[i*3]-cx,pos[i*3+1]-cy,pos[i*3+2]-cz);
+    const rRest=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2]); if(rNow-rRest>mx) mx=rNow-rRest; } return mx; }
+// 回転半径（体積のめやす。縮んでいないか＝非圧縮の確認）
+function rog(){ if(!clayReady) return 0; const [cx,cy,cz]=com(); let s=0; for(let i=0;i<N;i++){ s+=(pos[i*3]-cx)**2+(pos[i*3+1]-cy)**2+(pos[i*3+2]-cz)**2; } return Math.sqrt(s/N); }
+function rog0(){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=rest[i*3];cy+=rest[i*3+1];cz+=rest[i*3+2];} cx/=N;cy/=N;cz/=N;
+  let s=0; for(let i=0;i<N;i++){ s+=(rest[i*3]-cx)**2+(rest[i*3+1]-cy)**2+(rest[i*3+2]-cz)**2; } return Math.sqrt(s/N); }
+function comOffset(){ const [cx,cy,cz]=com(); return Math.hypot(cx-anchor.x,cy-anchor.y,cz-anchor.z); }
+function maxSpeed(){ let m=0; for(let i=0;i<N;i++){ const s=Math.hypot(vel[i*3],vel[i*3+1],vel[i*3+2]); if(s>m)m=s; } return m; }
 function anyNaN(){ if(!clayReady) return false; for(let i=0;i<N*3;i++){ if(Number.isNaN(pos[i])) return true; } return false; }
+function timedStep(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); const t0=performance.now(); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } physMs=(performance.now()-t0)/n; }
 
-window.__dbg = {
-  state(){
-    return {
-      clayReady, N, tris:triN, edges:edgeN, colN,
-      volRatio:+(restVol>1e-9 ? curVol/(restVol*scaleC*scaleC*scaleC) : 1).toFixed(3),
-      comOffset:+comOffset().toFixed(4),
-      dent:+dentAmt().toFixed(4),         // 元の玉からの変形量（＝へこみ。残っていれば大きい）
-      restDent:+restDent().toFixed(4),    // “記憶の形”の変形量（塑性が染み込んだ量）
-      relaxErr:+relaxErr().toFixed(4),    // 定位置とのズレ（settleで0へ＝落ち着いた）
-      maxSpeed:+maxSpeed().toFixed(3),
-      fps:Math.round(fpsSmooth), physMs:+physMs.toFixed(2),
-      nan:anyNaN(),
-    };
+window.__dbg={
+  state(){ return { clayReady, N, bonds:M, colN,
+    dent:+dentAmt().toFixed(4), bulge:+bulge().toFixed(4), rogRatio:+(rog()/rog0()).toFixed(3),
+    comOffset:+comOffset().toFixed(4), maxSpeed:+maxSpeed().toFixed(3), physMsPerStep:+physMs.toFixed(2), nan:anyNaN() }; },
+  spawn(){ anchor.set(0,0,0.5); spawnClay(0,0,0.5); return this.state(); },
+  round(){ roundUp(); return this.state(); },
+  // 外から指を depth(m) 押し込んで保持 → 押している間の最大の跡
+  poke(depth,sec){ if(!clayReady) this.spawn(); depth=Math.min(depth||0.05,TUNE.R0*0.9); sec=sec||0.6;
+    const x0=anchor.x+TUNE.R0+TUNE.fingerR, steps=Math.max(1,Math.round(sec/FIXED)), inSteps=Math.max(1,Math.round(steps*0.35)); let mxDent=0;
+    for(let s=0;s<steps;s++){ const f=s<inSteps?(s+1)/inSteps:1; colN=0; addCol(x0-depth*f,anchor.y,anchor.z,TUNE.fingerR); contactDepth=0; softStep(FIXED); handleContactFX();
+      const de=dentAmt(); if(de>mxDent)mxDent=de; } updateSkin(); const st=this.state(); st.maxDentDuring=+mxDent.toFixed(4); return st; },
+  settle(sec){ colN=0; pokeAnim=null; const steps=Math.max(1,Math.round((sec||1.2)/FIXED)); for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); } updateSkin(); return this.state(); },
+  tick(sec){ timedStep(sec); updateSkin(); return this.state(); },
+  // 掘る：押す→離す→跡が残るか＋盛り上がったか＋縮んでないか
+  digTest(depth){ this.spawn(); const p=this.poke(depth||0.06,0.6); const a=this.settle(1.2);
+    return { maxDentDuring:p.maxDentDuring, dentKept:a.dent, keptPct:Math.round(a.dent/Math.max(p.maxDentDuring,1e-6)*100), bulge:a.bulge, rogRatio:a.rogRatio, comOffset:a.comOffset, maxSpeed:a.maxSpeed, nan:a.nan }; },
+  // 腰：浅く押す(降伏点以下)と戻る／深く押すと残る、の差
+  yieldTest(){ this.spawn(); const lp=this.poke(0.015,0.4); const ls=this.settle(1.0); const light=ls.dent;
+    this.spawn(); const hp=this.poke(0.07,0.6); const hs=this.settle(1.2); const hard=hs.dent;
+    return { lightKept:+light.toFixed(4), hardKept:+hard.toFixed(4), ratio:+(hard/Math.max(light,1e-6)).toFixed(1), note:"腰があれば hard>>light" }; },
+  mashTest(times){ this.spawn(); times=times||10; for(let t=0;t<times;t++){ this.poke(0.06,0.3); this.settle(0.25); } const st=this.settle(1.0); st.mashed=times; return st; },
+  perfTest(sec){ this.spawn(); timedStep(sec||1.0); return { N, bonds:M, physMsPerStep:+physMs.toFixed(2), budgetAt90fps:11.1, stepsPerFrame:1, note:"physMsPerStep×1 が 11.1ms(90fps)/13.7ms(72fps)予算に対しどうか。実機は別途" }; },
+  render(){ if(renderer) renderer.render(scene,camera); return "ok"; },
+  // 押しのけた材料がどこへ行くかを直接見る：クレーターの深さ・リムの盛り上がり・指の近くの粒の動き
+  probePoke(depth){ this.spawn(); depth=depth||0.08;
+    const x0=anchor.x+TUNE.R0+TUNE.fingerR, steps=Math.round(0.7/FIXED), inS=Math.round(steps*0.35);
+    for(let s=0;s<steps;s++){ const f=s<inS?(s+1)/inS:1; colN=0; addCol(x0-depth*f,anchor.y,anchor.z,TUNE.fingerR); contactDepth=0; softStep(FIXED); }
+    const [cx,cy,cz]=com(); const fx=x0-depth; let craterMax=0, rimMax=0, nOut=0, nIn=0; const near=[];
+    for(let i=0;i<N;i++){ const rNow=Math.hypot(pos[i*3]-cx,pos[i*3+1]-cy,pos[i*3+2]-cz), rRest=Math.hypot(rest[i*3],rest[i*3+1],rest[i*3+2]), disp=rNow-rRest;
+      if(disp>rimMax)rimMax=disp; if(-disp>craterMax)craterMax=-disp; if(disp>0.002)nOut++; if(disp<-0.002)nIn++;
+      const df=Math.hypot(pos[i*3]-fx,pos[i*3+1]-anchor.y,pos[i*3+2]-anchor.z); if(df<TUNE.fingerR*3) near.push(+disp.toFixed(4)); }
+    return { craterMax:+craterMax.toFixed(4), rimMax:+rimMax.toFixed(4), particlesOut:nOut, particlesIn:nIn, nearFingerDisp:near.sort((a,b)=>a-b) };
   },
-  spawn(){ anchor.set(0,0,0.5); roundUp(0,0,0.5); return this.state(); },
-  round(){ roundUp(); return this.state(); },   // 丸める（玉に戻す）
-  // 外から指を当てて depth(m) 押し込んで保持 → 押している間の最大へこみ量を返す
-  poke(depth, sec){
-    if(!clayReady) this.spawn();
-    depth = Math.min(depth||0.05, TUNE.radius*0.85); sec = sec||0.6;
-    const x0 = anchor.x + TUNE.radius + TUNE.fingerR;
-    const steps = Math.max(1, Math.round(sec/FIXED)), inSteps = Math.max(1, Math.round(steps*0.35));
-    let maxDent = 0;
-    for(let s=0;s<steps;s++){
-      const f = s<inSteps ? (s+1)/inSteps : 1;
-      colN=0; addCol(x0 - depth*f, anchor.y, anchor.z, TUNE.fingerR);
-      contactDepth=0; softStep(FIXED); handleContactFX();
-      const de = dentAmt(); if(de>maxDent) maxDent=de;
-    }
-    updateRenderMesh();
-    const st = this.state(); st.maxDentDuring = +maxDent.toFixed(4); return st;
-  },
-  // 指を離して落ち着かせる。ねんどは「へこんだまま(dent大)・落ち着く(relaxErr小)」が合格
-  settle(sec){
-    colN=0; pokeAnim=null;
-    const steps=Math.max(1, Math.round((sec||1.2)/FIXED));
-    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED); }
-    updateRenderMesh();
-    return this.state();
-  },
-  tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
-  // 押す→離す→へこみが残るか、を1発で。dentKept が押した時の maxDent に近ければ「残った」＝ねんど成立
-  dentTest(depth){
-    this.spawn();
-    const pk = this.poke(depth||0.06, 0.6);
-    const af = this.settle(1.2);
-    return { maxDentDuring:pk.maxDentDuring, dentKept:af.dent, relaxErr:af.relaxErr,
-             volRatio:af.volRatio, comOffset:af.comOffset, maxSpeed:af.maxSpeed, nan:af.nan };
-  },
-  // 軽ーく触れる（降伏点以下）と残らない、を確認するテスト
-  lightTouchTest(){
-    this.spawn();
-    const pk = this.poke(0.012, 0.4);   // ごく浅く
-    const af = this.settle(1.2);
-    return { maxDentDuring:pk.maxDentDuring, dentKept:af.dent, note:"浅い→dentKeptは小さいはず（弾んで戻る）", nan:af.nan };
-  },
-  // 連打耐性：何度も押しても暴走・NaN・リークしないか
-  mashTest(times){
-    this.spawn(); times=times||12;
-    for(let t=0;t<times;t++){ this.poke(0.06, 0.3); this.settle(0.3); }
-    const st=this.settle(1.0); st.mashed=times; return st;
-  },
-  render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
-  tune: TUNE,
+  tune:TUNE,
 };
 
 log("読み込みOK（版：" + REV + "）");
