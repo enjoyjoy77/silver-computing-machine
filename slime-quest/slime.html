@@ -219,7 +219,8 @@ const SHAPES = [
 let shapeIdx = 0;
 
 // メッシュのトポロジ(全スライム共有)＋「今処理中のスライム」を指す現在ポインタ。形替えで作り直すので let
-let baseGeo, vCount, vmap, N, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol;
+let N, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol;
+let renderTpl, rvCount, embI, embW, embO;   // 見た目メッシュ(高精細)と、その各頂点の物理三角への埋め込み
 let pos, prev, vel, curVol, curScale = 1;   // ← softStep が各スライムのものに毎回差し替える（curScale=大きさ）
 
 // 閉じた三角メッシュの符号つき体積
@@ -235,45 +236,77 @@ function meshVolume(){
   return V;
 }
 
-// 形を作る：基本形状→非indexed化→頂点を溶接して粒・辺・三角・静止体積を組み、描画メッシュを差し替える
-function buildShape(kind){
+// 形状ジオメトリを作る（hi=true で高精細＝見た目用、false で粗い＝物理用）
+function makeShapeGeo(kind, hi){
   let g;
-  if(kind==="box")        g = new THREE.BoxGeometry(TUNE.radius*1.7, TUNE.radius*1.15, TUNE.radius*1.15, 5, 4, 4);
-  else if(kind==="tetra") g = new THREE.TetrahedronGeometry(TUNE.radius*1.28, 5); // 粗いと指がすり抜けるので細かく
-  else if(kind==="egg")   g = new THREE.IcosahedronGeometry(TUNE.radius, 3);
-  else if(kind==="torus") g = new THREE.TorusGeometry(TUNE.radius*0.72, TUNE.radius*0.34, 8, 16);
-  else                    g = new THREE.IcosahedronGeometry(TUNE.radius, TUNE.detail); // ball
-  if(g.index) g = g.toNonIndexed();           // 全形を「3頂点=1三角」に揃える
-  const pa = g.attributes.position;
-  if(kind==="egg"){ for(let v=0;v<pa.count;v++){ pa.setXYZ(v, pa.getX(v)*0.88, pa.getY(v)*1.28, pa.getZ(v)*0.88); } } // 縦長のたまご（下の操作盤と被らない程度）
-  const vc = pa.count;
-  const vm = new Int32Array(vc);
-  const plist = []; const k2i = new Map(); const Q = 1e5;
-  for(let v=0;v<vc;v++){
-    const x=pa.getX(v), y=pa.getY(v), z=pa.getZ(v);
-    const key = Math.round(x*Q)+"_"+Math.round(y*Q)+"_"+Math.round(z*Q);
-    let idx = k2i.get(key);
-    if(idx===undefined){ idx = plist.length/3; k2i.set(key, idx); plist.push(x,y,z); }
-    vm[v] = idx;
+  if(kind==="box")        g = new THREE.BoxGeometry(TUNE.radius*1.7, TUNE.radius*1.15, TUNE.radius*1.15, hi?10:5, hi?8:4, hi?8:4);
+  else if(kind==="tetra") g = new THREE.TetrahedronGeometry(TUNE.radius*1.28, hi?9:5);
+  else if(kind==="egg")   g = new THREE.IcosahedronGeometry(TUNE.radius, hi?5:3);
+  else if(kind==="torus") g = new THREE.TorusGeometry(TUNE.radius*0.72, TUNE.radius*0.34, hi?18:8, hi?36:16);
+  else                    g = new THREE.IcosahedronGeometry(TUNE.radius, hi?5:3); // ball
+  if(g.index) g = g.toNonIndexed();
+  const pa=g.attributes.position;
+  if(kind==="egg"){ for(let v=0;v<pa.count;v++){ pa.setXYZ(v, pa.getX(v)*0.88, pa.getY(v)*1.28, pa.getZ(v)*0.88); } }
+  return g;
+}
+// 頂点を溶接してユニーク頂点＋三角index を得る
+function weldGeo(g){
+  const pa=g.attributes.position, vc=pa.count, vm=new Int32Array(vc), plist=[], k2i=new Map(), Q=1e5;
+  for(let v=0;v<vc;v++){ const x=pa.getX(v),y=pa.getY(v),z=pa.getZ(v); const key=Math.round(x*Q)+"_"+Math.round(y*Q)+"_"+Math.round(z*Q); let idx=k2i.get(key); if(idx===undefined){idx=plist.length/3;k2i.set(key,idx);plist.push(x,y,z);} vm[v]=idx; }
+  const tn=vc/3, tt=new Int32Array(tn*3); for(let t=0;t<tn;t++){ tt[t*3]=vm[t*3];tt[t*3+1]=vm[t*3+1];tt[t*3+2]=vm[t*3+2]; }
+  return { verts:new Float32Array(plist), n:plist.length/3, tris:tt, triN:tn };
+}
+// 点と三角の最近点のバリセントリック座標（Ericson）。戻り=距離²、out=[w0,w1,w2]
+function closestBary(px,py,pz, ax,ay,az, bx,by,bz, cx,cy,cz, out){
+  const abx=bx-ax,aby=by-ay,abz=bz-az, acx=cx-ax,acy=cy-ay,acz=cz-az, apx=px-ax,apy=py-ay,apz=pz-az;
+  const d1=abx*apx+aby*apy+abz*apz, d2=acx*apx+acy*apy+acz*apz;
+  if(d1<=0&&d2<=0){ out[0]=1;out[1]=0;out[2]=0; return (px-ax)*(px-ax)+(py-ay)*(py-ay)+(pz-az)*(pz-az); }
+  const bpx=px-bx,bpy=py-by,bpz=pz-bz, d3=abx*bpx+aby*bpy+abz*bpz, d4=acx*bpx+acy*bpy+acz*bpz;
+  if(d3>=0&&d4<=d3){ out[0]=0;out[1]=1;out[2]=0; return (px-bx)*(px-bx)+(py-by)*(py-by)+(pz-bz)*(pz-bz); }
+  const vc2=d1*d4-d3*d2;
+  if(vc2<=0&&d1>=0&&d3<=0){ const v=d1/(d1-d3); out[0]=1-v;out[1]=v;out[2]=0; const qx=ax+abx*v,qy=ay+aby*v,qz=az+abz*v; return (px-qx)*(px-qx)+(py-qy)*(py-qy)+(pz-qz)*(pz-qz); }
+  const cpx=px-cx,cpy=py-cy,cpz=pz-cz, d5=abx*cpx+aby*cpy+abz*cpz, d6=acx*cpx+acy*cpy+acz*cpz;
+  if(d6>=0&&d5<=d6){ out[0]=0;out[1]=0;out[2]=1; return (px-cx)*(px-cx)+(py-cy)*(py-cy)+(pz-cz)*(pz-cz); }
+  const vb=d5*d2-d1*d6;
+  if(vb<=0&&d2>=0&&d6<=0){ const w=d2/(d2-d6); out[0]=1-w;out[1]=0;out[2]=w; const qx=ax+acx*w,qy=ay+acy*w,qz=az+acz*w; return (px-qx)*(px-qx)+(py-qy)*(py-qy)+(pz-qz)*(pz-qz); }
+  const va=d3*d6-d5*d4;
+  if(va<=0&&(d4-d3)>=0&&(d5-d6)>=0){ const w=(d4-d3)/((d4-d3)+(d5-d6)); out[0]=0;out[1]=1-w;out[2]=w; const qx=bx+(cx-bx)*w,qy=by+(cy-by)*w,qz=bz+(cz-bz)*w; return (px-qx)*(px-qx)+(py-qy)*(py-qy)+(pz-qz)*(pz-qz); }
+  const den=1/(va+vb+vc2), v=vb*den, w=vc2*den; out[0]=1-v-w;out[1]=v;out[2]=w;
+  const qx=ax+abx*v+acx*w, qy=ay+aby*v+acy*w, qz=az+abz*v+acz*w; return (px-qx)*(px-qx)+(py-qy)*(py-qy)+(pz-qz)*(pz-qz);
+}
+// 形を作る：物理用（粗い＝軽い）＋見た目用（高精細＝つるっと）を作り、見た目頂点を物理三角に埋め込む
+function buildShape(kind){
+  // 物理メッシュ（粗い）
+  const sg = makeShapeGeo(kind,false), sw = weldGeo(sg);
+  N=sw.n; rest=new Float32Array(sw.verts); tri=sw.tris; triN=sw.triN;
+  invMass=new Float32Array(N).fill(1); grad=new Float32Array(N*3);
+  const eset=new Set(), el=[]; const addE=(a,b)=>{const k=a<b?a+"_"+b:b+"_"+a; if(!eset.has(k)){eset.add(k);el.push(a,b);}};
+  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; addE(a,b);addE(b,c);addE(c,a); }
+  edge=new Int32Array(el); edgeN=edge.length/2; edgeLen=new Float32Array(edgeN);
+  for(let e=0;e<edgeN;e++){ const a=edge[e*2],b=edge[e*2+1]; edgeLen[e]=Math.hypot(rest[a*3]-rest[b*3],rest[a*3+1]-rest[b*3+1],rest[a*3+2]-rest[b*3+2]); }
+  let rv=0; for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2],bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2],cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2]; rv+=(ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; } restVol=rv;
+
+  // 見た目メッシュ（高精細）。indexedにして computeVertexNormals が滑らかな法線を出す
+  const rgo = makeShapeGeo(kind,true), rw = weldGeo(rgo);
+  rvCount = rw.n; const rvRest = rw.verts;
+  renderTpl = new THREE.BufferGeometry();
+  renderTpl.setAttribute("position", new THREE.BufferAttribute(new Float32Array(rvRest), 3));
+  renderTpl.setIndex(new THREE.BufferAttribute(rw.tris, 1));
+  // 埋め込み：見た目頂点ごとに最も近い物理三角＋バリセントリック＋細部オフセット(丸みぶん)
+  embI=new Int32Array(rvCount*3); embW=new Float32Array(rvCount*3); embO=new Float32Array(rvCount*3);
+  const bary=[0,0,0];
+  for(let v=0;v<rvCount;v++){
+    const px=rvRest[v*3],py=rvRest[v*3+1],pz=rvRest[v*3+2];
+    let best=1e30, bt=0, w0=1,w1=0,w2=0;
+    for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
+      const d=closestBary(px,py,pz, rest[a*3],rest[a*3+1],rest[a*3+2], rest[b*3],rest[b*3+1],rest[b*3+2], rest[c*3],rest[c*3+1],rest[c*3+2], bary);
+      if(d<best){ best=d; bt=t; w0=bary[0];w1=bary[1];w2=bary[2]; } }
+    const a=tri[bt*3],b=tri[bt*3+1],c=tri[bt*3+2];
+    embI[v*3]=a;embI[v*3+1]=b;embI[v*3+2]=c; embW[v*3]=w0;embW[v*3+1]=w1;embW[v*3+2]=w2;
+    embO[v*3]  = px-(w0*rest[a*3]  +w1*rest[b*3]  +w2*rest[c*3]);
+    embO[v*3+1]= py-(w0*rest[a*3+1]+w1*rest[b*3+1]+w2*rest[c*3+1]);
+    embO[v*3+2]= pz-(w0*rest[a*3+2]+w1*rest[b*3+2]+w2*rest[c*3+2]);
   }
-  const nn = plist.length/3, tn = vc/3;
-  const tt = new Int32Array(tn*3);
-  for(let t=0;t<tn;t++){ tt[t*3]=vm[t*3]; tt[t*3+1]=vm[t*3+1]; tt[t*3+2]=vm[t*3+2]; }
-  const eset = new Set(); const el = [];
-  const addE = (a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
-  for(let t=0;t<tn;t++){ const a=tt[t*3],b=tt[t*3+1],c=tt[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
-  const ee = new Int32Array(el), en = ee.length/2;
-  // 共有トポロジをモジュール変数へ（各スライムが共通で使う。pos/prev/vel はスライムごと）
-  baseGeo=g; vCount=vc; vmap=vm; N=nn; triN=tn; tri=tt; edge=ee; edgeN=en;
-  rest=new Float32Array(plist); invMass=new Float32Array(N).fill(1); grad=new Float32Array(N*3);
-  edgeLen=new Float32Array(en);
-  for(let e=0;e<en;e++){ const a=ee[e*2],b=ee[e*2+1]; edgeLen[e]=Math.hypot(rest[a*3]-rest[b*3],rest[a*3+1]-rest[b*3+1],rest[a*3+2]-rest[b*3+2]); }
-  // 静止体積は rest（静止形）から直接
-  let rv=0;
-  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
-    const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2], bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2], cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2];
-    rv += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
-  restVol=rv;
 }
 
 // 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
@@ -322,7 +355,7 @@ let slimeReady = false;
 function usePtr(S){ pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; curScale=S.scale; }   // 現在ポインタを差し替え
 function makeSlime(){
   const S = { curVol: restVol, scale: 1, anchor: new THREE.Vector3(),
-    mesh: new THREE.Mesh(baseGeo.clone(), slimeMat), core: new THREE.Mesh(coreGeo, coreMat) };
+    mesh: new THREE.Mesh(renderTpl.clone(), slimeMat), core: new THREE.Mesh(coreGeo, coreMat) };
   S.mesh.frustumCulled = false; S.core.frustumCulled = false;
   S.geoAttr = S.mesh.geometry.attributes.position;
   S.pos = new Float32Array(N*3); S.prev = new Float32Array(N*3); S.vel = new Float32Array(N*3);
@@ -340,7 +373,7 @@ function placeSlime(S, cx, cy, cz, scale){         // 静止形を(大きさscal
 }
 function reinitSlimes(){                            // 形替え時：全スライムのジオメトリ＋配列を作り直し、今の位置へ
   for(const S of slimes){
-    S.mesh.geometry.dispose(); S.mesh.geometry = baseGeo.clone(); S.geoAttr = S.mesh.geometry.attributes.position;
+    S.mesh.geometry.dispose(); S.mesh.geometry = renderTpl.clone(); S.geoAttr = S.mesh.geometry.attributes.position;
     S.pos = new Float32Array(N*3); S.prev = new Float32Array(N*3); S.vel = new Float32Array(N*3);
     placeSlime(S, S.anchor.x, S.anchor.y, S.anchor.z);
   }
@@ -591,11 +624,16 @@ function finalize(sdt){
 
 function updateRenderMesh(){
   for(const S of slimes){
-    const pa=S.geoAttr; let cx=0,cy=0,cz=0;
-    for(let v=0;v<vCount;v++){ const i=vmap[v]; pa.setXYZ(v, S.pos[i*3], S.pos[i*3+1], S.pos[i*3+2]); }
-    for(let i=0;i<N;i++){ cx+=S.pos[i*3]; cy+=S.pos[i*3+1]; cz+=S.pos[i*3+2]; }
-    S.core.position.set(cx/N, cy/N, cz/N);       // 芯は各スライムの重心に
-    pa.needsUpdate = true; S.mesh.geometry.computeVertexNormals();
+    const pa=S.geoAttr, P=S.pos, sc=S.scale;
+    for(let v=0;v<rvCount;v++){   // 見た目頂点＝物理三角のバリセントリック点＋大きさ×丸みオフセット
+      const i0=embI[v*3],i1=embI[v*3+1],i2=embI[v*3+2], w0=embW[v*3],w1=embW[v*3+1],w2=embW[v*3+2];
+      pa.setXYZ(v,
+        w0*P[i0*3]  +w1*P[i1*3]  +w2*P[i2*3]  + sc*embO[v*3],
+        w0*P[i0*3+1]+w1*P[i1*3+1]+w2*P[i2*3+1]+ sc*embO[v*3+1],
+        w0*P[i0*3+2]+w1*P[i1*3+2]+w2*P[i2*3+2]+ sc*embO[v*3+2]);
+    }
+    pa.needsUpdate = true; S.mesh.geometry.computeVertexNormals();   // indexedなので滑らかな法線
+    let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=P[i*3];cy+=P[i*3+1];cz+=P[i*3+2];} S.core.position.set(cx/N,cy/N,cz/N);
   }
 }
 

@@ -82,7 +82,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v1 rev1";
+const REV = "v2 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -128,8 +128,17 @@ const TUNE = {
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
-  fingerR: 0.026,        // 指先の当たり半径(m)
+  fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
+  tipRMax: 0.016,        // 指先コライダの上限半径(m)（実機の関節半径が大きくても頭打ち）
+  palmR: 0.024,          // 手のひら中心のコライダ半径(m)。指先より少し大きい程度
   ctrlR: 0.034,          // コントローラの当たり半径(m)
+  // --- 有機感(段階2) ---
+  coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
+  coreK: 0.16,           // 芯の押し返しの強さ(0-1/サブステップ)。押すほど奥で硬くなる
+  sagShape: 0.20,        // 涙型: 先端が下へ垂れる量(半径×これ)
+  fullBottom: 0.12,      // 涙型: 下半分のふくらみ増し
+  breath: 0.0035,        // 呼吸: 板の前後の微かな動き(m)
+  breathHz: 0.22,        // 呼吸の速さ(Hz)。約13回/分
   maxStep: 0.05,         // 1サブステップの最大移動(m)（暴れ防止）
   squishGap: 110,        // 音の最短間隔(ms)
   squishMin: 0.005,      // この深さ(m)以上めり込んだら音・振動
@@ -203,6 +212,14 @@ function buildTopology(){
     vm[v] = idx;
   }
   vmap = vm; N = plist.length/3; rest = new Float32Array(plist);
+  // 涙型に変形(段階2): 根元(z奥)は動かさず、先端ほど下へ垂れ・下半分ふっくら・上はなだらか
+  for(let i=0;i<N;i++){
+    const x=rest[i*3], y=rest[i*3+1], z=rest[i*3+2];
+    const w = Math.max(0, (z - TUNE.pinZ) / (1 - TUNE.pinZ));   // 根元0 → 先端1
+    let ny = y - TUNE.sagShape * w*w;                            // 先端が下へ垂れる
+    ny *= (ny < 0 ? 1 + TUNE.fullBottom*w : 1 - 0.06*w);         // 下ふっくら・上なだらか
+    rest[i*3+1] = ny;
+  }
   triN = vCount/3; tri = new Int32Array(triN*3);
   for(let t=0;t<triN;t++){ tri[t*3]=vm[t*3]; tri[t*3+1]=vm[t*3+1]; tri[t*3+2]=vm[t*3+2]; }
   const eset = new Set(); const el = [];
@@ -219,8 +236,15 @@ function buildTopology(){
   invMass = new Float32Array(N); pinCount = 0;
   for(let i=0;i<N;i++){ const pin = rest[i*3+2] < TUNE.pinZ; invMass[i] = pin ? 0 : 1; if(pin) pinCount++; }
   grad = new Float32Array(N*3);
+  // 芯の抵抗用: 各粒の「深部の付け根(板の表面)からの静止距離」(単位球基準。実距離は×R)
+  drU = new Float32Array(N);
+  for(let i=0;i<N;i++){
+    const lx=rest[i*3], ly=rest[i*3+1], lz=TUNE.standoff + rest[i*3+2];
+    drU[i] = Math.hypot(lx, ly, lz);
+  }
   baseGeo = g;
 }
+let drU = null;
 buildTopology();
 
 // 胸板（このパネルにふくらみ2つが付く。板ごと掴んで動かせる）
@@ -247,10 +271,11 @@ function makeBust(mx){
   return B;
 }
 // 板の現在姿勢で「定位置(静止形)」を計算し、粒を初期化
+let breathT = 0, breathZ = 0;   // 呼吸: 板の表面が微かに前後する(生命感)
 function computeTargets(B){
   plateGroup.updateMatrixWorld(true);
   const M = plateGroup.matrixWorld.elements;
-  const off = R*TUNE.standoff;
+  const off = R*TUNE.standoff + breathZ;
   for(let i=0;i<N;i++){
     const lx = B.mount.x + rest[i*3]*R;
     const ly = B.mount.y + rest[i*3+1]*R;
@@ -259,6 +284,12 @@ function computeTargets(B){
     B.tgt[i*3+1] = M[1]*lx + M[5]*ly + M[9]*lz  + M[13];
     B.tgt[i*3+2] = M[2]*lx + M[6]*ly + M[10]*lz + M[14];
   }
+  // 芯の付け根(板の表面の取り付け点)のワールド座標
+  const ax = B.mount.x, ay = B.mount.y, az = 0;
+  if(!B.anchorW) B.anchorW = [0,0,0];
+  B.anchorW[0] = M[0]*ax + M[4]*ay + M[8]*az  + M[12];
+  B.anchorW[1] = M[1]*ax + M[5]*ay + M[9]*az  + M[13];
+  B.anchorW[2] = M[2]*ax + M[6]*ay + M[10]*az + M[14];
 }
 function placeBust(B){
   computeTargets(B);
@@ -301,6 +332,8 @@ function usePtr(B){ pos=B.pos; prev=B.prev; vel=B.vel; curVol=B.curVol; }
 
 function softStep(h){
   if(!bustReady) return;
+  breathT += h;
+  breathZ = TUNE.breath * Math.sin(breathT * Math.PI*2 * TUNE.breathHz);   // 呼吸(ゆっくり前後)
   for(const B of busts) computeTargets(B);         // 板の今の姿勢での定位置（フレーム内は板は動かない）
   const sub = TUNE.substeps, sdt = h/sub;
   for(let s=0;s<sub;s++){
@@ -310,8 +343,27 @@ function softStep(h){
       solveEdges(sdt);
       solveVolume(sdt);
       solveColliders();
+      solveCore(B);
       finalize(sdt);
       B.curVol = curVol;
+    }
+  }
+}
+// 芯の抵抗(段階2): 付け根からの距離が静止時よりcoreStart以上縮んだ粒を、押すほど強く押し返す。
+// 表面のやわらかさはそのままに「奥に詰まった感じ」を作る(本物の組織の"押すほど硬い"非線形の再現)
+function solveCore(B){
+  const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+  const k=TUNE.coreK, start=TUNE.coreStart;
+  for(let i=0;i<N;i++){
+    if(invMass[i]===0) continue;
+    let dx=pos[i*3]-ax, dy=pos[i*3+1]-ay, dz=pos[i*3+2]-az;
+    const d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
+    const dr=drU[i]*R;
+    const q = 1 - d/dr;                     // 圧縮率(0=静止どおり)
+    if(q > start){
+      const targetD = dr*(1-start);
+      const corr = (targetD - d)/d * k;     // 一部だけ戻す=サブステップ反復で奥ほど強く効く
+      pos[i*3]+=dx*corr; pos[i*3+1]+=dy*corr; pos[i*3+2]+=dz*corr;
     }
   }
 }
@@ -327,8 +379,9 @@ function integrate(B, sdt){
       continue;
     }
     // 自由な粒: 定位置へ弱いばね（揺れの復元）＋重力＋減衰
-    const sx=(tgt[i*3]  -pos[i*3])*k;
-    const sy=(tgt[i*3+1]-pos[i*3+1])*k;
+    // 縦(重力方向)は柔らかく・横は少し硬く=生体の揺れの定石(異方性)。縦がたゆん、横はしまる
+    const sx=(tgt[i*3]  -pos[i*3])*k*1.12;
+    const sy=(tgt[i*3+1]-pos[i*3+1])*k*0.82;
     const sz=(tgt[i*3+2]-pos[i*3+2])*k;
     let vx=(vel[i*3]   + sx*sdt)*damp;
     let vy=(vel[i*3+1] + (sy-g)*sdt)*damp;
@@ -563,8 +616,9 @@ function updateGrab(){
    ============================================================ */
 const controllers = [];
 const ctrlOn = [false, false];
-const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip",
-  "wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"];
+// 指先5つだけ関節から取る。手のひらは「手首と中指の付け根の中間」に自前の小さめ球を1つ置く
+// (付け根の関節をそのまま使うと、半径が大きすぎ・位置も指の付け根に出て違和感=実機②の指摘)
+const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"];
 const markerMat = new THREE.MeshBasicMaterial({ color:0xffd3dd, transparent:true, opacity:0.45, depthWrite:false });
 const markerGeo = new THREE.SphereGeometry(1, 10, 8);
 const markers = [];
@@ -597,8 +651,18 @@ function collectXRColliders(frame, ref){
       for(const jn of TIP_JOINTS){
         const j = src.hand.get(jn); if(!j) continue;
         const p = frame.getJointPose(j, ref); if(!p) continue;
-        const r = (p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR;
+        const r = Math.min((p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR, TUNE.tipRMax);
         addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
+      }
+      // 手のひらの中心 = 手首と中指の付け根(第3関節)の中間。半径は指先より少し大きい程度
+      const jw = src.hand.get("wrist"), jm = src.hand.get("middle-finger-phalanx-proximal");
+      if(jw && jm){
+        const pw = frame.getJointPose(jw, ref), pm = frame.getJointPose(jm, ref);
+        if(pw && pm){
+          addCol((pw.transform.position.x+pm.transform.position.x)/2,
+                 (pw.transform.position.y+pm.transform.position.y)/2,
+                 (pw.transform.position.z+pm.transform.position.z)/2, TUNE.palmR);
+        }
       }
     }
   }
@@ -920,6 +984,55 @@ window.__dbg = {
     }
     updateRenderMesh();
     const st=this.state(); st.maxLag=+maxLag.toFixed(4); st.settledAt=settled; return st;
+  },
+  // 押し込み中の「一番深く動いた粒」の変位(m)を測る(重力の垂れに埋もれない物差し)
+  pokeMaxDisp(depth, sec){
+    if(!bustReady) this.spawn();
+    const B = busts[0];
+    plateGroup.getWorldDirection(_v2);
+    const steps = Math.max(1, Math.round((sec||0.5)/FIXED)), inSteps = Math.max(1, Math.round(steps*0.4));
+    let maxDisp = 0;
+    for(let s=0;s<steps;s++){
+      const f = s<inSteps ? (s+1)/inSteps : 1;
+      bustCenter(B, _v3);
+      const d = R + TUNE.fingerR - Math.min(depth, R*0.9)*f;
+      colN=0; addCol(_v3.x+_v2.x*d, _v3.y+_v2.y*d, _v3.z+_v2.z*d, TUNE.fingerR);
+      contactDepth=0; softStep(FIXED);
+      for(let i=0;i<N;i++){ if(invMass[i]===0) continue;
+        // 押した向き(-dir)へのめり込み量だけを測る(体積保存で横に膨らむ分は数えない)
+        const dd=(B.tgt[i*3]-B.pos[i*3])*_v2.x + (B.tgt[i*3+1]-B.pos[i*3+1])*_v2.y + (B.tgt[i*3+2]-B.pos[i*3+2])*_v2.z;
+        if(dd>maxDisp) maxDisp=dd; }
+    }
+    colN=0; updateRenderMesh();
+    return +maxDisp.toFixed(4);
+  },
+  // 芯の抵抗: ①浅押しと深押しの変位比が押し込み比(3倍)より小さい=奥で硬くなる ②芯OFFとの比較
+  coreTest(){
+    this.spawn(); this.settle(1.5);
+    const shallow = this.pokeMaxDisp(0.02, 0.5); this.settle(1.5);
+    const deep    = this.pokeMaxDisp(0.06, 0.6); this.settle(1.5);
+    const k0 = TUNE.coreK; TUNE.coreK = 0;
+    const deepNoCore = this.pokeMaxDisp(0.06, 0.6); TUNE.coreK = k0; this.settle(1.5);
+    return { shallow, deep, deepNoCore, ratio:+(deep/Math.max(1e-6,shallow)).toFixed(2),
+             coreHolds:+(deepNoCore-deep).toFixed(4), nan:anyNaN() };
+  },
+  // 呼吸: 先端が周期的に前後するか(振幅と周期)
+  breathTest(){
+    this.spawn(); this.settle(2);
+    const B=busts[0]; let mn=1e9, mx=-1e9;
+    const steps=Math.round((2/TUNE.breathHz)/FIXED);      // 2呼吸ぶん
+    for(let s=0;s<steps;s++){ contactDepth=0; softStep(FIXED);
+      const z=B.pos[TIP*3+2]; if(z<mn)mn=z; if(z>mx)mx=z; }
+    updateRenderMesh();
+    return { amp:+(mx-mn).toFixed(4), nan:anyNaN() };
+  },
+  // 涙型: 先端が中心より下に垂れているか(静止形の非対称)
+  shapeTest(){
+    this.spawn(); this.settle(2);
+    const B=busts[0];
+    let top=-1e9, bottom=1e9;                              // 付け根中心に対する上下の広がり
+    for(let i=0;i<N;i++){ const dy=B.pos[i*3+1]-B.anchorW[1]; if(dy>top)top=dy; if(dy<bottom)bottom=dy; }
+    return { up:+top.toFixed(4), down:+(-bottom).toFixed(4), teardrop:(-bottom)>top, tipDropU:+(-(rest[TIP*3+1])).toFixed(3), nan:anyNaN() };
   },
   setSoft(v){ TUNE.soft=Math.max(0,Math.min(1,v)); applyFeel(); return {soft:TUNE.soft, hariK:+TUNE.hariK.toFixed(0), edgeCompliance:+TUNE.edgeCompliance.toExponential(2)}; },
   setKeep(v){ TUNE.keep=Math.max(0,Math.min(1,v)); applyFeel(); return {keep:TUNE.keep, velDamping:+TUNE.velDamping.toFixed(2)}; },
