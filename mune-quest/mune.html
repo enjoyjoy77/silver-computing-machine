@@ -82,7 +82,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v2 rev2";
+const REV = "v2 rev4";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -130,8 +130,7 @@ const TUNE = {
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
-  tipRMax: 0.016,        // 指先コライダの上限半径(m)（実機の関節半径が大きくても頭打ち）
-  palmR: 0.024,          // 手のひら中心のコライダ半径(m)。指先より少し大きい程度
+  handMinR: 0.013,       // 手の関節コライダの下限半径(m)。位置は純正のまま。細すぎる関節は粒のすき間をすり抜けるので半径だけ下限
   ctrlR: 0.034,          // コントローラの当たり半径(m)
   // --- 有機感(段階2) ---
   coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
@@ -381,7 +380,7 @@ function arrangeBusts(){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PC押し込み） --- */
-const MAXCOL = 24;
+const MAXCOL = 56;   // 純正ハンドの全25関節×両手＋コントローラ2＝最大52を収める
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
 let colN = 0;
 let contactDepth = 0;
@@ -690,7 +689,7 @@ const controllers = [];
 const ctrlOn = [false, false];
 // 指先5つだけ関節から取る。手のひらは「手首と中指の付け根の中間」に自前の小さめ球を1つ置く
 // (付け根の関節をそのまま使うと、半径が大きすぎ・位置も指の付け根に出て違和感=実機②の指摘)
-const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"];
+// 手の関節はQuest純正ハンドトラッキングの全25関節をそのまま使う（自前の選別・中点・加工はしない）
 const markerMat = new THREE.MeshBasicMaterial({ color:0xffd3dd, transparent:true, opacity:0.45, depthWrite:false });
 const markerGeo = new THREE.SphereGeometry(1, 10, 8);
 const markers = [];
@@ -716,30 +715,24 @@ function collectXRColliders(frame, ref){
   for(let i=0;i<2;i++){
     if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
   }
+  const ctrlColN = colN;   // ここまで＝コントローラ由来。マーカー(見える印)はこれだけに出す
   const session = renderer.xr.getSession();
   if(session && frame && ref){
     for(const src of session.inputSources){
       if(!src.hand) continue;
-      for(const jn of TIP_JOINTS){
-        const j = src.hand.get(jn); if(!j) continue;
-        const p = frame.getJointPose(j, ref); if(!p) continue;
-        const r = Math.min((p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR, TUNE.tipRMax);
+      // Quest純正ハンドトラッキングの全25関節を、位置も半径もそのまま当たり判定にする
+      // （自前の選別・足し算・上限・中点の自作が実手とのズレの元だったため全部やめた）
+      for(const joint of src.hand.values()){
+        const p = frame.getJointPose(joint, ref); if(!p) continue;
+        const r = Math.max((p.radius && p.radius>0) ? p.radius : 0.008, TUNE.handMinR); // 位置は純正のまま。半径だけ下限（粒すり抜け防止）
         addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
-      }
-      // 手のひらの中心 = 手首と中指の付け根(第3関節)の中間。半径は指先より少し大きい程度
-      const jw = src.hand.get("wrist"), jm = src.hand.get("middle-finger-phalanx-proximal");
-      if(jw && jm){
-        const pw = frame.getJointPose(jw, ref), pm = frame.getJointPose(jm, ref);
-        if(pw && pm){
-          addCol((pw.transform.position.x+pm.transform.position.x)/2,
-                 (pw.transform.position.y+pm.transform.position.y)/2,
-                 (pw.transform.position.z+pm.transform.position.z)/2, TUNE.palmR);
-        }
       }
     }
   }
+  // 素手にはマーカー(球)を描かない＝パススルーの本物の手をそのまま見る(自前の球はズレて見えて邪魔・実機③指摘)。
+  // 当たり判定そのものは colX/colY/colZ に全部残っている(見えないだけで押せる)。
   for(let i=0;i<MAXCOL;i++){
-    if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
+    if(i<ctrlColN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
     else markers[i].visible=false;
   }
 }
