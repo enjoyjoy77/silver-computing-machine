@@ -81,8 +81,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
+import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 
-const REV = "v2 rev7";
+const REV = "v2 rev8";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -118,8 +119,8 @@ const TUNE = {
   detail: 3,             // 物理の細かさ（162粒。粗いと指がすり抜ける。ここは軽さのため粗いまま）
   visDetail: 5,          // 見た目メッシュの細かさ（高精細＝つるっと・継ぎ目が目立たない。物理とは別）
   substeps: 10,          // XPBDのサブステップ
-  soft: 0.55,            // 【レバー】やわらかさ（右=やわらかく深く沈み・大きく揺れる）
-  keep: 0.6,             // 【レバー】ゆれのこり（右=長くぷるんぷるん残る）
+  soft: 0.5,             // 【レバー】やわらかさ。既定=真ん中（実機④で好評だった旧「0」の硬さを真ん中に配置。左はさらにハリ）
+  keep: 0.5,             // 【レバー】ゆれのこり。既定=真ん中（同上）
   edgeCompliance: 3e-4,  // 表面のハリ（softから applyFeel が自動設定）
   hariK: 100,            // 形を保つばね（＝揺れの速さ。softから自動設定。目安1〜2Hz）
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
@@ -135,6 +136,7 @@ const TUNE = {
   // --- 有機感(段階2) ---
   coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
   coreK: 0.16,           // 芯の押し返しの強さ(0-1/サブステップ)。押すほど奥で硬くなる
+  maxSquish: 0.5,        // これ以上は絶対つぶれない硬い下限(付け根からの距離が静止時の50%まで)。手の貫通の見た目を止める骨・肋骨の代わり
   sagShape: 0.20,        // 涙型: 先端が下へ垂れる量(半径×これ)
   fullBottom: 0.12,      // 涙型: 下半分のふくらみ増し
   breath: 0.0035,        // 呼吸: 板の前後の微かな動き(m)
@@ -151,13 +153,14 @@ const SIZES = [
 ];
 let sizeIdx = 1;
 function lerp(a,b,t){ return a+(b-a)*t; }
-// レバー2本 → 実際の物理パラメータ（設計書の実測レンジ）
+function lerp2(a0,aMid,a1,t){ return t<0.5 ? a0+(aMid-a0)*(t/0.5) : aMid+(a1-aMid)*((t-0.5)/0.5); }  // 0→中央→1の折れ線
+// レバー2本 → 実際の物理パラメータ。実機④「両方0でちょうどいい」→旧0の値を新しい"真ん中(0.5)"に置き、左半分はさらに硬い側へ拡張
 function applyFeel(){
   const s = Math.max(0, Math.min(1, TUNE.soft));
   const k = Math.max(0, Math.min(1, TUNE.keep));
-  TUNE.edgeCompliance = lerp(3e-5, 9e-4, s);   // 右=表面やわらか（深く沈む）
-  TUNE.hariK          = lerp(160, 45, s);      // 右=張り弱い（ゆっくり大きく揺れる。約2.0→1.1Hz）
-  TUNE.velDamping     = lerp(14, 0.6, k);      // 右=揺れが長く残る（左≒一発で収まる）
+  TUNE.edgeCompliance = lerp2(1.0e-5, 3e-5, 9e-4, s);   // 右=表面やわらか（深く沈む）。左端は旧0よりさらにハリ
+  TUNE.hariK          = lerp2(260, 160, 45, s);         // 右=張り弱い（ゆっくり大きく揺れる）
+  TUNE.velDamping     = lerp2(26, 14, 0.6, k);          // 右=揺れが長く残る（左＝即収まる）
 }
 applyFeel();
 
@@ -438,6 +441,12 @@ function solveCore(B){
       const corr = (targetD - d)/d * k;     // 一部だけ戻す=サブステップ反復で奥ほど強く効く
       pos[i*3]+=dx*corr; pos[i*3+1]+=dy*corr; pos[i*3+2]+=dz*corr;
     }
+    // 硬い下限(骨・肋骨の代わり): 静止時の(1-maxSquish)倍より深くは絶対つぶれない(ハード投影)
+    const minD = dr*(1 - TUNE.maxSquish);
+    if(d < minD){
+      const hc = (minD - d)/d;
+      pos[i*3]+=dx*hc; pos[i*3+1]+=dy*hc; pos[i*3+2]+=dz*hc;
+    }
   }
 }
 function integrate(B, sdt){
@@ -708,6 +717,18 @@ const markerGeo = new THREE.SphereGeometry(1, 10, 8);
 const markers = [];
 for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo, markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
 
+// 本物の手モデル：Quest純正の関節で動く公式ハンドメッシュ(lib同梱のGLB)。球でなく"手"が見える
+const handFactory = new XRHandModelFactory().setPath("./lib/profiles/generic-hand/");
+const handSpaces = [];
+function setupHands(){
+  if(handSpaces.length) return;
+  for(let i=0;i<2;i++){
+    const h = renderer.xr.getHand(i);
+    h.add(handFactory.createHandModel(h, "mesh"));
+    scene.add(h);
+    handSpaces.push(h);
+  }
+}
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
@@ -768,6 +789,7 @@ async function startAR(){
     await renderer.xr.setSession(session);
     scene.background = null;
     setupControllers();
+    setupHands();                       // 本物の手モデル(素手のとき手として表示される)
     bustReady = false;
     $("start").style.display = "none"; $("goBtn").textContent = "AR中…"; $("stats").style.display = "block";
     checkpoint("ar", "AR開始OK（土台の起動に成功）");

@@ -87,8 +87,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
+import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 
-const REV = "v6 rev9";
+const REV = "v6 rev10";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -1256,6 +1257,19 @@ function setupControllers(){
   }
 }
 
+// 本物の手モデル：Quest純正の関節で動く公式ハンドメッシュ(lib同梱のGLB)。球でなく"手"が見える
+const handFactory = new XRHandModelFactory().setPath("./lib/profiles/generic-hand/");
+const handSpaces = [];
+function setupHands(){
+  if(handSpaces.length) return;
+  for(let i=0;i<2;i++){
+    const h = renderer.xr.getHand(i);
+    h.add(handFactory.createHandModel(h, "mesh"));
+    scene.add(h);
+    handSpaces.push(h);
+  }
+}
+
 function collectXRColliders(frame, ref){
   colN = 0;
   for(let i=0;i<2;i++){
@@ -1302,6 +1316,7 @@ async function startAR(){
     await renderer.xr.setSession(session);
     scene.background = null;
     setupControllers();
+    setupHands();                       // 本物の手モデル(素手のとき手として表示される)
     slimeReady = false;
     $("start").style.display = "none"; $("goBtn").textContent = "AR中…"; $("stats").style.display = "block";
     checkpoint("ar", "AR開始OK（土台の起動に成功）");
