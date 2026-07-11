@@ -122,7 +122,7 @@ function checkpoint(key, msg){ if(cp[key]) return; cp[key] = true; log("✔ " + 
    ============================================================ */
 const TUNE = {
   R0: 0.10,               // ねんどの半径(m)
-  spac: 0.020,            // 粒の間隔(m)。指(fingerR)より十分小さくないと指がすり抜ける。性能に直結
+  spac: 0.025,            // 粒の間隔(m)。指(fingerR)より十分小さくないと指がすり抜ける。性能に直結
   substeps: 6,            // 1/60秒の分割
   bondRadiusK: 1.55,      // この×間隔 まで届く粒どうしを結ぶ
   bondCompliance: 3e-6,   // 表面のつながり（柔らかめ＝指でちゃんと掘れる。腰は反発と塑性で作る）
@@ -603,6 +603,15 @@ window.__dbg={
     this.spawn(); const hp=this.poke(0.07,0.6); const hs=this.settle(1.2); const hard=hs.dent;
     return { lightKept:+light.toFixed(4), hardKept:+hard.toFixed(4), ratio:+(hard/Math.max(light,1e-6)).toFixed(1), note:"腰があれば hard>>light" }; },
   mashTest(times){ this.spawn(); times=times||10; for(let t=0;t<times;t++){ this.poke(0.06,0.3); this.settle(0.25); } const st=this.settle(1.0); st.mashed=times; return st; },
+  // ねばり：指を押し込んで横に動かすと、近くの材料がついてくるか（粘土の動き＝スメア/伸び）
+  dragTest(){ this.spawn(); const fx=anchor.x+TUNE.R0-0.01;
+    for(let s=0;s<10;s++){ colN=0; addCol(fx,anchor.y,anchor.z,TUNE.fingerR); softStep(FIXED); }   // 押し込む
+    const near=[]; for(let i=0;i<N;i++){ const dx=pos[i*3]-fx,dy=pos[i*3+1]-anchor.y,dz=pos[i*3+2]-anchor.z; if(dx*dx+dy*dy+dz*dz<(TUNE.fingerR*2)*(TUNE.fingerR*2)) near.push(i); }
+    const y0=near.map(i=>pos[i*3+1]);
+    for(let s=0;s<24;s++){ const yy=anchor.y+(s+1)/24*0.09; colN=0; addCol(fx,yy,anchor.z,TUNE.fingerR); softStep(FIXED); }   // 横に9cm動かす
+    let follow=0; for(let k=0;k<near.length;k++) follow+=pos[near[k]*3+1]-y0[k]; follow/=Math.max(near.length,1);
+    const af=this.settle(0.8);
+    return { nearCount:near.length, followY:+follow.toFixed(4), fingerMovedY:0.09, followPct:Math.round(follow/0.09*100), keptAfter:+af.dent.toFixed(4), rogRatio:af.rogRatio, maxSpeed:af.maxSpeed, nan:af.nan, note:"followPctが大きい＝材料が指についてくる＝粘土の動き" }; },
   perfTest(sec){ this.spawn(); timedStep(sec||1.0); return { N, bonds:M, physMsPerStep:+physMs.toFixed(2), budgetAt90fps:11.1, stepsPerFrame:1, note:"physMsPerStep×1 が 11.1ms(90fps)/13.7ms(72fps)予算に対しどうか。実機は別途" }; },
   render(){ if(renderer) renderer.render(scene,camera); return "ok"; },
   // 押しのけた材料がどこへ行くかを直接見る：クレーターの深さ・リムの盛り上がり・指の近くの粒の動き

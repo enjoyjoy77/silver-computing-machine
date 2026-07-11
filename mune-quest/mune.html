@@ -82,7 +82,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v2 rev5";
+const REV = "v2 rev7";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -385,6 +385,10 @@ const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = n
 let colN = 0;
 let contactDepth = 0;
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+// CCD(貫通防止): 手の位置は1フレームに1回しか取れないが、物理はサブステップで回る。
+// 前フレーム位置→今フレーム位置を補間した「通り道」で当てると、速い手が粒を飛び越えて中に入るのを防げる。
+const pColX=new Float32Array(MAXCOL), pColY=new Float32Array(MAXCOL), pColZ=new Float32Array(MAXCOL); let pColN=0;
+const eColX=new Float32Array(MAXCOL), eColY=new Float32Array(MAXCOL), eColZ=new Float32Array(MAXCOL);
 
 /* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
 const FIXED = 1/60;
@@ -397,7 +401,13 @@ function softStep(h){
   breathZ = TUNE.breath * Math.sin(breathT * Math.PI*2 * TUNE.breathHz);   // 呼吸(ゆっくり前後)
   for(const B of busts) computeTargets(B);         // 板の今の姿勢での定位置（フレーム内は板は動かない）
   const sub = TUNE.substeps, sdt = h/sub;
+  const ccd = (colN>0 && colN===pColN);   // 前フレームと本数が同じ時だけ「通り道」を補間(速い手の貫通防止)
   for(let s=0;s<sub;s++){
+    const t=(s+1)/sub;
+    for(let k=0;k<colN;k++){
+      if(ccd){ eColX[k]=pColX[k]+(colX[k]-pColX[k])*t; eColY[k]=pColY[k]+(colY[k]-pColY[k])*t; eColZ[k]=pColZ[k]+(colZ[k]-pColZ[k])*t; }
+      else   { eColX[k]=colX[k]; eColY[k]=colY[k]; eColZ[k]=colZ[k]; }
+    }
     for(const B of busts){
       usePtr(B);
       integrate(B, sdt);
@@ -409,6 +419,8 @@ function softStep(h){
       B.curVol = curVol;
     }
   }
+  for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }   // 次フレームのCCD用に記憶
+  pColN = colN;
 }
 // 芯の抵抗(段階2): 付け根からの距離が静止時よりcoreStart以上縮んだ粒を、押すほど強く押し返す。
 // 表面のやわらかさはそのままに「奥に詰まった感じ」を作る(本物の組織の"押すほど硬い"非線形の再現)
@@ -497,7 +509,7 @@ function solveVolume(sdt){
 }
 function solveColliders(){
   for(let k=0;k<colN;k++){
-    const cx=colX[k], cy=colY[k], cz=colZ[k], Rc=colR[k], R2=Rc*Rc;
+    const cx=eColX[k], cy=eColY[k], cz=eColZ[k], Rc=colR[k], R2=Rc*Rc;   // 補間した通り道の位置で当てる(CCD)
     for(let i=0;i<N;i++){
       if(invMass[i]===0) continue;                 // 根元は押せない
       let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
@@ -687,6 +699,7 @@ function updateGrab(){
    ============================================================ */
 const controllers = [];
 const ctrlOn = [false, false];
+const ctrlIsHand = [false, false];   // その入力が「素手」か（Questは素手もコントローラ扱いで登録される＝偽コントローラ球の元）
 // 指先5つだけ関節から取る。手のひらは「手首と中指の付け根の中間」に自前の小さめ球を1つ置く
 // (付け根の関節をそのまま使うと、半径が大きすぎ・位置も指の付け根に出て違和感=実機②の指摘)
 // 手の関節はQuest純正ハンドトラッキングの全25関節をそのまま使う（自前の選別・中点・加工はしない）
@@ -700,8 +713,8 @@ function setupControllers(){
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
     c.userData.index = i;
-    c.addEventListener("connected", e => { ctrlOn[i]=true; if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
-    c.addEventListener("disconnected", () => { ctrlOn[i]=false; gamepads[i]=null; });
+    c.addEventListener("connected", e => { ctrlOn[i]=true; ctrlIsHand[i]=!!(e.data && e.data.hand); if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
+    c.addEventListener("disconnected", () => { ctrlOn[i]=false; ctrlIsHand[i]=false; gamepads[i]=null; });
     c.addEventListener("squeezestart", () => onSqueezeStart(i));
     c.addEventListener("squeezeend", () => onSqueezeEnd(i));
     c.addEventListener("selectstart", () => onSelectStart(i));
@@ -713,7 +726,7 @@ function setupControllers(){
 function collectXRColliders(frame, ref){
   colN = 0;
   for(let i=0;i<2;i++){
-    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
+    if(controllers[i] && ctrlOn[i] && !ctrlIsHand[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }   // 素手のときは"コントローラの球"を出さない（=ピンク玉1個の正体だった偽コントローラ球の廃止）
   }
   const ctrlColN = colN;   // ここまで＝コントローラ由来。マーカー(見える印)はこれだけに出す
   const session = renderer.xr.getSession();

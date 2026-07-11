@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v6 rev7";
+const REV = "v6 rev9";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -137,8 +137,7 @@ const TUNE = {
   // ↑ ここまで applyFeel が上書き
   gravity: 0.0,           // 重力(m/s^2)。0=空中に浮く
   fingerR: 0.026,         // 指先の当たり半径(m)。粒間隔より大きくして貫通を防ぐ
-  tipRMax: 0.016,         // 指先コライダの上限半径(m)。実機の関節半径が大きくても頭打ち（mune実機①で確立）
-  palmR: 0.024,           // 手のひら中心のコライダ半径(m)。手首と中指付け根の中点に1つ置く
+  handMinR: 0.013,        // 手の関節コライダの下限半径(m)。位置は純正のまま。細すぎる関節は粒のすき間をすり抜けるので半径だけ下限
   ctrlR: 0.034,           // コントローラ先端の当たり半径(m)
   coreR: 0.035,           // 真ん中の「芯」の半径(m)。ここを押すとスライム全体が動く
   grabRadius: 0.06,       // つかむ範囲(m)。この中の表面の粒を掴む
@@ -411,11 +410,15 @@ function setShape(idx){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PCつつき） --- */
-const MAXCOL = 24;
+const MAXCOL = 56;   // 純正ハンドの全25関節×両手＋コントローラ2＝最大52を収める
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
 let colN = 0;
 let contactDepth = 0;   // このフレームで一番深くめり込んだ量
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+// CCD(貫通防止): 手の位置は1フレームに1回しか取れないが、物理はサブステップで回る。
+// 前フレーム位置→今フレーム位置を補間した「通り道」で当てると、速い手が粒を飛び越えて中に入るのを防げる。
+const pColX=new Float32Array(MAXCOL), pColY=new Float32Array(MAXCOL), pColZ=new Float32Array(MAXCOL); let pColN=0;
+const eColX=new Float32Array(MAXCOL), eColY=new Float32Array(MAXCOL), eColZ=new Float32Array(MAXCOL);
 
 /* --- つかむ（表面をひとつかみ掴んで、手を動かすと伸びる・こねる） --- */
 const slimeGrab = [null, null];                       // 各手: {idx:[粒], ox/oy/oz:[手からのずれ]}
@@ -506,7 +509,13 @@ let physAcc = 0, physMs = 0;
 
 function softStep(h){
   const sub = TUNE.substeps, sdt = h/sub;
+  const ccd = (colN>0 && colN===pColN);   // 前フレームと本数が同じ時だけ「通り道」を補間(速い手の貫通防止)
   for(let s=0;s<sub;s++){
+    const tf=(s+1)/sub;
+    for(let k=0;k<colN;k++){
+      if(ccd){ eColX[k]=pColX[k]+(colX[k]-pColX[k])*tf; eColY[k]=pColY[k]+(colY[k]-pColY[k])*tf; eColZ[k]=pColZ[k]+(colZ[k]-pColZ[k])*tf; }
+      else   { eColX[k]=colX[k]; eColY[k]=colY[k]; eColZ[k]=colZ[k]; }
+    }
     for(let si=0; si<slimes.length; si++){
       const S = slimes[si];
       pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; curScale=S.scale;   // 現在ポインタを差し替え
@@ -520,6 +529,8 @@ function softStep(h){
       S.curVol = curVol;
     }
   }
+  for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }   // 次フレームのCCD用に記憶
+  pColN = colN;
 }
 function integrate(sdt){
   // 重心(COM)と重心の速度を出す。形の戻りはCOM相対、位置の戻り＆減衰はCOM単位で、と別々にするのが肝
@@ -588,7 +599,7 @@ function solveVolume(sdt){
 }
 function solveColliders(){
   for(let k=0;k<colN;k++){
-    const cx=colX[k], cy=colY[k], cz=colZ[k], R=colR[k], R2=R*R;
+    const cx=eColX[k], cy=eColY[k], cz=eColZ[k], R=colR[k], R2=R*R;   // 補間した通り道の位置で当てる(CCD)
     for(let i=0;i<N;i++){
       let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
       const d2=dx*dx+dy*dy+dz*dz;
@@ -609,7 +620,7 @@ function solveCore(){
   if(colN===0) return;
   let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=pos[i*3];cy+=pos[i*3+1];cz+=pos[i*3+2];} cx/=N;cy/=N;cz/=N;
   for(let k=0;k<colN;k++){
-    const dx=cx-colX[k], dy=cy-colY[k], dz=cz-colZ[k];
+    const dx=cx-eColX[k], dy=cy-eColY[k], dz=cz-eColZ[k];              // 芯もCCD位置で
     const d=Math.hypot(dx,dy,dz), R=TUNE.coreR*curScale+colR[k];
     if(d<R && d>1e-6){
       const push=(R-d)/d, mx=dx*push, my=dy*push, mz=dz*push;
@@ -1043,7 +1054,8 @@ function playCreak(level, base){
    ============================================================ */
 const controllers = [];
 const ctrlOn = [false, false];
-const TIP_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip"]; // 指先5つだけ。手のひらは別に自前で1球（mune方式）
+const ctrlIsHand = [false, false];   // その入力が「素手」か（Questは素手もコントローラ扱いで登録される＝偽コントローラ球の元）
+// 手の関節はQuest純正ハンドトラッキングの全25関節をそのまま使う（自前の選別・中点・加工はしない）
 
 // 触れている所を示す小さな球（コントローラ・指先ぶん）
 const markerMat = new THREE.MeshBasicMaterial({ color:0xb6f5cf, transparent:true, opacity:0.5, depthWrite:false });
@@ -1234,8 +1246,8 @@ function setupControllers(){
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
     c.userData.index = i;
-    c.addEventListener("connected", e => { ctrlOn[i]=true; if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
-    c.addEventListener("disconnected", () => { ctrlOn[i]=false; gamepads[i]=null; });
+    c.addEventListener("connected", e => { ctrlOn[i]=true; ctrlIsHand[i]=!!(e.data && e.data.hand); if(e.data && e.data.gamepad) gamepads[i]=e.data.gamepad; });
+    c.addEventListener("disconnected", () => { ctrlOn[i]=false; ctrlIsHand[i]=false; gamepads[i]=null; });
     c.addEventListener("squeezestart", () => respawnInFront());   // 握ると目の前に呼び戻す
     c.addEventListener("selectstart", () => onSelectStart(i));    // トリガー＝レバー/感触ボタン操作
     c.addEventListener("selectend", () => onSelectEnd(i));
@@ -1247,33 +1259,27 @@ function setupControllers(){
 function collectXRColliders(frame, ref){
   colN = 0;
   for(let i=0;i<2;i++){
-    if(controllers[i] && ctrlOn[i]){ controllers[i].getWorldPosition(_v1); grabHand[i].copy(_v1); if(!slimeGrab[i]) addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }
+    if(controllers[i] && ctrlOn[i]){
+      controllers[i].getWorldPosition(_v1); grabHand[i].copy(_v1);   // つかむ位置の追従は手でも使う
+      if(!ctrlIsHand[i] && !slimeGrab[i]) addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR);   // 素手のときは"コントローラの大きい球"を出さない（偽コントローラ球の廃止）
+    }
   }
+  const ctrlColN = colN;   // ここまで＝本物のコントローラ由来。マーカー(見える印)はこれだけに出す
   const session = renderer.xr.getSession();
   if(session && frame && ref){
     for(const src of session.inputSources){
       if(!src.hand) continue;
-      for(const jn of TIP_JOINTS){
-        const j = src.hand.get(jn); if(!j) continue;
-        const p = frame.getJointPose(j, ref); if(!p) continue;
-        const r = Math.min((p.radius && p.radius>0) ? p.radius+0.004 : TUNE.fingerR, TUNE.tipRMax);
+      // Quest純正ハンドトラッキングの全25関節を、位置も半径もそのまま当たり判定にする（mune v2 rev4と同方式）
+      for(const joint of src.hand.values()){
+        const p = frame.getJointPose(joint, ref); if(!p) continue;
+        const r = Math.max((p.radius && p.radius>0) ? p.radius : 0.008, TUNE.handMinR); // 位置は純正のまま。半径だけ下限（粒すり抜け防止）
         addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
-      }
-      // 手のひらの中心 = 手首と中指の付け根(第3関節)の中間に1球（mune実機①で確立した方式）
-      const jw = src.hand.get("wrist"), jm = src.hand.get("middle-finger-phalanx-proximal");
-      if(jw && jm){
-        const pw = frame.getJointPose(jw, ref), pm = frame.getJointPose(jm, ref);
-        if(pw && pm){
-          addCol((pw.transform.position.x+pm.transform.position.x)/2,
-                 (pw.transform.position.y+pm.transform.position.y)/2,
-                 (pw.transform.position.z+pm.transform.position.z)/2, TUNE.palmR);
-        }
       }
     }
   }
-  // マーカー表示
+  // マーカー表示：素手には何も描かない＝パススルーの本物の手をそのまま見る。コントローラ先端だけ印を出す
   for(let i=0;i<MAXCOL;i++){
-    if(i<colN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
+    if(i<ctrlColN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
     else markers[i].visible=false;
   }
 }
