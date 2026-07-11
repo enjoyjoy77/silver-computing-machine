@@ -75,7 +75,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／R＝戻す
+  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝つつく／ホイール＝寄引／1〜4＝感触／N＝形／[ ]＝弾力／, .＝戻り速さ／O P＝ふやす減らす／R＝戻す
 </div>
 
 <div id="logWrap">
@@ -88,7 +88,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "v4 rev1";
+const REV = "v4 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -200,8 +200,9 @@ const SHAPES = [
 ];
 let shapeIdx = 0;
 
-// メッシュ(粒・辺・三角・体積)。形の切替で作り直すので let で持つ
-let geo, posAttr, vCount, vmap, N, pos, prev, vel, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol, curVol;
+// メッシュのトポロジ(全スライム共有)＋「今処理中のスライム」を指す現在ポインタ。形替えで作り直すので let
+let baseGeo, vCount, vmap, N, rest, invMass, grad, triN, tri, edge, edgeN, edgeLen, restVol;
+let pos, prev, vel, curVol;   // ← softStep が各スライムのものに毎回差し替える
 
 // 閉じた三角メッシュの符号つき体積
 function meshVolume(){
@@ -244,15 +245,17 @@ function buildShape(kind){
   const addE = (a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
   for(let t=0;t<tn;t++){ const a=tt[t*3],b=tt[t*3+1],c=tt[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
   const ee = new Int32Array(el), en = ee.length/2;
-  // モジュール変数へ反映
-  geo=g; posAttr=pa; vCount=vc; vmap=vm; N=nn; triN=tn; tri=tt; edge=ee; edgeN=en;
-  pos=new Float32Array(plist); prev=new Float32Array(pos); vel=new Float32Array(N*3);
+  // 共有トポロジをモジュール変数へ（各スライムが共通で使う。pos/prev/vel はスライムごと）
+  baseGeo=g; vCount=vc; vmap=vm; N=nn; triN=tn; tri=tt; edge=ee; edgeN=en;
   rest=new Float32Array(plist); invMass=new Float32Array(N).fill(1); grad=new Float32Array(N*3);
   edgeLen=new Float32Array(en);
-  for(let e=0;e<en;e++){ const a=ee[e*2],b=ee[e*2+1]; edgeLen[e]=Math.hypot(pos[a*3]-pos[b*3],pos[a*3+1]-pos[b*3+1],pos[a*3+2]-pos[b*3+2]); }
-  restVol=meshVolume(); curVol=restVol;
-  if(slime && slime.geometry && slime.geometry!==g) slime.geometry.dispose();
-  if(slime) slime.geometry=g;
+  for(let e=0;e<en;e++){ const a=ee[e*2],b=ee[e*2+1]; edgeLen[e]=Math.hypot(rest[a*3]-rest[b*3],rest[a*3+1]-rest[b*3+1],rest[a*3+2]-rest[b*3+2]); }
+  // 静止体積は rest（静止形）から直接
+  let rv=0;
+  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
+    const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2], bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2], cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2];
+    rv += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
+  restVol=rv;
 }
 
 // 感触プリセット（firm=弾力の初期値、velDamping=揺れの残り方＝ぷるぷる/ぽよんの差、他は性格）
@@ -278,38 +281,68 @@ function applyFeel(){
 function setFeel(idx){ feelIdx = ((idx%FEELS.length)+FEELS.length)%FEELS.length; TUNE.firm = FEELS[feelIdx].firm; TUNE.resil = FEELS[feelIdx].resil; applyFeel(); }
 setFeel(0);
 
-const slime = new THREE.Mesh(new THREE.BufferGeometry(), slimeMat);
-slime.frustumCulled = false; slime.visible = false; scene.add(slime);
-// 真ん中の芯（光る小さな球。押すとスライム全体が動く）
-const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(TUNE.coreR, 16, 12),
-  new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0x5fd8ff, emissiveIntensity:1.0, roughness:0.3 }));
-coreMesh.visible = false; scene.add(coreMesh);
-buildShape(SHAPES[shapeIdx].kind);   // 初期の形（たま）を組む
+// 芯（光る小球）の共有素材
+const coreGeo = new THREE.SphereGeometry(TUNE.coreR, 16, 12);
+const coreMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0x5fd8ff, emissiveIntensity:1.0, roughness:0.3 });
 
-const anchorCenter = new THREE.Vector3(0, 0, 0);
+buildShape(SHAPES[shapeIdx].kind);   // 初期の形＝共有トポロジを組む
+
+let anchorCenter = new THREE.Vector3(0, 0, 0);   // 「今処理中のスライム」の定位置（softStepで差し替え）
+const groupCenter = new THREE.Vector3(0, 0, 0);  // 並べたスライム全体の中心（操作盤の位置決め用）
+const MAX_SLIMES = 6;
+const slimes = [];                               // {pos,prev,vel,curVol,anchor,mesh,core,geoAttr}
 let slimeReady = false;
 
-// 指定位置にスライムを出す（静止形を平行移動して置く）
-function spawnAt(cx, cy, cz){
-  anchorCenter.set(cx, cy, cz);
-  for(let i=0;i<N;i++){
-    pos[i*3]=rest[i*3]+cx; pos[i*3+1]=rest[i*3+1]+cy; pos[i*3+2]=rest[i*3+2]+cz;
-    prev[i*3]=pos[i*3]; prev[i*3+1]=pos[i*3+1]; prev[i*3+2]=pos[i*3+2];
-    vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
+function usePtr(S){ pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor; }   // 現在ポインタを差し替え
+function makeSlime(){
+  const S = { curVol: restVol, anchor: new THREE.Vector3(),
+    mesh: new THREE.Mesh(baseGeo.clone(), slimeMat), core: new THREE.Mesh(coreGeo, coreMat) };
+  S.mesh.frustumCulled = false; S.core.frustumCulled = false;
+  S.geoAttr = S.mesh.geometry.attributes.position;
+  S.pos = new Float32Array(N*3); S.prev = new Float32Array(N*3); S.vel = new Float32Array(N*3);
+  scene.add(S.mesh); scene.add(S.core);
+  return S;
+}
+function placeSlime(S, cx, cy, cz){                // 静止形を平行移動して置く
+  S.anchor.set(cx, cy, cz);
+  for(let i=0;i<N;i++){ S.pos[i*3]=rest[i*3]+cx; S.pos[i*3+1]=rest[i*3+1]+cy; S.pos[i*3+2]=rest[i*3+2]+cz;
+    S.prev[i*3]=S.pos[i*3]; S.prev[i*3+1]=S.pos[i*3+1]; S.prev[i*3+2]=S.pos[i*3+2];
+    S.vel[i*3]=0; S.vel[i*3+1]=0; S.vel[i*3+2]=0; }
+  S.curVol = restVol; S.mesh.visible = true; S.core.visible = true;
+}
+function reinitSlimes(){                            // 形替え時：全スライムのジオメトリ＋配列を作り直し、今の位置へ
+  for(const S of slimes){
+    S.mesh.geometry.dispose(); S.mesh.geometry = baseGeo.clone(); S.geoAttr = S.mesh.geometry.attributes.position;
+    S.pos = new Float32Array(N*3); S.prev = new Float32Array(N*3); S.vel = new Float32Array(N*3);
+    placeSlime(S, S.anchor.x, S.anchor.y, S.anchor.z);
   }
-  curVol = restVol; slimeReady = true; slime.visible = true; coreMesh.visible = true;
-  slimeGrab[0]=null; slimeGrab[1]=null;   // 形替え・置き直しで掴みを解除（古い粒番号を触らない）
+}
+function arrangeSlimes(count){                      // count個を目の前に横一列で並べる
+  count = Math.max(1, Math.min(MAX_SLIMES, count|0));
+  while(slimes.length < count) slimes.push(makeSlime());
+  while(slimes.length > count){ const S=slimes.pop(); scene.remove(S.mesh); scene.remove(S.core); S.mesh.geometry.dispose(); }
+  const camN = (renderer && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
+  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
+  const rx=-_v2.z, rz=_v2.x;                        // 右方向（水平）
+  groupCenter.set(_v1.x + _v2.x*0.5, _v1.y - 0.06, _v1.z + _v2.z*0.5);
+  const spacing = TUNE.radius*2.7;
+  for(let si=0; si<slimes.length; si++){
+    const t = si - (slimes.length-1)/2;
+    placeSlime(slimes[si], groupCenter.x + rx*t*spacing, groupCenter.y, groupCenter.z + rz*t*spacing);
+  }
+  slimeGrab[0]=null; slimeGrab[1]=null;
+  slimeReady = true;
   updateRenderMesh();
-  checkpoint("spawn", "スライムを出した");
+  checkpoint("spawn", "スライムを並べた");
 }
 
-// 形を切り替える（今の位置に作り直して置く）
+// 形を切り替える（全スライムを今の位置に作り直して置く）
 function setShape(idx){
   shapeIdx = ((idx%SHAPES.length)+SHAPES.length)%SHAPES.length;
-  const wasReady = slimeReady;
   buildShape(SHAPES[shapeIdx].kind);
-  if(wasReady) spawnAt(anchorCenter.x, anchorCenter.y, anchorCenter.z);
-  else updateRenderMesh();
+  if(slimeReady){ reinitSlimes(); updateRenderMesh(); }
+  slimeGrab[0]=null; slimeGrab[1]=null;
   if(typeof drawFeelLabels==="function") drawFeelLabels();
 }
 
@@ -324,25 +357,25 @@ function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; c
 const slimeGrab = [null, null];                       // 各手: {idx:[粒], ox/oy/oz:[手からのずれ]}
 const grabHand = [new THREE.Vector3(), new THREE.Vector3()]; // 各手の現在ワールド位置
 function grabSlime(i, hx, hy, hz){
-  if(!slimeReady) return false;
+  if(slimes.length===0) return false;
   const r2 = TUNE.grabRadius*TUNE.grabRadius;
-  const idx=[], ox=[], oy=[], oz=[];
-  for(let p=0;p<N;p++){
-    const dx=pos[p*3]-hx, dy=pos[p*3+1]-hy, dz=pos[p*3+2]-hz;
-    if(dx*dx+dy*dy+dz*dz < r2){ idx.push(p); ox.push(dx); oy.push(dy); oz.push(dz); }  // 掴んだ瞬間の手からのずれを保存
-  }
-  if(idx.length===0) return false;
-  slimeGrab[i] = { idx, ox, oy, oz };
+  let best=-1, bestD=r2;                                   // 一番近い粒を持つスライムを選ぶ
+  for(let si=0; si<slimes.length; si++){ const P=slimes[si].pos;
+    for(let p=0;p<N;p++){ const dx=P[p*3]-hx,dy=P[p*3+1]-hy,dz=P[p*3+2]-hz; const d=dx*dx+dy*dy+dz*dz; if(d<bestD){bestD=d; best=si;} } }
+  if(best<0) return false;
+  const P=slimes[best].pos; const idx=[],ox=[],oy=[],oz=[];
+  for(let p=0;p<N;p++){ const dx=P[p*3]-hx,dy=P[p*3+1]-hy,dz=P[p*3+2]-hz; if(dx*dx+dy*dy+dz*dz<r2){idx.push(p);ox.push(dx);oy.push(dy);oz.push(dz);} }
+  slimeGrab[i] = { slime:best, idx, ox, oy, oz };          // どのスライムを掴んだかも保存
   return true;
 }
-function solveGrab(){
+function solveGrab(si){
   const k = TUNE.grabK;
   for(let i=0;i<2;i++){
-    const g = slimeGrab[i]; if(!g) continue;
+    const g = slimeGrab[i]; if(!g || g.slime!==si) continue;   // このスライムを掴んでいる手だけ
     const hx=grabHand[i].x, hy=grabHand[i].y, hz=grabHand[i].z;
     for(let j=0;j<g.idx.length;j++){
       const p=g.idx[j];
-      pos[p*3]   += (hx+g.ox[j]-pos[p*3])*k;      // 掴んだ粒を「手＋保存したずれ」へ引く＝手に付いてくる
+      pos[p*3]   += (hx+g.ox[j]-pos[p*3])*k;      // 掴んだ粒を「手＋保存したずれ」へ引く
       pos[p*3+1] += (hy+g.oy[j]-pos[p*3+1])*k;
       pos[p*3+2] += (hz+g.oz[j]-pos[p*3+2])*k;
     }
@@ -356,13 +389,18 @@ let physAcc = 0, physMs = 0;
 function softStep(h){
   const sub = TUNE.substeps, sdt = h/sub;
   for(let s=0;s<sub;s++){
-    integrate(sdt);
-    solveEdges(sdt);
-    solveVolume(sdt);
-    solveColliders();
-    solveCore();
-    solveGrab();
-    finalize(sdt);
+    for(let si=0; si<slimes.length; si++){
+      const S = slimes[si];
+      pos=S.pos; prev=S.prev; vel=S.vel; curVol=S.curVol; anchorCenter=S.anchor;   // 現在ポインタを差し替え
+      integrate(sdt);
+      solveEdges(sdt);
+      solveVolume(sdt);
+      solveColliders();
+      solveCore();
+      solveGrab(si);
+      finalize(sdt);
+      S.curVol = curVol;
+    }
   }
 }
 function integrate(sdt){
@@ -469,12 +507,13 @@ function finalize(sdt){
 }
 
 function updateRenderMesh(){
-  let ccx=0,ccy=0,ccz=0;
-  for(let v=0;v<vCount;v++){ const i=vmap[v]; posAttr.setXYZ(v, pos[i*3], pos[i*3+1], pos[i*3+2]); }
-  for(let i=0;i<N;i++){ ccx+=pos[i*3]; ccy+=pos[i*3+1]; ccz+=pos[i*3+2]; }
-  coreMesh.position.set(ccx/N, ccy/N, ccz/N);   // 芯は重心に置く
-  posAttr.needsUpdate = true;
-  geo.computeVertexNormals();
+  for(const S of slimes){
+    const pa=S.geoAttr; let cx=0,cy=0,cz=0;
+    for(let v=0;v<vCount;v++){ const i=vmap[v]; pa.setXYZ(v, S.pos[i*3], S.pos[i*3+1], S.pos[i*3+2]); }
+    for(let i=0;i<N;i++){ cx+=S.pos[i*3]; cy+=S.pos[i*3+1]; cz+=S.pos[i*3+2]; }
+    S.core.position.set(cx/N, cy/N, cz/N);       // 芯は各スライムの重心に
+    pa.needsUpdate = true; S.mesh.geometry.computeVertexNormals();
+  }
 }
 
 /* ============================================================
@@ -576,6 +615,20 @@ for(let i=0;i<SHAPES.length;i++){
   ctrlGroup.add(g);
   shapeBtnMeshes.push({ group:g, bg, idx:i, cv, ctx:cv.getContext("2d"), tex });
 }
+// ふやす(＋)/へらす(－) ボタン。パネルの左右
+const countBtns = [];
+[["＋", 0.185, 1], ["－", -0.185, -1]].forEach(function(spec){
+  const g=new THREE.Group(); g.position.set(spec[1], 0.03, 0);
+  const bg=new THREE.Mesh(new THREE.BoxGeometry(0.052,0.052,0.012), new THREE.MeshStandardMaterial({ color:0x243a2a, roughness:0.6 }));
+  bg.position.set(0,0,-0.007); g.add(bg);
+  const cv=document.createElement("canvas"); cv.width=96; cv.height=96;
+  const cx2=cv.getContext("2d"); cx2.clearRect(0,0,96,96); cx2.textAlign="center"; cx2.textBaseline="middle"; cx2.font="bold 78px sans-serif"; cx2.fillStyle="#b6f5cf"; cx2.fillText(spec[0],48,54);
+  const tex=new THREE.CanvasTexture(cv); tex.colorSpace=THREE.SRGBColorSpace; tex.needsUpdate=true;
+  const lm=new THREE.Mesh(new THREE.PlaneGeometry(0.05,0.05), new THREE.MeshBasicMaterial({ map:tex, transparent:true }));
+  lm.position.set(0,0,0.001); g.add(lm);
+  ctrlGroup.add(g);
+  countBtns.push({ group:g, delta:spec[2] });
+});
 function drawFeelLabels(){
   for(const L of LEVERS){
     const c=L.ctx, W=L.cv.width, H=L.cv.height;
@@ -601,7 +654,7 @@ function positionControlPanel(){
   const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
   _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y=0; if(_v2.lengthSq()<1e-6)_v2.set(0,0,-1); else _v2.normalize();
-  ctrlGroup.position.set(anchorCenter.x + _v2.x*0.02, anchorCenter.y - 0.40, anchorCenter.z + _v2.z*0.02);
+  ctrlGroup.position.set(groupCenter.x + _v2.x*0.02, groupCenter.y - 0.40, groupCenter.z + _v2.z*0.02);
   ctrlGroup.lookAt(_v1.x, ctrlGroup.position.y, _v1.z);   // 水平に正対
   ctrlGroup.updateMatrixWorld(true);
   for(const L of LEVERS){
@@ -628,6 +681,10 @@ function onSelectStart(i){
     for(const b of shapeBtnMeshes){
       b.group.getWorldPosition(_v2);
       if(_v1.distanceTo(_v2) < 0.05){ setShape(b.idx); pulse(i,0.4,30); return; } // 形ボタン
+    }
+    for(const b of countBtns){
+      b.group.getWorldPosition(_v2);
+      if(_v1.distanceTo(_v2) < 0.045){ arrangeSlimes(slimes.length + b.delta); positionControlPanel(); pulse(i,0.4,30); return; } // ふやす/へらす
     }
   }
   // UIに当たらなければ、スライム表面をつかむ
@@ -706,9 +763,9 @@ async function startAR(){
     log("目の前にスライムを出します。手やコントローラで押してみてください");
     pendingSpawn = true;
     session.addEventListener("end", ()=>{
-      xrSession = null; slime.visible = false; slimeReady = false; panel.visible = false;
+      xrSession = null; for(const S of slimes){ S.mesh.visible=false; S.core.visible=false; } slimeReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
-      ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; coreMesh.visible = false; slimeGrab[0]=null; slimeGrab[1]=null;
+      ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; slimeGrab[0]=null; slimeGrab[1]=null;
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -724,11 +781,7 @@ async function startAR(){
 
 // カメラの正面 0.45m・少し下にスライムを置き直す
 function respawnInFront(){
-  const camN = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-  camN.getWorldPosition(_v1); camN.getWorldQuaternion(_q1);
-  _v2.set(0,0,-1).applyQuaternion(_q1); _v2.y = 0;
-  if(_v2.lengthSq()<1e-6) _v2.set(0,0,-1); else _v2.normalize();
-  spawnAt(_v1.x + _v2.x*0.45, _v1.y - 0.06, _v1.z + _v2.z*0.45);   // 少し高めに置く（操作盤と離す）
+  arrangeSlimes(slimes.length||3);   // 目の前に横一列で並べ直す
   positionControlPanel();
 }
 
@@ -770,8 +823,7 @@ function startPC(){
   init3D(); ensureAudio();
   pcMode = true;
   $("start").style.display="none"; $("stats").style.display="block"; $("pchint").style.display="block";
-  spawnAt(pcTarget.x, pcTarget.y, pcTarget.z);
-  updatePCCamera(); positionControlPanel(); setupPCInput();
+  updatePCCamera(); arrangeSlimes(3); positionControlPanel(); setupPCInput();
 }
 function updatePCCamera(){
   const cpp=Math.cos(pcPitch), spp=Math.sin(pcPitch);
@@ -796,7 +848,9 @@ function setupPCInput(){
   addEventListener("pointerup", e=>{ if(dragging && moved<6) pcPokeFrom(e.clientX, e.clientY); dragging=false; });
   canvas.addEventListener("wheel", e=>{ e.preventDefault(); pcRadius=Math.max(0.3, Math.min(2.0, pcRadius+(e.deltaY>0?0.06:-0.06))); updatePCCamera(); }, {passive:false});
   addEventListener("keydown", e=>{
-    if(e.key==="r"||e.key==="R"){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); positionControlPanel(); }
+    if(e.key==="r"||e.key==="R"){ arrangeSlimes(slimes.length||3); positionControlPanel(); }
+    else if(e.key==="o"||e.key==="O"){ arrangeSlimes(slimes.length+1); positionControlPanel(); }
+    else if(e.key==="p"||e.key==="P"){ arrangeSlimes(slimes.length-1); positionControlPanel(); }
     else if(e.key>="1" && e.key<="4"){ setFeel(parseInt(e.key,10)-1); updateLeverHandles(); drawFeelLabels(); }
     else if(e.key==="["){ TUNE.firm=Math.max(0,TUNE.firm-0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
     else if(e.key==="]"){ TUNE.firm=Math.min(1,TUNE.firm+0.05); applyFeel(); updateLeverHandles(); drawFeelLabels(); }
@@ -872,7 +926,7 @@ function simulate(dt){
   stepSoft(dt);
   handleContactFX();
   const V = curVol/restVol;
-  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"・"+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"%";
+  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SHAPES[shapeIdx].name+"×"+slimes.length+"・"+FEELS[feelIdx].name+" 弾力"+Math.round(TUNE.firm*100)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -911,12 +965,13 @@ function shapeErr(){
   let se=0; for(let i=0;i<N;i++){ const dx=(pos[i*3]-cx)-rest[i*3], dy=(pos[i*3+1]-cy)-rest[i*3+1], dz=(pos[i*3+2]-cz)-rest[i*3+2]; se+=dx*dx+dy*dy+dz*dz; } return Math.sqrt(se/N);
 }
 function maxSpeed(){ let m=0; for(let i=0;i<N;i++){ const s=Math.hypot(vel[i*3],vel[i*3+1],vel[i*3+2]); if(s>m) m=s; } return m; }
-function anyNaN(){ for(let i=0;i<N*3;i++){ if(Number.isNaN(pos[i])) return true; } return false; }
+function anyNaN(){ for(const S of slimes){ for(let i=0;i<N*3;i++){ if(Number.isNaN(S.pos[i])) return true; } } return false; }
 
 window.__dbg = {
   state(){
+    if(slimes.length) usePtr(slimes[0]);
     return {
-      slimeReady, N, tris:triN, edges:edgeN, colN,
+      slimeReady, slimeCount:slimes.length, N, tris:triN, edges:edgeN, colN,
       feel:FEELS[feelIdx].name, firm:+TUNE.firm.toFixed(2),
       volRatio:+(curVol/restVol).toFixed(3),
       comOffset:+comOffset().toFixed(4),
@@ -989,7 +1044,24 @@ window.__dbg = {
     return this.state();
   },
   tick(sec){ const n=Math.max(1,Math.round((sec||1)/FIXED)); for(let i=0;i<n;i++){ contactDepth=0; softStep(FIXED); } updateRenderMesh(); return this.state(); },
-  spawn(){ spawnAt(pcTarget.x,pcTarget.y,pcTarget.z); return this.state(); },
+  spawn(){ arrangeSlimes(1); usePtr(slimes[0]); updateRenderMesh(); return this.state(); },
+  setCount(n){ arrangeSlimes(n); usePtr(slimes[0]); return {count:slimes.length}; },
+  perSlime(){
+    return slimes.map((S,si)=>{
+      let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=S.pos[i*3];cy+=S.pos[i*3+1];cz+=S.pos[i*3+2];} cx/=N;cy/=N;cz/=N;
+      let se=0; for(let i=0;i<N;i++){ const dx=(S.pos[i*3]-cx)-rest[i*3],dy=(S.pos[i*3+1]-cy)-rest[i*3+1],dz=(S.pos[i*3+2]-cz)-rest[i*3+2]; se+=dx*dx+dy*dy+dz*dz; }
+      let nan=false; for(let i=0;i<N*3;i++){ if(Number.isNaN(S.pos[i])){nan=true;break;} }
+      return { i:si, shapeErr:+Math.sqrt(se/N).toFixed(4), nan };
+    });
+  },
+  // 独立性テスト：スライム0だけを押して、他は動かない（＝互いに干渉しない）ことを確認
+  multiTest(){
+    arrangeSlimes(3);
+    const S0=slimes[0];
+    for(let s=0;s<20;s++){ colN=0; addCol(S0.anchor.x+TUNE.radius+TUNE.fingerR-0.03, S0.anchor.y, S0.anchor.z, TUNE.fingerR); contactDepth=0; softStep(FIXED); }
+    updateRenderMesh();
+    return this.perSlime();
+  },
   setFirm(f){ TUNE.firm=Math.max(0,Math.min(1,f)); applyFeel(); return {firm:TUNE.firm, edgeCompliance:+TUNE.edgeCompliance.toExponential(2)}; },
   setResil(r){ TUNE.resil=Math.max(0,Math.min(1,r)); applyFeel(); return {resil:TUNE.resil, shapeMemK:+TUNE.shapeMemK.toFixed(1)}; },
   preset(i){ setFeel(i); return {feel:FEELS[feelIdx].name, firm:TUNE.firm}; },
