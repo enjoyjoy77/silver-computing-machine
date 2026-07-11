@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev5";
+const REV = "v3 rev6";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -125,7 +125,14 @@ const TUNE = {
   edgeCompliance: 3e-4,  // 表面のハリ（softから applyFeel が自動設定）
   hariK: 100,            // 形を保つばね（＝揺れの速さ。softから自動設定。目安1〜2Hz）
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
-  volCompliance: 0.0,    // 体積のやわらかさ（0=非圧縮。押すと横に広がる＝やわらかさの要）
+  volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
+  // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
+  creepTau: 0.22,        // 押されると形が"馴染む"速さ(秒)。クリープ=ゆっくり沈み込む
+  creepRecover: 1.5,     // 馴染みが元へ戻る速さ(1/s)。小さいほどゆっくり戻る=もちもち
+  creepMax: 0.035,       // 馴染みの上限(m)
+  stickRange: 0.012,     // 手を引いたとき皮膚が吸い付いてくる距離(m)
+  stickK: 0.10,          // 吸い付きの強さ(0-1/サブステップ)
+  contactVisc: 12,       // 触っている所の粘性(1/s)。触点がねっとり重くなり、水風船の弾き返しを消す
   pressure: 1.0,         // 張り
   gravity: 1.3,          // 重力(m/s^2)。少し垂れ下がる（大きすぎると垂れすぎる）
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
@@ -322,6 +329,7 @@ function buildTopology(){
 }
 let drU = null;
 buildTopology();
+const viscF = new Float32Array(N);   // このサブステップで「触られている」粒の印(接触粘性・もちもち用)
 
 // 胸板（このパネルにふくらみ2つが付く。板ごと掴んで動かせる）
 const plateGroup = new THREE.Group(); scene.add(plateGroup); plateGroup.visible=false;
@@ -395,7 +403,8 @@ let bustReady = false;
 function makeBust(mx){
   const B = { mount:new THREE.Vector3(mx, -0.01, 0), curVol: restVolU,
     mesh: new THREE.Mesh(renderTpl.clone(), bustMat),   // 高精細な見た目メッシュ
-    tgt: new Float32Array(N*3) };
+    tgt: new Float32Array(N*3),
+    creep: new Float32Array(N*3) };   // もちもちの芯=「馴染み」(定位置からの遅れた変位)
   B.mesh.frustumCulled = false;
   B.geoAttr = B.mesh.geometry.attributes.position;
   B.pos = new Float32Array(N*3); B.prev = new Float32Array(N*3); B.vel = new Float32Array(N*3);
@@ -427,6 +436,7 @@ function computeTargets(B){
 function placeBust(B){
   computeTargets(B);
   for(let i=0;i<N*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }
+  B.creep.fill(0);   // 置き直しで馴染みもリセット
   B.curVol = B.restVol || restVolU*R*R*R;
   B.mesh.visible = true;
 }
@@ -577,7 +587,10 @@ function solveCore(B){
 }
 function integrate(B, sdt){
   const k = TUNE.hariK, damp = Math.max(0, 1 - TUNE.velDamping*sdt), g = TUNE.gravity, mx = TUNE.maxStep;
-  const tgt = B.tgt;
+  const tgt = B.tgt, cr = B.creep;
+  const cl = 1 - Math.exp(-sdt/TUNE.creepTau);          // 馴染みの追従率(クリープ)
+  const cd = Math.max(0, 1 - TUNE.creepRecover*sdt);    // 馴染みの戻り(小さいほどゆっくり=もちもち)
+  const cmax = TUNE.creepMax;
   for(let i=0;i<N;i++){
     if(invMass[i]===0){
       // 根元＝板に固定（キネマティック。posもprevも上書き＝速度を持たせない）
@@ -586,11 +599,19 @@ function integrate(B, sdt){
       vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
       continue;
     }
-    // 自由な粒: 定位置へ弱いばね（揺れの復元）＋重力＋減衰
+    // クリープ(馴染み): 定位置からの変位を遅れて追いかけ、離すとゆっくり戻る=「もちもち」の芯。
+    // 押している間は戻す力が弱まり(=沈んで馴染む)、離すと小さな力でゆっくり形が戻る(弾まない)
+    let c0=cr[i*3], c1=cr[i*3+1], c2=cr[i*3+2];
+    const d0=pos[i*3]-tgt[i*3], d1=pos[i*3+1]-tgt[i*3+1], d2v=pos[i*3+2]-tgt[i*3+2];
+    c0=(c0+(d0-c0)*cl)*cd; c1=(c1+(d1-c1)*cl)*cd; c2=(c2+(d2v-c2)*cl)*cd;
+    const cn=Math.hypot(c0,c1,c2);
+    if(cn>cmax){ const sc=cmax/cn; c0*=sc; c1*=sc; c2*=sc; }
+    cr[i*3]=c0; cr[i*3+1]=c1; cr[i*3+2]=c2;
+    // 自由な粒: 「定位置＋馴染み」へ弱いばね＋重力＋減衰
     // 縦(重力方向)は柔らかく・横は少し硬く=生体の揺れの定石(異方性)。縦がたゆん、横はしまる
-    const sx=(tgt[i*3]  -pos[i*3])*k*1.12;
-    const sy=(tgt[i*3+1]-pos[i*3+1])*k*0.82;
-    const sz=(tgt[i*3+2]-pos[i*3+2])*k;
+    const sx=(tgt[i*3]  +c0-pos[i*3])*k*1.12;
+    const sy=(tgt[i*3+1]+c1-pos[i*3+1])*k*0.82;
+    const sz=(tgt[i*3+2]+c2-pos[i*3+2])*k;
     let vx=(vel[i*3]   + sx*sdt)*damp;
     let vy=(vel[i*3+1] + (sy-g)*sdt)*damp;
     let vz=(vel[i*3+2] + sz*sdt)*damp;
@@ -643,19 +664,29 @@ function solveVolume(sdt){
   for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
 }
 function solveColliders(){
+  viscF.fill(0);
+  const sr=TUNE.stickRange, sk=TUNE.stickK;
   for(let k=0;k<colN;k++){
     const cx=eColX[k], cy=eColY[k], cz=eColZ[k], Rc=colR[k], R2=Rc*Rc;   // 補間した通り道の位置で当てる(CCD)
+    const Rs=Rc+sr, Rs2=Rs*Rs;
     for(let i=0;i<N;i++){
       if(invMass[i]===0) continue;                 // 根元は押せない
       let dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
       const d2=dx*dx+dy*dy+dz*dz;
-      if(d2<R2){
-        if(d2>1e-12){
-          const d=Math.sqrt(d2), push=(Rc-d)/d;
-          pos[i*3]+=dx*push; pos[i*3+1]+=dy*push; pos[i*3+2]+=dz*push;
-          if(Rc-d>contactDepth) contactDepth=Rc-d;
-        }else{
-          pos[i*3+1]+=Rc; if(Rc>contactDepth) contactDepth=Rc;
+      if(d2<Rs2){
+        viscF[i]=1;                                // 触点=粘性の対象(ねっとり)
+        if(d2<R2){
+          if(d2>1e-12){
+            const d=Math.sqrt(d2), push=(Rc-d)/d;
+            pos[i*3]+=dx*push; pos[i*3+1]+=dy*push; pos[i*3+2]+=dz*push;
+            if(Rc-d>contactDepth) contactDepth=Rc-d;
+          }else{
+            pos[i*3+1]+=Rc; if(Rc>contactDepth) contactDepth=Rc;
+          }
+        }else if(d2>1e-12){
+          // 吸い付き: 表面のすぐ外側の粒を手の表面へ引く=手を引くと皮膚が一瞬ついてくる
+          const d=Math.sqrt(d2), pull=(d-Rc)/d*sk;
+          pos[i*3]-=dx*pull; pos[i*3+1]-=dy*pull; pos[i*3+2]-=dz*pull;
         }
       }
     }
@@ -663,9 +694,12 @@ function solveColliders(){
 }
 function finalize(sdt){
   const inv=1/sdt;
+  const vd = Math.max(0, 1 - TUNE.contactVisc*sdt);   // 触点の粘性(ねっとり)。触られている粒だけ余計に減衰
   for(let i=0;i<N;i++){
     if(invMass[i]===0) continue;
-    vel[i*3]=(pos[i*3]-prev[i*3])*inv; vel[i*3+1]=(pos[i*3+1]-prev[i*3+1])*inv; vel[i*3+2]=(pos[i*3+2]-prev[i*3+2])*inv;
+    let vx=(pos[i*3]-prev[i*3])*inv, vy=(pos[i*3+1]-prev[i*3+1])*inv, vz=(pos[i*3+2]-prev[i*3+2])*inv;
+    if(viscF[i]){ vx*=vd; vy*=vd; vz*=vd; }
+    vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
   }
 }
 function updateRenderMesh(){
@@ -877,40 +911,10 @@ function setupHands(){
     h.add(m);
     scene.add(h);
     handSpaces.push(h); handModels.push(m);
-    m.userData.gh = new THREE.Vector3();   // god-hand用の表示オフセット(なめらかに追従)
   }
 }
-// god-hand: 「見た目の手」をふくらみの"今の表面"で止める(実機⑨)。実際の手＝物理コライダはそのまま=触感は不変。
-// 付け根(anchor)から関節へ向かうレイで今の表面までの距離を測り、関節が表面より奥なら、手のモデル全体をその分だけ外へずらす。
-const GH_JOINTS = ["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip","middle-finger-phalanx-proximal","index-finger-phalanx-proximal","wrist"];
-const _gj = new THREE.Vector3(), _gaV = new THREE.Vector3(), _gdV = new THREE.Vector3();
-function updateGodHand(){
-  for(let i=0;i<handSpaces.length;i++){
-    const hs = handSpaces[i], hm = handModels[i]; if(!hm || !hm.userData.gh) continue;
-    let best = 0, bx=0, by=0, bz=0;
-    if(hs.joints && bustReady){
-      for(const B of busts){
-        if(!B.anchorW) continue;
-        _gaV.set(B.anchorW[0], B.anchorW[1], B.anchorW[2]);
-        for(const jn of GH_JOINTS){
-          const j = hs.joints[jn]; if(!j || j.visible===false) continue;
-          _gj.copy(j.position);
-          _gdV.copy(_gj).sub(_gaV); const dj = _gdV.length(); if(dj < 1e-6 || dj > R*2.5) continue;
-          _gdV.multiplyScalar(1/dj);
-          _rayc.set(_gaV, _gdV); _rayc.far = dj + 0.2;
-          const hits = _rayc.intersectObject(B.mesh, false);
-          if(hits.length){
-            const pen = hits[0].distance - dj;            // 表面より内側にいる深さ
-            if(pen > best){ best = Math.min(pen, 0.08); bx=_gdV.x; by=_gdV.y; bz=_gdV.z; }
-          }
-        }
-      }
-    }
-    const g = hm.userData.gh;
-    g.x += (bx*best - g.x)*0.35; g.y += (by*best - g.y)*0.35; g.z += (bz*best - g.z)*0.35;   // なめらかに(ジッタ防止)
-    hm.position.copy(g);
-  }
-}
+// ※god-hand(見た目の手を表面で止める)はv3 rev5で実装したが、実機⑩「ガクガクして体験を損なう・根本解決でない」で撤去。
+//   根本対策は物理側の「もちもち・吸い付き」(クリープ/接触粘性/吸着/わずかな圧縮性)へ移行。
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
@@ -1179,7 +1183,6 @@ function renderLoop(t, frame){
     if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); }
     collectXRColliders(frame, ref);
     updateGrab();
-    updateGodHand();   // 見た目の手を今の表面で止める(物理・実際の手はそのまま)
   }
   simulate(dt);
   renderer.render(scene, camera);
@@ -1327,6 +1330,45 @@ window.__dbg = {
   setSoft(v){ TUNE.soft=Math.max(0,Math.min(1,v)); applyFeel(); return {soft:TUNE.soft, hariK:+TUNE.hariK.toFixed(0), edgeCompliance:+TUNE.edgeCompliance.toExponential(2)}; },
   setKeep(v){ TUNE.keep=Math.max(0,Math.min(1,v)); applyFeel(); return {keep:TUNE.keep, velDamping:+TUNE.velDamping.toFixed(2)}; },
   setSize(i){ setSize(i); return {size:SIZES[sizeIdx].name, R}; },
+  // もちもち検証: 押して離した後、(a)弾まない(戻り速度が小さい) (b)ゆっくり戻る(凹みがしばらく残って徐々に消える)
+  mochiTest(){
+    this.spawn();
+    const p = this.poke(0.03, 0.5);
+    const B = busts[0]; usePtr(B);
+    let peak=0; const err=[];
+    for(let s=0;s<Math.round(1.6/FIXED);s++){
+      contactDepth=0; softStep(FIXED);
+      const ms=(function(){let m=0;for(let i=0;i<N;i++){const sp=Math.hypot(vel[i*3],vel[i*3+1],vel[i*3+2]);if(sp>m)m=sp;}return m;})();
+      if(ms>peak) peak=ms;
+      if(s===Math.round(0.2/FIXED)||s===Math.round(0.6/FIXED)||s===Math.round(1.5/FIXED)){
+        let se=0; for(let i=0;i<N;i++){ const dx=B.pos[i*3]-B.tgt[i*3],dy=B.pos[i*3+1]-B.tgt[i*3+1],dz=B.pos[i*3+2]-B.tgt[i*3+2]; se+=dx*dx+dy*dy+dz*dz; }
+        err.push(+Math.sqrt(se/N).toFixed(4));
+      }
+    }
+    updateRenderMesh();
+    return { dent:p.maxDentDuring, peakReturnSpeed:+peak.toFixed(3), err02:err[0], err06:err[1], err15:err[2], nan:this.state().nan };
+  },
+  // 吸い付き検証: 1.2cm押し当てて保持→ゆっくり離すとき、表面が手を追って定位置より外へ出るか(follow>0)
+  stickTest(){
+    this.spawn();
+    const B = busts[0]; usePtr(B);
+    // 一番前(z最大)の粒とその定位置
+    let fi=0, fz=-1e9; for(let i=0;i<N;i++){ if(B.tgt[i*3+2]>fz){ fz=B.tgt[i*3+2]; fi=i; } }
+    const nx=B.tgt[fi*3], ny=B.tgt[fi*3+1];
+    const surfZ=fz, rr=TUNE.fingerR;
+    for(let s=0;s<Math.round(0.4/FIXED);s++){ colN=0; addCol(nx, ny, surfZ+rr-0.012, rr); contactDepth=0; softStep(FIXED); }   // 押し当て
+    let follow=-1e9;
+    const steps=Math.round(0.5/FIXED);
+    for(let s=0;s<steps;s++){
+      const f=(s+1)/steps;
+      colN=0; addCol(nx, ny, surfZ+rr-0.012 + f*0.035, rr);   // ゆっくり離す
+      contactDepth=0; softStep(FIXED);
+      const ov = B.pos[fi*3+2] - B.tgt[fi*3+2];               // 定位置よりどれだけ手側へ出たか
+      if(ov>follow) follow=ov;
+    }
+    colN=0; this.settle(1.0);
+    return { follow:+follow.toFixed(4), nan:this.state().nan };
+  },
   render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
   // 実画像の撮影窓口(タブ非表示で画面サイズ0でも強制サイズで1コマ描いてjpegを返す。目視検証用)
   snap(w,h){ if(!renderer) return null; w=w||480; h=h||960; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.render(scene,camera); return canvas.toDataURL("image/jpeg",0.85); },
