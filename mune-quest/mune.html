@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev9";
+const REV = "v3 rev10";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -128,6 +128,7 @@ const TUNE = {
   volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
   // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
   skinPretension: 0.94,  // 皮膚の張力(自然長の倍率)。<1=表面が常に張る=ハリ(調査: 皮膚のプレテンションがハリの主因)。小さいほど張って硬い
+  ligamentK: 0.05,       // 内部の吊り(クーパー靭帯)。付け根から各粒を静止距離へ"常に"引き戻す＝中空でなく詰まった支え。第一触りから内部が押し返す(調査: 靭帯が胸内で最も荷重を受ける=ハリと"必ず戻る"の本体)
   stickRange: 0.012,     // 接触粘性(ねっとり)の判定マージン(m)。※クリープ・吸い付きは撤去(調査: 健常な胸は残留変形しない=靭帯/皮膚が必ず戻す)
   contactVisc: 6,        // 触っている所の粘性(1/s)。触点がわずかに重く。強すぎると"液体っぽい遅れ"=水風船感(調査より)なので控えめ
   pressure: 1.06,        // 内圧(体積目標の倍率)。押し込み時に体積を保とうと押し返す=詰まったハリ。静止サイズは主に皮膚プレテンション×靭帯ばねで決まる(この系では圧単独では戻せない)
@@ -558,23 +559,30 @@ function softStep(h){
   for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }   // 次フレームのCCD用に記憶
   pColN = colN;
 }
-// 芯の抵抗(段階2): 付け根からの距離が静止時よりcoreStart以上縮んだ粒を、押すほど強く押し返す。
-// 表面のやわらかさはそのままに「奥に詰まった感じ」を作る(本物の組織の"押すほど硬い"非線形の再現)
+// 内部構造(段階3-4): クーパー靭帯＝付け根から各粒への"常時効く"内部の吊り。中空シェルに「詰まった支え」を与える。
+//  ①常時の靭帯(ligamentK): 静止距離drへ常に引き戻す=第一触りから内部が押し返す＝詰まった肉感・ハリ・必ず戻る
+//  ②非線形の芯(coreK): coreStart以上潰れたら追加で強く押し返す=奥ほど硬い(実測のstrain stiffening)
+//  ③硬い下限(maxSquish): 骨・肋骨の代わりで絶対潰れない床
 function solveCore(B){
   const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
-  const k=TUNE.coreK, start=TUNE.coreStart;
+  const k=TUNE.coreK, start=TUNE.coreStart, lig=TUNE.ligamentK;
   for(let i=0;i<N;i++){
     if(invMass[i]===0) continue;
     let dx=pos[i*3]-ax, dy=pos[i*3+1]-ay, dz=pos[i*3+2]-az;
-    const d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
-    const dr = B.drA ? B.drA[i] : drU[i]*R;   // 曲面フィット後は実際の静止距離で(芯・硬い下限の正しさの要)
-    const q = 1 - d/dr;                     // 圧縮率(0=静止どおり)
+    let d=Math.hypot(dx,dy,dz); if(d<1e-9) continue;
+    const dr = B.drA ? B.drA[i] : drU[i]*R;   // 曲面フィット後は実際の静止距離で
+    // ① 内部の吊り(靭帯): 常に静止距離drへ。押されて縮めば押し返し、浮けば引き戻す=詰まった支え＆必ず戻る
+    const cl = (dr - d)/d * lig;
+    pos[i*3]+=dx*cl; pos[i*3+1]+=dy*cl; pos[i*3+2]+=dz*cl;
+    d = d + (dr - d)*lig;   // 吊り適用後の距離(近似)
+    // ② 非線形の芯: 深く潰れたら追加で硬く
+    const q = 1 - d/dr;
     if(q > start){
       const targetD = dr*(1-start);
-      const corr = (targetD - d)/d * k;     // 一部だけ戻す=サブステップ反復で奥ほど強く効く
+      const corr = (targetD - d)/d * k;
       pos[i*3]+=dx*corr; pos[i*3+1]+=dy*corr; pos[i*3+2]+=dz*corr;
     }
-    // 硬い下限(骨・肋骨の代わり): 静止時の(1-maxSquish)倍より深くは絶対つぶれない(ハード投影)
+    // ③ 硬い下限(骨・肋骨の代わり): (1-maxSquish)倍より深くは絶対つぶれない
     const minD = dr*(1 - TUNE.maxSquish);
     if(d < minD){
       const hc = (minD - d)/d;
