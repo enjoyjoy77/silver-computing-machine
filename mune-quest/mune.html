@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev8";
+const REV = "v3 rev9";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -127,13 +127,10 @@ const TUNE = {
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
   volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
   // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
-  creepTau: 0.22,        // 押されると形が"馴染む"速さ(秒)。クリープ=ゆっくり沈み込む
-  creepRecover: 4.0,     // 馴染みが元へ戻る速さ(1/s)。実機⑪「戻らない」→1.5から引き上げ(馴染みは一瞬の"give"だけにする)
-  creepMax: 0.012,       // 馴染みの上限(m)。大きいと崩れた形が半固定される(くちゃくちゃの一因)
-  creepSmooth: 0.3,      // 馴染みを隣の粒とならす強さ(0-1/サブステップ)。粒ごとバラバラの馴染み=しわ・くちゃくちゃを禁止
-  stickRange: 0.012,     // 接触粘性(ねっとり)の判定マージン(m)。※吸い付きの引力は撤去(実機⑪「本当に吸い付く」)
+  skinPretension: 0.94,  // 皮膚の張力(自然長の倍率)。<1=表面が常に張る=ハリ(調査: 皮膚のプレテンションがハリの主因)。小さいほど張って硬い
+  stickRange: 0.012,     // 接触粘性(ねっとり)の判定マージン(m)。※クリープ・吸い付きは撤去(調査: 健常な胸は残留変形しない=靭帯/皮膚が必ず戻す)
   contactVisc: 6,        // 触っている所の粘性(1/s)。触点がわずかに重く。強すぎると"液体っぽい遅れ"=水風船感(調査より)なので控えめ
-  pressure: 1.0,         // 張り
+  pressure: 1.06,        // 内圧(体積目標の倍率)。押し込み時に体積を保とうと押し返す=詰まったハリ。静止サイズは主に皮膚プレテンション×靭帯ばねで決まる(この系では圧単独では戻せない)
   gravity: 1.3,          // 重力(m/s^2)。少し垂れ下がる（大きすぎると垂れすぎる）
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
@@ -405,8 +402,7 @@ let bustReady = false;
 function makeBust(mx){
   const B = { mount:new THREE.Vector3(mx, -0.01, 0), curVol: restVolU,
     mesh: new THREE.Mesh(renderTpl.clone(), bustMat),   // 高精細な見た目メッシュ
-    tgt: new Float32Array(N*3),
-    creep: new Float32Array(N*3) };   // もちもちの芯=「馴染み」(定位置からの遅れた変位)
+    tgt: new Float32Array(N*3) };
   B.mesh.frustumCulled = false;
   B.geoAttr = B.mesh.geometry.attributes.position;
   B.pos = new Float32Array(N*3); B.prev = new Float32Array(N*3); B.vel = new Float32Array(N*3);
@@ -438,7 +434,6 @@ function computeTargets(B){
 function placeBust(B){
   computeTargets(B);
   for(let i=0;i<N*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }
-  B.creep.fill(0);   // 置き直しで馴染みもリセット
   B.curVol = B.restVol || restVolU*R*R*R;
   B.mesh.visible = true;
 }
@@ -552,7 +547,6 @@ function softStep(h){
     for(const B of busts){
       usePtr(B);
       integrate(B, sdt);
-      smoothCreep(B);      // 馴染みを隣とならす=しわ・くちゃくちゃ禁止(実機⑪)
       solveEdges(sdt);
       solveVolume(sdt);
       solveColliders();
@@ -590,10 +584,7 @@ function solveCore(B){
 }
 function integrate(B, sdt){
   const k = TUNE.hariK, damp = Math.max(0, 1 - TUNE.velDamping*sdt), g = TUNE.gravity, mx = TUNE.maxStep;
-  const tgt = B.tgt, cr = B.creep;
-  const cl = 1 - Math.exp(-sdt/TUNE.creepTau);          // 馴染みの追従率(クリープ)
-  const cd = Math.max(0, 1 - TUNE.creepRecover*sdt);    // 馴染みの戻り(小さいほどゆっくり=もちもち)
-  const cmax = TUNE.creepMax * (0.35 + 0.65*TUNE.soft);   // 硬い設定ほど馴染み(give)も小さく(硬いのに馴染むと違和感)
+  const tgt = B.tgt;
   for(let i=0;i<N;i++){
     if(invMass[i]===0){
       // 根元＝板に固定（キネマティック。posもprevも上書き＝速度を持たせない）
@@ -602,19 +593,13 @@ function integrate(B, sdt){
       vel[i*3]=0; vel[i*3+1]=0; vel[i*3+2]=0;
       continue;
     }
-    // クリープ(馴染み): 定位置からの変位を遅れて追いかけ、離すとゆっくり戻る=「もちもち」の芯。
-    // 押している間は戻す力が弱まり(=沈んで馴染む)、離すと小さな力でゆっくり形が戻る(弾まない)
-    let c0=cr[i*3], c1=cr[i*3+1], c2=cr[i*3+2];
-    const d0=pos[i*3]-tgt[i*3], d1=pos[i*3+1]-tgt[i*3+1], d2v=pos[i*3+2]-tgt[i*3+2];
-    c0=(c0+(d0-c0)*cl)*cd; c1=(c1+(d1-c1)*cl)*cd; c2=(c2+(d2v-c2)*cl)*cd;
-    const cn=Math.hypot(c0,c1,c2);
-    if(cn>cmax){ const sc=cmax/cn; c0*=sc; c1*=sc; c2*=sc; }
-    cr[i*3]=c0; cr[i*3+1]=c1; cr[i*3+2]=c2;
-    // 自由な粒: 「定位置＋馴染み」へ弱いばね＋重力＋減衰
-    // 縦(重力方向)は柔らかく・横は少し硬く=生体の揺れの定石(異方性)。縦がたゆん、横はしまる
-    const sx=(tgt[i*3]  +c0-pos[i*3])*k*1.12;
-    const sy=(tgt[i*3+1]+c1-pos[i*3+1])*k*0.82;
-    const sz=(tgt[i*3+2]+c2-pos[i*3+2])*k;
+    // ※クリープ(馴染み=押した変位の保持)は撤去(調査: 健常な胸は残留変形しない。塑性はクーパー靭帯の加齢/病的伸びに限る)。
+    //   戻す力は「クーパー靭帯=定位置へ戻す硬いばね(k)」に一本化＝押しても必ず・すぐ元に戻る＝ハリ。
+    // 自由な粒: 定位置(クーパー靭帯の吊り先)へばね＋重力＋減衰。
+    // 縦(重力方向)はやや柔らかく・横は少し硬く=生体の揺れの異方性。
+    const sx=(tgt[i*3]  -pos[i*3])*k*1.12;
+    const sy=(tgt[i*3+1]-pos[i*3+1])*k*0.82;
+    const sz=(tgt[i*3+2]-pos[i*3+2])*k;
     let vx=(vel[i*3]   + sx*sdt)*damp;
     let vy=(vel[i*3+1] + (sy-g)*sdt)*damp;
     let vz=(vel[i*3+2] + sz*sdt)*damp;
@@ -626,18 +611,6 @@ function integrate(B, sdt){
     pos[i*3]+=dx; pos[i*3+1]+=dy; pos[i*3+2]+=dz;
   }
 }
-// 馴染み(creep)のならし: 辺ごとに両端の馴染みを互いに寄せる=高周波のしわ状の馴染みが残らない(滑らかな"give"だけ許す)
-function smoothCreep(B){
-  const cr=B.creep, k=TUNE.creepSmooth*0.5;
-  for(let e=0;e<edgeN;e++){
-    const a=edge[e*2], b=edge[e*2+1];
-    if(invMass[a]===0 || invMass[b]===0) continue;
-    for(let c=0;c<3;c++){
-      const d=(cr[b*3+c]-cr[a*3+c])*k;
-      cr[a*3+c]+=d; cr[b*3+c]-=d;
-    }
-  }
-}
 function solveEdges(sdt){
   const alpha = TUNE.edgeCompliance/(sdt*sdt);
   for(let e=0;e<edgeN;e++){
@@ -645,7 +618,7 @@ function solveEdges(sdt){
     let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
     const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
     const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const C=len-(edgeLenCur ? edgeLenCur[e] : edgeLenU[e]*R);   // フィット後は実形状の辺長を基準に
+    const C=len-(edgeLenCur ? edgeLenCur[e] : edgeLenU[e]*R)*TUNE.skinPretension;   // 皮膚の張力: 自然長を実寸より短く=表面が常に張る=ハリ
     const wa=invMass[a], wb=invMass[b];
     const wsum=wa+wb; if(wsum<1e-9) continue;
     const s=-C/(wsum+alpha);
