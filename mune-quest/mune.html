@@ -69,7 +69,7 @@
 </div>
 
 <div id="pchint">
-  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝押す／ホイール＝寄引／矢印キー＝板をゆらす／<b>[ ]＝やわらかさ／, .＝ゆれのこり</b>／1〜3＝大きさ／T＝たぷたぷテスト／R＝置き直す
+  <b>PC確認モード</b>　ドラッグ＝見る／クリック＝押す／ホイール＝寄引／矢印キー＝板をゆらす／<b>[ ]＝やわらかさ／, .＝ゆれのこり</b>／1〜5＝大きさ／T＝たぷたぷテスト／R＝置き直す
 </div>
 
 <div id="logWrap">
@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v4 rev4";
+const REV = "v4 rev6";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -127,7 +127,8 @@ const TUNE = {
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
   volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
   // --- 脂肪の充填(v4段階A: 設計書_脂肪充填.md): 同心殻3層(外殻・中殻=果肉・芯=種)を編む距離制約 ---
-  fleshCompliance: 8e-5, // 果肉(外殻↔中殻の放射＋中殻どうしの接線)のやわらかさ。押すと隣が盛り上がる"局所の押しのけ"の本体。soft(やわらかさ)で3e-5(硬)〜3e-4(やわ)にlerp
+  fleshRadialC: 8e-5,    // 果肉の放射(外殻↔中殻)のやわらかさ。押し込みの伝達を担い、soft(やわらかさ)で3e-5(硬)〜3e-4(やわ)にlerp
+  fleshTangentC: 8e-5,   // 果肉の接線(中殻どうし)のやわらかさ。横への逃げを独立調整する。既定は放射と同値でレバー非連動
   netCompliance: 5e-6,   // 網目チェーン(アンカー↔芯・芯↔中殻)の硬さ。旧「アンカー→表面の直線吊り」をこの2段の網に格上げ。必ず戻る吊りの実体
   seedCompliance: 1e-6,  // 種(芯どうしの相互辺)のとても硬い辺。奥の硬い手応えの実体(coreKの数式抵抗と併用)
   // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
@@ -193,7 +194,7 @@ function applyFeel(){
   // 実測ベース(調査2026-07-12): 皮膚=張力膜(脂肪の10倍硬い)が力を広く分散/戻りは即座(クリープ僅か)/揺れは減衰比0.2-0.5・1-3Hz
   // 実機⑫「レバー0でもまだ柔らかい」→旧0の硬さを新しい真ん中に再配置し、左半分をさらに硬い側へ延長(3回目の再配置)
   TUNE.edgeCompliance = lerp2(6e-6, 2e-5, 5e-4, s);     // 皮膚の張力。硬め=指の力が広くなだらかに分散(局所の深い穴=人工物っぽさの元)
-  TUNE.fleshCompliance= lerp2(3e-5, 8e-5, 3e-4, s);     // 果肉(脂肪)のやわらかさ。中央=既定値8e-5。押しのけの量を直接左右する
+  TUNE.fleshRadialC   = lerp2(3e-5, 8e-5, 3e-4, s);     // 果肉(脂肪)の放射方向のやわらかさ。中央=既定値8e-5。押しのけの量を直接左右する
   TUNE.hariK          = lerp2(420, 240, 45, s);         // 塊の戻り。中央240=固有振動数約2.5Hz(実測1-3Hzの上寄り=張りのある胸)
   TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.32=2回ほどぷるんと揺れて収まる(アンダーダンプ=生体の実測)
 }
@@ -762,7 +763,8 @@ function solveCore(B){
 // 脂肪の充填(v4段階A): 果肉(#3放射+接線)・網目チェーン(#2)・種(#4)の距離制約。既存solveEdgesと同じXPBD数式。
 // アンカーは固定点(B.anchorWのワールド座標、重み0)として直接扱う。中殻・芯は常に可動(重み1、当たり判定なし)。
 function solveFlesh(B, sdt){
-  const fa = TUNE.fleshCompliance/(sdt*sdt);
+  const fra = TUNE.fleshRadialC/(sdt*sdt);
+  const fta = TUNE.fleshTangentC/(sdt*sdt);
   const na = TUNE.netCompliance/(sdt*sdt);
   const sa = TUNE.seedCompliance/(sdt*sdt);
   // 果肉(放射): 外殻i ↔ 中殻m(i)。押しのけの主役＝押すと縮み、中殻が横へ逃げて隣の放射辺を押し上げる
@@ -775,11 +777,11 @@ function solveFlesh(B, sdt){
     const C=len-rl;
     const wa=invMass[i], wb=1;
     const wsum=wa+wb; if(wsum<1e-9) continue;
-    const s=-C/(wsum+fa);
+    const s=-C/(wsum+fra);
     pos[i*3]+=gx*s*wa; pos[i*3+1]+=gy*s*wa; pos[i*3+2]+=gz*s*wa;
     pos[jb*3]-=gx*s*wb; pos[jb*3+1]-=gy*s*wb; pos[jb*3+2]-=gz*s*wb;
   }
-  // 果肉(接線): 中殻どうしの辺。横につながって「隣が盛り上がる」を助ける(同compliance)
+  // 果肉(接線): 中殻どうしの辺。横につながって「隣が盛り上がる」を助ける(放射とは独立調整)
   for(let e=0;e<midEdgeN;e++){
     const a=N+midEdge[e*2], b=N+midEdge[e*2+1];
     let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
@@ -787,7 +789,7 @@ function solveFlesh(B, sdt){
     const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
     const rl = B.midEdgeLen ? B.midEdgeLen[e] : midEdgeLenU[e]*R;
     const C=len-rl;
-    const s=-C/(2+fa);
+    const s=-C/(2+fta);
     pos[a*3]+=gx*s*0.5; pos[a*3+1]+=gy*s*0.5; pos[a*3+2]+=gz*s*0.5;
     pos[b*3]-=gx*s*0.5; pos[b*3+1]-=gy*s*0.5; pos[b*3+2]-=gz*s*0.5;
   }
@@ -901,8 +903,9 @@ function solveVolume(sdt){
 /* --- 面あたり(v4 rev3)の前処理: コライダごとに「近くの三角形」を毎フレーム1回だけ絞り込む ---
    全三角形×全コライダを毎サブステップ回すと重すぎる(320×100×10)ので、
    フレーム頭に通り道(pCol→col)を覆う球で候補を最大CAND_MAX個まで拾っておく。 */
-const CAND_MAX = 96;   // 候補は「番号順で先着」なので、少なすぎると指の真下の三角形が入る前に打ち切られて
-                       // 面あたりが丸ごと沈黙する(v4 rev4で32にして踏んだ)。手のひら(r4cm)が覆う面数~90が上限の根拠
+const CAND_MAX = 96;   // 半径内の候補が上限を超えた時だけ「近い順」で絞る(v4 rev6)。手のひら(r4cm)が覆う面数~90が上限の根拠。
+                       // ※旧実装は「番号順で先着」だったため、溢れると指の真下の三角形が入らず面あたりが無言で沈黙した(v4 rev4で32にして踏んだ)
+const _faceCandWork = Array.from({length:triN}, ()=>({ tri:0, d2:Infinity }));   // 候補番号とキー距離の作業配列(毎フレームのnewを避ける)
 const _bw = [0,0,0];   // closestBary の出力(重心座標)
 function buildFaceCandidates(){
   for(const B of busts){
@@ -927,17 +930,25 @@ function buildFaceCandidates(){
       B.colNear[k]=1;
       if(!TUNE.faceCollide) continue;   // 面あたりOFFでもnear印だけは作る
       const vr2 = (rad+0.025)*(rad+0.025);   // 頂点判定は辺の長さぶん余裕を持つ(面の最近点は頂点より近いことがある)
+      // 半径内の三角形を全部集め、上限を超えた時だけ「近い順」に絞る(先着順だと真下の面が漏れて面あたりが沈黙する)
       let cnt=0; const base=k*CAND_MAX;
-      for(let t=0;t<triN && cnt<CAND_MAX;t++){
+      for(let t=0;t<triN;t++){
         const a=tri[t*3]*3, b=tri[t*3+1]*3, c=tri[t*3+2]*3;
         let dx=P[a]-mx, dy=P[a+1]-my, dz=P[a+2]-mz;
-        if(dx*dx+dy*dy+dz*dz < vr2){ B.candTri[base+cnt++]=t; continue; }
+        let key=dx*dx+dy*dy+dz*dz;
         dx=P[b]-mx; dy=P[b+1]-my; dz=P[b+2]-mz;
-        if(dx*dx+dy*dy+dz*dz < vr2){ B.candTri[base+cnt++]=t; continue; }
+        let d2=dx*dx+dy*dy+dz*dz; if(d2<key) key=d2;
         dx=P[c]-mx; dy=P[c+1]-my; dz=P[c+2]-mz;
-        if(dx*dx+dy*dy+dz*dz < vr2){ B.candTri[base+cnt++]=t; }
+        d2=dx*dx+dy*dy+dz*dz; if(d2<key) key=d2;
+        if(key<vr2){ const w=_faceCandWork[cnt++]; w.tri=t; w.d2=key; }
       }
-      B.candN[k]=cnt;
+      if(cnt>CAND_MAX){
+        for(let i=cnt;i<triN;i++) _faceCandWork[i].d2=Infinity;   // 前フレームの残骸をソートに混ぜない
+        _faceCandWork.sort((a,b)=>a.d2-b.d2);
+      }
+      const take=Math.min(cnt,CAND_MAX);
+      for(let i=0;i<take;i++) B.candTri[base+i]=_faceCandWork[i].tri;
+      B.candN[k]=take;
     }
   }
 }
@@ -1434,7 +1445,7 @@ function setupPCInput(){
     else if(e.key==="ArrowRight"){ plateGroup.position.x += mv; }
     else if(e.key==="ArrowUp"){ plateGroup.position.y += mv; }
     else if(e.key==="ArrowDown"){ plateGroup.position.y -= mv; }
-    else if(e.key>="1" && e.key<="3"){ setSize(parseInt(e.key,10)-1); }
+    else if(e.key>="1" && e.key<="5"){ setSize(parseInt(e.key,10)-1); }
     else if(e.key==="["){ TUNE.soft=Math.max(0,TUNE.soft-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key==="]"){ TUNE.soft=Math.min(1,TUNE.soft+0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key===","){ TUNE.keep=Math.max(0,TUNE.keep-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
@@ -1690,6 +1701,7 @@ window.__dbg = {
   mochiTest(){
     this.spawn();
     const p = this.poke(0.03, 0.5);
+    colN=0;   // 指を離す(離さないまま次のループへ入ると幽霊の指が押し続け、後続の連続呼び出しで体積が壊れる)
     const B = busts[0]; usePtr(B);
     let peak=0; const err=[];
     for(let s=0;s<Math.round(1.6/FIXED);s++){
@@ -1757,16 +1769,18 @@ window.__dbg = {
              ratio: farBulge!==0 ? +(ringBulge/Math.abs(farBulge)).toFixed(2) : (ringBulge>0?Infinity:0),
              ringN, farN, nan:anyNaN() };
   },
-  // 手のひら押し込み検証(v4 rev2): 大きい球(手のひら相当r=0.04)を深く押し、凹みの深さと縁の盛り上がりを測る
-  // (理想=写真: 深いドーム状の凹み＋縁がぷっくり)。maxSquishを深くした効果の確認用
+  // 手のひら押し込み検証(v4 rev6でサイズ比例化): 現在サイズに比例する球(r=0.53R)を比例した深さだけ押し、
+  // 凹みの深さと縁の盛り上がりを測る(理想=写真: 深いドーム状の凹み＋縁がぷっくり)。
+  // 固定4cm球だと小サイズでは相対的に巨大で、縁の帯も付け根にかかりサイズ間比較が無効だった(外部レビュー指摘)
   palmTest(push){
-    push = push || 0.06;
+    push = push || 0.8*R;
     this.spawn(); this.settle(2.0);
     const B=busts[0]; usePtr(B);
+    const baseline=shapeErrOf(B);
     const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
     const tipX=B.tgt[TIP*3], tipY=B.tgt[TIP*3+1], tipZ=B.tgt[TIP*3+2];
     let ox=tipX-ax, oy=tipY-ay, oz=tipZ-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;
-    const rr=0.04, steps=Math.max(1,Math.round(0.7/FIXED)), inSteps=Math.max(1,Math.round(steps*0.5));
+    const rr=0.53*R, steps=Math.max(1,Math.round(0.7/FIXED)), inSteps=Math.max(1,Math.round(steps*0.5));
     let maxDent=0;
     for(let s=0;s<steps;s++){
       const f = s<inSteps ? (s+1)/inSteps : 1;
@@ -1775,17 +1789,34 @@ window.__dbg = {
       const dent = (B.tgt[TIP*3]-B.pos[TIP*3])*ox + (B.tgt[TIP*3+1]-B.pos[TIP*3+1])*oy + (B.tgt[TIP*3+2]-B.pos[TIP*3+2])*oz;
       if(dent>maxDent) maxDent=dent;
     }
-    let rimSum=0, rimN=0;   // 縁(押し当て中心から4.5〜7cm)の外向き変位=盛り上がり
+    let rimSum=0, rimN=0;   // 縁(押し当て中心から球半径の1.15〜1.75倍)の外向き変位=盛り上がり
     for(let i=0;i<N;i++){
       if(invMass[i]===0) continue;
       const d = Math.hypot(B.pos[i*3]-tipX, B.pos[i*3+1]-tipY, B.pos[i*3+2]-tipZ);
-      if(d<0.045||d>0.07) continue;
+      if(d<1.15*rr||d>1.75*rr) continue;
       let nx=B.tgt[i*3]-ax, ny=B.tgt[i*3+1]-ay, nz=B.tgt[i*3+2]-az; const nl=Math.hypot(nx,ny,nz)||1;
       rimSum += ((B.pos[i*3]-B.tgt[i*3])*nx + (B.pos[i*3+1]-B.tgt[i*3+1])*ny + (B.pos[i*3+2]-B.tgt[i*3+2])*nz)/nl; rimN++;
     }
-    colN=0; this.settle(1.5);
+    colN=0;
+    this.settle(0.2); const resid02=Math.abs(shapeErrOf(B)-baseline);   // 時刻別の残留=戻りの速さも見える
+    this.settle(0.4); const resid06=Math.abs(shapeErrOf(B)-baseline);
+    this.settle(0.9); const resid15=Math.abs(shapeErrOf(B)-baseline);
     return { maxDent:+maxDent.toFixed(4), rimBulge:+(rimN?rimSum/rimN:0).toFixed(4), rimN,
-             residual:+shapeErrOf(B).toFixed(4), nan:anyNaN() };
+             resid02:+resid02.toFixed(4), resid06:+resid06.toFixed(4), resid15:+resid15.toFixed(4),
+             residual:+resid15.toFixed(4), nan:anyNaN() };
+  },
+  // 5サイズを順にサイズ比例の手のひら試験にかけ、小サイズだけに残る変形を切り分ける(v4 rev6)
+  sizeResidualTest(){
+    const result=[];
+    for(let si=0;si<SIZES.length;si++){
+      this.setSize(si);
+      this.spawn(); this.settle(1.5);
+      const palm=this.palmTest();
+      result.push({ size:SIZES[si].name, maxDent:palm.maxDent, rimBulge:palm.rimBulge,
+                    resid02:palm.resid02, resid06:palm.resid06, resid15:palm.resid15 });
+    }
+    this.setSize(2); this.spawn(); this.settle(1.0);
+    return result;
   },
   // 面あたりの経過観測(検収用): gapPokeと同じ突きを行い、5フレームごとに(指の底の半径位置, TIPの凹み)を返す
   probeGap(depth){
@@ -1856,6 +1887,41 @@ window.__dbg = {
   setCam(yaw,pitch,radius,tx,ty,tz){ pcYaw=yaw; pcPitch=pitch; if(radius) pcRadius=radius; if(tx!==undefined) pcTarget.set(tx,ty,tz); updatePCCamera(); return {yaw:pcYaw,pitch:pcPitch,radius:pcRadius}; },
   frame(yaw,pitch,dist){ let cx=0,cy=0,cz=0,k=0; for(const B of busts){ for(let i=0;i<N;i++){ cx+=B.pos[i*3];cy+=B.pos[i*3+1];cz+=B.pos[i*3+2];k++; } } if(k){cx/=k;cy/=k;cz/=k;} pcTarget.set(cx,cy,cz); pcYaw=yaw; pcPitch=pitch; pcRadius=dist||0.34; updatePCCamera(); return {center:[+cx.toFixed(3),+cy.toFixed(3),+cz.toFixed(3)],radius:pcRadius}; },
   tune: TUNE,
+  // AIテストプレイ一括窓口: 既存の個別テストを1コマンドでまとめて回し、日本語の所見付きレポートを返す。
+  // 実機でしか分からない(パススルー・実際の手応え・fps・見た目の説得力)は対象外。ここでは「壊れていないか・数値が異常でないか」だけを機械判定する。
+  aiTestplay(){
+    const notes = [];
+    const okSizes = [];
+    for(let si=0; si<SIZES.length; si++){
+      this.setSize(si);
+      const core = this.coreTest();
+      const bulge = this.bulgeTest();
+      const palm = this.palmTest();
+      const gap = this.gapPoke();
+      const mochi = this.mochiTest();
+      const stick = this.stickTest();
+      const sway = this.swayTest(0.05, 2.0, 1.0, 4.0);
+      const inner = this.innerState();
+      const nan = anyNaN() || core.nan || bulge.nan || palm.nan || gap.nan || mochi.nan || stick.nan || inner.nan;
+      const r = { size: SIZES[si].name, nan, core, bulge, palm, gap, mochi, stick, sway, inner };
+      okSizes.push(r);
+      if(nan) notes.push(SIZES[si].name+": NaN発生(致命)");
+      if(palm.resid15 > 0.01*(R/0.075)) notes.push(SIZES[si].name+": サイズ比例の手のひら押し後に戻り切っていない疑い(1.5秒残留"+palm.resid15+")");
+      if(stick.follow > 0.01) notes.push(SIZES[si].name+": 手を離すとき吸い付いている疑い(follow"+stick.follow+")");
+      if(sway.settledAt<0) notes.push(SIZES[si].name+": 揺れが4秒以内に収まらない");
+      if(sway.volRatio<0.5 || sway.volRatio>1.5) notes.push(SIZES[si].name+": 揺らした後の体積比が異常("+sway.volRatio+"。壊れて潰れた/膨らんだ疑い)");
+      if(gap.gapDent < 0.01) notes.push(SIZES[si].name+": すき間で指が素通りしている疑い(gapDent"+gap.gapDent+")");
+      // bulge.ratioは「果肉ON/OFFのA/B比較」で符号反転を見る指標(開発メモ2026-07-12 v4rev1)であり、
+      // 単発の値に固定の合格線は無い(farBulgeが負だと数式が無意味になる)。ここでは参考値として出すだけで判定はしない。
+    }
+    this.setSize(2); this.spawn(); this.settle(1.0);   // 既定(ふつう)に戻す
+    return {
+      判定: notes.length ? "要確認" : "異常なし(PCで検証できる範囲)",
+      所見: notes,
+      サイズ別詳細: okSizes,
+      注記: "パススルー・実際の手応え・fps・見た目の説得力は実機確認が必要(このテストの対象外)",
+    };
+  },
 };
 
 log("読み込みOK（版：" + REV + "）");
