@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v4 rev3";
+const REV = "v4 rev4";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -141,7 +141,9 @@ const TUNE = {
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
-  handMinR: 0.016,       // 手の関節コライダの下限半径(m)。位置は純正のまま。細すぎる関節は粒のすき間をすり抜けるので半径だけ下限(実機⑦貫通対策で0.013→0.016)
+  handMinR: 0.009,       // 手の関節コライダの下限半径(m)。位置は純正のまま。
+                         // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
+                         // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
   faceCollide: true,     // 面あたり(v4 rev3): 粒(点)だけでなく三角形の"面"でも受け止める。細い指が粒のすき間へ
                          // すっと入る貫通の根本対策(点あたりは粒を横に押しのけて指が通ってしまう)。falseで旧挙動(A/B比較用)
   ctrlR: 0.034,          // コントローラの当たり半径(m)
@@ -716,8 +718,9 @@ function softStep(h){
       solveEdges(sdt);
       solveFlesh(B, sdt);   // 脂肪の充填(v4段階A): 果肉・網目・種の距離制約。solveEdgesの直後(設計書#5)
       solveVolume(sdt);
-      solveColliders(B);
       solveCore(B);
+      solveColliders(B);   // v4 rev4: 接触を芯の後=サブステップ内の最後に。芯(靭帯・床)が接触の押しを毎回
+                           // 引き戻して「皮膚が指に付いてこない=深押しでめり込んで見える」のを防ぐ(最後の発言権は接触)
       finalize(sdt);
       B.curVol = curVol;
     }
@@ -898,13 +901,13 @@ function solveVolume(sdt){
 /* --- 面あたり(v4 rev3)の前処理: コライダごとに「近くの三角形」を毎フレーム1回だけ絞り込む ---
    全三角形×全コライダを毎サブステップ回すと重すぎる(320×100×10)ので、
    フレーム頭に通り道(pCol→col)を覆う球で候補を最大CAND_MAX個まで拾っておく。 */
-const CAND_MAX = 64;
+const CAND_MAX = 96;   // 候補は「番号順で先着」なので、少なすぎると指の真下の三角形が入る前に打ち切られて
+                       // 面あたりが丸ごと沈黙する(v4 rev4で32にして踏んだ)。手のひら(r4cm)が覆う面数~90が上限の根拠
 const _bw = [0,0,0];   // closestBary の出力(重心座標)
 function buildFaceCandidates(){
   for(const B of busts){
-    if(!B.candTri){ B.candTri = new Int32Array(MAXCOL*CAND_MAX); B.candN = new Uint8Array(MAXCOL); }
-    B.candN.fill(0);
-    if(!TUNE.faceCollide) continue;
+    if(!B.candTri){ B.candTri = new Int32Array(MAXCOL*CAND_MAX); B.candN = new Uint8Array(MAXCOL); B.colNear = new Uint8Array(MAXCOL); }
+    B.candN.fill(0); B.colNear.fill(0);
     const P=B.pos, ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
     let mDr=0; if(B.drA){ for(let i=0;i<N;i++) if(B.drA[i]>mDr) mDr=B.drA[i]; } else { for(let i=0;i<N;i++) if(drU[i]*R>mDr) mDr=drU[i]*R; }   // 最遠の静止距離(粗い足切り用。fit/サイズで変わるので毎回)
     const maxDr=mDr;
@@ -915,10 +918,14 @@ function buildFaceCandidates(){
       const my = ccd ? (colY[k]+pColY[k])/2 : colY[k];
       const mz = ccd ? (colZ[k]+pColZ[k])/2 : colZ[k];
       const mv = ccd ? Math.hypot(colX[k]-pColX[k], colY[k]-pColY[k], colZ[k]-pColZ[k])/2 : 0;
-      const rad = colR[k] + mv + 0.03;
-      // 遠いコライダは付け根からの距離で丸ごと除外(ほとんどの関節はここで消える=軽さの要)
+      const rad = colR[k] + mv + 0.03;   // 余白3cm: 埋まった指の"上に遅れる皮膚"は1サブステップ2cmのクランプで
+                                         // 2cm以内に収まるので3cmで足りる。広げすぎると候補が溢れて打ち切りが起きる
+      // 遠いコライダは付け根からの距離で丸ごと除外(ほとんどの関節はここで消える=軽さの要)。
+      // このnear印は点あたり(solveColliders)の足切りにも使う(v4 rev4=全関節×全粒の総当たり廃止)
       const dxA=mx-ax, dyA=my-ay, dzA=mz-az;
       if(dxA*dxA+dyA*dyA+dzA*dzA > (maxDr+rad)*(maxDr+rad)) continue;
+      B.colNear[k]=1;
+      if(!TUNE.faceCollide) continue;   // 面あたりOFFでもnear印だけは作る
       const vr2 = (rad+0.025)*(rad+0.025);   // 頂点判定は辺の長さぶん余裕を持つ(面の最近点は頂点より近いことがある)
       let cnt=0; const base=k*CAND_MAX;
       for(let t=0;t<triN && cnt<CAND_MAX;t++){
@@ -938,6 +945,7 @@ function solveColliders(B){
   viscF.fill(0);
   const sr=TUNE.stickRange;   // 接触粘性(ねっとり)の判定マージン。※吸い付きの引力は撤去済み(実機⑪)
   for(let k=0;k<colN;k++){
+    if(B && B.colNear && !B.colNear[k]) continue;   // 遠い関節は丸ごと飛ばす(v4 rev4軽量化。near印はフレーム頭に計算済み)
     const cx=eColX[k], cy=eColY[k], cz=eColZ[k], Rc=colR[k], R2=Rc*Rc;   // 補間した通り道の位置で当てる(CCD)
     const Rs=Rc+sr, Rs2=Rs*Rs;
     for(let i=0;i<N;i++){
@@ -974,22 +982,53 @@ function solveColliders(B){
         if(invMass[ia]===0 && invMass[ib]===0 && invMass[ic]===0) continue;
         const d2 = closestBary(cx,cy,cz,
           pos[ia*3],pos[ia*3+1],pos[ia*3+2], pos[ib*3],pos[ib*3+1],pos[ib*3+2], pos[ic*3],pos[ic*3+1],pos[ic*3+2], _bw);
-        if(d2 >= Rc*Rc) continue;
-        const d=Math.sqrt(d2); if(d<1e-9) continue;
-        // 最近点=w0*A+w1*B+w2*C。そこからコライダ中心への向き(表面から外向き)へ、めり込みぶん押し出す
+        // 最近点=w0*A+w1*B+w2*C
         const qx=_bw[0]*pos[ia*3]  +_bw[1]*pos[ib*3]  +_bw[2]*pos[ic*3];
         const qy=_bw[0]*pos[ia*3+1]+_bw[1]*pos[ib*3+1]+_bw[2]*pos[ic*3+1];
         const qz=_bw[0]*pos[ia*3+2]+_bw[1]*pos[ib*3+2]+_bw[2]*pos[ic*3+2];
-        let nx=(qx-cx)/d, ny=(qy-cy)/d, nz=(qz-cz)/d;   // 面→コライダ中心と逆=外向き
-        const pen=(Rc-d);
+        // 【重要・v4 rev4】皮膚は常にコライダの【付け根側(内側)の面=指の底】に居るべき。2つの穴を両方塞ぐ:
+        // ①旧「面→中心の逆」向きは、指が面より奥に入ると向きが反転して表面を中へ引きずり込み、
+        //   ピンポン玉と同じ座屈(凹み固定=くちゃくちゃ/空気抜けボール)を生んだ(実機⑱)。
+        // ②球の重なり(d<Rc)だけを接触にすると、指が半径より深く入った瞬間に接触が消えて皮膚が戻り、
+        //   指だけ中に残る(=追従が半径で頭打ち→深押しで貫通)。
+        // →コライダが【静止表面より内側】に居る間は、重なりに関係なく、皮膚を放射方向oに沿って
+        //   「コライダ中心の半径 − Rc」(=指の底)まで沈める。外に居る時だけ通常の重なり判定。
+        let ox2=qx-B.anchorW[0], oy2=qy-B.anchorW[1], oz2=qz-B.anchorW[2];
+        const ol2=Math.hypot(ox2,oy2,oz2); if(ol2<1e-9) continue;
+        ox2/=ol2; oy2/=ol2; oz2/=ol2;
+        const cr = (cx-B.anchorW[0])*ox2 + (cy-B.anchorW[1])*oy2 + (cz-B.anchorW[2])*oz2;   // 中心の半径位置
+        const restR = B.drA ? (_bw[0]*B.drA[ia]+_bw[1]*B.drA[ib]+_bw[2]*B.drA[ic])
+                            : (_bw[0]*drU[ia]+_bw[1]*drU[ib]+_bw[2]*drU[ic])*R;             // この面の静止半径
+        // コライダ中心から面の最近点への横ずれ(放射方向oと直交な成分)。
+        // 「埋まり」ルールは【真下(横ずれ<Rc)の面だけ】に適用する——横の面まで巻き込むと形が壊れる(検証で残留0.09に暴走した)
+        const vqx=qx-cx, vqy=qy-cy, vqz=qz-cz;
+        const vdo=vqx*ox2+vqy*oy2+vqz*oz2;
+        const lat2=Math.max(0, d2 - vdo*vdo);
+        let tq;
+        if(cr < restR - 0.004 && lat2 < Rc*Rc*0.96){
+          // 埋まっている: 皮膚を"球の底"(横ずれぶんを引いた半球面 cr−√(Rc²−lat²))へ。既にそれより深ければ触らない
+          const bottom = cr - Math.sqrt(Rc*Rc - lat2);
+          tq = bottom - ol2;                // 負=沈める量
+          if(tq >= 0) continue;
+          if(tq < -0.02) tq = -0.02;        // 1サブステップの沈み込みは2cmまで(暴れ防止)
+        } else {
+          // 外に居る: 通常の重なり判定(負の根=付け根側の球面へ)
+          if(d2 >= Rc*Rc) continue;
+          const vx=qx-cx, vy=qy-cy, vz=qz-cz;
+          const bq=2*(vx*ox2+vy*oy2+vz*oz2), cq=d2-Rc*Rc;
+          const disc=bq*bq-4*cq; if(disc<=0) continue;
+          tq=(-bq-Math.sqrt(disc))/2;
+          if(tq>=0) continue;
+        }
+        const pen=-tq;
         // 重心座標の重みで3頂点に分配(XPBDの分配。重みの二乗和で正規化=最近点がその分だけ動く)
         const w0=_bw[0],w1=_bw[1],w2=_bw[2];
         const wsum = w0*w0*(invMass[ia]?1:0) + w1*w1*(invMass[ib]?1:0) + w2*w2*(invMass[ic]?1:0);
         if(wsum<1e-9) continue;
-        const s=pen/wsum;
-        if(invMass[ia]){ pos[ia*3]+=nx*s*w0; pos[ia*3+1]+=ny*s*w0; pos[ia*3+2]+=nz*s*w0; viscF[ia]=1; }
-        if(invMass[ib]){ pos[ib*3]+=nx*s*w1; pos[ib*3+1]+=ny*s*w1; pos[ib*3+2]+=nz*s*w1; viscF[ib]=1; }
-        if(invMass[ic]){ pos[ic*3]+=nx*s*w2; pos[ic*3+1]+=ny*s*w2; pos[ic*3+2]+=nz*s*w2; viscF[ic]=1; }
+        const s=tq/wsum;   // tqは負=内側へ動かす
+        if(invMass[ia]){ pos[ia*3]+=ox2*s*w0; pos[ia*3+1]+=oy2*s*w0; pos[ia*3+2]+=oz2*s*w0; if(pen>0.002)viscF[ia]=1; }
+        if(invMass[ib]){ pos[ib*3]+=ox2*s*w1; pos[ib*3+1]+=oy2*s*w1; pos[ib*3+2]+=oz2*s*w1; if(pen>0.002)viscF[ib]=1; }
+        if(invMass[ic]){ pos[ic*3]+=ox2*s*w2; pos[ic*3+1]+=oy2*s*w2; pos[ic*3+2]+=oz2*s*w2; if(pen>0.002)viscF[ic]=1; }
         if(pen>contactDepth) contactDepth=pen;
       }
     }
@@ -1747,6 +1786,28 @@ window.__dbg = {
     colN=0; this.settle(1.5);
     return { maxDent:+maxDent.toFixed(4), rimBulge:+(rimN?rimSum/rimN:0).toFixed(4), rimN,
              residual:+shapeErrOf(B).toFixed(4), nan:anyNaN() };
+  },
+  // 面あたりの経過観測(検収用): gapPokeと同じ突きを行い、5フレームごとに(指の底の半径位置, TIPの凹み)を返す
+  probeGap(depth){
+    depth = depth || 0.05;
+    this.spawn(); this.settle(2.0);
+    const B=busts[0]; usePtr(B);
+    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+    let nb=-1; for(let e=0;e<edgeN;e++){ if(edge[e*2]===TIP){nb=edge[e*2+1];break;} if(edge[e*2+1]===TIP){nb=edge[e*2];break;} }
+    const gx=(B.tgt[TIP*3]+B.tgt[nb*3])/2, gy=(B.tgt[TIP*3+1]+B.tgt[nb*3+1])/2, gz=(B.tgt[TIP*3+2]+B.tgt[nb*3+2])/2;
+    let ox=gx-ax, oy=gy-ay, oz=gz-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;
+    const rr=0.012, steps=Math.round(0.6/FIXED), inSteps=Math.round(steps*0.5), trace=[];
+    for(let s=0;s<steps;s++){
+      const f = s<inSteps ? (s+1)/inSteps : 1;
+      colN=0; addCol(gx+ox*(rr-depth*f), gy+oy*(rr-depth*f), gz+oz*(rr-depth*f), rr);
+      contactDepth=0; softStep(FIXED);
+      if(s%5===0||s===steps-1){
+        const tipDent=(B.tgt[TIP*3]-B.pos[TIP*3])*ox+(B.tgt[TIP*3+1]-B.pos[TIP*3+1])*oy+(B.tgt[TIP*3+2]-B.pos[TIP*3+2])*oz;
+        trace.push([s, +(rr-depth*f-rr).toFixed(3), +tipDent.toFixed(3), +contactDepth.toFixed(3)]);   // [frame, 指底の深さ, TIP凹み, 接触量]
+      }
+    }
+    colN=0; this.settle(1.0);
+    return trace;
   },
   // すき間すり抜け検証(v4 rev2, rev3で面あたりの決定的テストに): 細い指(r=0.012)を「粒と粒の中間=辺の中点」へ
   // 押し込み、表面がどれだけ追従するか(=すき間で止まるか)を測る。面あたりON=大きく追従/OFF=ほぼ素通り(0〜3mm)。
