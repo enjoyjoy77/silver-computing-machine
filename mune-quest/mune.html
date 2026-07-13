@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v4 rev1";
+const REV = "v4 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -146,7 +146,9 @@ const TUNE = {
   // --- 有機感(段階2) ---
   coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
   coreK: 0.08,           // 芯の押し返しの強さ(0-1/サブステップ)。v4で0.16→0.08に半減(設計書#7): 果肉の放射制約が押しのけの主役になったので、数式上の芯抵抗は安全網として弱める(過拘束・喧嘩の予防)
-  maxSquish: 0.5,        // これ以上は絶対つぶれない硬い下限(付け根からの距離が静止時の50%まで)。手の貫通の見た目を止める骨・肋骨の代わり
+  maxSquish: 0.35,       // これ以上は絶対つぶれない硬い下限(付け根からの距離が静止時の35%まで)。骨・肋骨の代わり。
+                         // v4 rev2で0.5→0.35: 果肉(内部粒)が支えを持った今、床を深くして写真のような深い沈み込みを許す
+                         // (床が浅いと、そこで表面が止まった先は見えない=手が皮膚にめり込んで「貫通」に見える)
   // --- 上半身の素体(段階3-1) ---
   torsoNippleY: 1.24,    // 素体の足元からバストの高さ(m)。ここが胸板の中心に合う(画像検証で調整)
   torsoChestZ: 0.075,    // 素体の胸の面の前後位置(m)。ふくらみの付け根が胸の面に乗るよう調整
@@ -670,7 +672,13 @@ function arrangeBusts(){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PC押し込み） --- */
-const MAXCOL = 56;   // 純正ハンドの全25関節×両手＋コントローラ2＝最大52を収める
+const MAXCOL = 104;   // 純正ハンドの25関節＋中間球24(すき間埋め)＝49×両手＋コントローラ2＝最大100を収める
+// 中間球の橋渡し表(WebXR仕様の関節順: 0=手首,1-4=親指,5-9=人差指,10-14=中指,15-19=薬指,20-24=小指)
+// 「同じ指の中の隣り合う関節」＋「手首→各指の付け根」。指またぎ(4→5等)は架けない。
+const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
+  for(let f=0;f<4;f++){ const s=5+f*5; for(let j=1;j<5;j++) b.push([s+j-1,s+j]); }   // 4本指
+  b.push([0,1],[0,5],[0,10],[0,15],[0,20]);   // 手のひら(手首→付け根)
+  return b; })();
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
 let colN = 0;
 let contactDepth = 0;
@@ -1161,10 +1169,24 @@ function collectXRColliders(frame, ref){
       if(!src.hand) continue;
       // Quest純正ハンドトラッキングの全25関節を、位置も半径もそのまま当たり判定にする
       // （自前の選別・足し算・上限・中点の自作が実手とのズレの元だったため全部やめた）
+      const jp = [];   // 25関節ぶんの[x,y,z,r]を順番に控える(中間球の計算用)
       for(const joint of src.hand.values()){
-        const p = frame.getJointPose(joint, ref); if(!p) continue;
+        const p = frame.getJointPose(joint, ref);
+        if(!p){ jp.push(null); continue; }
         const r = Math.max((p.radius && p.radius>0) ? p.radius : 0.008, TUNE.handMinR); // 位置は純正のまま。半径だけ下限（粒すり抜け防止）
         addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
+        jp.push([p.transform.position.x, p.transform.position.y, p.transform.position.z, r]);
+      }
+      // 中間球: 関節の球と球の"すき間"を埋める(すり抜け=「触ったら素通り」の主因)。
+      // 純正の関節位置は無加工のまま、隣り合う関節2つの中点に球を1個足すだけ(指を数珠→棒にする)。
+      // つなぐのは「同じ指の中」＋「手首→各指の付け根」(手のひらを埋める)。指またぎはつながない。
+      if(jp.length===25){
+        for(const [a,b] of HAND_BRIDGES){
+          const A=jp[a], B2=jp[b]; if(!A||!B2) continue;
+          const dx=B2[0]-A[0], dy=B2[1]-A[1], dz=B2[2]-A[2];
+          if(dx*dx+dy*dy+dz*dz > 0.0049) continue;   // 7cm超は追跡乱れとみなして橋を架けない
+          addCol((A[0]+B2[0])/2, (A[1]+B2[1])/2, (A[2]+B2[2])/2, Math.max((A[3]+B2[3])/2, TUNE.handMinR));
+        }
       }
     }
   }
@@ -1619,6 +1641,61 @@ window.__dbg = {
     return { ringBulge:+ringBulge.toFixed(5), farBulge:+farBulge.toFixed(5),
              ratio: farBulge!==0 ? +(ringBulge/Math.abs(farBulge)).toFixed(2) : (ringBulge>0?Infinity:0),
              ringN, farN, nan:anyNaN() };
+  },
+  // 手のひら押し込み検証(v4 rev2): 大きい球(手のひら相当r=0.04)を深く押し、凹みの深さと縁の盛り上がりを測る
+  // (理想=写真: 深いドーム状の凹み＋縁がぷっくり)。maxSquishを深くした効果の確認用
+  palmTest(push){
+    push = push || 0.06;
+    this.spawn(); this.settle(2.0);
+    const B=busts[0]; usePtr(B);
+    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+    const tipX=B.tgt[TIP*3], tipY=B.tgt[TIP*3+1], tipZ=B.tgt[TIP*3+2];
+    let ox=tipX-ax, oy=tipY-ay, oz=tipZ-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;
+    const rr=0.04, steps=Math.max(1,Math.round(0.7/FIXED)), inSteps=Math.max(1,Math.round(steps*0.5));
+    let maxDent=0;
+    for(let s=0;s<steps;s++){
+      const f = s<inSteps ? (s+1)/inSteps : 1;
+      colN=0; addCol(tipX+ox*(rr-push*f), tipY+oy*(rr-push*f), tipZ+oz*(rr-push*f), rr);
+      contactDepth=0; softStep(FIXED);
+      const dent = (B.tgt[TIP*3]-B.pos[TIP*3])*ox + (B.tgt[TIP*3+1]-B.pos[TIP*3+1])*oy + (B.tgt[TIP*3+2]-B.pos[TIP*3+2])*oz;
+      if(dent>maxDent) maxDent=dent;
+    }
+    let rimSum=0, rimN=0;   // 縁(押し当て中心から4.5〜7cm)の外向き変位=盛り上がり
+    for(let i=0;i<N;i++){
+      if(invMass[i]===0) continue;
+      const d = Math.hypot(B.pos[i*3]-tipX, B.pos[i*3+1]-tipY, B.pos[i*3+2]-tipZ);
+      if(d<0.045||d>0.07) continue;
+      let nx=B.tgt[i*3]-ax, ny=B.tgt[i*3+1]-ay, nz=B.tgt[i*3+2]-az; const nl=Math.hypot(nx,ny,nz)||1;
+      rimSum += ((B.pos[i*3]-B.tgt[i*3])*nx + (B.pos[i*3+1]-B.tgt[i*3+1])*ny + (B.pos[i*3+2]-B.tgt[i*3+2])*nz)/nl; rimN++;
+    }
+    colN=0; this.settle(1.5);
+    return { maxDent:+maxDent.toFixed(4), rimBulge:+(rimN?rimSum/rimN:0).toFixed(4), rimN,
+             residual:+shapeErrOf(B).toFixed(4), nan:anyNaN() };
+  },
+  // すき間すり抜け検証(v4 rev2): 細い指(r=0.012)を「粒と粒の中間=三角の辺の真ん中」に向けて深く押し、
+  // 粒に正対する場合との凹み差を見る(すり抜けが酷いほど、すき間狙いの凹みが小さくなる)
+  gapPoke(depth){
+    depth = depth || 0.04;
+    this.spawn(); this.settle(2.0);
+    const B=busts[0]; usePtr(B);
+    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+    // TIPの隣の粒を辺リストから探し、辺の中点=すき間を狙う
+    let nb=-1; for(let e=0;e<edgeN;e++){ if(edge[e*2]===TIP){nb=edge[e*2+1];break;} if(edge[e*2+1]===TIP){nb=edge[e*2];break;} }
+    if(nb<0) return "no neighbor";
+    const gx=(B.tgt[TIP*3]+B.tgt[nb*3])/2, gy=(B.tgt[TIP*3+1]+B.tgt[nb*3+1])/2, gz=(B.tgt[TIP*3+2]+B.tgt[nb*3+2])/2;
+    let ox=gx-ax, oy=gy-ay, oz=gz-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;
+    const rr=0.012, steps=Math.max(1,Math.round(0.6/FIXED)), inSteps=Math.max(1,Math.round(steps*0.5));
+    let maxDent=0;
+    for(let s=0;s<steps;s++){
+      const f = s<inSteps ? (s+1)/inSteps : 1;
+      colN=0; addCol(gx+ox*(rr-depth*f), gy+oy*(rr-depth*f), gz+oz*(rr-depth*f), rr);
+      contactDepth=0; softStep(FIXED);
+      const dent1 = (B.tgt[TIP*3]-B.pos[TIP*3])*ox + (B.tgt[TIP*3+1]-B.pos[TIP*3+1])*oy + (B.tgt[TIP*3+2]-B.pos[TIP*3+2])*oz;
+      const dent2 = (B.tgt[nb*3]-B.pos[nb*3])*ox + (B.tgt[nb*3+1]-B.pos[nb*3+1])*oy + (B.tgt[nb*3+2]-B.pos[nb*3+2])*oz;
+      const dent=(dent1+dent2)/2; if(dent>maxDent) maxDent=dent;
+    }
+    colN=0; this.settle(1.5);
+    return { gapDent:+maxDent.toFixed(4), nan:anyNaN() };
   },
   // 内部粒(中殻・芯)の健康診断: NaNの有無と、外殻に対する平均半径比(restの縮小率0.55/0.22と概ね一致していれば正常)
   innerState(){
