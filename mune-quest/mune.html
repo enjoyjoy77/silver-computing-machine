@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v3 rev11";
+const REV = "v4 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -126,12 +126,16 @@ const TUNE = {
   hariK: 100,            // 形を保つばね（＝揺れの速さ。softから自動設定。目安1〜2Hz）
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
   volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
+  // --- 脂肪の充填(v4段階A: 設計書_脂肪充填.md): 同心殻3層(外殻・中殻=果肉・芯=種)を編む距離制約 ---
+  fleshCompliance: 8e-5, // 果肉(外殻↔中殻の放射＋中殻どうしの接線)のやわらかさ。押すと隣が盛り上がる"局所の押しのけ"の本体。soft(やわらかさ)で3e-5(硬)〜3e-4(やわ)にlerp
+  netCompliance: 5e-6,   // 網目チェーン(アンカー↔芯・芯↔中殻)の硬さ。旧「アンカー→表面の直線吊り」をこの2段の網に格上げ。必ず戻る吊りの実体
+  seedCompliance: 1e-6,  // 種(芯どうしの相互辺)のとても硬い辺。奥の硬い手応えの実体(coreKの数式抵抗と併用)
   // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
   skinPretension: 0.94,  // 皮膚の張力(自然長の倍率)。<1=表面が常に張る=ハリ(調査: 皮膚のプレテンションがハリの主因)。小さいほど張って硬い
   ligamentK: 0.05,       // 内部の吊り(クーパー靭帯)。付け根から各粒を静止距離へ"常に"引き戻す＝中空でなく詰まった支え。第一触りから内部が押し返す(調査: 靭帯が胸内で最も荷重を受ける=ハリと"必ず戻る"の本体)
   stickRange: 0.012,     // 接触粘性(ねっとり)の判定マージン(m)。※クリープ・吸い付きは撤去(調査: 健常な胸は残留変形しない=靭帯/皮膚が必ず戻す)
   contactVisc: 6,        // 触っている所の粘性(1/s)。触点がわずかに重く。強すぎると"液体っぽい遅れ"=水風船感(調査より)なので控えめ
-  pressure: 1.06,        // 内圧(体積目標の倍率)。押し込み時に体積を保とうと押し返す=詰まったハリ。静止サイズは主に皮膚プレテンション×靭帯ばねで決まる(この系では圧単独では戻せない)
+  pressure: 1.03,        // 内圧(体積目標の倍率)。v4で1.06→1.03に下げる(設計書#7): グローバル体積は"遠くが薄く膨らむ風船"の一因なので弱め、押すと隣が盛り上がる果肉の局所制約を主役にする
   gravity: 1.3,          // 重力(m/s^2)。少し垂れ下がる（大きすぎると垂れすぎる）
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
@@ -141,7 +145,7 @@ const TUNE = {
   ctrlR: 0.034,          // コントローラの当たり半径(m)
   // --- 有機感(段階2) ---
   coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
-  coreK: 0.16,           // 芯の押し返しの強さ(0-1/サブステップ)。押すほど奥で硬くなる
+  coreK: 0.08,           // 芯の押し返しの強さ(0-1/サブステップ)。v4で0.16→0.08に半減(設計書#7): 果肉の放射制約が押しのけの主役になったので、数式上の芯抵抗は安全網として弱める(過拘束・喧嘩の予防)
   maxSquish: 0.5,        // これ以上は絶対つぶれない硬い下限(付け根からの距離が静止時の50%まで)。手の貫通の見た目を止める骨・肋骨の代わり
   // --- 上半身の素体(段階3-1) ---
   torsoNippleY: 1.24,    // 素体の足元からバストの高さ(m)。ここが胸板の中心に合う(画像検証で調整)
@@ -183,6 +187,7 @@ function applyFeel(){
   // 実測ベース(調査2026-07-12): 皮膚=張力膜(脂肪の10倍硬い)が力を広く分散/戻りは即座(クリープ僅か)/揺れは減衰比0.2-0.5・1-3Hz
   // 実機⑫「レバー0でもまだ柔らかい」→旧0の硬さを新しい真ん中に再配置し、左半分をさらに硬い側へ延長(3回目の再配置)
   TUNE.edgeCompliance = lerp2(6e-6, 2e-5, 5e-4, s);     // 皮膚の張力。硬め=指の力が広くなだらかに分散(局所の深い穴=人工物っぽさの元)
+  TUNE.fleshCompliance= lerp2(3e-5, 8e-5, 3e-4, s);     // 果肉(脂肪)のやわらかさ。中央=既定値8e-5。押しのけの量を直接左右する
   TUNE.hariK          = lerp2(420, 240, 45, s);         // 塊の戻り。中央240=固有振動数約2.5Hz(実測1-3Hzの上寄り=張りのある胸)
   TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.32=2回ほどぷるんと揺れて収まる(アンダーダンプ=生体の実測)
 }
@@ -232,7 +237,10 @@ bustMat.onBeforeCompile = (sh)=>{
 };
 
 // トポロジ（単位球。両方のふくらみで共有）
-let N, tri, triN, edge, edgeN, edgeLenU, rest, invMass, grad, restVolU, vmap, vCount, baseGeo, pinCount;
+let N, tri, triN, edge, edgeN, edgeLenU, rest, restRawU, invMass, grad, restVolU, vmap, vCount, baseGeo, pinCount;
+// 脂肪の充填(v4段階A): 中殻(果肉42粒)・芯(種12粒)のトポロジ。添字は N..N+MID_N-1=中殻、N+MID_N..NT-1=芯（外殻0..N-1は既存のまま）
+let MID_N, CORE_N, NT, midRestU, coreRestU, midEdge, midEdgeN, midEdgeLenU, coreEdge, coreEdgeN, coreEdgeLenU;
+let mOf, cOf, fleshLenU, netAcLenU, netCmLenU, seedLenU;
 let renderTpl, rvCount, embI, embW, embO;   // 見た目メッシュ(高精細)＋各頂点の物理三角への埋め込み(index/バリセントリック/丸みオフセット)
 // 自然な胸の形へ変形（根元z奥は動かさず、乳頭を頂点に「上なだらか・下ふっくら・垂れ・上ほど幅絞り」）。
 // 物理と見た目の両方に同じ形を適用。※rest由来量(辺長・体積・付け根距離)はこの後で再計算される前提
@@ -301,6 +309,7 @@ function buildTopology(){
     vm[v] = idx;
   }
   vmap = vm; N = plist.length/3; rest = new Float32Array(plist);
+  restRawU = rest.slice();   // 変形前(素の単位球)の方向。中殻/芯との対応表(内積最大)はこれで取る(v4段階A)
   teardropDeform(rest, N);   // 涙型に変形(段階2): 先端ほど下へ垂れ・下ふっくら・上なだらか
   triN = vCount/3; tri = new Int32Array(triN*3);
   for(let t=0;t<triN;t++){ tri[t*3]=vm[t*3]; tri[t*3+1]=vm[t*3+1]; tri[t*3+2]=vm[t*3+2]; }
@@ -349,6 +358,68 @@ function buildTopology(){
 }
 let drU = null;
 buildTopology();
+// 脂肪の充填(v4段階A): 同心殻3層(外殻・中殻=果肉・芯=種)。設計書_脂肪充填.md 3〜4章。
+// 対応表(mOf/cOf)は「変形前(素の単位球)の方向ベクトルの内積最大」で1回だけ決める(icosphereの親子関係で安定)。
+// 基準長(*U系)は「アンカー(付け根)からの単位距離」で統一(drUと同じ考え方)。実際の配置はR・WX・PZ・層の縮小率(0.55/0.22)を掛けて作る。
+function buildInnerTopology(){
+  const hwM = makeWeldedSphere(1);   // 中殻(果肉): IcosahedronGeometry(1,1)溶接=42粒
+  const hwC = makeWeldedSphere(0);   // 芯(種): detail0溶接=12粒
+  MID_N = hwM.n; CORE_N = hwC.n; NT = N + MID_N + CORE_N;
+  midRestU = new Float32Array(hwM.verts); coreRestU = new Float32Array(hwC.verts);
+  // 対応表: 外殻i→最も近い中殻m(i)、中殻j→最も近い芯c(j)（素の単位球方向の内積最大）
+  mOf = new Int32Array(N);
+  for(let i=0;i<N;i++){
+    const x=restRawU[i*3], y=restRawU[i*3+1], z=restRawU[i*3+2];
+    let best=-2, bj=0;
+    for(let j=0;j<MID_N;j++){ const dot=x*hwM.verts[j*3]+y*hwM.verts[j*3+1]+z*hwM.verts[j*3+2]; if(dot>best){ best=dot; bj=j; } }
+    mOf[i]=bj;
+  }
+  cOf = new Int32Array(MID_N);
+  for(let j=0;j<MID_N;j++){
+    const x=hwM.verts[j*3], y=hwM.verts[j*3+1], z=hwM.verts[j*3+2];
+    let best=-2, bc=0;
+    for(let c=0;c<CORE_N;c++){ const dot=x*hwC.verts[c*3]+y*hwC.verts[c*3+1]+z*hwC.verts[c*3+2]; if(dot>best){ best=dot; bc=c; } }
+    cOf[j]=bc;
+  }
+  // 3層とも同じ涙型変形を適用(rest座標に反映。対応表は変形前の方向で決めたので崩れない)
+  teardropDeform(midRestU, MID_N);
+  teardropDeform(coreRestU, CORE_N);
+  // 中殻の辺(接線=果肉どうしの横のつながり)
+  { const eset=new Set(); const el=[];
+    const addE=(a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
+    for(let t=0;t<hwM.triN;t++){ const a=hwM.tris[t*3],b=hwM.tris[t*3+1],c=hwM.tris[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
+    midEdge=new Int32Array(el); midEdgeN=el.length/2;
+  }
+  // 芯の相互辺(種)
+  { const eset=new Set(); const el=[];
+    const addE=(a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
+    for(let t=0;t<hwC.triN;t++){ const a=hwC.tris[t*3],b=hwC.tris[t*3+1],c=hwC.tris[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
+    coreEdge=new Int32Array(el); coreEdgeN=el.length/2;
+  }
+  // アンカー相対の単位ローカル座標(R=1,WX=1,PZ=1の簡易版。drUと同じ考え方＝mountはxyともに相殺されるので原点扱い)
+  const outLocU = new Float32Array(N*3);
+  for(let i=0;i<N;i++){ outLocU[i*3]=rest[i*3]; outLocU[i*3+1]=rest[i*3+1]; outLocU[i*3+2]=TUNE.standoff+rest[i*3+2]; }
+  const midLocU = new Float32Array(MID_N*3);
+  for(let j=0;j<MID_N;j++){ const s=0.55; midLocU[j*3]=midRestU[j*3]*s; midLocU[j*3+1]=midRestU[j*3+1]*s; midLocU[j*3+2]=s*(TUNE.standoff+midRestU[j*3+2]); }
+  const coreLocU = new Float32Array(CORE_N*3);
+  for(let c=0;c<CORE_N;c++){ const s=0.22; coreLocU[c*3]=coreRestU[c*3]*s; coreLocU[c*3+1]=coreRestU[c*3+1]*s; coreLocU[c*3+2]=s*(TUNE.standoff+coreRestU[c*3+2]); }
+  // 基準長(単位=R=1のとき。実際はB.fleshLen等(フィット後の実測)を優先し、無ければ*U*Rを使う)
+  fleshLenU = new Float32Array(N);
+  for(let i=0;i<N;i++){ const j=mOf[i];
+    fleshLenU[i]=Math.hypot(outLocU[i*3]-midLocU[j*3], outLocU[i*3+1]-midLocU[j*3+1], outLocU[i*3+2]-midLocU[j*3+2]); }
+  midEdgeLenU = new Float32Array(midEdgeN);
+  for(let e=0;e<midEdgeN;e++){ const a=midEdge[e*2], b=midEdge[e*2+1];
+    midEdgeLenU[e]=Math.hypot(midLocU[a*3]-midLocU[b*3], midLocU[a*3+1]-midLocU[b*3+1], midLocU[a*3+2]-midLocU[b*3+2]); }
+  netAcLenU = new Float32Array(CORE_N);   // アンカー(原点)↔芯c
+  for(let c=0;c<CORE_N;c++){ netAcLenU[c]=Math.hypot(coreLocU[c*3], coreLocU[c*3+1], coreLocU[c*3+2]); }
+  netCmLenU = new Float32Array(MID_N);    // 芯c(j)↔中殻j
+  for(let j=0;j<MID_N;j++){ const c=cOf[j];
+    netCmLenU[j]=Math.hypot(coreLocU[c*3]-midLocU[j*3], coreLocU[c*3+1]-midLocU[j*3+1], coreLocU[c*3+2]-midLocU[j*3+2]); }
+  seedLenU = new Float32Array(coreEdgeN);
+  for(let e=0;e<coreEdgeN;e++){ const a=coreEdge[e*2], b=coreEdge[e*2+1];
+    seedLenU[e]=Math.hypot(coreLocU[a*3]-coreLocU[b*3], coreLocU[a*3+1]-coreLocU[b*3+1], coreLocU[a*3+2]-coreLocU[b*3+2]); }
+}
+buildInnerTopology();
 const viscF = new Float32Array(N);   // このサブステップで「触られている」粒の印(接触粘性・もちもち用)
 
 // 胸板（このパネルにふくらみ2つが付く。板ごと掴んで動かせる）
@@ -421,12 +492,13 @@ let pos, prev, vel, curVol;                 // 現在ポインタ（softStepが�
 let R = SIZES[sizeIdx].R;                   // 現在の半径
 let bustReady = false;
 function makeBust(mx){
+  // 配列はNT(外殻+中殻+芯)ぶん確保。見た目メッシュ(renderTpl)は外殻の埋め込みのままで内部粒は描画しない
   const B = { mount:new THREE.Vector3(mx, -0.01, 0), curVol: restVolU,
     mesh: new THREE.Mesh(renderTpl.clone(), bustMat),   // 高精細な見た目メッシュ
-    tgt: new Float32Array(N*3) };
+    tgt: new Float32Array(NT*3) };
   B.mesh.frustumCulled = false;
   B.geoAttr = B.mesh.geometry.attributes.position;
-  B.pos = new Float32Array(N*3); B.prev = new Float32Array(N*3); B.vel = new Float32Array(N*3);
+  B.pos = new Float32Array(NT*3); B.prev = new Float32Array(NT*3); B.vel = new Float32Array(NT*3);
   scene.add(B.mesh);
   return B;
 }
@@ -445,6 +517,31 @@ function computeTargets(B){
     B.tgt[i*3+1] = M[1]*lx + M[5]*ly + M[9]*lz  + M[13];
     B.tgt[i*3+2] = M[2]*lx + M[6]*ly + M[10]*lz + M[14];
   }
+  // 脂肪の充填(v4段階A): 中殻(果肉0.55倍)・芯(種0.22倍)の定位置。曲面フィット済みならB.fitMid/B.fitCoreを使う(地雷1: rest由来量は必ずフィット結果から)
+  {
+    const off = R*TUNE.standoff;
+    const FM = B.fitMid, FC = B.fitCore;
+    for(let j=0;j<MID_N;j++){
+      const s=0.55;
+      const lx = FM ? FM[j*3]   : (B.mount.x + midRestU[j*3]*R*WX*s);
+      const ly = FM ? FM[j*3+1] : (B.mount.y + midRestU[j*3+1]*R*WX*s);
+      const lz = (FM ? FM[j*3+2] : ((off*s + midRestU[j*3+2]*R*s)*PZ)) + breathZ;
+      const ib = N+j;
+      B.tgt[ib*3]   = M[0]*lx + M[4]*ly + M[8]*lz  + M[12];
+      B.tgt[ib*3+1] = M[1]*lx + M[5]*ly + M[9]*lz  + M[13];
+      B.tgt[ib*3+2] = M[2]*lx + M[6]*ly + M[10]*lz + M[14];
+    }
+    for(let c=0;c<CORE_N;c++){
+      const s=0.22;
+      const lx = FC ? FC[c*3]   : (B.mount.x + coreRestU[c*3]*R*WX*s);
+      const ly = FC ? FC[c*3+1] : (B.mount.y + coreRestU[c*3+1]*R*WX*s);
+      const lz = (FC ? FC[c*3+2] : ((off*s + coreRestU[c*3+2]*R*s)*PZ)) + breathZ;
+      const ib = N+MID_N+c;
+      B.tgt[ib*3]   = M[0]*lx + M[4]*ly + M[8]*lz  + M[12];
+      B.tgt[ib*3+1] = M[1]*lx + M[5]*ly + M[9]*lz  + M[13];
+      B.tgt[ib*3+2] = M[2]*lx + M[6]*ly + M[10]*lz + M[14];
+    }
+  }
   // 芯の付け根(板の表面の取り付け点)のワールド座標
   const ax = B.mount.x, ay = B.mount.y, az = 0;
   if(!B.anchorW) B.anchorW = [0,0,0];
@@ -454,7 +551,7 @@ function computeTargets(B){
 }
 function placeBust(B){
   computeTargets(B);
-  for(let i=0;i<N*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }
+  for(let i=0;i<NT*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }   // NT=外殻+中殻+芯。速度0・prev=pos(キネマティック鉄則と同じ、地雷2)
   B.curVol = B.restVol || restVolU*R*R*R;
   B.mesh.visible = true;
 }
@@ -505,6 +602,39 @@ function fitBustsToTorso(){
       const ax=fit[a*3],ay=fit[a*3+1],az=fit[a*3+2], bx=fit[b*3],by=fit[b*3+1],bz=fit[b*3+2], cx=fit[c*3],cy=fit[c*3+1],cz=fit[c*3+2];
       V += (ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6; }
     B.restVol = V;
+    // 脂肪の充填(v4段階A): 中殻・芯のフィット位置。「rest時のアンカーからの方向・距離の比率」を保って、
+    // フィット後の外殻(アンカー相対)から同じ縮小率(0.55/0.22)で配置する(設計書#6・地雷1: 厳密でなくてよいが必ず再計算)
+    const fitMid = new Float32Array(MID_N*3);
+    for(let j=0;j<MID_N;j++){
+      const s=0.55;
+      fitMid[j*3]   = B.mount.x + midRestU[j*3]*R*WX*s;
+      fitMid[j*3+1] = B.mount.y + midRestU[j*3+1]*R*WX*s;
+      fitMid[j*3+2] = (off*s + midRestU[j*3+2]*R*s)*PZ;
+    }
+    const fitCore = new Float32Array(CORE_N*3);
+    for(let c=0;c<CORE_N;c++){
+      const s=0.22;
+      fitCore[c*3]   = B.mount.x + coreRestU[c*3]*R*WX*s;
+      fitCore[c*3+1] = B.mount.y + coreRestU[c*3+1]*R*WX*s;
+      fitCore[c*3+2] = (off*s + coreRestU[c*3+2]*R*s)*PZ;
+    }
+    B.fitMid = fitMid; B.fitCore = fitCore;
+    // フィット後に全制約の基準長をfit座標から再計算(地雷1: このプロジェクト最大の教訓)
+    B.fleshLen = new Float32Array(N);
+    for(let i=0;i<N;i++){ const j=mOf[i];
+      B.fleshLen[i] = Math.hypot(fit[i*3]-fitMid[j*3], fit[i*3+1]-fitMid[j*3+1], fit[i*3+2]-fitMid[j*3+2]); }
+    B.midEdgeLen = new Float32Array(midEdgeN);
+    for(let e=0;e<midEdgeN;e++){ const a=midEdge[e*2], b=midEdge[e*2+1];
+      B.midEdgeLen[e] = Math.hypot(fitMid[a*3]-fitMid[b*3], fitMid[a*3+1]-fitMid[b*3+1], fitMid[a*3+2]-fitMid[b*3+2]); }
+    B.netAcLen = new Float32Array(CORE_N);   // アンカー(=B.mount.x,B.mount.y,0)↔芯c
+    for(let c=0;c<CORE_N;c++){
+      B.netAcLen[c] = Math.hypot(fitCore[c*3]-B.mount.x, fitCore[c*3+1]-B.mount.y, fitCore[c*3+2]); }
+    B.netCmLen = new Float32Array(MID_N);    // 芯c(j)↔中殻j
+    for(let j=0;j<MID_N;j++){ const c=cOf[j];
+      B.netCmLen[j] = Math.hypot(fitCore[c*3]-fitMid[j*3], fitCore[c*3+1]-fitMid[j*3+1], fitCore[c*3+2]-fitMid[j*3+2]); }
+    B.seedLen = new Float32Array(coreEdgeN);
+    for(let e=0;e<coreEdgeN;e++){ const a=coreEdge[e*2], b=coreEdge[e*2+1];
+      B.seedLen[e] = Math.hypot(fitCore[a*3]-fitCore[b*3], fitCore[a*3+1]-fitCore[b*3+1], fitCore[a*3+2]-fitCore[b*3+2]); }
     placeBust(B);
   }
   updateRenderMesh();
@@ -515,7 +645,11 @@ function setSize(idx){
   sizeIdx = Math.max(0, Math.min(SIZES.length-1, idx));
   R = SIZES[sizeIdx].R;
   PZ = SIZES[sizeIdx].pz; WX = SIZES[sizeIdx].wx;   // サイズごとの形(平たさ・裾野)
-  for(const B of busts){ B.fit=null; B.restVol=0; placeBust(B); }   // 大きさが変わったら作り直してから再フィット
+  for(const B of busts){   // 大きさが変わったら作り直してから再フィット(内部粒のfit・基準長キャッシュも道連れで無効化。地雷1)
+    B.fit=null; B.restVol=0;
+    B.fitMid=null; B.fitCore=null; B.fleshLen=null; B.midEdgeLen=null; B.netAcLen=null; B.netCmLen=null; B.seedLen=null;
+    placeBust(B);
+  }
   if(torso) fitBustsToTorso();
   updateRenderMesh();
   if(typeof drawUILabels==="function") drawUILabels();
@@ -569,6 +703,7 @@ function softStep(h){
       usePtr(B);
       integrate(B, sdt);
       solveEdges(sdt);
+      solveFlesh(B, sdt);   // 脂肪の充填(v4段階A): 果肉・網目・種の距離制約。solveEdgesの直後(設計書#5)
       solveVolume(sdt);
       solveColliders();
       solveCore(B);
@@ -610,11 +745,81 @@ function solveCore(B){
     }
   }
 }
+// 脂肪の充填(v4段階A): 果肉(#3放射+接線)・網目チェーン(#2)・種(#4)の距離制約。既存solveEdgesと同じXPBD数式。
+// アンカーは固定点(B.anchorWのワールド座標、重み0)として直接扱う。中殻・芯は常に可動(重み1、当たり判定なし)。
+function solveFlesh(B, sdt){
+  const fa = TUNE.fleshCompliance/(sdt*sdt);
+  const na = TUNE.netCompliance/(sdt*sdt);
+  const sa = TUNE.seedCompliance/(sdt*sdt);
+  // 果肉(放射): 外殻i ↔ 中殻m(i)。押しのけの主役＝押すと縮み、中殻が横へ逃げて隣の放射辺を押し上げる
+  for(let i=0;i<N;i++){
+    const j=mOf[i], jb=N+j;
+    let gx=pos[i*3]-pos[jb*3], gy=pos[i*3+1]-pos[jb*3+1], gz=pos[i*3+2]-pos[jb*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.fleshLen ? B.fleshLen[i] : fleshLenU[i]*R;
+    const C=len-rl;
+    const wa=invMass[i], wb=1;
+    const wsum=wa+wb; if(wsum<1e-9) continue;
+    const s=-C/(wsum+fa);
+    pos[i*3]+=gx*s*wa; pos[i*3+1]+=gy*s*wa; pos[i*3+2]+=gz*s*wa;
+    pos[jb*3]-=gx*s*wb; pos[jb*3+1]-=gy*s*wb; pos[jb*3+2]-=gz*s*wb;
+  }
+  // 果肉(接線): 中殻どうしの辺。横につながって「隣が盛り上がる」を助ける(同compliance)
+  for(let e=0;e<midEdgeN;e++){
+    const a=N+midEdge[e*2], b=N+midEdge[e*2+1];
+    let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.midEdgeLen ? B.midEdgeLen[e] : midEdgeLenU[e]*R;
+    const C=len-rl;
+    const s=-C/(2+fa);
+    pos[a*3]+=gx*s*0.5; pos[a*3+1]+=gy*s*0.5; pos[a*3+2]+=gz*s*0.5;
+    pos[b*3]-=gx*s*0.5; pos[b*3+1]-=gy*s*0.5; pos[b*3+2]-=gz*s*0.5;
+  }
+  // 網目チェーン: アンカー(固定・重み0)↔芯c。硬い＝必ず戻る吊りの実体(旧「アンカー→表面の直線」の格上げ)
+  const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+  for(let c=0;c<CORE_N;c++){
+    const ib=N+MID_N+c;
+    let gx=pos[ib*3]-ax, gy=pos[ib*3+1]-ay, gz=pos[ib*3+2]-az;
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.netAcLen ? B.netAcLen[c] : netAcLenU[c]*R;
+    const C=len-rl;
+    const s=-C/(1+na);   // アンカー側は重み0(動かさない)。分母は芯の重み1のみ
+    pos[ib*3]+=gx*s; pos[ib*3+1]+=gy*s; pos[ib*3+2]+=gz*s;
+  }
+  // 網目チェーン: 芯c(j)↔中殻j
+  for(let j=0;j<MID_N;j++){
+    const c=cOf[j], ib=N+MID_N+c, jb=N+j;
+    let gx=pos[ib*3]-pos[jb*3], gy=pos[ib*3+1]-pos[jb*3+1], gz=pos[ib*3+2]-pos[jb*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.netCmLen ? B.netCmLen[j] : netCmLenU[j]*R;
+    const C=len-rl;
+    const s=-C/(2+na);
+    pos[ib*3]+=gx*s*0.5; pos[ib*3+1]+=gy*s*0.5; pos[ib*3+2]+=gz*s*0.5;
+    pos[jb*3]-=gx*s*0.5; pos[jb*3+1]-=gy*s*0.5; pos[jb*3+2]-=gz*s*0.5;
+  }
+  // 種: 芯どうしの相互辺。とても硬い＝奥の硬い手応えの実体
+  for(let e=0;e<coreEdgeN;e++){
+    const a=N+MID_N+coreEdge[e*2], b=N+MID_N+coreEdge[e*2+1];
+    let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.seedLen ? B.seedLen[e] : seedLenU[e]*R;
+    const C=len-rl;
+    const s=-C/(2+sa);
+    pos[a*3]+=gx*s*0.5; pos[a*3+1]+=gy*s*0.5; pos[a*3+2]+=gz*s*0.5;
+    pos[b*3]-=gx*s*0.5; pos[b*3+1]-=gy*s*0.5; pos[b*3+2]-=gz*s*0.5;
+  }
+}
 function integrate(B, sdt){
   const k = TUNE.hariK, damp = Math.max(0, 1 - TUNE.velDamping*sdt), g = TUNE.gravity, mx = TUNE.maxStep;
   const tgt = B.tgt;
-  for(let i=0;i<N;i++){
-    if(invMass[i]===0){
+  for(let i=0;i<NT;i++){   // NT=外殻+中殻+芯。中殻・芯は常に可動(pinなし)であっても同じ重力・ばね・減衰(揺れの質量感=タプンタプンに効く)
+    const pinned = (i<N) && (invMass[i]===0);
+    if(pinned){
       // 根元＝板に固定（キネマティック。posもprevも上書き＝速度を持たせない）
       pos[i*3]=tgt[i*3]; pos[i*3+1]=tgt[i*3+1]; pos[i*3+2]=tgt[i*3+2];
       prev[i*3]=tgt[i*3]; prev[i*3+1]=tgt[i*3+1]; prev[i*3+2]=tgt[i*3+2];
@@ -709,10 +914,10 @@ function solveColliders(){
 function finalize(sdt){
   const inv=1/sdt;
   const vd = Math.max(0, 1 - TUNE.contactVisc*sdt);   // 触点の粘性(ねっとり)。触られている粒だけ余計に減衰
-  for(let i=0;i<N;i++){
-    if(invMass[i]===0) continue;
+  for(let i=0;i<NT;i++){   // NT=外殻+中殻+芯(中殻・芯は当たり判定が無いのでviscFの対象外=常に素の速度)
+    if(i<N && invMass[i]===0) continue;
     let vx=(pos[i*3]-prev[i*3])*inv, vy=(pos[i*3+1]-prev[i*3+1])*inv, vz=(pos[i*3+2]-prev[i*3+2])*inv;
-    if(viscF[i]){ vx*=vd; vy*=vd; vz*=vd; }
+    if(i<N && viscF[i]){ vx*=vd; vy*=vd; vz*=vd; }
     vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
   }
 }
@@ -1382,6 +1587,54 @@ window.__dbg = {
     }
     colN=0; this.settle(1.0);
     return { follow:+follow.toFixed(4), nan:this.state().nan };
+  },
+  // 脂肪の充填(v4段階A)の検証窓口
+  // settle後、先端の横2.5cm付近を1.5cm押し込み、「押した点の周囲(2〜4cm)の外向き変位平均」÷「反対側(6cm以上)の同平均」を返す。
+  // ratio>2なら「押すと隣が盛り上がる」局所の押しのけが出ている合格目安(グローバル風船ならratio≒1)。
+  bulgeTest(){
+    this.spawn(); this.settle(1.5);
+    const B = busts[0]; usePtr(B);
+    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+    const tipX=B.tgt[TIP*3], tipY=B.tgt[TIP*3+1], tipZ=B.tgt[TIP*3+2];
+    let ox=tipX-ax, oy=tipY-ay, oz=tipZ-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;   // 法線(外向き)の近似
+    let px=-oy, py=ox, pz=0; const pl=Math.hypot(px,py,pz)||1; px/=pl; py/=pl; pz/=pl;                   // 法線に垂直=横方向
+    const pokeX=tipX+px*0.025, pokeY=tipY+py*0.025, pokeZ=tipZ+pz*0.025;   // 先端の横2.5cm
+    const depth=0.015, steps=Math.max(1,Math.round(0.5/FIXED)), inSteps=Math.max(1,Math.round(steps*0.4));
+    for(let s=0;s<steps;s++){
+      const f = s<inSteps ? (s+1)/inSteps : 1;
+      colN=0; addCol(pokeX-ox*depth*f, pokeY-oy*depth*f, pokeZ-oz*depth*f, TUNE.fingerR);
+      contactDepth=0; softStep(FIXED);
+    }
+    let ringSum=0, ringN=0, farSum=0, farN=0;
+    for(let i=0;i<N;i++){
+      if(invMass[i]===0) continue;
+      const d = Math.hypot(B.pos[i*3]-pokeX, B.pos[i*3+1]-pokeY, B.pos[i*3+2]-pokeZ);
+      let nx=B.tgt[i*3]-ax, ny=B.tgt[i*3+1]-ay, nz=B.tgt[i*3+2]-az; const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl;
+      const disp = (B.pos[i*3]-B.tgt[i*3])*nx + (B.pos[i*3+1]-B.tgt[i*3+1])*ny + (B.pos[i*3+2]-B.tgt[i*3+2])*nz;
+      if(d>0.02 && d<0.04){ ringSum+=disp; ringN++; }
+      else if(d>0.06){ farSum+=disp; farN++; }
+    }
+    colN=0; this.settle(1.0);
+    const ringBulge=ringN?ringSum/ringN:0, farBulge=farN?farSum/farN:0;
+    return { ringBulge:+ringBulge.toFixed(5), farBulge:+farBulge.toFixed(5),
+             ratio: farBulge!==0 ? +(ringBulge/Math.abs(farBulge)).toFixed(2) : (ringBulge>0?Infinity:0),
+             ringN, farN, nan:anyNaN() };
+  },
+  // 内部粒(中殻・芯)の健康診断: NaNの有無と、外殻に対する平均半径比(restの縮小率0.55/0.22と概ね一致していれば正常)
+  innerState(){
+    const B = busts[0];
+    if(!B) return { nan:false, midRatio:0, coreRatio:0 };
+    let nan=false;
+    for(let i=N*3;i<NT*3;i++){ if(Number.isNaN(B.pos[i])){ nan=true; break; } }
+    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
+    let outR=0, midR=0, coreR=0;
+    for(let i=0;i<N;i++) outR += Math.hypot(B.pos[i*3]-ax, B.pos[i*3+1]-ay, B.pos[i*3+2]-az);
+    outR/=N;
+    for(let j=0;j<MID_N;j++){ const ib=N+j; midR += Math.hypot(B.pos[ib*3]-ax, B.pos[ib*3+1]-ay, B.pos[ib*3+2]-az); }
+    midR/=MID_N;
+    for(let c=0;c<CORE_N;c++){ const ib=N+MID_N+c; coreR += Math.hypot(B.pos[ib*3]-ax, B.pos[ib*3+1]-ay, B.pos[ib*3+2]-az); }
+    coreR/=CORE_N;
+    return { nan, N, MID_N, CORE_N, NT, midRatio:+(midR/outR).toFixed(3), coreRatio:+(coreR/outR).toFixed(3) };
   },
   render(){ if(renderer) renderer.render(scene, camera); return "ok"; },
   // 実画像の撮影窓口(タブ非表示で画面サイズ0でも強制サイズで1コマ描いてjpegを返す。目視検証用)
