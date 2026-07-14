@@ -241,7 +241,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev10-puni2b";
+const REV = "v2 rev11-puni3";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -530,6 +530,7 @@ async function makeItem(figure){
      板は x=[-w/2,+w/2], y=[0,h]、表側が +z。
    ============================================================ */
 const PUNI_FIXED = 1 / 60;
+const PUNI_SKIRT_DEPTH = 0.0015;   // 付け根を各頂点直下のレリーフ表面より1.5mm沈めて継ぎ目を隠す(板高さ1m基準)
 const PUNI_TUNE = {
   rings: 7, segments: 24, substeps: 7,
   soft: 0.5, keep: 0.55,
@@ -563,18 +564,26 @@ function puniBuildTopology(puff){
   const rest = new Float32Array(N*3); const pos = new Float32Array(N*3);
   const prev = new Float32Array(N*3); const vel = new Float32Array(N*3);
   const target = new Float32Array(N*3); const invMass = new Float32Array(N);
+  const uv = new Float32Array(N*2);   // restの板ローカルx/yから一度だけ作る固定UV(物理変形中は更新しない)
   const item = puff.item;
   const w = item.w || 1; const hBoard = item.h || 1;
   const cx = (puff.u - 0.5) * w; const cy = puff.v * hBoard;
   const baseZ = puniSurfaceZ(item, puff.u, puff.v); puff.baseZ = baseZ;   // レリーフ表面の高さに載せる
   rest[0] = cx; rest[1] = cy; rest[2] = baseZ + puff.h; invMass[0] = 1;
+  uv[0] = rest[0]/w + 0.5; uv[1] = rest[1]/hBoard;   // reliefと同じUV規則
   for(let ir=1; ir<=rings; ir++){
     const q = ir / rings; const rr = puff.r * q;
     const domeZ = puff.h * Math.pow(1 - q*q, 2);
     for(let j=0; j<seg; j++){
       const i = 1 + (ir-1)*seg + j; const a = j/seg * Math.PI * 2;
-      rest[i*3] = cx + Math.cos(a)*rr; rest[i*3+1] = cy + Math.sin(a)*rr; rest[i*3+2] = baseZ + domeZ;
+      const x = cx + Math.cos(a)*rr, y = cy + Math.sin(a)*rr;
+      const tu = x/w + 0.5, tv = y/hBoard;
+      rest[i*3] = x; rest[i*3+1] = y;
+      // 付け根リングは中心baseZでなく各頂点直下のレリーフ表面へ追従＋1.5mm沈めて継ぎ目を隠す
+      if(ir === rings){ rest[i*3+2] = puniSurfaceZ(item, clamp(tu,0,1), clamp(tv,0,1)) - PUNI_SKIRT_DEPTH; }
+      else { rest[i*3+2] = baseZ + domeZ; }
       invMass[i] = ir === rings ? 0 : 1;
+      uv[i*2] = tu; uv[i*2+1] = tv;
     }
   }
   pos.set(rest); prev.set(rest); target.set(rest);
@@ -610,7 +619,7 @@ function puniBuildTopology(puff){
   }
   const grad = new Float32Array(N*3);
   const phys = {
-    N, rest, pos, prev, vel, target, invMass, tri: triIndex, edges, edgeLen, anchor, coreLen, grad,
+    N, rest, pos, prev, vel, target, invMass, uv, tri: triIndex, edges, edgeLen, anchor, coreLen, grad,
     restVol: 0, curVol: 0, nan: false, maxSpeed: 0, pokeMaxDisp: 0, baselineResid: 0, volLambda: 0,
     collider: { active:false, center:new THREE.Vector3(), prevCenter:new THREE.Vector3(), radius:PUNI_TUNE.pointerRadius, havePrev:false },
     xrColliders: [],
@@ -638,14 +647,27 @@ function puniVolumeAndGradient(phys, source, outGrad){
   }
   return V;
 }
+// 写真の発色/透明判定を reliefMesh と同じにした材質(imgTexSRGBが無ければ単色フォールバック)
+function puniMakePhotoMaterial(item){
+  const tex = item && item.imgTexSRGB;
+  if(tex){
+    return new THREE.MeshStandardMaterial({
+      map: tex, transparent: true, alphaTest: 0.06, side: THREE.DoubleSide,
+      roughness: 0.82, metalness: 0, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.22,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,   // 裾のz-fighting抑制
+    });
+  }
+  return new THREE.MeshStandardMaterial({ color: PUNI_TUNE.color, roughness: 0.72, metalness: 0, side: THREE.DoubleSide, emissive: new THREE.Color(0x260814), emissiveIntensity: 0.16 });
+}
 function puniMakeMesh(puff){
   const p = puff.phys; const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(p.pos, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(p.uv, 2));   // restから作った固定UV(renderでは更新しない)
   geo.setIndex(new THREE.BufferAttribute(p.tri, 1));
   geo.computeVertexNormals(); geo.computeBoundingSphere();
-  const mat = new THREE.MeshStandardMaterial({ color: PUNI_TUNE.color, roughness: 0.72, metalness: 0, side: THREE.DoubleSide, emissive: new THREE.Color(0x260814), emissiveIntensity: 0.16 });
+  const mat = puniMakePhotoMaterial(puff.item);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.name = "puni-stage1-dome"; mesh.frustumCulled = false; mesh.userData.puff = puff;
+  mesh.name = "puni-stage3-photo-dome"; mesh.frustumCulled = false; mesh.userData.puff = puff;
   puff.geo = geo; puff.mesh = mesh; puff.item.tiltGroup.add(mesh);
 }
 function puniDisposePuff(puff){
@@ -995,6 +1017,8 @@ function puniState(puff = PUNI.selected){
     ready: true, item: puff.item.name || puff.item.id || "",
     count: puff.item.puffs?.length || 0,
     u:+puff.u.toFixed(4), v:+puff.v.toFixed(4), r:+puff.r.toFixed(4), h:+puff.h.toFixed(4), baseZ:+(puff.baseZ || 0).toFixed(4),
+    textured: !!(puff.item && puff.item.imgTexSRGB), hasUV: !!(puff.geo && puff.geo.attributes.uv),
+    mapMatches: !!(puff.mesh && puff.mesh.material && puff.mesh.material.map) && puff.mesh.material.map === puff.item.imgTexSRGB,
     particles: p.N, triangles: p.tri.length/3,
     pinned: p.invMass.reduce((n, w) => n + (w === 0 ? 1 : 0), 0),
     volRatio: +(p.curVol/p.restVol).toFixed(4), maxSpeed: +p.maxSpeed.toFixed(4),
