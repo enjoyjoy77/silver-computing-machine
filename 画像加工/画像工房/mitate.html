@@ -92,6 +92,29 @@
     z-index:50;display:none;white-space:nowrap;max-width:92vw;}
   #err{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:#3a1414;border:1px solid #7a2a2a;
     color:#ffd9d9;padding:11px 16px;border-radius:11px;font-size:12px;z-index:50;display:none;max-width:92vw;text-align:center;}
+
+  .handoff-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;width:min(94vw,640px);}
+  .handoff-btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    border-radius:11px;padding:11px 16px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .handoff-btn:hover{border-color:var(--accent);}
+  .handoff-btn:disabled{opacity:.4;cursor:default;}
+  .handoff-modal{position:fixed;inset:0;z-index:100;display:none;align-items:center;
+    justify-content:center;padding:20px;background:rgba(5,9,7,.78);}
+  .handoff-modal.show{display:flex;}
+  .handoff-dialog{width:min(92vw,460px);background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.45);}
+  .handoff-dialog h3{margin:0 0 10px;font-size:18px;}
+  .handoff-dialog p{margin:7px 0;color:var(--dim);font-size:12px;line-height:1.7;}
+  .handoff-code{margin:18px 0;text-align:center;color:var(--accent2);font:900 38px/1.2 monospace;
+    letter-spacing:.08em;overflow-wrap:anywhere;}
+  .handoff-input{width:100%;margin:12px 0;background:var(--panel2);border:1px solid var(--line);
+    color:var(--accent2);border-radius:11px;padding:13px;text-align:center;
+    font:900 25px/1.2 monospace;letter-spacing:.08em;text-transform:uppercase;}
+  .handoff-progress{width:100%;height:10px;margin:14px 0 7px;overflow:hidden;border-radius:999px;background:var(--line);}
+  .handoff-progress > div{width:0;height:100%;background:var(--accent);transition:width .15s;}
+  .handoff-progress-text{color:var(--dim);font-size:11px;text-align:center;min-height:18px;}
+  .handoff-dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px;}
+  .handoff-link{color:var(--accent2);font-weight:700;}
 </style>
 </head>
 <body>
@@ -141,6 +164,10 @@
     </div>
   </div>
   <button id="goBtn">🧊 立体で見る →</button>
+  <div class="handoff-actions">
+    <button class="handoff-btn" id="handoffSendBtn" disabled>📤 Questへ送る</button>
+    <button class="handoff-btn" id="handoffReceiveBtn">🔑 コードで受け取る</button>
+  </div>
   <p>棚に貯めた複数のフィギュアを、AR/VRで<b>実寸サイズ</b>で並べて比べられます。各体を別々に掴んで動かせます。すべて端末内で処理します。</p>
   <input type="file" id="imgIn" accept="image/*" style="display:none">
   <input type="file" id="depthIn" accept="image/*" style="display:none">
@@ -230,6 +257,57 @@
   <div class="hint" id="hint"></div>
 </div>
 
+<div class="handoff-modal" id="handoffSendModal" role="dialog" aria-modal="true" aria-labelledby="handoffSendTitle">
+  <div class="handoff-dialog">
+    <h3 id="handoffSendTitle">📤 Questへ送る</h3>
+    <p id="handoffSendMessage">送るデータを準備しています…</p>
+    <div id="handoffSendProgressBox">
+      <div class="handoff-progress"><div id="handoffSendProgress"></div></div>
+      <div class="handoff-progress-text" id="handoffSendProgressText"></div>
+    </div>
+    <div id="handoffCodeResult" style="display:none">
+      <p style="text-align:center">Questでこのコードを入力してください</p>
+      <div class="handoff-code" id="handoffCode"></div>
+      <p style="text-align:center" id="handoffExpires"></p>
+    </div>
+    <div class="handoff-dialog-actions">
+      <button class="handoff-btn" id="handoffCopyBtn" style="display:none">コードをコピー</button>
+      <button class="handoff-btn" id="handoffSendCloseBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="handoff-modal" id="handoffReceiveModal" role="dialog" aria-modal="true" aria-labelledby="handoffReceiveTitle">
+  <div class="handoff-dialog">
+    <h3 id="handoffReceiveTitle">🔑 コードで受け取る</h3>
+    <p>送る側に表示された英数字10桁を入力してください。</p>
+    <input class="handoff-input" id="handoffCodeInput" type="text" inputmode="text"
+      autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="11" placeholder="7KM2P-9WX4D">
+    <div id="handoffReceiveProgressBox" style="display:none">
+      <div class="handoff-progress"><div id="handoffReceiveProgress"></div></div>
+      <div class="handoff-progress-text" id="handoffReceiveProgressText"></div>
+    </div>
+    <div class="handoff-dialog-actions">
+      <button class="handoff-btn" id="handoffReceiveCloseBtn">閉じる</button>
+      <button class="handoff-btn" id="handoffReceiveStartBtn">棚に追加する</button>
+    </div>
+  </div>
+</div>
+
+<div class="handoff-modal" id="handoffCloudflareModal" role="dialog" aria-modal="true">
+  <div class="handoff-dialog">
+    <h3>Cloudflare版で開いてください</h3>
+    <p>Questへの送受信はCloudflare版で利用できます。</p>
+    <p>
+      <a class="handoff-link" id="handoffCloudflareLink"
+         href="https://silver-computing-machine-7ql.pages.dev/mitate.html">Cloudflare版のミタテを開く</a>
+    </p>
+    <div class="handoff-dialog-actions">
+      <button class="handoff-btn" id="handoffCloudflareCloseBtn">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <div id="err"></div>
 
@@ -239,9 +317,14 @@ import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
-import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
+import {
+  saveBlob, handoffTake, handoffClear,
+  figuresAdd, figuresAll, figuresRemove, figuresClear,
+  figuresUpdatePuffs, figuresAddMany,
+  buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
+} from "./assets/common.js";
 
-const REV = "v2 rev11-puni3";
+const REV = "v2 rev12-sync1";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -263,6 +346,16 @@ function fileToImage(fileOrBlob){
 }
 
 // ---- 棚の一覧表示 ----
+function selectedShelfIds(){
+  return [...$('shelf').querySelectorAll('.shelf-chk')]
+    .filter(chk => chk.checked)
+    .map(chk => Number(chk.dataset.id));
+}
+function updateHandoffSendButton(){
+  const button = $('handoffSendBtn');
+  if (!button) return;
+  button.disabled = selectedShelfIds().length === 0;
+}
 let shelfUrls = [];
 async function renderShelf(){
   shelfUrls.forEach(u => URL.revokeObjectURL(u)); shelfUrls = [];
@@ -284,7 +377,9 @@ async function renderShelf(){
     shelf.appendChild(card);
   }
   shelf.querySelectorAll('.shelf-del').forEach(b => b.addEventListener('click', async () => { await figuresRemove(+b.dataset.id); await renderShelf(); }));
+  shelf.querySelectorAll('.shelf-chk').forEach(chk => { chk.addEventListener('change', updateHandoffSendButton); });
   $('goBtn').classList.toggle('ready', figs.length > 0);
+  updateHandoffSendButton();
 }
 
 // ---- 手動で1体追加(元画像+深度がそろったら棚へ) ----
@@ -324,15 +419,206 @@ dz($('zoneImg'), pickImg); dz($('zoneDepth'), pickDepth);
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => e.preventDefault());
 $('shelf-clear').addEventListener('click', async () => { if(confirm('棚を空にしますか?')){ await figuresClear(); await renderShelf(); } });
+// ---- Quest送受信(番号コード) ----
+const CLOUDFLARE_HOST = 'silver-computing-machine-7ql.pages.dev';
+const HANDOFF_MAX_BYTES = 30 * 1024 * 1024;
+function isLocalDevelopment(){
+  return location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '[::1]';
+}
+function canUseHandoffApi(){
+  return location.hostname === CLOUDFLARE_HOST || isLocalDevelopment();
+}
+function openModal(id){ $(id).classList.add('show'); }
+function closeModal(id){ $(id).classList.remove('show'); }
+function requireCloudflare(){
+  if (canUseHandoffApi()) return true;
+  const target = new URL('https://silver-computing-machine-7ql.pages.dev/mitate.html');
+  target.searchParams.set('v', Date.now());
+  $('handoffCloudflareLink').href = target.toString();
+  openModal('handoffCloudflareModal');
+  return false;
+}
+function formatBytes(bytes){
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+function formatHandoffCode(value){
+  const normalized = String(value || '').toUpperCase().replace(/[^0-9ABCDEFGHJKMNPQRSTVWXYZ]/g, '').slice(0, 10);
+  return normalized.length > 5 ? `${normalized.slice(0, 5)}-${normalized.slice(5)}` : normalized;
+}
+function normalizeHandoffCode(value){
+  const normalized = String(value || '').trim().replace(/[\s-]+/g, '').toUpperCase();
+  return /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{10}$/.test(normalized) ? normalized : null;
+}
+function uploadHandoff(bundle, onProgress){
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/handoffs');
+    xhr.responseType = 'json';
+    xhr.setRequestHeader('Content-Type', 'application/vnd.kobo-handoff');
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) { onProgress?.(event.loaded, event.total); }
+      else { onProgress?.(event.loaded, bundle.size); }
+    };
+    xhr.onerror = () => reject(new Error('インターネットに接続できませんでした。通信を確認して、もう一度お試しください。'));
+    xhr.onload = () => {
+      const body = xhr.response;
+      if (xhr.status >= 200 && xhr.status < 300 && body?.ok) { resolve(body); return; }
+      reject(new Error(body?.message || '倉庫へ送れませんでした。少し待ってから、もう一度お試しください。'));
+    };
+    xhr.send(bundle);
+  });
+}
+function downloadHandoff(code, onProgress){
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', `/api/handoffs/${encodeURIComponent(code)}`);
+    xhr.responseType = 'arraybuffer';
+    xhr.onprogress = event => { onProgress?.(event.loaded, event.lengthComputable ? event.total : 0); };
+    xhr.onerror = () => reject(new Error('インターネットに接続できませんでした。通信を確認して、もう一度お試しください。'));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) { resolve(xhr.response); return; }
+      let message = 'コードが違うか、24時間の期限が切れています。';
+      try {
+        const text = new TextDecoder().decode(new Uint8Array(xhr.response || new ArrayBuffer(0)));
+        const body = JSON.parse(text);
+        if (body?.message) message = body.message;
+      } catch { /* 共通文言を使用 */ }
+      reject(new Error(message));
+    };
+    xhr.send();
+  });
+}
+$('handoffSendBtn').onclick = async () => {
+  if (!requireCloudflare()) return;
+  const ids = selectedShelfIds();
+  if (!ids.length) { showErr('Questへ送る子にチェックを入れてください'); return; }
+  openModal('handoffSendModal');
+  $('handoffSendMessage').textContent = '送るデータを準備しています…';
+  $('handoffSendProgress').style.width = '0%';
+  $('handoffSendProgressText').textContent = '';
+  $('handoffSendProgressBox').style.display = 'block';
+  $('handoffCodeResult').style.display = 'none';
+  $('handoffCopyBtn').style.display = 'none';
+  $('handoffSendCloseBtn').disabled = true;
+  try {
+    const figures = await figuresAll();
+    const selected = figures.filter(figure => ids.includes(figure.id));
+    if (!selected.length) { throw new Error('Questへ送る子にチェックを入れてください'); }
+    const estimatedSize = selected.reduce(
+      (total, figure) => total + (figure.image?.size || 0) + (figure.depth?.size || 0), 0);
+    if (estimatedSize >= HANDOFF_MAX_BYTES) {
+      throw new Error('送れる大きさは合計30MBまでです。選ぶ体を減らしてください。');
+    }
+    const bundle = await buildHandoffBundle(
+      selected.map(figure => ({ name: figure.name, image: figure.image, depth: figure.depth, puffs: figure.puffs }))
+    );
+    if (bundle.size > HANDOFF_MAX_BYTES) {
+      throw new Error('送れる大きさは合計30MBまでです。選ぶ体を減らしてください。');
+    }
+    $('handoffSendMessage').textContent = '倉庫へ送っています…';
+    const result = await uploadHandoff(bundle, (loaded, total) => {
+      const denominator = total || bundle.size;
+      const ratio = denominator ? Math.min(1, loaded / denominator) : 0;
+      $('handoffSendProgress').style.width = `${Math.round(ratio * 100)}%`;
+      $('handoffSendProgressText').textContent =
+        `${formatBytes(loaded)} / ${formatBytes(denominator)} ${Math.round(ratio * 100)}%`;
+    });
+    $('handoffSendMessage').textContent = 'コードを発行しました。';
+    $('handoffSendProgressBox').style.display = 'none';
+    $('handoffCodeResult').style.display = 'block';
+    $('handoffCode').textContent = result.displayCode || formatHandoffCode(result.code);
+    const expires = new Date(result.expiresAt);
+    $('handoffExpires').textContent = Number.isNaN(expires.getTime())
+      ? '有効期限は発行から24時間です'
+      : `有効期限：${expires.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}まで`;
+    $('handoffCopyBtn').style.display = 'inline-block';
+    $('handoffCopyBtn').dataset.code = result.code;
+  } catch (error) {
+    closeModal('handoffSendModal');
+    showErr(error?.message || '倉庫へ送れませんでした。少し待ってから、もう一度お試しください。');
+  } finally {
+    $('handoffSendCloseBtn').disabled = false;
+  }
+};
+$('handoffCopyBtn').onclick = async () => {
+  const code = $('handoffCopyBtn').dataset.code || '';
+  try { await navigator.clipboard.writeText(code); toast('コードをコピーしました'); }
+  catch { showErr('コピーできませんでした。表示されたコードを入力してください。'); }
+};
+$('handoffSendCloseBtn').onclick = () => { closeModal('handoffSendModal'); };
+$('handoffReceiveBtn').onclick = () => {
+  if (!requireCloudflare()) return;
+  $('handoffCodeInput').value = '';
+  $('handoffReceiveProgressBox').style.display = 'none';
+  $('handoffReceiveProgress').style.width = '0%';
+  $('handoffReceiveProgressText').textContent = '';
+  $('handoffReceiveStartBtn').disabled = false;
+  $('handoffReceiveCloseBtn').disabled = false;
+  openModal('handoffReceiveModal');
+  setTimeout(() => $('handoffCodeInput').focus(), 0);
+};
+$('handoffCodeInput').addEventListener('input', event => {
+  event.target.value = formatHandoffCode(event.target.value);
+});
+$('handoffReceiveStartBtn').onclick = async () => {
+  const code = normalizeHandoffCode($('handoffCodeInput').value);
+  if (!code) { showErr('コードは英数字10桁で入力してください。'); return; }
+  $('handoffReceiveStartBtn').disabled = true;
+  $('handoffReceiveCloseBtn').disabled = true;
+  $('handoffReceiveProgressBox').style.display = 'block';
+  $('handoffReceiveProgress').style.width = '0%';
+  $('handoffReceiveProgressText').textContent = '受け取っています…';
+  try {
+    const arrayBuffer = await downloadHandoff(code, (loaded, total) => {
+      if (total > 0) {
+        const ratio = Math.min(1, loaded / total);
+        $('handoffReceiveProgress').style.width = `${Math.round(ratio * 100)}%`;
+        $('handoffReceiveProgressText').textContent =
+          `受け取っています… ${formatBytes(loaded)} / ${formatBytes(total)} ${Math.round(ratio * 100)}%`;
+      } else {
+        $('handoffReceiveProgressText').textContent = `受け取っています… ${formatBytes(loaded)}`;
+      }
+    });
+    $('handoffReceiveProgressText').textContent = '棚へ保存しています…';
+    const parsed = parseHandoffBundle(arrayBuffer);
+    await figuresAddMany(parsed.figures);
+    await renderShelf();
+    closeModal('handoffReceiveModal');
+    toast(`${parsed.figures.length}体を棚に追加しました。`);
+  } catch (error) {
+    const isQuota = error?.name === 'QuotaExceededError' || /quota|保存領域|容量/i.test(error?.message || '');
+    showErr(isQuota
+      ? 'この端末の保存容量が足りません。棚の体を減らしてから、もう一度お試しください。'
+      : (error?.message || '受け取ったデータを読み込めませんでした。もう一度送り直してください。'));
+  } finally {
+    $('handoffReceiveStartBtn').disabled = false;
+    $('handoffReceiveCloseBtn').disabled = false;
+  }
+};
+$('handoffReceiveCloseBtn').onclick = () => { closeModal('handoffReceiveModal'); };
+$('handoffCloudflareCloseBtn').onclick = () => { closeModal('handoffCloudflareModal'); };
+for (const modalId of ['handoffSendModal', 'handoffReceiveModal', 'handoffCloudflareModal']) {
+  $(modalId).addEventListener('click', event => {
+    if (event.target !== event.currentTarget) return;
+    if (modalId === 'handoffSendModal' && $('handoffSendCloseBtn').disabled) return;
+    if (modalId === 'handoffReceiveModal' && $('handoffReceiveCloseBtn').disabled) return;
+    closeModal(modalId);
+  });
+}
+
 $('goBtn').onclick = async () => {
   const figs = await figuresAll();
-  const ids = [...$('shelf').querySelectorAll('.shelf-chk')].filter(c=>c.checked).map(c=>+c.dataset.id);
+  const ids = selectedShelfIds();
   const selected = figs.filter(f => ids.includes(f.id));
   if(!selected.length){ showErr('立体で見る子にチェックを入れてください'); return; }
   start(selected);
 };
 $('newBtn').onclick = async () => {
   if(xrSession) xrSession.end();
+  await flushPuffsSave();   // 棚へ戻る前にぷるぷる設定を保存
   $('ui').style.display = 'none'; $('drop').style.display = 'flex';
   await renderShelf();
 };
@@ -383,6 +669,40 @@ const rim = new THREE.DirectionalLight(0xe4fff0, 0.6); rim.position.set(-2,1,-1)
 // 下の root/tiltGroup/reliefMesh… は「操作中(activeItem)」を指すエイリアスで、
 // setActive()で付け替える。既存のつかみ/回転/パネル処理はこのエイリアスを見て動く。
 let items = [], activeItem = null;
+
+// ---- ぷるぷる設定の保存(棚のレコードへ。物理でなく{u,v,r,h,soft,keep}のみ) ----
+const puffSaveTimers = new Map();
+let restoringPuffs = false;   // 復元中はspawnフックで保存しない
+function serializablePuffs(item){
+  return sanitizePuffs(
+    (item?.puffs || []).map(puff => ({ u: puff.u, v: puff.v, r: puff.r, h: puff.h, soft: puff.soft, keep: puff.keep }))
+  );
+}
+function schedulePuffsSave(item, delay = 400){
+  if (restoringPuffs || !item?.id) return;
+  const oldTimer = puffSaveTimers.get(item.id);
+  if (oldTimer) clearTimeout(oldTimer);
+  const timer = setTimeout(async () => {
+    puffSaveTimers.delete(item.id);
+    try { await figuresUpdatePuffs(item.id, serializablePuffs(item)); }
+    catch (error) { console.error("puffs save failed", error); }
+  }, delay);
+  puffSaveTimers.set(item.id, timer);
+}
+async function flushPuffsSave(item = null){
+  const targets = item ? [item] : items;
+  for (const target of targets) {
+    if (!target?.id) continue;
+    const timer = puffSaveTimers.get(target.id);
+    if (timer) { clearTimeout(timer); puffSaveTimers.delete(target.id); }
+    try { await figuresUpdatePuffs(target.id, serializablePuffs(target)); }
+    catch (error) { console.error("puffs flush failed", error); }
+  }
+}
+addEventListener('pagehide', () => { void flushPuffsSave(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { void flushPuffsSave(); }
+});
 let root = null, tiltGroup = null, reliefMesh = null, reliefGeo = null;
 let imgTexLinear = null, imgTexSRGB = null, depthTex = null;
 
@@ -517,6 +837,10 @@ async function makeItem(figure){
   scene.add(it.group);
   setActive(it);
   buildRelief();   // itへ組み込む(書き戻し済み)
+  // 保存済みぷるぷる設定を復元(6値からpuniSpawnで物理構造を再構築)
+  restoringPuffs = true;
+  try { for (const savedPuff of sanitizePuffs(figure.puffs)) { puniSpawn(savedPuff); } }
+  finally { restoringPuffs = false; }
   items.push(it);
   return it;
 }
@@ -695,6 +1019,7 @@ function puniSpawn(opts = {}){
   activeItem.puffs.push(puff);
   PUNI.selected = puff; PUNI.enabled = true; PUNI.lastItem = activeItem; PUNI.acc = 0;
   puniRenderPuff(puff); puniSyncUI();
+  schedulePuffsSave(activeItem);
   return puniState(puff);
 }
 function puniRebuild(puff){
@@ -712,7 +1037,8 @@ function puniRebuild(puff){
 }
 function puniRemovePuff(puff){
   if(!puff || !puff.item || !puff.item.puffs) return false;
-  const list = puff.item.puffs;
+  const item = puff.item;
+  const list = item.puffs;
   const index = list.indexOf(puff);
   if(index < 0) return false;
   if(PUNI.pointer.puff === puff){ PUNI.pointer.active = false; PUNI.pointer.puff = null; }
@@ -721,6 +1047,7 @@ function puniRemovePuff(puff){
   PUNI.selected = list[index] || list[index-1] || null;
   PUNI.enabled = items.some(it => it.puffs && it.puffs.length);
   puniSyncUI();
+  schedulePuffsSave(item);
   return true;
 }
 // activeItemの全ぷるぷるを作り直す(レリーフの深度/反転/精細が変わった時に表面zへ追従)。選択は保持する
@@ -1126,6 +1453,9 @@ $('puniHeightRange').addEventListener('input', ()=>{
   puniRebuild(puff);
 });
 $('puniDeleteBtn').onclick = ()=>{ if(!PUNI.selected) return; puniRemovePuff(PUNI.selected); toast('ぷるぷるを消しました'); };
+// スライダー操作終了時に設定を保存(操作中はinputハンドラが物理を再構築、確定はchangeで)
+$('puniRadiusRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
+$('puniHeightRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
 puniSyncUI();
 
 /* ---- XR: 素手の純正25関節＋コントローラ先端をコライダに（各puffのtiltGroupローカルへ） ---- */

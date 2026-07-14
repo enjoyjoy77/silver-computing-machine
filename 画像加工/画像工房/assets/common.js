@@ -154,14 +154,66 @@ export async function handoffClear(slot) {
 }
 
 // ---------- 棚(コレクション): 複数フィギュアを貯める ----------
-// figure = { id(自動採番), name, image:Blob(元画像/切り抜き), depth:Blob(深度PNG), ts }
-export async function figuresAdd({ name, image, depth }) {
+// figure = { id(自動採番), name, image:Blob(元画像/切り抜き), depth:Blob(深度PNG), puffs:[{u,v,r,h,soft,keep}], ts }
+export async function figuresAdd({ name, image, depth, puffs = [] }) {
   const db = await dbOpen();
   try {
     return await new Promise((res, rej) => {
       const tx = db.transaction(FIG_STORE, "readwrite");
-      const rq = tx.objectStore(FIG_STORE).add({ name, image, depth, ts: Date.now() });
+      const rq = tx.objectStore(FIG_STORE).add({
+        name, image, depth,
+        puffs: sanitizePuffs(puffs),
+        ts: Date.now(),
+      });
       rq.onsuccess = () => res(rq.result);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error("ブラウザの保存領域が足りません"));
+    });
+  } finally { db.close(); }
+}
+// ぷるぷるスポットの設定だけ更新(棚のレコードを書き換え)
+export async function figuresUpdatePuffs(id, puffs) {
+  const db = await dbOpen();
+  try {
+    await new Promise((res, rej) => {
+      const tx = db.transaction(FIG_STORE, "readwrite");
+      const store = tx.objectStore(FIG_STORE);
+      const rq = store.get(id);
+      rq.onsuccess = () => {
+        const figure = rq.result;
+        if (!figure) { tx.abort(); return; }
+        figure.puffs = sanitizePuffs(puffs);
+        store.put(figure);
+      };
+      rq.onerror = () => rej(rq.error);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error("フィギュアを保存できませんでした"));
+    });
+  } finally { db.close(); }
+}
+// 複数体を1トランザクションで追加(途中で失敗すると全体abort=部分追加しない)。受け取り用
+export async function figuresAddMany(figures) {
+  if (!Array.isArray(figures) || !figures.length) return [];
+  const db = await dbOpen();
+  try {
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(FIG_STORE, "readwrite");
+      const store = tx.objectStore(FIG_STORE);
+      const ids = [];
+      const baseTs = Date.now();
+      for (let i = 0; i < figures.length; i++) {
+        const figure = figures[i];
+        const rq = store.add({
+          name: String(figure.name || ""),
+          image: figure.image,
+          depth: figure.depth,
+          puffs: sanitizePuffs(figure.puffs),
+          ts: baseTs + i,
+        });
+        rq.onsuccess = () => ids.push(rq.result);
+      }
+      tx.oncomplete = () => res(ids);
       tx.onerror = () => rej(tx.error);
       tx.onabort = () => rej(tx.error || new Error("ブラウザの保存領域が足りません"));
     });
@@ -174,7 +226,11 @@ export async function figuresAll() {
       return await new Promise((res, rej) => {
         const tx = db.transaction(FIG_STORE, "readonly");
         const rq = tx.objectStore(FIG_STORE).getAll();
-        rq.onsuccess = () => res((rq.result || []).sort((a, b) => a.ts - b.ts));  // 古い順
+        rq.onsuccess = () => res(
+          (rq.result || [])
+            .map(figure => ({ ...figure, puffs: sanitizePuffs(figure.puffs) }))  // 旧レコード(puffs無し)互換
+            .sort((a, b) => a.ts - b.ts)  // 古い順
+        );
         rq.onerror = () => rej(rq.error);
       });
     } finally { db.close(); }
@@ -205,6 +261,184 @@ export async function figuresClear() {
       });
     } finally { db.close(); }
   } catch { /* 無視 */ }
+}
+
+// ---------- Quest受け渡しバンドル(Kobo Handoff v1) ----------
+// 形式: magic"KOBOHF01"(8B) + manifest長uint32BE(4B) + manifest JSON + PNG Blob連結
+const HANDOFF_MAGIC_TEXT = "KOBOHF01";
+const HANDOFF_TYPE = "application/vnd.kobo-handoff";
+const HANDOFF_MAX_BYTES = 30 * 1024 * 1024;
+const HANDOFF_MAX_MANIFEST_BYTES = 256 * 1024;
+const HANDOFF_MAX_FIGURES = 20;
+const HANDOFF_MAX_PUFFS = 32;
+const HANDOFF_MAX_IMAGE_SIDE = 4096;
+const HANDOFF_PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+
+function finiteNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+function clampNumber(value, min, max, fallback) {
+  return Math.max(min, Math.min(max, finiteNumber(value, fallback)));
+}
+export function sanitizePuffs(puffs) {
+  if (!Array.isArray(puffs)) return [];
+  return puffs.slice(0, HANDOFF_MAX_PUFFS).map(puff => ({
+    u: clampNumber(puff?.u, 0, 1, 0.5),
+    v: clampNumber(puff?.v, 0, 1, 0.52),
+    r: clampNumber(puff?.r, 0.001, 4, 0.18),
+    h: clampNumber(puff?.h, 0.001, 4, 0.095),
+    soft: clampNumber(puff?.soft, 0, 1, 0.5),
+    keep: clampNumber(puff?.keep, 0, 1, 0.55),
+  }));
+}
+function handoffError(message, code = "INVALID_BUNDLE") {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+function hasBytes(bytes, offset, expected) {
+  if (offset + expected.length > bytes.length) return false;
+  return expected.every((value, index) => bytes[offset + index] === value);
+}
+function validatePngAt(bytes, offset, length) {
+  if (length < 24 || !hasBytes(bytes, offset, HANDOFF_PNG_SIGNATURE)) {
+    throw handoffError("PNG画像ではないデータが含まれています。", "INVALID_PNG");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, Math.min(length, 33));
+  const ihdrLength = view.getUint32(8, false);
+  const ihdrType = String.fromCharCode(bytes[offset + 12], bytes[offset + 13], bytes[offset + 14], bytes[offset + 15]);
+  if (ihdrLength !== 13 || ihdrType !== "IHDR") {
+    throw handoffError("PNG画像のヘッダーが正しくありません。", "INVALID_PNG");
+  }
+  const width = view.getUint32(16, false);
+  const height = view.getUint32(20, false);
+  if (width < 1 || height < 1 || width > HANDOFF_MAX_IMAGE_SIDE || height > HANDOFF_MAX_IMAGE_SIDE) {
+    throw handoffError(`画像の縦横は${HANDOFF_MAX_IMAGE_SIDE}px以内にしてください。`, "IMAGE_DIMENSIONS");
+  }
+}
+async function assertPngBlob(blob) {
+  if (!(blob instanceof Blob) || blob.size < 24) {
+    throw handoffError("画像データを読み込めません。", "INVALID_PNG");
+  }
+  const header = new Uint8Array(await blob.slice(0, 33).arrayBuffer());
+  validatePngAt(header, 0, header.length);
+}
+export async function buildHandoffBundle(figures) {
+  if (!Array.isArray(figures) || figures.length < 1 || figures.length > HANDOFF_MAX_FIGURES) {
+    throw handoffError(`一度に送れるのは1体から${HANDOFF_MAX_FIGURES}体までです。`, "FIGURE_COUNT");
+  }
+  const manifest = { format: "kobo-handoff", version: 1, createdAt: new Date().toISOString(), figures: [] };
+  const blobParts = [];
+  let offset = 0;
+  for (const figure of figures) {
+    const name = String(figure?.name || "");
+    if ([...name].length > 100) {
+      throw handoffError("フィギュアの名前は100文字以内にしてください。", "INVALID_NAME");
+    }
+    await assertPngBlob(figure.image);
+    await assertPngBlob(figure.depth);
+    const image = { offset, length: figure.image.size, type: "image/png" };
+    offset += figure.image.size;
+    const depth = { offset, length: figure.depth.size, type: "image/png" };
+    offset += figure.depth.size;
+    manifest.figures.push({ name, image, depth, puffs: sanitizePuffs(figure.puffs) });
+    blobParts.push(figure.image, figure.depth);
+  }
+  const encoder = new TextEncoder();
+  const magic = encoder.encode(HANDOFF_MAGIC_TEXT);
+  const manifestBytes = encoder.encode(JSON.stringify(manifest));
+  if (manifestBytes.byteLength > HANDOFF_MAX_MANIFEST_BYTES) {
+    throw handoffError("送信データの目次が大きすぎます。", "INVALID_MANIFEST");
+  }
+  const manifestLength = new ArrayBuffer(4);
+  new DataView(manifestLength).setUint32(0, manifestBytes.byteLength, false);
+  const size = magic.byteLength + manifestLength.byteLength + manifestBytes.byteLength + offset;
+  if (size > HANDOFF_MAX_BYTES) {
+    throw handoffError("送れる大きさは合計30MBまでです。選ぶ体を減らしてください。", "TOO_LARGE");
+  }
+  return new Blob([magic, manifestLength, manifestBytes, ...blobParts], { type: HANDOFF_TYPE });
+}
+export function parseHandoffBundle(arrayBuffer) {
+  if (!(arrayBuffer instanceof ArrayBuffer)) {
+    throw handoffError("受け取ったデータを読み込めませんでした。");
+  }
+  if (arrayBuffer.byteLength > HANDOFF_MAX_BYTES) {
+    throw handoffError("受け取ったデータが30MBを超えています。", "TOO_LARGE");
+  }
+  if (arrayBuffer.byteLength < 12) {
+    throw handoffError("受け取ったデータを読み込めませんでした。");
+  }
+  const bytes = new Uint8Array(arrayBuffer);
+  const magic = new TextEncoder().encode(HANDOFF_MAGIC_TEXT);
+  if (!hasBytes(bytes, 0, [...magic])) {
+    throw handoffError("受け取ったデータを読み込めませんでした。");
+  }
+  const manifestLength = new DataView(arrayBuffer).getUint32(8, false);
+  if (manifestLength < 2 || manifestLength > HANDOFF_MAX_MANIFEST_BYTES || 12 + manifestLength > bytes.length) {
+    throw handoffError("受け取ったデータの目次が壊れています。", "INVALID_MANIFEST");
+  }
+  const payloadStart = 12 + manifestLength;
+  let manifest;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(12, payloadStart));
+    manifest = JSON.parse(text);
+  } catch {
+    throw handoffError("受け取ったデータの目次を読み込めませんでした。", "INVALID_MANIFEST");
+  }
+  if (
+    !manifest ||
+    manifest.format !== "kobo-handoff" ||
+    manifest.version !== 1 ||
+    !Array.isArray(manifest.figures) ||
+    manifest.figures.length < 1 ||
+    manifest.figures.length > HANDOFF_MAX_FIGURES
+  ) {
+    throw handoffError("この送信データの形式には対応していません。", "UNSUPPORTED_FORMAT");
+  }
+  const payloadLength = bytes.length - payloadStart;
+  let expectedOffset = 0;
+  const figures = [];
+  for (const figure of manifest.figures) {
+    const name = String(figure?.name ?? "");
+    if ([...name].length > 100) {
+      throw handoffError("フィギュアの名前が長すぎます。", "INVALID_NAME");
+    }
+    const descriptors = [figure?.image, figure?.depth];
+    const blobs = [];
+    for (const descriptor of descriptors) {
+      if (
+        !descriptor ||
+        descriptor.type !== "image/png" ||
+        !Number.isSafeInteger(descriptor.offset) ||
+        !Number.isSafeInteger(descriptor.length) ||
+        descriptor.offset !== expectedOffset ||
+        descriptor.length < 1 ||
+        descriptor.offset + descriptor.length > payloadLength
+      ) {
+        throw handoffError("受け取った画像データが壊れています。", "INVALID_OFFSETS");
+      }
+      const absoluteOffset = payloadStart + descriptor.offset;
+      validatePngAt(bytes, absoluteOffset, descriptor.length);
+      blobs.push(new Blob([arrayBuffer.slice(absoluteOffset, absoluteOffset + descriptor.length)], { type: "image/png" }));
+      expectedOffset += descriptor.length;
+    }
+    const rawPuffs = figure.puffs;
+    if (!Array.isArray(rawPuffs) || rawPuffs.length > HANDOFF_MAX_PUFFS) {
+      throw handoffError("ぷるぷるスポットの設定が壊れています。", "INVALID_PUFFS");
+    }
+    for (const puff of rawPuffs) {
+      const values = [puff?.u, puff?.v, puff?.r, puff?.h, puff?.soft, puff?.keep];
+      if (!values.every(value => (typeof value === "number" && Number.isFinite(value)))) {
+        throw handoffError("ぷるぷるスポットの設定が壊れています。", "INVALID_PUFFS");
+      }
+    }
+    figures.push({ name, image: blobs[0], depth: blobs[1], puffs: sanitizePuffs(rawPuffs) });
+  }
+  if (expectedOffset !== payloadLength) {
+    throw handoffError("受け取った画像データの長さが一致しません。", "INVALID_OFFSETS");
+  }
+  return { figures };
 }
 
 // 「◯分前」表示

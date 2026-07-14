@@ -84,7 +84,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v6 rev1";   // C0=直接変形エンジン(?mode=v5で旧v5起動)。凍結バックアップ=mune_v5rev4凍結.html
+const REV = "v5 rev4";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -152,18 +152,6 @@ const TUNE = {
   handMinR: 0.009,       // 手の関節コライダの下限半径(m)。位置は純正のまま。
                          // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
                          // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
-  // ===== v6 C0: 直接変形エンジン(原点回帰・設計書_v6構想_原点回帰.md) =====
-  // 物理シミュを主役から降ろし「静止面基準のスカラー凹み場+一次遅れ」。崩壊・裏返り・自己振動が"表現できない"設計。
-  // URLに ?mode=v5 を付けると旧v5(粒子物理)で起動=Quest上のブックマーク2つでA/B可能
-  engineC0: true,        // true=C0直接変形 / false=v5粒子物理
-  c0PatchR: 0.042,       // 凹みカーネル半径(m)。中心50%は平頂
-  c0MaxDent: 0.026,      // 最大凹み(m)。やわらかさレバーで18〜30mm(applyFeel)
-  c0TauIn: 0.08,         // 押し込みの追従時定数(s)。一次遅れ=オーバーシュートが存在しない
-  c0TauOut: 0.18,        // 戻りの時定数(s)。ゆれのこりレバーで120〜250ms(applyFeel)
-  c0Start: 0.004,        // 接触開始のしきい値(m)=この深さ以上の明確な侵入で開始(Schmitt)
-  c0Release: 0.010,      // 接触維持の余裕(m)=この距離まで離れても維持(Schmitt)
-  c0Hold: 0.12,          // 接触消失の猶予(s)=遮蔽・推定飛びの1〜2フレームで切らない
-  c0Smooth: 0.35,        // コライダ位置のEMA平滑係数/フレーム(トラッキングノイズを物理に入れない)
   chestWall: true,       // 胸壁(v4 rev7): 粒が板の裏へ回る=殻の裏返り(9cm貫きで残留)の物理的禁止。falseでA/B比較用
   safetyFences: true,    // v5: 過伸長・面潰れ/反転・殻間潰れ・異常速度を禁止。falseでA/B比較用
   edgeStretchMax: 1.50,  // v5: 外殻辺の最大長/静止長
@@ -241,15 +229,7 @@ function applyFeel(){
   TUNE.ligamentK      = lerp2(0.16, 0.12, 0.09, s);     // スポンジ感: 土台の硬さ(局所くぼみの深さ/広さ)
   TUNE.coreStart      = lerp2(0.18, 0.24, 0.28, s);     // スポンジ感: 底付きの開始(柔らかいほど深くから詰まる)
   TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.32=2回ほどぷるんと揺れて収まる(アンダーダンプ=生体の実測)
-  // C0(直接変形)のレバー: 物理定数でなく「どこに回しても安全な知覚レンジ」だけを動かす(v6憲法4条)
-  TUNE.c0MaxDent = lerp2(0.018, 0.024, 0.030, s);       // やわらかさ=最大凹み18〜30mm
-  TUNE.c0TauOut  = lerp2(0.12, 0.18, 0.25, k);          // ゆれのこり=戻りの時定数120〜250ms
 }
-// 起動モード: ?mode=v5 で旧v5(粒子物理)。既定はC0(直接変形)。Questではブックマーク2つでA/B
-try{
-  const _mode=new URLSearchParams(location.search).get("mode");
-  if(_mode==="v5") TUNE.engineC0=false;
-}catch(e){}
 applyFeel();
 
 /* ============================================================
@@ -969,129 +949,8 @@ function checkVolumeGuardStart(B){
   }
 }
 
-/* ============================================================
-   v6 C0: 直接変形エンジン(設計書_v6構想_原点回帰.md)
-   思想: 追跡→接触推定→時間安定化→変形(センサー品質を超える物理を作らない)。
-   各粒は「静止法線方向の凹み量d」だけを持ち pos=静止形+法線×d。
-   一次遅れ追従=オーバーシュートが存在しない。速度は常に0=自由振動が存在しない。
-   崩壊・裏返り・自己振動という状態が"表現できない"。
-   ============================================================ */
-const c0Ex=new Float32Array(MAXCOL), c0Ey=new Float32Array(MAXCOL), c0Ez=new Float32Array(MAXCOL);
-const c0Seen=new Uint8Array(MAXCOL);
-function c0StateOf(B){
-  if(B.c0) return B.c0;
-  B.c0={ d:new Float32Array(N), tgtD:new Float32Array(N),
-         act:new Uint8Array(MAXCOL), hold:new Float32Array(MAXCOL),
-         q:new Int32Array(MAXCOL), p:new Float32Array(MAXCOL) };
-  return B.c0;
-}
-function c0Step(h){
-  // コライダ位置のEMA平滑(トラッキングノイズを変形に入れない・会議結論の機序1位対策)
-  if(colN!==pColN) c0Seen.fill(0);   // 本数が変わったら対応が崩れるので張り直し
-  for(let k=0;k<colN;k++){
-    if(!c0Seen[k]){ c0Ex[k]=colX[k]; c0Ey[k]=colY[k]; c0Ez[k]=colZ[k]; c0Seen[k]=1; }
-    else{ const a=TUNE.c0Smooth; c0Ex[k]+=(colX[k]-c0Ex[k])*a; c0Ey[k]+=(colY[k]-c0Ey[k])*a; c0Ez[k]+=(colZ[k]-c0Ez[k])*a; }
-  }
-  for(let k=colN;k<MAXCOL;k++) c0Seen[k]=0;
-
-  breathT+=h; breathZ=0;   // C0評価中は呼吸OFF(会議決定: 基礎系が完全静止できるまで戻さない)
-
-  for(const B of busts){
-    computeTargets(B);
-    const S=c0StateOf(B);
-    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
-    let mDr=0.15; if(B.drA){ mDr=0; for(let i=0;i<N;i++) if(B.drA[i]>mDr) mDr=B.drA[i]; }
-
-    // --- 接触意図の更新(Schmittトリガー+消失猶予)。深さは"静止面"基準=変形結果を入力へ戻さない(自己振動しない) ---
-    for(let k=0;k<MAXCOL;k++){
-      if(k>=colN){ S.act[k]=0; continue; }
-      const cx=c0Ex[k], cy=c0Ey[k], cz=c0Ez[k], Rc=colR[k];
-      const dxA=cx-ax, dyA=cy-ay, dzA=cz-az;
-      if(dxA*dxA+dyA*dyA+dzA*dzA > (mDr+Rc+0.05)*(mDr+Rc+0.05)){
-        if(S.act[k]){ S.hold[k]-=h; if(S.hold[k]<=0) S.act[k]=0; }
-        continue;
-      }
-      // 最寄りの静止表面粒(粗い162粒で十分)
-      let best=1e9, bi=-1;
-      for(let i=0;i<N;i++){
-        if(invMass[i]===0) continue;
-        const dx=B.tgt[i*3]-cx, dy=B.tgt[i*3+1]-cy, dz=B.tgt[i*3+2]-cz;
-        const d2=dx*dx+dy*dy+dz*dz;
-        if(d2<best){ best=d2; bi=i; }
-      }
-      if(bi<0){ S.act[k]=0; continue; }
-      const ni=bi*3;
-      const nx=B.restNormal[ni], ny=B.restNormal[ni+1], nz=B.restNormal[ni+2];
-      const p=Rc+(cx-B.tgt[ni])*nx+(cy-B.tgt[ni+1])*ny+(cz-B.tgt[ni+2])*nz;   // 静止面への侵入深さ
-      if(S.act[k]){
-        if(p>-TUNE.c0Release){ S.hold[k]=TUNE.c0Hold; S.q[k]=bi; S.p[k]=Math.max(0,p); }
-        else{ S.hold[k]-=h; if(S.hold[k]<=0) S.act[k]=0; }
-      }else if(p>TUNE.c0Start){
-        S.act[k]=1; S.hold[k]=TUNE.c0Hold; S.q[k]=bi; S.p[k]=p;
-      }
-      if(S.act[k] && S.p[k]>contactDepth) contactDepth=S.p[k];   // 音・振動用
-    }
-
-    // --- 凹みターゲット: 複数接触はmax(加算しない)。平頂カーネル ---
-    const T=S.tgtD; T.fill(0);
-    const PR=TUNE.c0PatchR, core=PR*0.5, fall=PR-core;
-    for(let k=0;k<colN;k++){
-      if(!S.act[k]) continue;
-      const qi=S.q[k]*3;
-      const qx=B.tgt[qi], qy=B.tgt[qi+1], qz=B.tgt[qi+2];
-      const depth=Math.min(TUNE.c0MaxDent, S.p[k]);
-      if(depth<=0) continue;
-      for(let i=0;i<N;i++){
-        if(invMass[i]===0) continue;
-        const dx=B.tgt[i*3]-qx, dy=B.tgt[i*3+1]-qy, dz=B.tgt[i*3+2]-qz;
-        const r=Math.hypot(dx,dy,dz);
-        if(r>=PR) continue;
-        let w=1;
-        if(r>core){ const u=(r-core)/fall; w=1-u*u*(3-2*u); }
-        const t=depth*w;
-        if(t>T[i]) T[i]=t;
-      }
-    }
-
-    // --- 一次遅れ追従(押し=速く/戻り=ゆっくり)+完全静止スナップ ---
-    const aIn =1-Math.exp(-h/Math.max(1e-3,TUNE.c0TauIn));
-    const aOut=1-Math.exp(-h/Math.max(1e-3,TUNE.c0TauOut));
-    for(let i=0;i<N;i++){
-      const t=T[i];
-      let d=S.d[i];
-      d += (t-d) * (t>d ? aIn : aOut);
-      if(t<=0 && d<0.0003) d=0;   // 放置すると"完全に"止まる(常時ジッターの根絶)
-      S.d[i]=d;
-    }
-
-    // --- 位置の直書き: pos = 静止形 + 内向き法線×d。速度は常に0 ---
-    for(let i=0;i<N;i++){
-      const ci=i*3, d=S.d[i];
-      B.pos[ci]  =B.tgt[ci]  +B.restNormal[ci]  *d;
-      B.pos[ci+1]=B.tgt[ci+1]+B.restNormal[ci+1]*d;
-      B.pos[ci+2]=B.tgt[ci+2]+B.restNormal[ci+2]*d;
-      B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
-      B.vel[ci]=0; B.vel[ci+1]=0; B.vel[ci+2]=0;
-    }
-    for(let i=N;i<NT;i++){
-      const ci=i*3;
-      B.pos[ci]=B.tgt[ci]; B.pos[ci+1]=B.tgt[ci+1]; B.pos[ci+2]=B.tgt[ci+2];
-      B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
-      B.vel[ci]=0; B.vel[ci+1]=0; B.vel[ci+2]=0;
-    }
-    B.curVol=B.restVol||restVolU*R*R*R;
-  }
-}
-
 function softStep(h){
   if(!bustReady) return;
-  if(TUNE.engineC0){
-    c0Step(h);
-    if(statsWorstActive) updateStatsWorst();
-    for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }
-    pColN = colN;
-    return;
-  }
   breathT += h;
   breathZ = TUNE.breath * Math.sin(breathT * Math.PI*2 * TUNE.breathHz);   // 呼吸(ゆっくり前後)
   for(const B of busts) computeTargets(B);         // 板の今の姿勢での定位置（フレーム内は板は動かない）
@@ -2426,7 +2285,6 @@ function setupPCInput(){
     else if(e.key==="ArrowUp"){ plateGroup.position.y += mv; }
     else if(e.key==="ArrowDown"){ plateGroup.position.y -= mv; }
     else if(e.key>="1" && e.key<="5"){ setSize(parseInt(e.key,10)-1); }
-    else if(e.key==="m"||e.key==="M"){ TUNE.engineC0=!TUNE.engineC0; log("エンジン切替: "+(TUNE.engineC0?"C0(直接変形)":"v5(粒子物理)")); }
     else if(e.key==="["){ TUNE.soft=Math.max(0,TUNE.soft-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key==="]"){ TUNE.soft=Math.min(1,TUNE.soft+0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key===","){ TUNE.keep=Math.max(0,TUNE.keep-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
