@@ -154,7 +154,7 @@
       <button data-m="wiggle">ゆらゆら</button>
       <button data-m="light">ライティング</button>
       <button data-m="layers">多層</button>
-      <button data-m="sculpt">🖐 彫刻</button>
+      <button data-m="puni">🫧 ぷるぷる</button>
     </div>
   </div>
   <!-- どのモードでも見える: 実寸 + AR/VR の入り口 -->
@@ -193,15 +193,20 @@
     <button class="btn" id="glbBtn">📦 GLB保存</button>
     <button class="btn" id="resetBtn">↩ 視点</button>
   </div>
-  <!-- 彫刻用(AR/VRで盛り上げ・へこませ) -->
-  <div class="row" id="sculptRow" style="display:none">
+  <!-- ぷるぷる配置用(写真をクリックで置く) -->
+  <div class="row" id="puniRow" style="display:none">
+    <button class="btn on" id="puniPlaceBtn">📍 置く</button>
     <div class="card">
-      <label class="k">筆の太さ</label>
-      <input type="range" id="brushRange" min="2" max="40" value="10">
-      <span class="val" id="brushVal">10cm</span>
+      <label class="k">大きさ</label>
+      <input type="range" id="puniRadiusRange" min="3" max="42" value="18">
+      <span class="val" id="puniRadiusVal">18%</span>
     </div>
-    <button class="btn" id="sculptDirBtn">🔼 盛り上げ</button>
-    <button class="btn" id="sculptResetBtn">↩ 彫刻を戻す</button>
+    <div class="card">
+      <label class="k">高さ</label>
+      <input type="range" id="puniHeightRange" min="2" max="25" value="10">
+      <span class="val" id="puniHeightVal">10%</span>
+    </div>
+    <button class="btn" id="puniDeleteBtn">🗑 消す</button>
   </div>
   <!-- 疑似3D用 -->
   <div class="row" id="pseudoRow" style="display:none">
@@ -236,7 +241,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import { saveBlob, handoffTake, handoffClear, figuresAdd, figuresAll, figuresRemove, figuresClear } from "./assets/common.js";
 
-const REV = "v2 rev8f";
+const REV = "v2 rev10-puni2b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -416,7 +421,7 @@ function syncDepthUI(){
 // 2Dで「どの体を調整するか」を選ぶサムネ列(複数体のレリーフ時だけ)
 function renderFigPicker(){
   const row = $('figPickerRow'), box = $('figPicker');
-  const show = (mode === 'relief' || mode === 'sculpt') && items.length > 1;
+  const show = (mode === 'relief' || mode === 'puni') && items.length > 1;
   row.style.display = show ? 'flex' : 'none';
   box.innerHTML = '';
   if(!show) return;
@@ -444,6 +449,14 @@ function sampleBilinear(map,u,v,ch){
   const tx=fx-x0,ty=fy-y0,g=(x,y)=>map.data[(y*map.w+x)*4+ch];
   return (g(x0,y0)*(1-tx)+g(x1,y0)*tx)*(1-ty)+(g(x0,y1)*(1-tx)+g(x1,y1)*tx)*ty;
 }
+// item.tiltGroupローカルで、写真レリーフ表面の +z を返す(displaceと同じ depth/invert/alpha 規則)
+function puniSurfaceZ(item, u, v){
+  if(!item) return 0;
+  let d = 0;
+  if(item.depthMap){ d = sampleBilinear(item.depthMap, u, v, 0) / 255; if(item.invert) d = 1 - d; }
+  if(item.alphaMap && sampleBilinear(item.alphaMap, u, v, 3) < 20){ d = 0; }
+  return d * ((item.depthCm ?? 35) / 100);
+}
 
 /* ============ レリーフ構築 ============ */
 function buildRelief(){
@@ -460,9 +473,8 @@ function buildRelief(){
   if(S.aspect >= 1){ sx = RES; sy = Math.max(Math.round(RES/S.aspect), 8); }
   else { sy = RES; sx = Math.max(Math.round(RES*S.aspect), 8); }
   reliefGeo = new THREE.PlaneGeometry(w, h, sx, sy);
-  if(activeItem){   // 彫刻(局所変形)用の格子情報とオフセット配列。res変更時はリセット
+  if(activeItem){   // ぷるぷる/レリーフ用の格子情報
     activeItem.sx = sx; activeItem.sy = sy; activeItem.w = w; activeItem.h = h;
-    activeItem.sculpt = new Float32Array((sx+1)*(sy+1));
   }
   const mat = new THREE.MeshStandardMaterial({
     map: imgTexSRGB, transparent: true, alphaTest: .06,
@@ -475,6 +487,7 @@ function buildRelief(){
   tiltGroup.add(reliefMesh);   // rootではなくtiltGroupの下(傾きはtiltGroupが担う)
   if(activeItem){ activeItem.reliefMesh = reliefMesh; activeItem.reliefGeo = reliefGeo; }   // itemへ書き戻す
   displace();
+  puniRebuildActivePuffs();   // 既存ぷるぷるを新しい表面zへ追従(選択は保持)
 }
 
 // 棚の1体からitemを作る(自前のgroup/tiltGroup/テクスチャ/relief)
@@ -486,6 +499,7 @@ async function makeItem(figure){
     imgEl: img.img, depEl: dep.img,   // GC防止に保持(revokeしない)
     group: new THREE.Group(), tiltGroup: new THREE.Group(),
     reliefMesh: null, reliefGeo: null,
+    puffs: [],   // 段階1から設計書のitem.puffs構造を確保
     depthCm: 35, invert: false, res: 300,   // ← 体ごとに個別の立体設定
   };
   it.group.add(it.tiltGroup);
@@ -506,130 +520,693 @@ async function makeItem(figure){
   items.push(it);
   return it;
 }
+
+/* ============================================================
+   段階1: 写真レリーフ上の1個のXPBDぷるぷるドーム
+   依存する既存シンボル: THREE, renderer, camera, scene, canvas,
+     activeItem, items, clamp / item.tiltGroup, item.reliefMesh,
+     item.w, item.h, item.imgTexSRGB
+   座標系: 物理・rest・コライダは item.tiltGroup ローカル。
+     板は x=[-w/2,+w/2], y=[0,h]、表側が +z。
+   ============================================================ */
+const PUNI_FIXED = 1 / 60;
+const PUNI_TUNE = {
+  rings: 7, segments: 24, substeps: 7,
+  soft: 0.5, keep: 0.55,
+  hariK: 220, velDamping: 7.0, edgeCompliance: 3.0e-5, volCompliance: 1.0e-7,
+  gravity: -0.10, ligamentK: 0.075, coreK: 0.22, coreStart: 0.32, maxSquish: 0.68,
+  maxStep: 0.008, maxCorrection: 0.006, minZ: 0.001, volMinRatio: 0.58, volMaxRatio: 1.35,
+  pointerRadius: 0.035, pointerDepth: 0.045, pointerRampSec: 0.20,
+  color: 0xff82b2,
+};
+function puniApplyFeel(){
+  const s = clamp(PUNI_TUNE.soft, 0, 1);
+  const k = clamp(PUNI_TUNE.keep, 0, 1);
+  PUNI_TUNE.edgeCompliance = THREE.MathUtils.lerp(1.5e-5, 6.0e-5, s);
+  PUNI_TUNE.volCompliance  = THREE.MathUtils.lerp(2.0e-8, 5.0e-7, s);
+  PUNI_TUNE.hariK          = THREE.MathUtils.lerp(290, 155, s);
+  PUNI_TUNE.ligamentK      = THREE.MathUtils.lerp(0.095, 0.050, s);
+  PUNI_TUNE.velDamping     = THREE.MathUtils.lerp(16.0, 1.8, k);
+}
+puniApplyFeel();
+const PUNI = {
+  enabled: false, acc: 0, lastItem: null,
+  selected: null, placeArmed: false, xrPrevWorld: new Map(), tmpScale: new THREE.Vector3(),
+  pointer: { active:false, pointerId:-1, puff:null, anchor:new THREE.Vector3(), normal:new THREE.Vector3(0,0,1), depth:0, heldSec:0, prevCenter:new THREE.Vector3(), havePrev:false },
+  xrColliders: [],
+  raycaster: new THREE.Raycaster(), ndc: new THREE.Vector2(),
+  tmpV0: new THREE.Vector3(), tmpV1: new THREE.Vector3(),
+};
+function puniBuildTopology(puff){
+  const rings = PUNI_TUNE.rings; const seg = PUNI_TUNE.segments;
+  const N = 1 + rings * seg;
+  const rest = new Float32Array(N*3); const pos = new Float32Array(N*3);
+  const prev = new Float32Array(N*3); const vel = new Float32Array(N*3);
+  const target = new Float32Array(N*3); const invMass = new Float32Array(N);
+  const item = puff.item;
+  const w = item.w || 1; const hBoard = item.h || 1;
+  const cx = (puff.u - 0.5) * w; const cy = puff.v * hBoard;
+  const baseZ = puniSurfaceZ(item, puff.u, puff.v); puff.baseZ = baseZ;   // レリーフ表面の高さに載せる
+  rest[0] = cx; rest[1] = cy; rest[2] = baseZ + puff.h; invMass[0] = 1;
+  for(let ir=1; ir<=rings; ir++){
+    const q = ir / rings; const rr = puff.r * q;
+    const domeZ = puff.h * Math.pow(1 - q*q, 2);
+    for(let j=0; j<seg; j++){
+      const i = 1 + (ir-1)*seg + j; const a = j/seg * Math.PI * 2;
+      rest[i*3] = cx + Math.cos(a)*rr; rest[i*3+1] = cy + Math.sin(a)*rr; rest[i*3+2] = baseZ + domeZ;
+      invMass[i] = ir === rings ? 0 : 1;
+    }
+  }
+  pos.set(rest); prev.set(rest); target.set(rest);
+  const tri = [];
+  for(let j=0; j<seg; j++){ tri.push(0, 1+j, 1+((j+1)%seg)); }
+  for(let ir=1; ir<rings; ir++){
+    const inner = 1 + (ir-1)*seg; const outer = 1 + ir*seg;
+    for(let j=0; j<seg; j++){
+      const j1 = (j+1)%seg; const a = inner+j; const b = outer+j; const c = outer+j1; const d = inner+j1;
+      tri.push(a, b, c); tri.push(a, c, d);
+    }
+  }
+  const triIndex = new Uint32Array(tri);
+  const edgeMap = new Map();
+  function addEdge(a, b){ if(a>b){ const t=a; a=b; b=t; } edgeMap.set(a+":"+b, [a,b]); }
+  for(let t=0; t<triIndex.length; t+=3){
+    const a=triIndex[t], b=triIndex[t+1], c=triIndex[t+2];
+    addEdge(a,b); addEdge(b,c); addEdge(c,a);
+  }
+  const edges = new Uint32Array(edgeMap.size*2); let ei = 0;
+  for(const e of edgeMap.values()){ edges[ei++] = e[0]; edges[ei++] = e[1]; }
+  const edgeLen = new Float32Array(edges.length/2);
+  for(let e=0; e<edgeLen.length; e++){
+    const a = edges[e*2], b = edges[e*2+1];
+    const dx = rest[a*3]-rest[b*3], dy = rest[a*3+1]-rest[b*3+1], dz = rest[a*3+2]-rest[b*3+2];
+    edgeLen[e] = Math.hypot(dx, dy, dz);
+  }
+  const anchor = new Float32Array([cx, cy, baseZ]);
+  const coreLen = new Float32Array(N);
+  for(let i=0; i<N; i++){
+    const dx = rest[i*3]-anchor[0], dy = rest[i*3+1]-anchor[1], dz = rest[i*3+2]-anchor[2];
+    coreLen[i] = Math.max(Math.hypot(dx, dy, dz), 1e-6);
+  }
+  const grad = new Float32Array(N*3);
+  const phys = {
+    N, rest, pos, prev, vel, target, invMass, tri: triIndex, edges, edgeLen, anchor, coreLen, grad,
+    restVol: 0, curVol: 0, nan: false, maxSpeed: 0, pokeMaxDisp: 0, baselineResid: 0, volLambda: 0,
+    collider: { active:false, center:new THREE.Vector3(), prevCenter:new THREE.Vector3(), radius:PUNI_TUNE.pointerRadius, havePrev:false },
+    xrColliders: [],
+  };
+  phys.restVol = Math.abs(puniVolumeAndGradient(phys, rest, null));
+  phys.curVol = phys.restVol;
+  if(!Number.isFinite(phys.restVol) || phys.restVol <= 1e-10){ throw new Error("puni: invalid rest volume"); }
+  return phys;
+}
+function puniVolumeAndGradient(phys, source, outGrad){
+  if(outGrad) outGrad.fill(0);
+  let V = 0; const tri = phys.tri;
+  for(let t=0; t<tri.length; t+=3){
+    const a=tri[t], b=tri[t+1], c=tri[t+2];
+    const ax=source[a*3], ay=source[a*3+1], az=source[a*3+2];
+    const bx=source[b*3], by=source[b*3+1], bz=source[b*3+2];
+    const cx=source[c*3], cy=source[c*3+1], cz=source[c*3+2];
+    const bcx = by*cz - bz*cy, bcy = bz*cx - bx*cz, bcz = bx*cy - by*cx;
+    V += (ax*bcx + ay*bcy + az*bcz) / 6;
+    if(outGrad){
+      outGrad[a*3] += bcx/6; outGrad[a*3+1] += bcy/6; outGrad[a*3+2] += bcz/6;
+      outGrad[b*3] += (cy*az - cz*ay)/6; outGrad[b*3+1] += (cz*ax - cx*az)/6; outGrad[b*3+2] += (cx*ay - cy*ax)/6;
+      outGrad[c*3] += (ay*bz - az*by)/6; outGrad[c*3+1] += (az*bx - ax*bz)/6; outGrad[c*3+2] += (ax*by - ay*bx)/6;
+    }
+  }
+  return V;
+}
+function puniMakeMesh(puff){
+  const p = puff.phys; const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(p.pos, 3));
+  geo.setIndex(new THREE.BufferAttribute(p.tri, 1));
+  geo.computeVertexNormals(); geo.computeBoundingSphere();
+  const mat = new THREE.MeshStandardMaterial({ color: PUNI_TUNE.color, roughness: 0.72, metalness: 0, side: THREE.DoubleSide, emissive: new THREE.Color(0x260814), emissiveIntensity: 0.16 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = "puni-stage1-dome"; mesh.frustumCulled = false; mesh.userData.puff = puff;
+  puff.geo = geo; puff.mesh = mesh; puff.item.tiltGroup.add(mesh);
+}
+function puniDisposePuff(puff){
+  if(!puff) return;
+  if(puff.mesh && puff.mesh.parent){ puff.mesh.parent.remove(puff.mesh); }
+  if(puff.geo) puff.geo.dispose();
+  if(puff.mesh && puff.mesh.material){ puff.mesh.material.dispose(); }
+}
+function puniSpawn(opts = {}){
+  if(!activeItem || !activeItem.tiltGroup || !activeItem.reliefMesh){ throw new Error("puni: active relief item is required"); }
+  if(!activeItem.puffs) activeItem.puffs = [];
+  const boardW = activeItem.w || activeItem.aspect || 1;
+  const boardH = activeItem.h || 1;
+  const shortSide = Math.min(boardW, boardH);
+  const puff = {
+    item: activeItem,
+    u: clamp(opts.u ?? 0.5, 0, 1), v: clamp(opts.v ?? 0.52, 0, 1),
+    r: clamp(opts.r ?? shortSide*0.18, 0.025, shortSide*0.42),
+    h: clamp(opts.h ?? shortSide*0.095, 0.012, shortSide*0.25),
+    soft: clamp(opts.soft ?? PUNI_TUNE.soft, 0, 1), keep: clamp(opts.keep ?? PUNI_TUNE.keep, 0, 1),
+    baseZ:0, mesh:null, geo:null, phys:null,
+  };
+  PUNI_TUNE.soft = puff.soft; PUNI_TUNE.keep = puff.keep; puniApplyFeel();
+  puff.phys = puniBuildTopology(puff); puniMakeMesh(puff);
+  activeItem.puffs.push(puff);
+  PUNI.selected = puff; PUNI.enabled = true; PUNI.lastItem = activeItem; PUNI.acc = 0;
+  puniRenderPuff(puff); puniSyncUI();
+  return puniState(puff);
+}
+function puniRebuild(puff){
+  if(!puff || !puff.item) return false;
+  const item = puff.item;
+  const index = item.puffs.indexOf(puff);
+  if(index < 0) return false;
+  puniDisposePuff(puff);
+  puff.mesh = null; puff.geo = null;
+  puff.phys = puniBuildTopology(puff); puniMakeMesh(puff);
+  item.puffs[index] = puff;
+  PUNI.selected = puff; PUNI.acc = 0;
+  puniRenderPuff(puff);
+  return true;
+}
+function puniRemovePuff(puff){
+  if(!puff || !puff.item || !puff.item.puffs) return false;
+  const list = puff.item.puffs;
+  const index = list.indexOf(puff);
+  if(index < 0) return false;
+  if(PUNI.pointer.puff === puff){ PUNI.pointer.active = false; PUNI.pointer.puff = null; }
+  puniDisposePuff(puff);
+  list.splice(index, 1);
+  PUNI.selected = list[index] || list[index-1] || null;
+  PUNI.enabled = items.some(it => it.puffs && it.puffs.length);
+  puniSyncUI();
+  return true;
+}
+// activeItemの全ぷるぷるを作り直す(レリーフの深度/反転/精細が変わった時に表面zへ追従)。選択は保持する
+function puniRebuildActivePuffs(){
+  if(!activeItem || !activeItem.puffs || !activeItem.puffs.length) return;
+  const keep = PUNI.selected;
+  for(const puff of activeItem.puffs) puniRebuild(puff);
+  if(activeItem.puffs.includes(keep)) PUNI.selected = keep;   // 一括再構築で選択が末尾へずれないように
+}
+function puniSetPinnedTargets(puff){
+  const p = puff.phys;
+  p.target.set(p.rest);
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] !== 0) continue;
+    const x = p.target[i*3], y = p.target[i*3+1], z = p.target[i*3+2];
+    p.pos[i*3]=x; p.pos[i*3+1]=y; p.pos[i*3+2]=z;
+    p.prev[i*3]=x; p.prev[i*3+1]=y; p.prev[i*3+2]=z;
+    p.vel[i*3]=0; p.vel[i*3+1]=0; p.vel[i*3+2]=0;
+  }
+}
+function puniIntegrate(puff, sdt){
+  const p = puff.phys; const damp = Math.max(0, 1 - PUNI_TUNE.velDamping*sdt);
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    let vx = (p.pos[j]-p.prev[j])/sdt, vy = (p.pos[j+1]-p.prev[j+1])/sdt, vz = (p.pos[j+2]-p.prev[j+2])/sdt;
+    vx += (p.target[j]-p.pos[j]) * PUNI_TUNE.hariK * sdt;
+    vy += ((p.target[j+1]-p.pos[j+1]) * PUNI_TUNE.hariK + PUNI_TUNE.gravity) * sdt;
+    vz += (p.target[j+2]-p.pos[j+2]) * PUNI_TUNE.hariK * sdt;
+    vx *= damp; vy *= damp; vz *= damp;
+    p.prev[j]=p.pos[j]; p.prev[j+1]=p.pos[j+1]; p.prev[j+2]=p.pos[j+2];
+    let dx = vx*sdt, dy = vy*sdt, dz = vz*sdt;
+    const step = Math.hypot(dx, dy, dz);
+    if(step > PUNI_TUNE.maxStep){ const q = PUNI_TUNE.maxStep/step; dx*=q; dy*=q; dz*=q; }
+    p.pos[j]+=dx; p.pos[j+1]+=dy; p.pos[j+2]+=dz;
+  }
+}
+function puniSolveEdges(puff, sdt){
+  const p = puff.phys; const alpha = PUNI_TUNE.edgeCompliance/(sdt*sdt);
+  for(let e=0; e<p.edgeLen.length; e++){
+    const a = p.edges[e*2], b = p.edges[e*2+1];
+    const wa = p.invMass[a], wb = p.invMass[b]; const wsum = wa+wb;
+    if(wsum <= 0) continue;
+    const ai = a*3, bi = b*3;
+    let dx = p.pos[ai]-p.pos[bi], dy = p.pos[ai+1]-p.pos[bi+1], dz = p.pos[ai+2]-p.pos[bi+2];
+    const len = Math.hypot(dx, dy, dz);
+    if(len < 1e-9) continue;
+    dx/=len; dy/=len; dz/=len;
+    const C = len - p.edgeLen[e];
+    let corr = -C/(wsum+alpha);
+    corr = clamp(corr, -PUNI_TUNE.maxCorrection, PUNI_TUNE.maxCorrection);
+    p.pos[ai]+=dx*corr*wa; p.pos[ai+1]+=dy*corr*wa; p.pos[ai+2]+=dz*corr*wa;
+    p.pos[bi]-=dx*corr*wb; p.pos[bi+1]-=dy*corr*wb; p.pos[bi+2]-=dz*corr*wb;
+  }
+}
+function puniSolveVolume(puff, sdt){
+  const p = puff.phys; let V = puniVolumeAndGradient(p, p.pos, p.grad);
+  const sign = p.restVol >= 0 ? 1 : -1; V *= sign;
+  if(!Number.isFinite(V)){ p.nan = true; return; }
+  p.curVol = Math.abs(V);
+  const lo = p.restVol * PUNI_TUNE.volMinRatio; const hi = p.restVol * PUNI_TUNE.volMaxRatio;
+  const targetV = clamp(p.curVol, lo, hi);
+  const C = p.curVol - p.restVol; const alpha = PUNI_TUNE.volCompliance/(sdt*sdt);
+  let denom = alpha;
+  for(let i=0; i<p.N; i++){
+    const j = i*3;
+    const gx = p.grad[j]*sign, gy = p.grad[j+1]*sign, gz = p.grad[j+2]*sign;
+    denom += p.invMass[i]*(gx*gx + gy*gy + gz*gz);
+  }
+  if(denom < 1e-12) return;
+  let dl = -C/denom;
+  if(p.curVol < lo || p.curVol > hi){ dl += -(p.curVol - targetV)/denom; }
+  let maxMove = 0;
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    const gm = Math.hypot(p.grad[j], p.grad[j+1], p.grad[j+2]);
+    maxMove = Math.max(maxMove, Math.abs(dl)*gm);
+  }
+  if(maxMove > PUNI_TUNE.maxCorrection){ dl *= PUNI_TUNE.maxCorrection/maxMove; }
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    p.pos[j]+=p.grad[j]*sign*dl; p.pos[j+1]+=p.grad[j+1]*sign*dl; p.pos[j+2]+=p.grad[j+2]*sign*dl;
+  }
+}
+function puniSolveCore(puff){
+  const p = puff.phys; const ax=p.anchor[0], ay=p.anchor[1], az=p.anchor[2];
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    let dx = p.pos[j]-ax, dy = p.pos[j+1]-ay, dz = p.pos[j+2]-az;
+    let d = Math.hypot(dx, dy, dz);
+    if(d < 1e-8){ p.pos[j+2] = Math.max(p.target[j+2]*0.25, PUNI_TUNE.minZ); continue; }
+    const dr = p.coreLen[i];
+    let corr = (dr - d) * PUNI_TUNE.ligamentK;
+    corr = clamp(corr, -PUNI_TUNE.maxCorrection, PUNI_TUNE.maxCorrection);
+    p.pos[j]+=dx/d*corr; p.pos[j+1]+=dy/d*corr; p.pos[j+2]+=dz/d*corr;
+    dx = p.pos[j]-ax; dy = p.pos[j+1]-ay; dz = p.pos[j+2]-az;
+    d = Math.max(Math.hypot(dx, dy, dz), 1e-8);
+    const q = 1 - d/dr;
+    if(q > PUNI_TUNE.coreStart){
+      const targetD = dr*(1 - PUNI_TUNE.coreStart);
+      let push = (targetD - d) * PUNI_TUNE.coreK;
+      push = clamp(push, 0, PUNI_TUNE.maxCorrection);
+      p.pos[j]+=dx/d*push; p.pos[j+1]+=dy/d*push; p.pos[j+2]+=dz/d*push;
+    }
+    const minD = dr*(1 - PUNI_TUNE.maxSquish);
+    if(d < minD){
+      const push = Math.min(minD - d, PUNI_TUNE.maxCorrection);
+      p.pos[j]+=dx/d*push; p.pos[j+1]+=dy/d*push; p.pos[j+2]+=dz/d*push;
+    }
+  }
+}
+function puniSolveOneCollider(puff, center, radius){
+  const p = puff.phys; const rr = radius*radius;
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    let dx = p.pos[j]-center.x, dy = p.pos[j+1]-center.y, dz = p.pos[j+2]-center.z;
+    const d2 = dx*dx + dy*dy + dz*dz;
+    if(d2 >= rr) continue;
+    let d = Math.sqrt(d2);
+    if(d < 1e-7){ dx=0; dy=0; dz=-1; d=1; }
+    const penetration = radius - d;
+    const corr = Math.min(penetration, PUNI_TUNE.maxCorrection);
+    p.pos[j]+=dx/d*corr; p.pos[j+1]+=dy/d*corr; p.pos[j+2]+=dz/d*corr;
+  }
+}
+function puniSolveColliders(puff, subAlpha){
+  const p = puff.phys; const c = p.collider;
+  if(c.active){
+    const center = PUNI.tmpV0;
+    if(c.havePrev){ center.lerpVectors(c.prevCenter, c.center, subAlpha); }
+    else { center.copy(c.center); }
+    puniSolveOneCollider(puff, center, c.radius);
+  }
+  for(const xc of p.xrColliders){
+    if(!xc || xc.active === false) continue;
+    const center = PUNI.tmpV0;
+    if(xc.havePrev){ center.lerpVectors(xc.prevCenter, xc.center, subAlpha); }
+    else { center.copy(xc.center); }
+    puniSolveOneCollider(puff, center, xc.radius);
+  }
+}
+function puniSafety(puff){
+  const p = puff.phys;
+  for(let i=0; i<p.N; i++){
+    const j = i*3;
+    if(!Number.isFinite(p.pos[j]) || !Number.isFinite(p.pos[j+1]) || !Number.isFinite(p.pos[j+2])){
+      p.nan = true;
+      p.pos[j]=p.rest[j]; p.pos[j+1]=p.rest[j+1]; p.pos[j+2]=p.rest[j+2];
+      p.prev[j]=p.pos[j]; p.prev[j+1]=p.pos[j+1]; p.prev[j+2]=p.pos[j+2];
+      continue;
+    }
+    const minZ = (puff.baseZ ?? 0) + PUNI_TUNE.minZ;
+    if(p.invMass[i] !== 0 && p.pos[j+2] < minZ){
+      p.pos[j+2] = minZ;
+      if(p.prev[j+2] < minZ){ p.prev[j+2] = minZ; }
+    }
+  }
+}
+function puniFinalize(puff, sdt){
+  const p = puff.phys; let maxSpeed = 0;
+  for(let i=0; i<p.N; i++){
+    const j = i*3;
+    if(p.invMass[i] === 0){ p.vel[j]=0; p.vel[j+1]=0; p.vel[j+2]=0; continue; }
+    p.vel[j] = (p.pos[j]-p.prev[j])/sdt; p.vel[j+1] = (p.pos[j+1]-p.prev[j+1])/sdt; p.vel[j+2] = (p.pos[j+2]-p.prev[j+2])/sdt;
+    maxSpeed = Math.max(maxSpeed, Math.hypot(p.vel[j], p.vel[j+1], p.vel[j+2]));
+  }
+  p.maxSpeed = maxSpeed;
+}
+function puniSoftStep(puff, h){
+  const p = puff.phys; if(!p || p.nan) return;
+  puniSetPinnedTargets(puff);
+  const sub = PUNI_TUNE.substeps; const sdt = h/sub;
+  for(let s=0; s<sub; s++){
+    puniIntegrate(puff, sdt);
+    puniSolveEdges(puff, sdt);
+    puniSolveVolume(puff, sdt);
+    puniSolveCore(puff);
+    puniSolveColliders(puff, (s+1)/sub);
+    puniSafety(puff);
+    puniSetPinnedTargets(puff);
+    puniFinalize(puff, sdt);
+  }
+  p.curVol = Math.abs(puniVolumeAndGradient(p, p.pos, null));
+  if(p.collider.active){ p.collider.prevCenter.copy(p.collider.center); p.collider.havePrev = true; }
+}
+function puniRenderPuff(puff){
+  if(!puff || !puff.geo) return;
+  const a = puff.geo.attributes.position;
+  a.needsUpdate = true;
+  puff.geo.computeVertexNormals();
+  puff.geo.attributes.normal.needsUpdate = true;
+  puff.geo.computeBoundingSphere();
+}
+function puniActivePuffs(){
+  if(!PUNI.enabled) return [];
+  const out = [];
+  for(const item of items){
+    if(!item.group.visible || !item.puffs) continue;
+    for(const puff of item.puffs){
+      if(puff && puff.phys && puff.mesh && puff.mesh.parent && puff.mesh.visible){ out.push(puff); }
+    }
+  }
+  return out;
+}
+function puniUpdatePointerCollider(dt){
+  const pp = PUNI.pointer;
+  if(!pp.active || !pp.puff) return;
+  pp.heldSec += dt;
+  const f = clamp(pp.heldSec/PUNI_TUNE.pointerRampSec, 0, 1);
+  pp.depth = PUNI_TUNE.pointerDepth * f;
+  const c = pp.puff.phys.collider;
+  c.active = true; c.radius = PUNI_TUNE.pointerRadius;
+  c.center.copy(pp.anchor).addScaledVector(pp.normal, c.radius - pp.depth);
+}
+function puniFrame(dt, isXR){
+  if(!PUNI.enabled) return;
+  const puffs = puniActivePuffs();
+  if(!puffs.length) return;
+  puniUpdatePointerCollider(dt);
+  if(isXR){ puniUpdateXRColliders(puffs); }
+  else { PUNI.xrPrevWorld.clear(); for(const puff of puffs) puff.phys.xrColliders.length = 0; }
+  PUNI.acc += Math.min(dt, 0.05);
+  let steps = 0;
+  while(PUNI.acc >= PUNI_FIXED && steps < 3){
+    for(const puff of puffs) puniSoftStep(puff, PUNI_FIXED);
+    PUNI.acc -= PUNI_FIXED; steps++;
+  }
+  if(steps === 3 && PUNI.acc >= PUNI_FIXED){ PUNI.acc = 0; }
+  for(const puff of puffs) puniRenderPuff(puff);
+}
+function puniPointerRay(e){
+  const rect = canvas.getBoundingClientRect();
+  PUNI.ndc.x = ((e.clientX - rect.left)/rect.width)*2 - 1;
+  PUNI.ndc.y = -((e.clientY - rect.top)/rect.height)*2 + 1;
+  PUNI.raycaster.setFromCamera(PUNI.ndc, camera);
+}
+function puniPointerDown(e){
+  if(mode !== 'puni' || e.button !== 0) return false;
+  // 1. 既存スポット上なら、配置よりつつきを優先。
+  const puffs = puniActivePuffs();
+  if(puffs.length){
+    puniPointerRay(e);
+    const hits = PUNI.raycaster.intersectObjects(puffs.filter(p => p.item === activeItem).map(p => p.mesh), false);
+    if(hits.length){
+      const hit = hits[0]; const puff = hit.object.userData.puff; const pp = PUNI.pointer;
+      puniSelect(puff);
+      pp.active = true; pp.pointerId = e.pointerId; pp.puff = puff; pp.heldSec = 0; pp.depth = 0;
+      pp.anchor.copy(hit.point); puff.item.tiltGroup.worldToLocal(pp.anchor);
+      pp.normal.set(0,0,1);
+      const c = puff.phys.collider;
+      c.active = true; c.havePrev = false; c.radius = PUNI_TUNE.pointerRadius;
+      c.center.copy(pp.anchor).addScaledVector(pp.normal, c.radius);
+      c.prevCenter.copy(c.center);
+      canvas.setPointerCapture(e.pointerId);
+      return true;
+    }
+  }
+  // 2. 「置く」が有効なら写真上クリックを配置として消費。
+  if(puniPlaceFromPointer(e)) return true;
+  // 3. 板外/「置く」OFFはfalse=既存の軌道カメラへ。
+  return false;
+}
+function puniPointerMove(e){
+  const pp = PUNI.pointer;
+  if(!pp.active || pp.pointerId !== e.pointerId) return false;
+  return true;
+}
+function puniPointerEnd(e){
+  const pp = PUNI.pointer;
+  if(!pp.active || pp.pointerId !== e.pointerId) return false;
+  if(pp.puff && pp.puff.phys){ pp.puff.phys.collider.active = false; pp.puff.phys.collider.havePrev = false; }
+  pp.active = false; pp.pointerId = -1; pp.puff = null; pp.heldSec = 0; pp.depth = 0;
+  return true;
+}
+function puniRestResid(puff){
+  const p = puff.phys; let sum = 0; let n = 0;
+  for(let i=0; i<p.N; i++){
+    if(p.invMass[i] === 0) continue;
+    const j = i*3;
+    const dx = p.pos[j]-p.target[j], dy = p.pos[j+1]-p.target[j+1], dz = p.pos[j+2]-p.target[j+2];
+    sum += dx*dx + dy*dy + dz*dz; n++;
+  }
+  return n ? Math.sqrt(sum/n) : 0;
+}
+function puniState(puff = PUNI.selected){
+  if(!puff || !puff.phys){ return { ready:false, count:activeItem?.puffs?.length || 0, volRatio:0, maxSpeed:0, nan:false, restResid:0, pokeMaxDisp:0 }; }
+  const p = puff.phys;
+  p.curVol = Math.abs(puniVolumeAndGradient(p, p.pos, null));
+  return {
+    ready: true, item: puff.item.name || puff.item.id || "",
+    count: puff.item.puffs?.length || 0,
+    u:+puff.u.toFixed(4), v:+puff.v.toFixed(4), r:+puff.r.toFixed(4), h:+puff.h.toFixed(4), baseZ:+(puff.baseZ || 0).toFixed(4),
+    particles: p.N, triangles: p.tri.length/3,
+    pinned: p.invMass.reduce((n, w) => n + (w === 0 ? 1 : 0), 0),
+    volRatio: +(p.curVol/p.restVol).toFixed(4), maxSpeed: +p.maxSpeed.toFixed(4),
+    nan: !!p.nan, restResid: +puniRestResid(puff).toFixed(5), pokeMaxDisp: +p.pokeMaxDisp.toFixed(5),
+  };
+}
+function puniStepSeconds(sec, colliderUpdater){
+  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
+  const steps = Math.max(1, Math.round(sec/PUNI_FIXED));
+  for(let s=0; s<steps; s++){
+    if(colliderUpdater) colliderUpdater(puff, s, steps);
+    puniSoftStep(puff, PUNI_FIXED);
+  }
+  puniRenderPuff(puff);
+  return puff;
+}
+function puniPoke(depth = 0.035, sec = 0.45){
+  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
+  const p = puff.phys; const centerIndex = 0; const restZ = p.rest[centerIndex*3+2]; const radius = PUNI_TUNE.pointerRadius;
+  p.pokeMaxDisp = 0; p.collider.active = true; p.collider.radius = radius; p.collider.havePrev = false;
+  puniStepSeconds(sec, (testPuff, s, steps) => {
+    const f = Math.sin(((s+1)/steps)*Math.PI*0.5);
+    const d = Math.min(Math.max(depth, 0), testPuff.h*0.9) * f;
+    p.collider.center.set(p.rest[0], p.rest[1], restZ + radius - d);
+    const disp = Math.max(0, restZ - p.pos[2]);
+    p.pokeMaxDisp = Math.max(p.pokeMaxDisp, disp);
+  });
+  p.collider.active = false; p.collider.havePrev = false;
+  p.pokeMaxDisp = Math.max(p.pokeMaxDisp, Math.max(0, restZ - p.pos[2]));
+  puniRenderPuff(puff);
+  return { requestedDepth: +depth.toFixed(4), pokeMaxDisp: +p.pokeMaxDisp.toFixed(5), state: puniState() };
+}
+function puniSettle(sec = 2.0){
+  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
+  puff.phys.collider.active = false; puff.phys.collider.havePrev = false;
+  puniStepSeconds(sec);
+  return puniState();
+}
+function puniRender(){
+  const puffs = puniActivePuffs();
+  for(const puff of puffs) puniRenderPuff(puff);
+  renderer.render(scene, camera);
+  return puniState();
+}
+
+/* ---- 2D配置UI（置く/大きさ/高さ/消す） ---- */
+function puniShortSide(item = activeItem){ return Math.min(item?.w || 1, item?.h || 1); }
+function puniSyncUI(){
+  const puff = PUNI.selected;
+  const shortSide = puniShortSide(puff?.item);
+  if(puff){
+    const rp = Math.round(puff.r / shortSide * 100);
+    const hp = Math.round(puff.h / shortSide * 100);
+    $('puniRadiusRange').value = clamp(rp, 3, 42);
+    $('puniHeightRange').value = clamp(hp, 2, 25);
+    $('puniRadiusVal').textContent = rp + '%';
+    $('puniHeightVal').textContent = hp + '%';
+  }
+  $('puniDeleteBtn').disabled = !puff;
+  $('puniPlaceBtn').classList.toggle('on', PUNI.placeArmed);
+}
+function puniSelect(puff){
+  PUNI.selected = puff || null;
+  if(puff && puff.item !== activeItem){ setActive(puff.item); refresh2DActive(); }
+  puniSyncUI();
+}
+function puniHitRelief(e){
+  if(!activeItem?.reliefMesh) return null;
+  puniPointerRay(e);
+  const hits = PUNI.raycaster.intersectObject(activeItem.reliefMesh, false);
+  if(!hits.length) return null;
+  const p = hits[0].point.clone();
+  activeItem.tiltGroup.worldToLocal(p);
+  const w = activeItem.w || 1; const h = activeItem.h || 1;
+  return { point:p, u:clamp(p.x/w + 0.5, 0, 1), v:clamp(p.y/h, 0, 1) };
+}
+function puniPlaceFromPointer(e){
+  if(mode !== 'puni' || !PUNI.placeArmed || e.button !== 0) return false;
+  const hit = puniHitRelief(e);
+  if(!hit) return false;
+  const shortSide = puniShortSide();
+  const r = Number($('puniRadiusRange').value)/100 * shortSide;
+  const h = Number($('puniHeightRange').value)/100 * shortSide;
+  puniSpawn({ u:hit.u, v:hit.v, r, h });
+  return true;
+}
+$('puniPlaceBtn').onclick = ()=>{
+  PUNI.placeArmed = !PUNI.placeArmed;
+  puniSyncUI();
+  toast(PUNI.placeArmed ? '写真をクリックして置きます' : '配置を終了。スポット外のドラッグで視点が回せます');
+};
+$('puniRadiusRange').addEventListener('input', ()=>{
+  const pct = Number($('puniRadiusRange').value); $('puniRadiusVal').textContent = pct + '%';
+  const puff = PUNI.selected; if(!puff) return;
+  puff.r = clamp(pct/100 * puniShortSide(puff.item), 0.025, puniShortSide(puff.item)*0.42);
+  puniRebuild(puff);
+});
+$('puniHeightRange').addEventListener('input', ()=>{
+  const pct = Number($('puniHeightRange').value); $('puniHeightVal').textContent = pct + '%';
+  const puff = PUNI.selected; if(!puff) return;
+  puff.h = clamp(pct/100 * puniShortSide(puff.item), 0.012, puniShortSide(puff.item)*0.25);
+  puniRebuild(puff);
+});
+$('puniDeleteBtn').onclick = ()=>{ if(!PUNI.selected) return; puniRemovePuff(PUNI.selected); toast('ぷるぷるを消しました'); };
+puniSyncUI();
+
+/* ---- XR: 素手の純正25関節＋コントローラ先端をコライダに（各puffのtiltGroupローカルへ） ---- */
+const PUNI_HAND_MIN_R = 0.012;
+const PUNI_CONTROLLER_R = 0.014;
+const _puniJointWorld = new THREE.Vector3();
+const _puniTipWorld = new THREE.Vector3();
+const _puniPrevLocal = new THREE.Vector3();
+const _puniTipLocal = new THREE.Vector3(0,0,-0.11);
+function puniWorldRadiusToLocal(item, radius){
+  item.tiltGroup.getWorldScale(PUNI.tmpScale);
+  const s = Math.max(Math.abs(PUNI.tmpScale.x), Math.abs(PUNI.tmpScale.y), Math.abs(PUNI.tmpScale.z), 1e-6);
+  return radius / s;
+}
+function puniCollectXRWorldColliders(){
+  const out = [];
+  for(let handIndex=0; handIndex<handTrackers.length; handIndex++){
+    const hand = handTrackers[handIndex];
+    if(!hand || !hand.visible || !hand.joints) continue;
+    for(const [jointName, joint] of Object.entries(hand.joints)){
+      if(!joint || joint.visible === false) continue;
+      joint.getWorldPosition(_puniJointWorld);
+      const nativeRadius = Number(joint.jointRadius) || Number(joint.userData?.jointRadius) || PUNI_HAND_MIN_R;
+      out.push({ key:`hand${handIndex}:${jointName}`, center:_puniJointWorld.clone(), radius:Math.max(nativeRadius, PUNI_HAND_MIN_R) });
+    }
+  }
+  for(let i=0; i<controllers.length; i++){
+    const controller = controllers[i];
+    const src = controller?.userData?.src;
+    if(!controller || !controller.visible || src?.hand) continue;
+    _puniTipWorld.copy(_puniTipLocal);
+    controller.localToWorld(_puniTipWorld);
+    out.push({ key:`controller${i}:tip`, center:_puniTipWorld.clone(), radius:PUNI_CONTROLLER_R });
+  }
+  return out;
+}
+function puniUpdateXRColliders(puffs){
+  const world = puniCollectXRWorldColliders();
+  const seen = new Set();
+  for(const puff of puffs){
+    const item = puff.item;
+    const list = puff.phys.xrColliders;
+    list.length = 0;
+    for(const wc of world){
+      seen.add(wc.key);
+      const center = wc.center.clone();
+      item.tiltGroup.worldToLocal(center);
+      const prevWorld = PUNI.xrPrevWorld.get(wc.key);
+      let havePrev = false;
+      if(prevWorld){ _puniPrevLocal.copy(prevWorld); item.tiltGroup.worldToLocal(_puniPrevLocal); havePrev = true; }
+      list.push({ active:true, center, prevCenter:havePrev ? _puniPrevLocal.clone() : center.clone(), havePrev, radius:puniWorldRadiusToLocal(item, wc.radius) });
+    }
+  }
+  for(const wc of world){ PUNI.xrPrevWorld.set(wc.key, wc.center.clone()); }
+  for(const key of [...PUNI.xrPrevWorld.keys()]){ if(!seen.has(key)) PUNI.xrPrevWorld.delete(key); }
+}
+
+window.__puni = {
+  spawn: puniSpawn, poke: puniPoke, settle: puniSettle, state: puniState, render: puniRender,
+  enable(v = true){
+    PUNI.enabled = !!v;
+    for(const it of items){ if(!it.puffs) continue; for(const puff of it.puffs){ if(puff.mesh) puff.mesh.visible = PUNI.enabled; } }
+    return PUNI.enabled;
+  },
+  remove(){
+    for(const it of items){ if(!it.puffs) continue; for(const puff of it.puffs) puniDisposePuff(puff); it.puffs.length = 0; }
+    PUNI.pointer.active = false; PUNI.enabled = false; return true;
+  },
+  setSoft(v){ PUNI_TUNE.soft = clamp(Number(v), 0, 1); puniApplyFeel(); return { soft: PUNI_TUNE.soft, hariK: PUNI_TUNE.hariK, edgeCompliance: PUNI_TUNE.edgeCompliance }; },
+  setKeep(v){ PUNI_TUNE.keep = clamp(Number(v), 0, 1); puniApplyFeel(); return { keep: PUNI_TUNE.keep, velDamping: PUNI_TUNE.velDamping }; },
+  setXRColliders(entries = []){
+    PUNI.xrColliders = entries.map(e => ({
+      active: e.active !== false,
+      center: e.center && e.center.isVector3 ? e.center.clone() : new THREE.Vector3(e.center?.x || 0, e.center?.y || 0, e.center?.z || 0),
+      radius: Math.max(Number(e.radius) || 0.008, 0.004),
+    }));
+    return PUNI.xrColliders.length;
+  },
+  clearXRColliders(){ PUNI.xrColliders.length = 0; },
+  tune: PUNI_TUNE,
+  selected(){ return PUNI.selected; },
+  select(puff){ puniSelect(puff); return puniState(puff); },
+  removeSelected(){ return puniRemovePuff(PUNI.selected); },
+  rebuild(){ return puniRebuild(PUNI.selected); },
+  _pointerDown: puniPointerDown, _pointerMove: puniPointerMove, _pointerEnd: puniPointerEnd,
+};
+window.__dbg = window.__dbg || {};
+window.__dbg.puni = window.__puni;
+
 function displace(){
   if(!reliefGeo) return;
   const pos = reliefGeo.attributes.position, uv = reliefGeo.attributes.uv;
   const scaleM = S.depthCm / 100;
-  const sc = (activeItem && activeItem.sculpt) ? activeItem.sculpt : null;   // 彫刻オフセット
   for(let i=0;i<pos.count;i++){
     const u=uv.getX(i), v=uv.getY(i);
     let d = 0;
     if(S.depthMap){ d = sampleBilinear(S.depthMap,u,v,0)/255; if(S.invert) d = 1-d; }
     if(S.alphaMap && sampleBilinear(S.alphaMap,u,v,3) < 20) d = 0;   // 透明部は奥へ
-    pos.setZ(i, d*scaleM + (sc ? sc[i] : 0));
+    pos.setZ(i, d*scaleM);
   }
   pos.needsUpdate = true;
   reliefGeo.computeVertexNormals();
 }
 
-/* ============ 彫刻(局所変形): 狙った所を盛り上げ/へこませ ============ */
-let sculptRadius = 0.10;             // 筆の太さ(m)
-const SCULPT_RATE = 0.5;             // 押し引きの速さ(m/秒 @ トリガー全引き)
-let sculptDir = 1;                   // 彫る向き: +1=盛り上げ / -1=へこませ(A/Xボタン・2Dの向きボタンで切替)
-const gripPrev = [false, false];     // グリップの押下エッジ(彫刻中の つかむ/放す 判定用)
-// item の hit点(mesh-local p)の周りの頂点を、格子ブロックだけ回して押し引き
-function sculptAt(item, p, radius, delta){
-  const geo = item.reliefGeo; if(!geo || !item.sculpt) return;
-  const pos = geo.attributes.position;
-  const { sx, sy, w, h, sculpt } = item;
-  // PlaneGeometryの頂点順: index = iy*(sx+1)+ix / x=ix*sw-w/2 / y=h/2-iy*sh
-  const ix0 = Math.round((p.x + w/2)/w*sx), iy0 = Math.round((h/2 - p.y)/h*sy);
-  const rix = Math.ceil(radius/w*sx)+1, riy = Math.ceil(radius/h*sy)+1;
-  const r2 = radius*radius;
-  for(let iy=Math.max(0,iy0-riy); iy<=Math.min(sy,iy0+riy); iy++){
-    for(let ix=Math.max(0,ix0-rix); ix<=Math.min(sx,ix0+rix); ix++){
-      const i = iy*(sx+1)+ix;
-      const dx = pos.getX(i)-p.x, dy = pos.getY(i)-p.y;
-      const dd = dx*dx+dy*dy;
-      if(dd<=r2){
-        const fall = 1 - Math.sqrt(dd)/radius;   // 中心ほど強い(なだらか)
-        const add = delta*fall*fall;             // 二乗でより滑らか
-        sculpt[i] += add;
-        pos.setZ(i, pos.getZ(i) + add);
-      }
-    }
-  }
-  pos.needsUpdate = true;   // 法線の再計算はupdateSculpt側で間引く(重いので毎回はやらない)
-}
-function sculptReset(item){
-  if(!item || !item.sculpt) return;
-  item.sculpt.fill(0);
-  const cur = activeItem; setActive(item); displace(); setActive(cur);
-}
-// その体に彫刻(0以外のオフセット)が入っているか
-function sculptHasData(it){
-  if(!it || !it.sculpt) return false;
-  for(let i=0;i<it.sculpt.length;i++) if(it.sculpt[i] !== 0) return true;
-  return false;
-}
-// ブラシの輪(狙い先の表示)
-const brushRing = new THREE.Mesh(
-  new THREE.RingGeometry(0.9, 1.0, 24),
-  new THREE.MeshBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.85, side:THREE.DoubleSide, depthTest:false })
-);
-brushRing.visible = false; scene.add(brushRing);
-const _sn = new THREE.Vector3();
-const _ro = new THREE.Vector3(), _rd = new THREE.Vector3(), _lh = new THREE.Vector3(), _lh2 = new THREE.Vector3(), _dir = new THREE.Vector3();
-const _invM = new THREE.Matrix4();
-let _normAccum = 0, _wasCarving = false;
-// レリーフは「局所XY平面をZ方向へ変位させた板」。光線と z=0 平面の交点を数式で解く=総当たりraycastを避けて実機を軽く保つ
-function sculptHit(mesh, originWorld, dirWorld){
-  _invM.copy(mesh.matrixWorld).invert();
-  _ro.copy(originWorld).applyMatrix4(_invM);                  // 原点を板の局所座標へ
-  _rd.copy(dirWorld).transformDirection(_invM).normalize();   // 向きを板の局所座標へ
-  if(Math.abs(_rd.z) < 1e-5) return null;                     // 板と平行なら当たらない
-  const t = -_ro.z / _rd.z;
-  if(t <= 0) return null;                                     // 後ろ向き
-  _lh.set(_ro.x + _rd.x*t, _ro.y + _rd.y*t, 0);
-  return _lh;                                                 // 局所座標(z=0)
-}
-// 毎フレーム(XR・sculptモード): にぎる=つかむ(移動/大きさ変え)、引き金=彫る(向きはsculptDir)
-function updateSculpt(dt){
-  brushRing.visible = false;
-  if(mode!=='sculpt' || !activeItem || !activeItem.reliefMesh){ _wasCarving = false; return; }
-  const sess = renderer.xr.getSession(); if(!sess) return;
-  // --- にぎる(グリップ)で つかむ/放す: 片手=移動 / 両手が同じ体=大きさ変え+回転(既存のピンチ機構を流用) ---
-  for(let i=0;i<controllers.length;i++){
-    const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
-    const gripNow = !!(gp && gp.buttons[1] && gp.buttons[1].pressed);
-    if(gripNow && !gripPrev[i]){ grabItem(i, itemUnderRay(i)); }   // にぎった瞬間つかむ(彫刻は床置き不問)
-    else if(!gripNow && gripPrev[i]){ onRelease(i); }                                                // 放した瞬間おろす
-    gripPrev[i] = gripNow;
-  }
-  if(pinch){ _wasCarving = false; return; }   // 両手で大きさ変え中は彫らない
-  const mesh = activeItem.reliefMesh, geo = activeItem.reliefGeo;
-  const { w, h, sx, sy } = activeItem; const pos = geo.attributes.position;
-  let carved = false;
-  for(let i=0;i<controllers.length;i++){
-    if(grab[i]) continue;   // つかんで移動中の手では彫らない
-    const c = controllers[i]; const gp = c.userData && c.userData.src && c.userData.src.gamepad;
-    if(!gp) continue;
-    // 筆の太さ: スティック左右で調整
-    const ax = gp.axes; if(ax && ax.length){ const rx=(ax.length>=4)?ax[2]:(ax[0]||0), ry=(ax.length>=4)?ax[3]:(ax[1]||0); if(Math.abs(rx)>0.4 && Math.abs(rx)>Math.abs(ry)){ sculptRadius=clamp(sculptRadius + rx*0.25*dt, 0.02, 0.4); $('brushRange').value=Math.round(sculptRadius*100); $('brushVal').textContent=Math.round(sculptRadius*100)+'cm'; } }   // 左右が優勢な時だけ筆太さ(上下=手元寄せと競合しない)
-    tmpV.setFromMatrixPosition(c.matrixWorld);
-    _dir.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
-    const lh = sculptHit(mesh, tmpV, _dir);
-    if(!lh) continue;
-    if(lh.x < -w/2 || lh.x > w/2 || lh.y < -h/2 || lh.y > h/2) continue;   // 板の外
-    // ブラシ輪を変位後の面に載せる(最寄り格子のZを読む=raycast不要)
-    const ix0 = clamp(Math.round((lh.x + w/2)/w*sx), 0, sx);
-    const iy0 = clamp(Math.round((h/2 - lh.y)/h*sy), 0, sy);
-    _lh2.set(lh.x, lh.y, pos.getZ(iy0*(sx+1)+ix0));
-    brushRing.visible = true;
-    brushRing.position.copy(mesh.localToWorld(_lh2.clone()));
-    _sn.set(0,0,1).transformDirection(mesh.matrixWorld);
-    brushRing.lookAt(brushRing.position.clone().add(_sn));
-    brushRing.scale.setScalar(Math.max(sculptRadius * activeItem.group.scale.x, 0.01));   // 実寸スケール込みの見た目半径
-    brushRing.material.color.setHex(sculptDir > 0 ? 0xffd166 : 0x6ec6ff);   // 盛り上げ=黄 / へこませ=水色
-    // 彫る: 引き金の引き具合 × 向き(sculptDir)。にぎる(グリップ)はつかむ用に使うので彫りには使わない
-    const trig = gp.buttons[0] ? gp.buttons[0].value : 0;
-    if(trig > 0.1){ sculptAt(activeItem, lh, sculptRadius, sculptDir * trig * SCULPT_RATE * dt); carved = true; }
-  }
-  // 法線の再計算は重いので彫っている間は間引き(約12回/秒)、彫り終わりに一度だけ確定計算
-  if(carved){ _normAccum += dt; if(_normAccum >= 0.08){ geo.computeVertexNormals(); _normAccum = 0; } }
-  else if(_wasCarving){ geo.computeVertexNormals(); _normAccum = 0; }
-  _wasCarving = carved;
-}
+/* ============ 彫刻(sculpt)は ぷるぷる(puni) へ置換・撤去済み(2026-07-14 rev10-puni2) ============ */
 
 /* ============ レリーフ用カメラ(軌道) ============ */
 const ctl = { r:1.7, th:0, ph:Math.PI/2, tx:0, ty:0.5, tz:0, vth:0, vph:0 };
@@ -643,14 +1220,16 @@ $('resetBtn').onclick = frameCamera;
 
 let dragging=false; const ptrs=new Map(); let pinchD=0;
 canvas.addEventListener('pointerdown', e=>{
+  if(window.__puni && window.__puni._pointerDown(e)) return;
   ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); dragging=true;
-  if(mode==='relief' || mode==='sculpt'){ ctl.vth=ctl.vph=0; }
+  if(mode==='relief' || mode==='puni'){ ctl.vth=ctl.vph=0; }
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', e=>{
+  if(window.__puni && window.__puni._pointerMove(e)) return;
   if(!ptrs.has(e.pointerId)) return;
   const p=ptrs.get(e.pointerId); const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
-  if(mode==='relief' || mode==='sculpt'){
+  if(mode==='relief' || mode==='puni'){
     if(ptrs.size===1){ ctl.th-=dx*.006; ctl.ph=clamp(ctl.ph-dy*.006,.05,Math.PI-.05); ctl.vth=-dx*.0015; ctl.vph=-dy*.0015; }
     else if(ptrs.size===2){ const a=[...ptrs.values()]; const nd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
       if(pinchD) ctl.r=clamp(ctl.r*(pinchD/nd),0.5,6); pinchD=nd; }
@@ -660,11 +1239,12 @@ canvas.addEventListener('pointermove', e=>{
   }
 });
 function endPtr(e){
+  if(window.__puni && window.__puni._pointerEnd(e)) return;
   ptrs.delete(e.pointerId); if(ptrs.size<2) pinchD=0; if(ptrs.size===0) dragging=false;
   if(mode==='parallax'||mode==='layers'){ view.tx=0; view.ty=0; }   // 指を離すと正面へ戻る
 }
 canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', endPtr);
-canvas.addEventListener('wheel', e=>{ if(mode!=='relief' && mode!=='sculpt')return; e.preventDefault(); ctl.r=clamp(ctl.r*(1+Math.sign(e.deltaY)*.08),0.5,6); },{passive:false});
+canvas.addEventListener('wheel', e=>{ if(mode!=='relief' && mode!=='puni')return; e.preventDefault(); ctl.r=clamp(ctl.r*(1+Math.sign(e.deltaY)*.08),0.5,6); },{passive:false});
 
 /* ============ 疑似3D: シェーダーquad ============ */
 const quadUniforms = {
@@ -846,8 +1426,8 @@ function detachPanels(){
 function xrAttach(m){
   panelRefLocal = null;
   detachPanels();
-  if(m==='relief'){
-    // 複数体: 全item表示、各itemのreliefは自分のtiltGroupに(makeItemで既に入っている)
+  if(m==='relief' || m==='puni'){
+    // 複数体: 全item表示、各itemのreliefは自分のtiltGroupに。ぷるぷるも全item表示(ドームはtiltGroupに付いている)
     let exposed = false;
     for(const it of items){
       if(!it.group.visible) exposed = true;   // 疑似3Dで隠れていた体が新たに見える
@@ -856,13 +1436,6 @@ function xrAttach(m){
     }
     grabTarget = null;   // raycastはitemUnderRayで全item対象
     if(exposed && renderer && renderer.xr.isPresenting) pendingPlace = true;   // 未配置の体を並べ直す
-  } else if(m==='sculpt'){
-    // 彫刻: activeItemだけ表示、そのreliefをtiltGroupに(1体に集中して彫る)
-    for(const it of items){
-      it.group.visible = (it === activeItem);
-      if(it === activeItem && it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
-    }
-    grabTarget = null;   // 掴みは無効(updateSculptが入力を処理)
   } else {
     // 疑似3D(単体): activeItemだけ表示、そのtiltGroupにパネル/多層。activeのreliefは外す
     for(const it of items) it.group.visible = (it === activeItem);
@@ -876,7 +1449,6 @@ function xrAttach(m){
 // XR終了時: 各itemをreliefに戻して2D構成へ復帰できる状態にする
 function xrDetachAll(){
   detachPanels();
-  brushRing.visible = false;   // XR終了時に彫刻の輪を消す
   for(const it of items){
     if(it.reliefMesh && it.reliefMesh.parent !== it.tiltGroup) it.tiltGroup.add(it.reliefMesh);
   }
@@ -888,11 +1460,10 @@ function enterXR(){
   for(const it of items) if(it.group.parent !== scene) scene.add(it.group);
   // 前セッションから残ったボタンのラッチを消す(突入後の最初の押下を確実にエッジ扱いに)
   recallHeld = false; stickPrev.left = stickPrev.right = stickPrev.none = false;
-  gripPrev[0] = gripPrev[1] = false; dirToggleHeld = false;
   xrAttach(mode);
 }
 // 没入中のモード循環(スティック押し込み)
-const MODE_CYCLE = ['relief','parallax','wiggle','light','layers','sculpt'];
+const MODE_CYCLE = ['relief','parallax','wiggle','light','layers','puni'];
 function cycleMode(){
   const i = MODE_CYCLE.indexOf(mode);
   setMode(MODE_CYCLE[(i+1) % MODE_CYCLE.length]);
@@ -933,26 +1504,26 @@ function makeTex(img, srgb){
 /* ============ モード管理 ============ */
 function setMode(m){
   mode = m;
-  brushRing.visible = false;   // 彫刻から抜けたら黄色い輪を残さない(XR外でも消す)
-  clearGrabs();   // モード切替時は掴み/拡縮の途中状態を持ち越さない(彫刻⇄他モードのどちら向きでも取りこぼさない)
+  clearGrabs();   // モード切替時は掴み/拡縮の途中状態を持ち越さない
+  // ぷるぷるドームは 立像/ぷるぷる モードだけ表示・物理(疑似3Dパネルの手前に浮く/触れるのを防ぐ)
+  { const vis=(m==='relief'||m==='puni'); for(const it of items){ if(it.puffs) for(const puff of it.puffs){ if(puff.mesh) puff.mesh.visible = vis; } } }
   [...$('modeSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.m===m));
   const inXR = renderer && renderer.xr.isPresenting;
   if(inXR){
     xrAttach(m);   // XR: tiltGroupの中身を差し替え(2Dのscene構成は触らない)
-    if(m==='sculpt' && xrMode==='ar'){ reticle.visible = false; }   // 彫刻は床リングを出さない(引き金は彫る用)。placedは触らない=他モードの床置きを壊さない
   } else {
     // 2Dは単体表示(activeItemのみ)。複数の並べ替えはAR/VRの体験
     for(const it of items){ it.group.visible = (it === activeItem); scene.remove(it.group); }
     scene.remove(quad); scene.remove(layerGroup);
-    if(m==='relief' || m==='sculpt'){ if(activeItem) scene.add(activeItem.group); }
+    if(m==='relief' || m==='puni'){ if(activeItem) scene.add(activeItem.group); }
     else if(m==='layers'){ scene.add(layerGroup); }
     else { scene.add(quad); quadUniforms.uMode.value = (m==='light') ? 1 : 0; }
   }
 
-  const isReliefLike = (m==='relief' || m==='sculpt');
+  const isReliefLike = (m==='relief' || m==='puni');
   $('reliefRow1').style.display = (m==='relief') ? 'flex' : 'none';
   $('reliefRow2').style.display = (m==='relief') ? 'flex' : 'none';
-  $('sculptRow').style.display  = (m==='sculpt') ? 'flex' : 'none';
+  $('puniRow').style.display  = (m==='puni') ? 'flex' : 'none';
   $('pseudoRow').style.display  = isReliefLike ? 'none' : 'flex';
   if(!isReliefLike){
     const showSpeed = (m==='wiggle'||m==='light');
@@ -967,12 +1538,13 @@ function setMode(m){
     wiggle: '自動で左右に揺れます。「動画で保存」でSNS用にどうぞ',
     light: '光源が回って陰影が流れます',
     layers: '指でドラッグすると層がジオラマのようにズレます',
-    sculpt: 'AR/VRで狙って引き金＝彫る。にぎる＝つかむ/両手で大きさ変え。スティック上下＝手元に寄せる・左右＝筆の太さ。A/Xで盛り上げ⇄へこませ',
+    puni: '「置く」ONで写真をクリック→ぷっくり。スポット上はつつく／スポット外は視点回転。XRでは指やコントローラ先端で触れます',
   };
   $('hint').textContent = hints[m];
   view.tx=view.ty=view.x=view.y=0;
   if(isReliefLike && !inXR) frameCamera();
-  renderFigPicker();   // 体えらび列の表示更新(relief/sculptかつ複数体のみ)
+  if(m === 'puni'){ PUNI.selected = (activeItem && activeItem.puffs && activeItem.puffs.includes(PUNI.selected)) ? PUNI.selected : ((activeItem && activeItem.puffs && activeItem.puffs[0]) || null); puniSyncUI(); }
+  renderFigPicker();   // 体えらび列の表示更新(relief/puniかつ複数体のみ)
 }
 $('modeSeg').addEventListener('click', e=>{ const b=e.target.closest('button'); if(b) setMode(b.dataset.m); });
 
@@ -1001,24 +1573,15 @@ let amt=0.45, speed=0.45;
 // 立体の強さ/反転/精細は「選択中の体」だけに効かせる(体ごとに別々に調整できる)
 $('amtRange').addEventListener('input', ()=>{ amt=parseInt($('amtRange').value)/100; $('amtVal').textContent=$('amtRange').value; });
 $('spdRange').addEventListener('input', ()=>{ speed=parseInt($('spdRange').value)/100; $('spdVal').textContent=$('spdRange').value; });
-$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; if(activeItem) activeItem.depthCm=S.depthCm; displace(); });
-$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; if(activeItem) activeItem.invert=S.invert; displace(); });
+$('depthRange').addEventListener('input', ()=>{ S.depthCm=parseInt($('depthRange').value); $('depthVal').textContent=S.depthCm; if(activeItem) activeItem.depthCm=S.depthCm; displace(); puniRebuildActivePuffs(); });
+$('invChk').addEventListener('change', ()=>{ S.invert=$('invChk').checked; if(activeItem) activeItem.invert=S.invert; displace(); puniRebuildActivePuffs(); });
 $('resSeg').addEventListener('click', e=>{
   const b=e.target.closest('button'); if(!b) return;
   const newRes = parseInt(b.dataset.r);
   if(newRes === S.res) return;   // 変化なしなら何もしない
-  // 精細さを変えるとレリーフを作り直すため彫った凸凹は消える。消える前に日本語で確認
-  if(activeItem && sculptHasData(activeItem) && !confirm('精細さを変えると、彫った凸凹（盛り上げ・へこませ）は消えます。変えますか？')) return;
   [...$('resSeg').children].forEach(x=>x.classList.toggle('on', x===b));
   S.res=newRes; if(activeItem) activeItem.res=S.res; buildRelief();
 });
-$('brushRange').addEventListener('input', ()=>{ sculptRadius = parseInt($('brushRange').value)/100; $('brushVal').textContent = $('brushRange').value + 'cm'; });
-$('sculptResetBtn').onclick = ()=>{ if(activeItem){ sculptReset(activeItem); toast('彫刻を戻しました'); } };
-// 彫る向き(盛り上げ⇄へこませ)。2Dボタン と AR/VRのA/Xボタン から呼ぶ
-function updateSculptDirUI(){ const b=$('sculptDirBtn'); if(b) b.textContent = sculptDir>0 ? '🔼 盛り上げ' : '🔽 へこませ'; }
-function toggleSculptDir(){ sculptDir = -sculptDir; updateSculptDirUI(); toast(sculptDir>0 ? '彫る向き：盛り上げ' : '彫る向き：へこませ'); }
-$('sculptDirBtn').onclick = toggleSculptDir;
-updateSculptDirUI();
 $('sizeCm').addEventListener('change', ()=>{
   S.sizeCm = clamp(parseInt($('sizeCm').value)||25, 5, 300);
   $('sizeCm').value = S.sizeCm;
@@ -1079,7 +1642,6 @@ const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new 
 let pendingPlace = false, recallHeld = false;
 // スティック押し込み(モード切替)のエッジ検出は手ごとに持つ(片手ホールドでもう片手が効かない事故を防ぐ)
 const stickPrev = { left:false, right:false, none:false };
-let dirToggleHeld = false;   // 彫刻: A/Xで彫る向き切替(左右まとめて単一エッジ=両手同時押しでも相殺しない)
 // 表示中の全itemを (cx,cz) 中心・高さpy で横一列に、ユーザーの方を向けて並べる
 function layoutRowAt(cx, cz, py){
   const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos);
@@ -1154,17 +1716,15 @@ function deadzone(v){
 // 毎フレーム: A/B/X/Y(呼び戻し) と グリップ+スティック(回転) をまとめて処理
 function pollInput(dt){
   const sess = renderer.xr.getSession(); if(!sess) return;
-  let recallPressed = false, cycleNow = false, recalledThisFrame = false, anyDirBtn = false;
+  let recallPressed = false, cycleNow = false, recalledThisFrame = false;
   let bestYaw = 0, bestTilt = 0, bestMag = 0, bestHd = null;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
   let bestDollyY = 0, bestDollyHd = null;   // 手元寄せ: 上下が最も大きい手だけ採用
   for(const src of sess.inputSources){
     const gp = src.gamepad; if(!gp) continue;
     const b = gp.buttons, ax = gp.axes;
     const hd = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'none';
-    // 呼び戻し: B/Yボタン。彫刻以外ではA/Xでも可(彫刻中のA/Xは彫る向き切替に使うため除外)
-    if(((mode!=='sculpt') && b[4] && b[4].pressed) || (b[5] && b[5].pressed)) recallPressed = true;
-    // 彫刻: A/Xで彫る向き切替。左右どちらでも1機能なので押下は集計だけ(判定はループ後に1回=同時押しで相殺しない)
-    if(mode==='sculpt' && b[4] && b[4].pressed) anyDirBtn = true;
+    // 呼び戻し: A/X または B/Y
+    if((b[4] && b[4].pressed) || (b[5] && b[5].pressed)) recallPressed = true;
     const gripHeld = b && b[1] && b[1].pressed;   // buttons[1] = グリップ(中指)
     // スティック押し込み(buttons[3])はグリップ非押下時のみモード切替。手ごとに立ち上がりを見る
     const stickNow = !!(b && b[3] && b[3].pressed && !gripHeld);
@@ -1179,16 +1739,13 @@ function pollInput(dt){
       if(mag > bestMag){ bestMag = mag; bestYaw = x; bestTilt = y; bestHd = hd; }
     }
     else if(!gripHeld && ax && ax.length){
-      // 手元寄せ: グリップ非押下時の上下スティック(上下が優勢な時だけ=彫刻の筆太さ〈左右〉と競合しない)
+      // 手元寄せ: グリップ非押下時の上下スティック(上下が優勢な時だけ採用=横成分の誤爆を避ける)
       const rawX = (ax.length >= 4) ? ax[2] : (ax[0] || 0);
       const rawY = (ax.length >= 4) ? ax[3] : (ax[1] || 0);
       const y = deadzone(rawY);
       if(y !== 0 && Math.abs(rawY) > Math.abs(rawX) && Math.abs(y) > Math.abs(bestDollyY)){ bestDollyY = y; bestDollyHd = hd; }
     }
   }
-  // 彫る向き切替: 左右まとめて単一エッジ(両手同時押しでも1回=相殺しない)
-  if(mode==='sculpt'){ if(anyDirBtn && !dirToggleHeld) toggleSculptDir(); dirToggleHeld = anyDirBtn; }
-  else dirToggleHeld = false;
   // 呼び戻し(押した瞬間の1回だけ)
   if(recallPressed && !recallHeld){
     placeInFront(); recalledThisFrame = true;
@@ -1197,8 +1754,8 @@ function pollInput(dt){
   recallHeld = recallPressed;
   // モード循環(いずれかの手の押した瞬間の1回だけ)
   if(cycleNow) cycleMode();
-  // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中は不可。彫刻中はグリップ=へこませなので回転しない
-  if(!pinch && !recalledThisFrame && bestMag > 0 && mode !== 'sculpt'){
+  // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中は不可
+  if(!pinch && !recalledThisFrame && bestMag > 0){
     const gh = (bestHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestHd) : -1;
     let target = (gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem;
     if(target && target.group.parent === scene){
@@ -1207,11 +1764,10 @@ function pollInput(dt){
       if(target !== activeItem) setActive(target);
     }
   }
-  // 手元寄せ: スティック上下で、指す/活動中の体を視線の前後へ寄せる/遠ざける(掴み・ピンチ中は不可。立像モードのみ)
-  if(!pinch && !recalledThisFrame && bestDollyY !== 0 && (mode === 'relief' || mode === 'sculpt')){
+  // 手元寄せ: スティック上下で、指す/活動中の体を視線の前後へ寄せる/遠ざける(掴み・ピンチ中は不可。立像/ぷるぷるモードのみ)
+  if(!pinch && !recalledThisFrame && bestDollyY !== 0 && (mode === 'relief' || mode === 'puni')){
     const gh = (bestDollyHd && controllers.length) ? controllers.findIndex(c => c.userData && c.userData.handedness === bestDollyHd) : -1;
-    // 彫刻中は「今彫っている体」に固定(上下の一撃でレーザーが別の体をかすめても対象がすり替わらない)。立像は指した体を寄せる
-    let target = (mode === 'sculpt') ? activeItem : ((gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem);
+    let target = ((gh >= 0 ? (grab[gh] || itemUnderRay(gh)) : null) || activeItem);
     if(target && target.group.parent === scene){
       const cam = renderer.xr.getCamera(); cam.getWorldPosition(_camPos); cam.getWorldQuaternion(_camQ);
       _fwd.set(0,0,-1).applyQuaternion(_camQ); _fwd.y = 0;
@@ -1226,7 +1782,7 @@ function pollInput(dt){
         const overAfter  = Math.max(0, DOLLY_MIN - after)  + Math.max(0, after  - DOLLY_MAX);
         if(overAfter > overBefore) target.group.position.addScaledVector(_fwd, -step);
       }
-      if(mode !== 'sculpt' && target !== activeItem) setActive(target);   // 彫刻中は対象を切り替えない(すり替わり防止)
+      if(target !== activeItem) setActive(target);
     }
   }
 }
@@ -1246,8 +1802,8 @@ function setupControllers(){
     const c = renderer.xr.getController(i); scene.add(c);
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,-0.11), new THREE.Vector3(0,0,-3)]);
     c.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7fd6a8 })));   // 人差し指の先からビーム
-    c.addEventListener('selectstart', ()=>{ if(mode!=='sculpt') onGrab(i); });   // 彫刻中は引き金=彫る。つかむ/放すはグリップ専任
-    c.addEventListener('selectend', ()=>{ if(mode!=='sculpt') onRelease(i); });
+    c.addEventListener('selectstart', ()=>onGrab(i));
+    c.addEventListener('selectend', ()=>onRelease(i));
     controllers.push(c);
   }
 }
@@ -1272,7 +1828,7 @@ function onGrab(i){
   if(xrMode==='ar' && !placed) return;
   panelRefLocal = null;
   let it = null;
-  if(mode==='relief'){ it = itemUnderRay(i); }        // 複数体: 指した1体
+  if(mode==='relief' || mode==='puni'){ it = itemUnderRay(i); }        // 複数体/ぷるぷる: 指した1体をコントローラで掴む
   else if(grabTarget && activeItem){                   // 疑似3D: activeItemのパネル/多層
     const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
     const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
@@ -1281,7 +1837,7 @@ function onGrab(i){
   }
   grabItem(i, it);
 }
-// つかむ本体(reliefのトリガー経由・彫刻のグリップ経由で共用)。片手=移動 / 両手が同じ体=拡縮回転
+// つかむ本体(トリガー経由で共用)。片手=移動 / 両手が同じ体=拡縮回転
 function grabItem(i, it){
   if(!it) return;
   setActive(it);
@@ -1311,13 +1867,12 @@ function beginPinch(it){
     mid0, pos0: g.position.clone() };   // 差分適用でワープを防ぐ
 }
 function endPinch(){ pinch=null; }
-// モード切替などで掴み/拡縮の途中状態を後始末(体をsceneへ戻して手放す)。彫刻突入時に前モードの掴みを持ち越さない
+// モード切替などで掴み/拡縮の途中状態を後始末(体をsceneへ戻して手放す)。前モードの掴みを持ち越さない
 function clearGrabs(){
   if(pinch) endPinch();
   for(let i=0;i<grab.length;i++){
     if(grab[i]){ scene.attach(grab[i].group); flattenYaw(grab[i].group); grab[i]=null; }
   }
-  gripPrev[0] = gripPrev[1] = false;
 }
 function updatePinch(){
   if(!pinch) return; const g = pinch.group; const p0=ctrlPos(0), p1=ctrlPos(1);
@@ -1504,9 +2059,7 @@ async function startAR(){
     scaleAllItems(); placed=false; hitReq=false;
     pendingPlace = true;   // 最初のフレームで視線の先へ横一列
     setupControllers();
-    toast(mode==='sculpt'
-      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／スティック上下＝手元に寄せる／A・Xで彫る向き'
-      : '目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
+    toast('目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
@@ -1541,9 +2094,7 @@ async function startVR(){
     scaleAllItems();
     pendingPlace = true;   // 最初のフレームで視線の先の床上へ横一列
     setupControllers();
-    toast(mode==='sculpt'
-      ? '彫刻：引き金＝彫る／にぎる＝つかむ・両手で大きさ変え／スティック上下＝手元に寄せる／A・Xで彫る向き'
-      : '実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
+    toast('実寸 ' + S.sizeCm + 'cm・目の前の床に並べます。A・Bボタンでいつでも呼び戻し');
     // ここまでで失敗した場合はcatchでセッションを畳む(黒画面のまま残さない)
     s.addEventListener('end', ()=>{
       xrSession=null; xrMode=null; $('vrBtn').textContent='🌐 VR';
@@ -1618,7 +2169,6 @@ function renderLoop(t, frame){
     if(pendingPlace){ pendingPlace = false; placeInFront(); }
     pollInput(dt);      // 呼び戻し + グリップ回転 + スティックでモード切替
     updateHands(dt);    // トリガーで指を曲げる
-    updateSculpt(dt);   // 彫刻モードなら盛り上げ/へこませ(それ以外はブラシ輪を消すだけ)
     if(mode==='parallax'||mode==='wiggle'||mode==='light') updatePanelXR(sec);   // パネルの頭視差/光
     if(xrMode==='vr'){ if(controllers.length) updatePinch(); }
     else if(xrMode==='ar'){
@@ -1631,22 +2181,24 @@ function renderLoop(t, frame){
             .catch(()=>{});
         }
       }
-      if(hitSource && !placed && mode!=='sculpt'){   // 彫刻は床リング不要
+      if(hitSource && !placed){
         const res = frame.getHitTestResults(hitSource);
         if(res.length){
           const pose = res[0].getPose(ref);
           reticle.visible = true; tmpM.fromArray(pose.transform.matrix); reticle.matrix.copy(tmpM);
         } else reticle.visible = false;
       }
-      if((placed || mode==='sculpt') && controllers.length) updatePinch();   // 彫刻はplaced不問で両手拡縮を効かせる
+      if(placed && controllers.length) updatePinch();
     }
+    puniFrame(dt, true);   // ぷるぷるドーム(段階1)の物理更新
     renderer.render(scene, camera);
     return;
   }
 
-  if(mode==='relief' || mode==='sculpt'){
+  if(mode==='relief' || mode==='puni'){
     if(!dragging){ ctl.th+=ctl.vth; ctl.ph=clamp(ctl.ph+ctl.vph,.05,Math.PI-.05); ctl.vth*=.9; ctl.vph*=.9; }
     applyCam();
+    puniFrame(dt, false);   // ぷるぷるドーム物理更新
     renderer.render(scene, camera);
   } else {
     if(mode==='wiggle'){
