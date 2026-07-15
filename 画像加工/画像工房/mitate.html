@@ -89,9 +89,9 @@
 
   #toast{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:var(--panel2);
     border:1px solid var(--line);color:var(--ink);padding:10px 16px;border-radius:11px;font-size:12px;
-    z-index:50;display:none;white-space:nowrap;max-width:92vw;}
+    z-index:120;display:none;white-space:nowrap;max-width:92vw;}
   #err{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:#3a1414;border:1px solid #7a2a2a;
-    color:#ffd9d9;padding:11px 16px;border-radius:11px;font-size:12px;z-index:50;display:none;max-width:92vw;text-align:center;}
+    color:#ffd9d9;padding:11px 16px;border-radius:11px;font-size:12px;z-index:120;display:none;max-width:92vw;text-align:center;}
 
   .handoff-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;width:min(94vw,640px);}
   .handoff-btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);
@@ -324,7 +324,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev12-sync1";
+const REV = "v2 rev12-sync1b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -622,7 +622,7 @@ $('newBtn').onclick = async () => {
   $('ui').style.display = 'none'; $('drop').style.display = 'flex';
   await renderShelf();
 };
-$('toDepthBtn').onclick = () => { if(xrSession) xrSession.end(); location.href = 'depth.html'; };
+$('toDepthBtn').onclick = async () => { if(xrSession) xrSession.end(); await flushPuffsSave(); location.href = 'depth.html'; };
 
 // 受け渡し(深度づくりから)= 棚に1体追加。棚一覧を表示
 (async () => {
@@ -690,7 +690,8 @@ function schedulePuffsSave(item, delay = 400){
   puffSaveTimers.set(item.id, timer);
 }
 async function flushPuffsSave(item = null){
-  const targets = item ? [item] : items;
+  // 引数なし=保存待ち(タイマーあり=変更あり)の体だけ。全体を無条件保存すると数MBのBlobを毎回書き直す
+  const targets = item ? [item] : items.filter(it => it?.id && puffSaveTimers.has(it.id));
   for (const target of targets) {
     if (!target?.id) continue;
     const timer = puffSaveTimers.get(target.id);
@@ -2479,6 +2480,8 @@ function disposeItem(it){
     it.reliefMesh.geometry.dispose();
     (Array.isArray(it.reliefMesh.material)?it.reliefMesh.material:[it.reliefMesh.material]).forEach(m=>m.dispose&&m.dispose());
   }
+  if(it.puffs){ for(const puff of it.puffs) puniDisposePuff(puff); it.puffs.length = 0; }   // ぷるぷるドームのGPUバッファも解放(棚⇄ビューア往復のリーク防止)
+  if(it.id){ const t = puffSaveTimers.get(it.id); if(t){ clearTimeout(t); puffSaveTimers.delete(it.id); } }
 }
 // 2Dの疑似3D(quad/多層)をactiveItemに合わせ直す
 function refresh2DActive(){

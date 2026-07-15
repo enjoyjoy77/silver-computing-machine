@@ -37,11 +37,17 @@ async function handlePost(context) {
     );
   }
 
-  const declaredLength = Number(request.headers.get("Content-Length"));
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > MAX_BUNDLE_BYTES
-  ) {
+  const lengthHeader = request.headers.get("Content-Length");
+  const declaredLength = Number(lengthHeader);
+  // Content-Length 欠落(chunked)は事前検査をすり抜けるので即拒否。正規クライアント(Blob送信)は必ず付く
+  if (lengthHeader === null || !Number.isFinite(declaredLength) || declaredLength < 1) {
+    throw new HandoffError(
+      411,
+      "LENGTH_REQUIRED",
+      "送信データの形式が正しくありません。",
+    );
+  }
+  if (declaredLength > MAX_BUNDLE_BYTES) {
     throw new HandoffError(
       413,
       "TOO_LARGE",
