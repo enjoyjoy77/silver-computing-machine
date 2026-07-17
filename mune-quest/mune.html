@@ -59,6 +59,10 @@
   <div class="mark">むねゆれ再現</div>
   <h1>やわらかさと揺れを<br>物理で再現する実験です</h1>
   <p>目の前にうかぶ「胸板」に、やわらかいふくらみが2つ付いています。<br>手で押すと沈み、板ごと動かすと、遅れてぷるんと揺れます。<br>まずは物理の手ざわりを確かめる、土台の回です。</p>
+  <div id="engineSel" style="margin:6px 0 14px; display:flex; gap:10px; justify-content:center;">
+    <button class="engBtn" id="engC0" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:#e0719c;color:#fff;cursor:pointer;">あたらしい触感（C0）</button>
+    <button class="engBtn" id="engV5" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:transparent;color:#e0719c;cursor:pointer;">これまで（v5）</button>
+  </div>
   <button id="goBtn" disabled>じゅんび中…</button>
   <div id="note">
     <b>英語の画面が出たら</b><br>
@@ -84,7 +88,7 @@ import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 
-const REV = "v6 rev1";   // C0=直接変形エンジン(?mode=v5で旧v5起動)。凍結バックアップ=mune_v5rev4凍結.html
+const REV = "v6 rev2";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -245,11 +249,22 @@ function applyFeel(){
   TUNE.c0MaxDent = lerp2(0.018, 0.024, 0.030, s);       // やわらかさ=最大凹み18〜30mm
   TUNE.c0TauOut  = lerp2(0.12, 0.18, 0.25, k);          // ゆれのこり=戻りの時定数120〜250ms
 }
-// 起動モード: ?mode=v5 で旧v5(粒子物理)。既定はC0(直接変形)。Questではブックマーク2つでA/B
+// 起動モード: 開始画面のボタンで選択(既定=C0)。?mode=v5 のURLでも旧v5で起動できる(ブックマーク用)
 try{
   const _mode=new URLSearchParams(location.search).get("mode");
   if(_mode==="v5") TUNE.engineC0=false;
 }catch(e){}
+// 開始画面のエンジン選択ボタン: 選択状態の見た目を同期し、TUNE.engineC0を切り替える
+function syncEngineButtons(){
+  const c0=document.getElementById("engC0"), v5=document.getElementById("engV5");
+  if(!c0||!v5) return;
+  const on=(b)=>{ b.style.background="#e0719c"; b.style.color="#fff"; };
+  const off=(b)=>{ b.style.background="transparent"; b.style.color="#e0719c"; };
+  if(TUNE.engineC0){ on(c0); off(v5); } else { on(v5); off(c0); }
+}
+document.getElementById("engC0").addEventListener("click", ()=>{ TUNE.engineC0=true; syncEngineButtons(); });
+document.getElementById("engV5").addEventListener("click", ()=>{ TUNE.engineC0=false; syncEngineButtons(); });
+syncEngineButtons();
 applyFeel();
 
 /* ============================================================
@@ -2517,7 +2532,7 @@ function simulate(dt){
   }
   stepSoft(dt);
   handleContactFX();
-  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SIZES[sizeIdx].name+"・やわらかさ"+Math.round(TUNE.soft*100)+"%・ゆれのこり"+Math.round(TUNE.keep*100)+"%";
+  const statLine = (TUNE.engineC0?"C0":"v5")+" / fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SIZES[sizeIdx].name+"・やわらかさ"+Math.round(TUNE.soft*100)+"%・ゆれのこり"+Math.round(TUNE.keep*100)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }

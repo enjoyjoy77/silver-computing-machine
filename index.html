@@ -10,55 +10,56 @@
 <title>ツールボックス</title>
 <style>
   :root {
-    --ink: #1f1d1a; --paper: #f7f4ed; --muted: #8b8275;
-    --line: #d4ccbe; --card: #fff; --accent: #b04a2e; --good: #2a6b4a;
+    --ink: #1d1d1f; --paper: #ffffff; --muted: #6e6e73;
+    --line: #e5e5e7; --card: #f5f5f7; --accent: #155bd0; --good: #2a6b4a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --ink: #e8e4da; --paper: #181613; --muted: #97907f;
-      --line: #3e382e; --card: #211e18; --accent: #d97a55; --good: #6cb893;
+      --ink: #f5f5f7; --paper: #121212; --muted: #98989d;
+      --line: #2c2c2e; --card: #1c1c1e; --accent: #4d94ff; --good: #6cb893;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 1.5rem 1rem;
-    padding-top: max(1.5rem, env(safe-area-inset-top));
-    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
-    padding-left: max(1rem, env(safe-area-inset-left));
-    padding-right: max(1rem, env(safe-area-inset-right));
-    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    padding: 2rem 1.25rem;
+    padding-top: max(2rem, env(safe-area-inset-top));
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
     background: var(--paper); color: var(--ink); line-height: 1.5;
     -webkit-text-size-adjust: 100%;
   }
   .wrap { max-width: 760px; margin: 0 auto; }
-  h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.2rem; letter-spacing: 0.02em; }
-  .sub { color: var(--muted); font-size: 0.8rem; margin: 0 0 1.5rem; }
+  h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 2rem; }
   h2 {
     font-size: 0.72rem; font-weight: 600; color: var(--muted);
-    letter-spacing: 0.12em; text-transform: uppercase;
-    margin: 1.6rem 0 0.7rem; padding-bottom: 0.3rem;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin: 2rem 0 0.75rem; padding-bottom: 0.4rem;
     border-bottom: 1px solid var(--line);
   }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; }
   a.tool {
-    display: flex; flex-direction: column; gap: 0.25rem;
-    min-height: 76px; padding: 0.85rem 0.9rem;
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    display: flex; flex-direction: column; gap: 0.3rem;
+    min-height: 80px; padding: 1rem 1.1rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
     color: var(--ink); text-decoration: none;
-    transition: border-color 0.12s, transform 0.06s;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, border-color 0.15s ease-out;
   }
-  a.tool:active { transform: scale(0.98); }
-  a.tool:hover { border-color: var(--accent); }
+  a.tool:active { transform: scale(0.97); }
+  a.tool:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+  a.tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tool .name { font-size: 0.95rem; font-weight: 600; }
-  .tool .desc { font-size: 0.74rem; color: var(--muted); line-height: 1.4; }
+  .tool .desc { font-size: 0.76rem; color: var(--muted); line-height: 1.45; }
   .tool .badge {
     align-self: flex-start; margin-top: 0.2rem;
-    font-size: 0.64rem; letter-spacing: 0.04em;
-    color: var(--accent); border: 1px solid var(--line);
-    border-radius: 999px; padding: 0.1rem 0.5rem;
+    font-size: 0.64rem; letter-spacing: 0.03em; font-weight: 500;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 999px; padding: 0.15rem 0.6rem;
   }
-  .foot { margin-top: 2rem; font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+  .foot { margin-top: 2.5rem; font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
 </style>
 </head>
 <body>
