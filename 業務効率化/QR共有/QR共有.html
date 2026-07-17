@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR共有</title>
+<script src="../../libs/qrcode.min.js"></script>
+<style>
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #f4f5f7;
+    margin: 0;
+    padding: 16px;
+    color: #222;
+  }
+  .rev {
+    position: fixed;
+    top: 6px;
+    right: 10px;
+    font-size: 11px;
+    color: #999;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 16px;
+  }
+  .wrap {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    height: 140px;
+    font-size: 16px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    resize: vertical;
+  }
+  .count {
+    text-align: right;
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+  }
+  .count.warn {
+    color: #c0392b;
+    font-weight: bold;
+  }
+  button {
+    width: 100%;
+    font-size: 16px;
+    padding: 12px;
+    margin-top: 12px;
+    border: none;
+    border-radius: 8px;
+    background: #2d6cdf;
+    color: #fff;
+    cursor: pointer;
+  }
+  button:active {
+    background: #1e4fad;
+  }
+  #qrBox {
+    margin-top: 20px;
+    text-align: center;
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    display: none;
+  }
+  #qrBox svg {
+    width: 260px;
+    height: 260px;
+  }
+  .hint {
+    font-size: 13px;
+    color: #555;
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  .msg {
+    font-size: 13px;
+    color: #c0392b;
+    margin-top: 8px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="rev">rev1</div>
+<div class="wrap">
+  <h1>QR共有 - パソコンのテキストをスマホへ</h1>
+
+  <textarea id="inputText" placeholder="ここにスマホへ送りたい文章を貼り付けてください"></textarea>
+  <div class="count" id="charCount">0文字</div>
+  <div class="msg" id="errMsg"></div>
+
+  <button id="makeBtn">QRコードを作る</button>
+
+  <div id="qrBox">
+    <div id="qrCanvas"></div>
+    <div class="hint">
+      スマホの標準カメラ(またはQR読み取りアプリ)をこのQRコードに向けてください。<br>
+      表示された通知をタップすると、文章がスマホで読めます。
+    </div>
+  </div>
+</div>
+
+<script>
+  var LIMIT = 700; // QRコードに安全に収まる目安の文字数(日本語込み)
+  var inputEl = document.getElementById('inputText');
+  var countEl = document.getElementById('charCount');
+  var errEl = document.getElementById('errMsg');
+  var qrBox = document.getElementById('qrBox');
+  var qrCanvas = document.getElementById('qrCanvas');
+
+  inputEl.addEventListener('input', function () {
+    var len = inputEl.value.length;
+    countEl.textContent = len + '文字 (目安上限' + LIMIT + '文字)';
+    countEl.className = len > LIMIT ? 'count warn' : 'count';
+  });
+
+  document.getElementById('makeBtn').addEventListener('click', function () {
+    errEl.style.display = 'none';
+    qrBox.style.display = 'none';
+    qrCanvas.innerHTML = '';
+
+    var text = inputEl.value;
+    if (!text || text.trim().length === 0) {
+      errEl.textContent = 'エラー: 文章が入力されていません。テキストを入力してください。';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      var qr = qrcode(0, 'M'); // typeNumber=0で自動判定、誤り訂正M
+      qr.addData(text);
+      qr.make();
+      qrCanvas.innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4 });
+      qrBox.style.display = 'block';
+    } catch (e) {
+      errEl.textContent = 'エラー: 文章が長すぎてQRコードにできませんでした(' + text.length + '文字)。文章を短くするか、分けて送ってください。';
+      errEl.style.display = 'block';
+    }
+  });
+</script>
+</body>
+</html>
