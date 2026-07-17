@@ -1,18 +1,24 @@
 /* =====================================================
    サンプルゲーム3: うちゅうシューティング
    ロケットで宇宙人を撃つ。ボスは「オリジナル絵文字」
-   被弾無敵と撃破コンボを追加した版。
+   被弾無敵と撃破コンボ、強化アイテムを追加した版。
 ===================================================== */
 (function(){
 "use strict";
 
-// オリジナル絵文字の例
 // 宇宙人、炎、王冠を重ねて「ボス」を作る
 EmojiEngine.defineEmoji("ボス", [
   { e: "🔥", dy: 55, s: 0.7 },
   { e: "👾", s: 1.0 },
   { e: "👑", dy: -52, s: 0.55 },
 ]);
+
+const POWER_TYPES = [
+  { id: "spread", emoji: "🔱" },
+  { id: "rapid", emoji: "⚡" },
+  { id: "pierce", emoji: "💥" },
+  { id: "shield", emoji: "🛡️" },
+];
 
 let S;
 
@@ -76,6 +82,146 @@ function spawnNormalEnemy(g){
   });
 }
 
+function spawnPowerItem(g, x, y){
+  const candidates = POWER_TYPES.filter(
+    power => S.power[power.id] < 2
+  );
+
+  if (candidates.length <= 0){
+    return;
+  }
+
+  const power = g.pick(candidates);
+
+  S.powerItems.push({
+    x: x,
+    y: y,
+    r: 22,
+    vy: 55,
+    type: power.id,
+    e: power.emoji,
+  });
+}
+
+function gainPower(g, item){
+  S.power[item.type]++;
+
+  if (item.type === "shield"){
+    S.shieldStock = Math.min(
+      2,
+      S.shieldStock + 1
+    );
+  }
+
+  addFloater(
+    S.player.x,
+    S.player.y - 52,
+    item.e + " POWER UP!",
+    "#ffe66d",
+    30,
+    0.6
+  );
+
+  S.freeze = Math.min(
+    0.2,
+    S.freeze + 0.08
+  );
+
+  g.se("clear");
+}
+
+function fireShot(g){
+  const level = S.power.spread;
+  let velocities = [0];
+
+  if (level === 1){
+    velocities = [-140, 0, 140];
+  } else if (level >= 2){
+    velocities = [-280, -140, 0, 140, 280];
+  }
+
+  const pierceCount =
+    S.power.pierce <= 0
+      ? 1
+      : S.power.pierce + 1;
+
+  for (const vx of velocities){
+    S.shots.push({
+      x: S.player.x,
+      y: S.player.y - 30,
+      r: 8,
+      vx: vx,
+      hitsLeft: pierceCount,
+    });
+  }
+
+  g.se("jump");
+}
+
+function shotInterval(){
+  if (S.power.rapid >= 2){
+    return 0.11;
+  }
+
+  if (S.power.rapid === 1){
+    return 0.14;
+  }
+
+  return 0.18;
+}
+
+function defeatEnemy(g, en){
+  en.dead = true;
+  S.defeated++;
+
+  if (S.defeated % 4 === 0){
+    spawnPowerItem(g, en.x, en.y);
+  }
+
+  const oldMultiplier = S.multiplier;
+
+  S.combo =
+    S.comboTimer > 0 ? S.combo + 1 : 1;
+  S.comboTimer = 2;
+
+  S.multiplier = Math.min(
+    3,
+    1 + Math.floor(S.combo / 5)
+  );
+
+  S.score += S.multiplier;
+
+  addFloater(
+    en.x,
+    en.y,
+    "+" + S.multiplier,
+    "#fff",
+    24
+  );
+
+  if (S.multiplier > oldMultiplier){
+    addFloater(
+      en.x,
+      en.y - 30,
+      "🔥×" + S.multiplier,
+      "#ffd700",
+      36
+    );
+
+    S.freeze = Math.min(
+      0.2,
+      S.freeze + 0.08
+    );
+  } else {
+    S.freeze = Math.min(
+      0.2,
+      S.freeze + 0.05
+    );
+  }
+
+  g.se("coin");
+}
+
 function reset(g){
   S = {
     scene: "title",
@@ -90,19 +236,29 @@ function reset(g){
 
     shots: [],
     enemies: [],
+    powerItems: [],
     stars: [],
 
     spawnTimer: 1,
     score: 0,
     hp: 3,
+    defeated: 0,
 
     boss: null,
-    bossComing: 15,   // 15点でボス登場
+    bossComing: 15,
     best: S ? S.best : 0,
 
     combo: 0,
     comboTimer: 0,
     multiplier: 1,
+
+    power: {
+      spread: 0,
+      rapid: 0,
+      pierce: 0,
+      shield: 0,
+    },
+    shieldStock: 0,
 
     floaters: [],
     freeze: 0,
@@ -122,7 +278,7 @@ EmojiEngine.register({
   id: "shooting",
   name: "うちゅうシューティング",
   icon: "🚀",
-  desc: "連続撃破でコンボ。ボスをたおせ",
+  desc: "連続撃破でコンボ。強化してボスをたおせ",
 
   init(g){
     reset(g);
@@ -200,23 +356,34 @@ EmojiEngine.register({
       (g.key("action") || g.pointer.down) &&
       S.player.cooldown <= 0
     ){
-      S.player.cooldown = 0.18;
-
-      S.shots.push({
-        x: S.player.x,
-        y: S.player.y - 30,
-        r: 8,
-      });
-
-      g.se("jump");
+      S.player.cooldown = shotInterval();
+      fireShot(g);
     }
 
     for (const sh of S.shots){
+      sh.x += sh.vx * dt;
       sh.y -= 600 * dt;
     }
 
     S.shots = S.shots.filter(
-      sh => sh.y > -20
+      sh =>
+        sh.y > -20 &&
+        sh.x > -30 &&
+        sh.x < g.W + 30
+    );
+
+    // ---- 強化アイテム ----
+    for (const item of S.powerItems){
+      item.y += item.vy * dt;
+
+      if (g.hit(item, S.player)){
+        item.dead = true;
+        gainPower(g, item);
+      }
+    }
+
+    S.powerItems = S.powerItems.filter(
+      item => !item.dead && item.y < g.H + 40
     );
 
     // ---- 敵の出現 ----
@@ -302,51 +469,13 @@ EmojiEngine.register({
           continue;
         }
 
-        en.dead = true;
-        sh.dead = true;
+        sh.hitsLeft--;
 
-        const oldMultiplier = S.multiplier;
-
-        S.combo =
-          S.comboTimer > 0 ? S.combo + 1 : 1;
-        S.comboTimer = 2;
-
-        S.multiplier = Math.min(
-          3,
-          1 + Math.floor(S.combo / 5)
-        );
-
-        S.score += S.multiplier;
-
-        addFloater(
-          en.x,
-          en.y,
-          "+" + S.multiplier,
-          "#fff",
-          24
-        );
-
-        if (S.multiplier > oldMultiplier){
-          addFloater(
-            en.x,
-            en.y - 30,
-            "🔥×" + S.multiplier,
-            "#ffd700",
-            36
-          );
-
-          S.freeze = Math.min(
-            0.2,
-            S.freeze + 0.08
-          );
-        } else {
-          S.freeze = Math.min(
-            0.2,
-            S.freeze + 0.05
-          );
+        if (sh.hitsLeft <= 0){
+          sh.dead = true;
         }
 
-        g.se("coin");
+        defeatEnemy(g, en);
       }
 
       if (
@@ -355,6 +484,7 @@ EmojiEngine.register({
         !sh.dead &&
         g.hit(sh, S.boss)
       ){
+        // ボスには同じ弾が連続で当たらないよう消す
         sh.dead = true;
         S.boss.hp--;
 
@@ -400,30 +530,51 @@ EmojiEngine.register({
         }
 
         en.dead = true;
-        S.hp--;
-        S.player.invincible = 1;
-        endCombo();
-        g.se("boom");
 
-        if (S.hp <= 0){
-          S.scene = "over";
-          S.best = Math.max(
-            S.best,
-            S.score
+        if (S.shieldStock > 0){
+          S.shieldStock--;
+
+          addFloater(
+            S.player.x,
+            S.player.y - 48,
+            "🛡️ BLOCK!",
+            "#8de0ff",
+            28,
+            0.6
           );
-          S.freeze = Math.min(
-            0.2,
-            S.freeze + 0.15
-          );
-          S.shake = 0.15;
-        } else {
+
           S.freeze = Math.min(
             0.2,
             S.freeze + 0.05
           );
+
+          g.se("bounce");
+        } else {
+          S.hp--;
+          S.player.invincible = 1;
+          endCombo();
+          g.se("boom");
+
+          if (S.hp <= 0){
+            S.scene = "over";
+            S.best = Math.max(
+              S.best,
+              S.score
+            );
+            S.freeze = Math.min(
+              0.2,
+              S.freeze + 0.15
+            );
+            S.shake = 0.15;
+          } else {
+            S.freeze = Math.min(
+              0.2,
+              S.freeze + 0.05
+            );
+          }
         }
 
-        // 1フレームに残機が2つ以上減らないようにする
+        // 1フレームに残機やシールドが2つ以上減らないようにする
         break;
       }
     }
@@ -473,34 +624,41 @@ EmojiEngine.register({
       g.emoji(
         "🚀",
         g.W/2,
-        175,
+        165,
         90,
         { rot: -0.2 }
       );
       g.text(
         "うちゅうシューティング",
         g.W/2,
-        285,
+        270,
         42
       );
       g.text(
         "← → で移動、スペース か クリック押しっぱなしで発射",
         g.W/2,
-        340,
+        325,
         20,
         "#aaa"
       );
       g.text(
+        "4体たおすごとに 🔱 ⚡ 💥 🛡️ が出現",
+        g.W/2,
+        362,
+        19,
+        "#ffe66d"
+      );
+      g.text(
         "連続撃破で🔥コンボ。被弾後1秒は点滅して無敵",
         g.W/2,
-        375,
+        395,
         18,
         "#aaa"
       );
       g.text(
         "クリック か スペース でスタート",
         g.W/2,
-        425,
+        445,
         24,
         "#ffd"
       );
@@ -517,10 +675,19 @@ EmojiEngine.register({
 
     for (const sh of S.shots){
       g.emoji(
-        "🔸",
+        S.power.pierce > 0 ? "💥" : "🔸",
         sh.x + ox,
         sh.y + oy,
-        22
+        S.power.pierce > 0 ? 25 : 22
+      );
+    }
+
+    for (const item of S.powerItems){
+      g.emoji(
+        item.e,
+        item.x + ox,
+        item.y + oy,
+        42
       );
     }
 
@@ -565,6 +732,16 @@ EmojiEngine.register({
       Math.floor(S.player.invincible / 0.1) % 2 === 0
         ? 0.25
         : 1;
+
+    if (S.shieldStock > 0){
+      g.emoji(
+        "🛡️",
+        S.player.x + ox,
+        S.player.y + oy,
+        72,
+        { alpha: 0.42 }
+      );
+    }
 
     g.emoji(
       "🚀",
@@ -618,6 +795,21 @@ EmojiEngine.register({
       22,
       "#fff",
       "right"
+    );
+
+    const powerText =
+      "🔱" + S.power.spread +
+      "  ⚡" + S.power.rapid +
+      "  💥" + S.power.pierce +
+      "  🛡️" + S.shieldStock;
+
+    g.text(
+      powerText,
+      12,
+      58,
+      17,
+      "#ffe66d",
+      "left"
     );
 
     if (S.scene === "over"){

@@ -193,9 +193,6 @@ function pickFromCandidates(g, candidates){
 
 function personalityChoice(g){
   const hand = S.enemy.hand;
-  const visibleCards = S.visibleEnemyIndices.map(
-    index => hand[index]
-  );
 
   if (S.personality.id === "honest"){
     const target =
@@ -834,34 +831,10 @@ function drawCardFace(
     selected ? "#453c28" : "#24243b"
   );
 
-  g.rect(
-    x,
-    y,
-    width,
-    4,
-    border
-  );
-  g.rect(
-    x,
-    y + height - 4,
-    width,
-    4,
-    border
-  );
-  g.rect(
-    x,
-    y,
-    4,
-    height,
-    border
-  );
-  g.rect(
-    x + width - 4,
-    y,
-    4,
-    height,
-    border
-  );
+  g.rect(x, y, width, 4, border);
+  g.rect(x, y + height - 4, width, 4, border);
+  g.rect(x, y, 4, height, border);
+  g.rect(x + width - 4, y, 4, height, border);
 
   if (hidden){
     g.emoji(
@@ -1151,6 +1124,105 @@ function drawBattleCenter(g){
   }
 }
 
+function currentPlayerCard(){
+  if (S.scene === "select"){
+    return S.player.hand[S.selectedIndex];
+  }
+
+  return S.playerCard;
+}
+
+function visibleEnemyCards(){
+  if (!S.enemy){
+    return [];
+  }
+
+  return S.visibleEnemyIndices.map(
+    index => S.enemy.hand[index]
+  );
+}
+
+function drawAffinityGuide(g){
+  const cards = ["🔥", "🌿", "💧", "🔥"];
+  const xs = [
+    g.W / 2 - 138,
+    g.W / 2 - 46,
+    g.W / 2 + 46,
+    g.W / 2 + 138,
+  ];
+
+  const playerCard = currentPlayerCard();
+  const enemyCards = visibleEnemyCards();
+
+  g.rect(
+    0,
+    g.H - 27,
+    g.W,
+    27,
+    "#00000099"
+  );
+
+  g.text(
+    "相性",
+    g.W / 2 - 215,
+    g.H - 13,
+    15,
+    "#bbb"
+  );
+
+  for (let i = 0; i < cards.length; i++){
+    const card = cards[i];
+    const isPlayer = card === playerCard;
+    const isEnemy =
+      enemyCards.indexOf(card) >= 0;
+
+    let color = "#ffffff22";
+
+    if (isPlayer && isEnemy){
+      color = "#8fe5a766";
+    } else if (isPlayer){
+      color = "#ffe66d55";
+    } else if (isEnemy){
+      color = "#7ee7ff55";
+    }
+
+    if (isPlayer || isEnemy){
+      g.rect(
+        xs[i] - 24,
+        g.H - 25,
+        48,
+        24,
+        color
+      );
+    }
+
+    g.emoji(
+      card,
+      xs[i],
+      g.H - 13,
+      22
+    );
+
+    if (i < cards.length - 1){
+      g.text(
+        "→",
+        (xs[i] + xs[i + 1]) / 2,
+        g.H - 13,
+        18,
+        "#ddd"
+      );
+    }
+  }
+
+  g.text(
+    "黄:あなた　青:公開札",
+    g.W / 2 + 275,
+    g.H - 13,
+    14,
+    "#bbb"
+  );
+}
+
 function drawFloaters(g, ox, oy){
   for (const floater of S.floaters){
     g.text(
@@ -1426,13 +1498,20 @@ EmojiEngine.register({
       drawPlayerHand(g);
       drawFloaters(g, ox, oy);
 
+      if (
+        S.scene === "select" ||
+        S.scene === "countdown"
+      ){
+        drawAffinityGuide(g);
+      }
+
       if (S.scene === "over"){
         drawResult(g);
       }
     }
 
     g.text(
-      "rev1",
+      "rev2",
       g.W - 8,
       14,
       12,

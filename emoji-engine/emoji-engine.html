@@ -302,8 +302,10 @@ const g = {
   defineEmoji: defineEmoji,
   defineEmojiImage: defineEmojiImage,
 };
+let lastCharFont = "";
 function drawChar(ch, size){
-  ctx.font = size + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+  const font = size + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+  if (font !== lastCharFont){ ctx.font = font; lastCharFont = font; }  // 同じ大きさが連続するときのfont再設定を省く(処理落ち対策)
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(ch, 0, size * 0.04);  // 絵文字の見た目の中心に微調整

@@ -1,7 +1,7 @@
 /* =====================================================
    サンプルゲーム2: コインあつめ
    30秒でコインを集める。爆弾に触ると減点。
-   連続取得コンボとコンボ猶予ゲージを追加した版。
+   連続取得コンボ、速度上昇、コンボ演出を追加した版。
 ===================================================== */
 (function(){
 "use strict";
@@ -24,8 +24,41 @@ function updateEffects(dt){
     f.y -= 40 * dt;
     f.t -= dt;
   }
-  S.floaters = S.floaters.filter(f => f.t > 0);
-  S.shake = Math.max(0, S.shake - dt);
+
+  S.floaters = S.floaters.filter(
+    f => f.t > 0
+  );
+
+  S.shake = Math.max(
+    0,
+    S.shake - dt
+  );
+}
+
+function speedMultiplier(){
+  return 1 + Math.min(S.combo, 15) * 0.02;
+}
+
+function comboEffectLevel(){
+  return Math.min(
+    3,
+    Math.floor(S.combo / 5)
+  );
+}
+
+function addComboSparkles(g, x, y){
+  const count = comboEffectLevel();
+
+  for (let i = 0; i < count; i++){
+    addFloater(
+      x + g.rand(-34, 34),
+      y + g.rand(-24, 18),
+      "✨",
+      "#fff4a8",
+      22 + count * 2,
+      0.55 + i * 0.08
+    );
+  }
 }
 
 function endCombo(){
@@ -54,7 +87,7 @@ function spawnItem(g){
     r: 18,
     e: isBomb ? "💣" : "🪙",
     bomb: isBomb,
-    life: 6,  // 6秒で消える
+    life: 6,
   });
 }
 
@@ -66,6 +99,8 @@ function reset(g){
       y: g.H/2,
       r: 22,
       face: 1,
+      moveX: 0,
+      moveY: 0,
     },
     items: [],
     timeLeft: 30,
@@ -87,7 +122,7 @@ EmojiEngine.register({
   id: "coin",
   name: "コインあつめ",
   icon: "😺",
-  desc: "30秒でコインを集め、コンボをつなげよう",
+  desc: "30秒でコインを集め、加速コンボをつなげよう",
 
   init(g){
     reset(g);
@@ -139,21 +174,25 @@ EmojiEngine.register({
       return;
     }
 
-    const speed = 320;
+    const baseSpeed = 320;
+    const speedRate = speedMultiplier();
+    const speed = baseSpeed * speedRate;
     let dx = g.stickX();
     let dy = g.stickY();
+    let moveX = 0;
+    let moveY = 0;
 
     // マウス/指でも押している場所へ向かう
     if (
       g.pointer.down &&
       g.dist(g.pointer, S.player) > 10
     ){
-      const moveX = g.clamp(
+      moveX = g.clamp(
         (g.pointer.x - S.player.x) * 9 * dt,
         -speed * dt,
         speed * dt
       );
-      const moveY = g.clamp(
+      moveY = g.clamp(
         (g.pointer.y - S.player.y) * 9 * dt,
         -speed * dt,
         speed * dt
@@ -166,12 +205,24 @@ EmojiEngine.register({
         dx = moveX > 0 ? 1 : -1;
       }
     } else {
-      S.player.x += dx * speed * dt;
-      S.player.y += dy * speed * dt;
+      moveX = dx * speed * dt;
+      moveY = dy * speed * dt;
+
+      S.player.x += moveX;
+      S.player.y += moveY;
     }
 
     if (dx !== 0){
       S.player.face = dx;
+    }
+
+    if (moveX !== 0 || moveY !== 0){
+      const length = Math.hypot(moveX, moveY);
+
+      if (length > 0){
+        S.player.moveX = moveX / length;
+        S.player.moveY = moveY / length;
+      }
     }
 
     S.player.x = g.clamp(
@@ -235,12 +286,20 @@ EmojiEngine.register({
 
       S.score += S.multiplier;
 
+      const effectLevel = comboEffectLevel();
+
       addFloater(
         it.x,
         it.y,
         "+" + S.multiplier,
         "#fff",
-        24
+        24 + effectLevel * 5
+      );
+
+      addComboSparkles(
+        g,
+        it.x,
+        it.y
       );
 
       if (S.multiplier > oldMultiplier){
@@ -249,7 +308,7 @@ EmojiEngine.register({
           S.player.y - 45,
           "🔥×" + S.multiplier,
           "#ffd700",
-          36
+          36 + effectLevel * 3
         );
 
         S.freeze = Math.min(
@@ -275,37 +334,44 @@ EmojiEngine.register({
     g.bg("#173325");
 
     if (S.scene === "title"){
-      g.emoji("😺", g.W/2 - 50, 185, 90);
-      g.emoji("🪙", g.W/2 + 60, 185, 70);
+      g.emoji("😺", g.W/2 - 50, 175, 90);
+      g.emoji("🪙", g.W/2 + 60, 175, 70);
       g.text(
         "コインあつめ",
         g.W/2,
-        285,
+        270,
         44
       );
       g.text(
         "← → ↑ ↓ か マウス/指 で移動。💣にさわると -3点",
         g.W/2,
-        340,
+        325,
         20,
         "#aaa"
       );
       g.text(
         "1.2秒以内に続けて取ると🔥コンボで得点アップ",
         g.W/2,
-        375,
+        362,
         18,
         "#aaa"
       );
       g.text(
+        "コンボが続くほど移動が速くなる!",
+        g.W/2,
+        395,
+        19,
+        "#ffe66d"
+      );
+      g.text(
         "クリック か スペース でスタート",
         g.W/2,
-        425,
+        445,
         24,
         "#ffd"
       );
       g.text(
-        "rev2",
+        "rev3",
         g.W-8,
         g.H-10,
         12,
@@ -327,6 +393,31 @@ EmojiEngine.register({
         it.y,
         38,
         { alpha: blink ? 0.3 : 1 }
+      );
+    }
+
+    const speedRate = speedMultiplier();
+
+    // コンボ中は移動方向の後ろに残像を出す
+    if (
+      S.combo > 0 &&
+      (S.player.moveX !== 0 ||
+        S.player.moveY !== 0)
+    ){
+      const trailDistance =
+        12 + (speedRate - 1) * 35;
+
+      g.emoji(
+        comboEffectLevel() > 0 ? "✨" : "😺",
+        S.player.x -
+          S.player.moveX * trailDistance,
+        S.player.y -
+          S.player.moveY * trailDistance,
+        comboEffectLevel() > 0 ? 28 : 48,
+        {
+          flipX: S.player.face < 0,
+          alpha: 0.16 + (speedRate - 1) * 0.55,
+        }
       );
     }
 
@@ -379,10 +470,14 @@ EmojiEngine.register({
 
     if (S.combo > 0){
       g.text(
-        "🔥 " + S.combo + " COMBO  ×" + S.multiplier,
+        "🔥 " + S.combo +
+          " COMBO  ×" + S.multiplier +
+          "　速度+" +
+          Math.round((speedRate - 1) * 100) +
+          "%",
         g.W/2,
         22,
-        20,
+        19,
         "#ffd700"
       );
     }
@@ -428,7 +523,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev2",
+      "rev3",
       g.W-8,
       g.H-10,
       12,

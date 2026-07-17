@@ -97,13 +97,25 @@ const ENEMY_TYPES = {
   },
   ogre: {
     emoji: "👹",
-    size: 52,
-    r: 23,
-    hp: 12,
-    speed: 46,
-    xp: 4,
+    size: 62,
+    r: 27,
+    hp: 30,
+    speed: 44,
+    xp: 5,
   },
 };
+
+const BOSS_TYPE = {
+  emoji: "🐲",
+  size: 108,
+  r: 44,
+  hp: 90,
+  speed: 38,
+  xp: 18,
+};
+
+const ENEMY_CAP = 45;
+const SHOT_CAP = 60;
 
 let S;
 
@@ -278,6 +290,7 @@ function reset(g){
     attackTimer: 0.15,
     coldTimer: 2,
     enemyId: 0,
+    bossSpawned: false,
 
     kills: 0,
     killChain: 0,
@@ -418,6 +431,11 @@ function removeFarEnemy(g){
 
   for (let i = 0; i < S.enemies.length; i++){
     const enemy = S.enemies[i];
+
+    if (enemy.boss){
+      continue;
+    }
+
     const outside =
       enemy.x < -10 ||
       enemy.x > g.W + 10 ||
@@ -440,7 +458,7 @@ function removeFarEnemy(g){
 }
 
 function spawnEnemy(g){
-  if (S.enemies.length >= 70){
+  if (S.enemies.length >= ENEMY_CAP){
     removeFarEnemy(g);
     return;
   }
@@ -499,6 +517,42 @@ function spawnEnemy(g){
   });
 }
 
+function spawnBoss(g){
+  S.bossSpawned = true;
+
+  const x = g.W / 2;
+  const y = 130;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: x,
+    y: y,
+    r: BOSS_TYPE.r,
+    emoji: BOSS_TYPE.emoji,
+    size: BOSS_TYPE.size,
+    hp: BOSS_TYPE.hp,
+    maxHp: BOSS_TYPE.hp,
+    speed: BOSS_TYPE.speed,
+    xp: BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    dead: false,
+    boss: true,
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ ボス出現 ⚠",
+    "#ff6a6a",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.25);
+  g.se("boom");
+}
+
 function nearestEnemy(g, x, y, exceptIds, maxDistance){
   let target = null;
   let best = maxDistance === undefined
@@ -528,7 +582,7 @@ function nearestEnemy(g, x, y, exceptIds, maxDistance){
 }
 
 function addShot(shot){
-  if (S.shots.length >= 100){
+  if (S.shots.length >= SHOT_CAP){
     return false;
   }
 
@@ -537,7 +591,7 @@ function addShot(shot){
 }
 
 function fireVolley(g){
-  if (S.shots.length >= 100){
+  if (S.shots.length >= SHOT_CAP){
     return;
   }
 
@@ -772,6 +826,33 @@ function damageEnemy(g, enemy, damage, source){
   );
 
   g.se("coin");
+
+  if (enemy.boss){
+    S.freeze = 0.3;
+    S.shake = 0.3;
+    S.flash = 0.3;
+
+    addBurst(
+      g,
+      enemy.x,
+      enemy.y,
+      "💥",
+      16,
+      32
+    );
+
+    addFloater(
+      enemy.x,
+      enemy.y - 60,
+      "ボス撃破!",
+      "#ffe66d",
+      36,
+      1.2
+    );
+
+    g.se("clear");
+  }
+
   return true;
 }
 
@@ -834,15 +915,38 @@ function chainLightning(g, firstEnemy, damage){
 
     used.push(next.id);
 
+    const steps = 4;
+
+    for (let s = 1; s < steps; s++){
+      const ratio = s / steps;
+      const jitter = g.rand(-16, 16);
+      const dx = next.x - from.x;
+      const dy = next.y - from.y;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      const px = -dy / len;
+      const py = dx / len;
+
+      addEffect({
+        type: "text",
+        x: from.x + dx * ratio + px * jitter,
+        y: from.y + dy * ratio + py * jitter,
+        text: "⚡",
+        color: "#ffffff",
+        size: 22,
+        t: 0.3,
+        maxT: 0.3,
+      });
+    }
+
     addEffect({
       type: "text",
-      x: (from.x + next.x) / 2,
-      y: (from.y + next.y) / 2,
+      x: next.x,
+      y: next.y - 18,
       text: "⚡",
       color: "#fff49a",
-      size: 25,
-      t: 0.2,
-      maxT: 0.2,
+      size: 40,
+      t: 0.32,
+      maxT: 0.32,
     });
 
     damageEnemy(
@@ -987,8 +1091,8 @@ function updateShots(g, dt){
     shot => !shot.dead
   );
 
-  if (S.shots.length > 100){
-    S.shots.length = 100;
+  if (S.shots.length > SHOT_CAP){
+    S.shots.length = SHOT_CAP;
   }
 }
 
@@ -1605,6 +1709,13 @@ function updatePlay(g, dt){
 
   updatePlayer(g, dt);
 
+  if (
+    !S.bossSpawned &&
+    S.elapsed >= 55
+  ){
+    spawnBoss(g);
+  }
+
   S.spawnTimer -= dt;
 
   if (S.spawnTimer <= 0){
@@ -1635,8 +1746,19 @@ function updatePlay(g, dt){
     enemy => !enemy.dead
   );
 
-  if (S.enemies.length > 70){
-    S.enemies.length = 70;
+  if (S.enemies.length > ENEMY_CAP){
+    const boss = S.enemies.find(
+      enemy => enemy.boss
+    );
+
+    S.enemies.length = ENEMY_CAP;
+
+    if (
+      boss &&
+      S.enemies.indexOf(boss) < 0
+    ){
+      S.enemies[ENEMY_CAP - 1] = boss;
+    }
   }
 }
 
@@ -1788,7 +1910,35 @@ function drawEnemies(g, ox, oy){
       { alpha: alpha }
     );
 
-    if (
+    if (enemy.boss){
+      const width = 110;
+
+      g.text(
+        "ボス",
+        enemy.x + ox,
+        enemy.y - enemy.r - 34 + oy,
+        18,
+        "#ffb0b0"
+      );
+
+      g.rect(
+        enemy.x - width / 2 + ox,
+        enemy.y - enemy.r - 20 + oy,
+        width,
+        8,
+        "#35111b"
+      );
+
+      g.rect(
+        enemy.x - width / 2 + ox,
+        enemy.y - enemy.r - 20 + oy,
+        width *
+          Math.max(0, enemy.hp) /
+          enemy.maxHp,
+        8,
+        "#ff6278"
+      );
+    } else if (
       enemy.maxHp >= 6 &&
       enemy.hp < enemy.maxHp
     ){
@@ -2557,7 +2707,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev1",
+      "rev2",
       g.W - 8,
       14,
       12,
