@@ -1,5 +1,5 @@
 /* =====================================================
-   サンプルゲーム6: 大戦車バトル (rev80: 玉の威力を敵味方共通に固定/守り遅く/ルカニ2倍/こおり延長/へび激化/ブーメラン8の字)
+   サンプルゲーム6: 大戦車バトル (rev81: 投げ捨てた玉を地面に残す/大砲近くは向き不問で装填/メタルをミニマップに表示)
    参考: スラもり2/3 Rocket Slime の大戦車バトル画面(ユーザー提供スクショ)
    配置: 上画面=戦場(味方戦車 左 / 敵戦車 右 / HP数字+ゲージ / ダメージ数字)
         下画面=戦車の中(下のベルトから弾🪨が流れる → 拾って → 右の縦2門の砲へ投げる)
@@ -153,6 +153,7 @@ const THROW_BTN = { x: 70, y: 502, r: 40 };                   // なげるボタ
 const SWORD_BTN = { x: 155, y: 502, r: 32 };                  // rev77: 勇者の剣(画面固定UI)
 const SHIELD_BTN = { x: 235, y: 502, r: 32 };                 // rev77: メタルキングの盾(画面固定UI)
 const LOAD_RANGE = 260;   // rev53: 砲部屋に入って砲の近くで投げる距離(部屋が広くなったので実質「砲部屋で投げる」)
+const CANNON_NEAR = 230;  // rev80: この距離まで砲に近ければ、進行方向がずれていても装填する(近くはストレス軽減で今まで通り発射)
 
 // ---- 玉の供給(rev50/53): 左上「たま」部屋の滑り台から供給→たまり場に溜まる→取りに行って運ぶ ----
 // rev54: 玉の供給場所を3箇所に(左上たま・左下エンジン・下たま)。そのぶん供給はゆっくり(下のSUPPLY_INTERVAL)
@@ -493,14 +494,16 @@ function throwBall(g){
   let target = null, tType = null, tBest = 1e9;
   for (const cn of [CANNON_A, CANNON_S]){
     const ax = cn.x - p.x, ay = cn.y - p.y, d = Math.hypot(ax, ay) || 1;
-    if (d <= LOAD_RANGE && (ax/d * f.dx + ay/d * f.dy) > 0.2 && d < tBest){ target = cn; tType = cn.type; tBest = d; }
+    const near = d <= CANNON_NEAR;                                   // rev80: 近ければ向きは不問(今まで通り発射)
+    const aimed = d <= LOAD_RANGE && (ax/d * f.dx + ay/d * f.dy) > 0.2;  // 少し遠いときは進行方向の先にある砲だけ
+    if ((near || aimed) && d < tBest){ target = cn; tType = cn.type; tBest = d; }
   }
   const held = p.carry.pop();   // rev40: 投げる玉の種類を持ち回す
   if (target){
     // 砲へ装填(山なりトス→着弾で発射)
     S.tosses.push({ x: p.x, y: p.y - 30, x0: p.x, y0: p.y - 30, cx: target.x, cy: target.y, t: 0, dur: 0.20, type: tType, e: held.e, bt: held.bt });
   } else {
-    // 進行方向へぽいっと投げ捨てる(砲に入らない=消える)。要らない玉の処分に使える
+    // 進行方向へぽいっと置く(砲に入らない)。rev80: 消さずその場に残す=拾い直せる(要らない玉を一時的に脇へ置ける)
     const dist = 190;
     S.tosses.push({ x: p.x, y: p.y - 30, x0: p.x, y0: p.y - 30, cx: p.x + f.dx * dist, cy: p.y + f.dy * dist, t: 0, dur: 0.28, e: held.e, bt: held.bt, discard: true });
   }
@@ -601,7 +604,12 @@ EmojiEngine.register({
       const pr = Math.min(t.t / t.dur, 1);
       t.x = t.x0 + (t.cx - t.x0) * pr;
       t.y = t.y0 + (t.cy - t.y0) * pr - 60 * Math.sin(pr * Math.PI);
-      if (t.t >= t.dur){ t.done = true; if (!t.discard) fireCannon(g, t.type, t.cx, t.cy, t.bt, t.ally); }   // rev78: discard=進行方向へ投げ捨て(砲に入れず消える)
+      if (t.t >= t.dur){
+        t.done = true;
+        if (!t.discard) fireCannon(g, t.type, t.cx, t.cy, t.bt, t.ally);   // rev78: 砲へ装填→発射
+        // rev80: 投げ捨てた玉は消さず、その場に「拾い直せる玉」として残す(スラもり風に置ける)。少しの間は自分で拾えない
+        else S.balls.push({ x: t.cx, y: t.cy, r: 18, e: t.e, bt: t.bt, taken: false, sliding: false, noPickT: 0.6 });
+      }
     }
     S.tosses = S.tosses.filter(t => !t.done);
 
@@ -623,7 +631,8 @@ EmojiEngine.register({
         b.y = b.sy + (b.ty - b.sy) * pr;
         if (b.st >= b.sdur){ b.sliding = false; b.x = b.tx; b.y = b.ty; }
       }
-      if (p.carry.length < 3 && !b.taken && !b.sliding && g.hit(p, b)){   // rev50: 滑走中は拾えない(たまり場で待機した玉だけ)
+      if (b.noPickT > 0) b.noPickT -= dt;   // rev80: 投げ捨て直後の自動拾い直し防止
+      if (p.carry.length < 3 && !b.taken && !b.sliding && !(b.noPickT > 0) && g.hit(p, b)){   // rev50: 滑走中は拾えない(たまり場で待機した玉だけ)
         b.taken = true; p.carry.push({ e: b.e, bt: b.bt }); g.se("coin");   // rev40: 玉の種類も持つ
       }
     }
@@ -930,7 +939,7 @@ EmojiEngine.register({
 
     // 画面固定UI(プレイ中のみ): 案内・なげるボタン・ミニマップ
     if (S.scene === "play"){
-      g.text(p.carry.length > 0 ? ("弾 " + p.carry.length + "/3 → 大砲に向かって投げると装填／向いてる方へ投げると捨てる") : "左上の「たま」部屋で玉を拾おう",
+      g.text(p.carry.length > 0 ? ("弾 " + p.carry.length + "/3 → 大砲に向かって投げると装填／別の方へ投げるとその場に置く(拾い直せる)") : "左上の「たま」部屋で玉を拾おう",
              g.W/2, VIEW_TOP + 16, 17, p.carry.length > 0 ? "#ffe08a" : "#cfe", "center");
       g.emoji("⚪", THROW_BTN.x, THROW_BTN.y, THROW_BTN.r * 2, { alpha: 0.35 });
       g.emoji("👊", THROW_BTN.x, THROW_BTN.y - 8, 34); g.text("なげる", THROW_BTN.x, THROW_BTN.y + 26, 13, "#fff");
@@ -955,7 +964,7 @@ EmojiEngine.register({
       g.rect(MX(CANNON_A.x) - 3, MY(CANNON_A.y) - 3, 6, 6, "#5b8def"); g.rect(MX(CANNON_S.x) - 3, MY(CANNON_S.y) - 3, 6, 6, "#5b8def");
       S.allies.forEach((al, i) => g.rect(MX(al.x) - 3, MY(al.y) - 3, 6, 6, ALLY_DEFS[i].mc));   // 相棒2体(色分け)
       g.rect(MX(METAL_ENTRANCE.x) - 2, MY(METAL_ENTRANCE.y) - 2, 4, 4, "#888");   // rev69: メタル入口
-      if (S.metal && S.metal.mode === "walk") g.rect(MX(S.metal.x) - 3, MY(S.metal.y) - 3, 6, 6, "#d0d0d8");   // rev69: 中を戻るメタル(銀)
+      if (S.metal && S.metal.mode === "walkInside") g.rect(MX(S.metal.x) - 3, MY(S.metal.y) - 3, 6, 6, "#d0d0d8");   // rev80: 中を戻るメタル(銀)。※旧"walk"は誤りでミニマップに出ていなかった
       const playerOutside = GRASS && S.player.x >= GRASS.x0 && S.player.x <= GRASS.x1 && S.player.y >= GRASS.y0 && S.player.y <= GRASS.y1;   // rev72: 芝生部屋の中に居るか
       if (!playerOutside) g.rect(MX(S.player.x) - 3, MY(S.player.y) - 3, 6, 6, "#57d75a");
 
