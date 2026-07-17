@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>絵文字ゲームエンジン</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; background:#14141f; color:#eee;
+    font-family:"Segoe UI","Yu Gothic UI",sans-serif; overflow:hidden;
+    touch-action:none; -webkit-user-select:none; user-select:none; }
+
+  #rev { position:fixed; top:6px; right:10px; font-size:11px; color:#888; z-index:50; }
+
+  /* ===== メニュー画面 ===== */
+  #menu { position:fixed; inset:0; overflow-y:auto; padding:24px 16px 60px; z-index:10; }
+  #menu h1 { text-align:center; font-size:26px; margin:10px 0 4px; }
+  #menu .sub { text-align:center; color:#aaa; font-size:13px; margin-bottom:20px; }
+  #cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:14px; max-width:760px; margin:0 auto; }
+  .card { background:#232338; border:1px solid #3a3a55; border-radius:14px;
+    padding:18px 10px; text-align:center; cursor:pointer; transition:transform .1s; }
+  .card:hover { transform:scale(1.05); background:#2b2b46; }
+  .card .icon { font-size:48px; line-height:1.2; }
+  .card .name { font-size:15px; font-weight:bold; margin-top:8px; }
+  .card .desc { font-size:11px; color:#999; margin-top:4px; }
+  #nogames { text-align:center; color:#f99; margin-top:40px; font-size:15px;
+    line-height:1.8; display:none; }
+
+  /* ===== ゲーム画面 ===== */
+  #stage { position:fixed; inset:0; display:none; z-index:20;
+    align-items:center; justify-content:center; background:#000; }
+  #cv { background:#000; display:block; }
+  #backBtn { position:fixed; top:8px; left:8px; z-index:30; display:none;
+    background:#232338cc; color:#ddd; border:1px solid #555; border-radius:8px;
+    padding:6px 14px; font-size:13px; cursor:pointer; }
+  #backBtn:hover { background:#33334f; }
+
+  /* ===== エラー表示(日本語) ===== */
+  #err { position:fixed; inset:0; z-index:40; display:none; background:#000000dd;
+    padding:40px 20px; overflow:auto; }
+  #err .box { max-width:600px; margin:0 auto; background:#3a1a1a; border:1px solid #a55;
+    border-radius:12px; padding:20px; }
+  #err h2 { font-size:18px; color:#faa; margin-bottom:10px; }
+  #err p { font-size:14px; line-height:1.7; }
+  #err pre { background:#111; border-radius:6px; padding:10px; margin:10px 0;
+    font-size:11px; white-space:pre-wrap; word-break:break-all; color:#e99; }
+  #err button { background:#555; color:#fff; border:0; border-radius:8px;
+    padding:10px 24px; font-size:14px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="rev">rev 77 (2026-07-14)</div>
+
+<div id="menu">
+  <h1>🎮 絵文字ゲームエンジン</h1>
+  <div class="sub">あそぶゲームを選んでね(クリック/タップ)</div>
+  <div id="cards"></div>
+  <div id="nogames">
+    ゲームが1つも読み込めませんでした。<br>
+    games フォルダの中に ゲームのJSファイル があるか、<br>
+    このHTMLと同じ場所に games フォルダがあるか確認してください。
+  </div>
+</div>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+<button id="backBtn">← メニューへ</button>
+
+<div id="err">
+  <div class="box">
+    <h2>⚠ ゲームでエラーが起きました</h2>
+    <p>ゲームのプログラムに問題があります。下の内容をAIに貼ると直してもらえます。</p>
+    <pre id="errMsg"></pre>
+    <button onclick="EmojiEngine.backToMenu()">メニューにもどる</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   絵文字ゲームエンジン 本体 (rev 1)
+   - ゲームは games/*.js が EmojiEngine.register({...}) を呼んで登録する
+   - 描画は全部絵文字(Canvasの fillText)。論理画面は 960x540 固定
+   - 作り方の説明書: 同じフォルダの「ゲームの作り方.md」
+===================================================================== */
+(function(){
+"use strict";
+
+const W = 960, H = 540;
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+
+/* ---------- 画面サイズ合わせ(縦横比を保って最大化) ---------- */
+let dpr = 1;
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  cv.style.width  = Math.floor(W * scale) + "px";
+  cv.style.height = Math.floor(H * scale) + "px";
+  cv.width  = Math.floor(W * dpr);
+  cv.height = Math.floor(H * dpr);
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ---------- 入力(キーボード + マウス/タッチ共通) ---------- */
+const keys = new Set();       // 押しっぱなし
+const keysJust = new Set();   // このフレームで押された
+const pointer = { x: W/2, y: H/2, down: false, justDown: false };
+
+const KEYMAP = {  // 使いやすい別名
+  ArrowLeft:"left", KeyA:"left",  ArrowRight:"right", KeyD:"right",
+  ArrowUp:"up",   KeyW:"up",      ArrowDown:"down",   KeyS:"down",
+  Space:"action", Enter:"action", KeyZ:"action",
+};
+window.addEventListener("keydown", e => {
+  if (e.repeat) return;
+  keys.add(e.code); keysJust.add(e.code);
+  const a = KEYMAP[e.code];
+  if (a){ keys.add(a); keysJust.add(a); }
+  if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+});
+window.addEventListener("keyup", e => {
+  keys.delete(e.code);
+  const a = KEYMAP[e.code]; if (a) keys.delete(a);
+});
+function toLogical(e){
+  const r = cv.getBoundingClientRect();
+  pointer.x = (e.clientX - r.left) / r.width  * W;
+  pointer.y = (e.clientY - r.top)  / r.height * H;
+}
+cv.addEventListener("pointerdown", e => { toLogical(e); pointer.down = true; pointer.justDown = true; });
+window.addEventListener("pointermove", e => { if (document.getElementById("stage").style.display !== "none") toLogical(e); });
+window.addEventListener("pointerup",   () => { pointer.down = false; });
+window.addEventListener("pointercancel", () => { pointer.down = false; });
+
+/* ---------- オリジナル絵文字(重ね合わせ / 画像) ---------- */
+const sprites = {};  // 名前 → {type:"parts",parts:[...]} or {type:"img",img,ok}
+
+function defineEmoji(name, parts){
+  // parts: [{e:"🦖"}, {e:"🔥", dx:20, dy:-10, s:0.5, rot:0.3}, ...]
+  sprites[name] = { type:"parts", parts:parts };
+}
+function defineEmojiImage(name, src){
+  const img = new Image();
+  const rec = { type:"img", img:img, ok:false };
+  img.onload  = () => { rec.ok = true; };
+  img.onerror = () => { console.warn("絵文字画像が読み込めません: " + src); };
+  img.src = src;
+  sprites[name] = rec;
+}
+
+/* ---------- 効果音(小さなシンセ。ファイル不要) ---------- */
+let ac = null;
+function ensureAudio(){
+  if (!ac){
+    try { ac = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ ac = null; }
+  }
+  if (ac && ac.state === "suspended") ac.resume();
+}
+window.addEventListener("pointerdown", ensureAudio);
+window.addEventListener("keydown", ensureAudio);
+
+function tone(freq0, freq1, dur, type, vol){
+  if (!ac) return;
+  const t = ac.currentTime;
+  const o = ac.createOscillator(), gn = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(freq1,1), t + dur);
+  gn.gain.setValueAtTime(vol, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(gn); gn.connect(ac.destination);
+  o.start(t); o.stop(t + dur);
+}
+function noise(dur, vol){
+  if (!ac) return;
+  const n = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, n, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random()*2-1) * (1 - i/n);
+  const s = ac.createBufferSource(), gn = ac.createGain();
+  s.buffer = buf; gn.gain.value = vol;
+  s.connect(gn); gn.connect(ac.destination); s.start();
+}
+const SE = {
+  coin:  () => tone(900, 1600, 0.12, "square",   0.15),
+  jump:  () => tone(300,  800, 0.15, "sine",     0.2),
+  hit:   () => tone(400,   80, 0.2,  "sawtooth", 0.2),
+  boom:  () => noise(0.35, 0.3),
+  click: () => tone(700,  700, 0.05, "square",   0.1),
+  clear: () => { tone(600,1200,0.15,"square",0.15); setTimeout(()=>tone(900,1800,0.25,"square",0.15),120); },
+  ping:  () => { tone(2400,3000,0.05,"square",0.17); setTimeout(()=>tone(3000,1500,0.28,"triangle",0.14),30); },  // 「ピキーン」=弾を打ち落とした金属音
+  bounce:() => { tone(600,1700,0.08,"triangle",0.2); setTimeout(()=>tone(1700,650,0.2,"triangle",0.16),55); },   // 「ビヨーン」=跳ね返した(はねかえし玉)。上がって下がる弾む音
+  heal:  () => { tone(784,784,0.10,"triangle",0.14); setTimeout(()=>tone(1047,1047,0.10,"triangle",0.14),85); setTimeout(()=>tone(1319,1319,0.10,"triangle",0.15),170); setTimeout(()=>tone(1568,2200,0.32,"sine",0.13),255); },  // 「ホイミ」風=きらきら上昇+やわらか高音(回復)
+};
+
+/* ---------- BGM(内蔵シンセのループ。ファイル不要) ---------- */
+// パターンを差し替えれば別の曲にできる。0=休符。ゲームから g.bgm(true/false) で入/切
+let bgmTimer = null, bgmStep = 0, bgmPat = null;
+const BGM = {
+  // 戦闘BGM: Am系のオスティナート(16ステップ)+控えめメロ+軽いキック
+  battle: {
+    ms: 170,
+    bass: [110,0,110,0, 87.31,0,98,0, 110,0,110,0, 130.81,0,98,0],
+    mel:  [0,0,659.25,0, 0,0,523.25,0, 0,0,659.25,0, 783.99,0,659.25,587.33],
+    kick: i => i % 4 === 0,
+  },
+};
+function bgmStart(name){
+  ensureAudio();
+  bgmStop();
+  const p = BGM[name]; if (!p || !ac) return;
+  bgmPat = p; bgmStep = 0;
+  bgmTimer = setInterval(() => {
+    const n = p.bass.length, i = bgmStep % n;
+    const b = p.bass[i]; if (b) tone(b, b, 0.16, "triangle", 0.05);   // ベース
+    const m = p.mel[i];  if (m) tone(m, m, 0.14, "square",   0.028);  // メロ(控えめ)
+    if (p.kick && p.kick(i)) noise(0.03, 0.04);                        // 軽いキック
+    bgmStep++;
+  }, p.ms);
+}
+function bgmStop(){ if (bgmTimer){ clearInterval(bgmTimer); bgmTimer = null; bgmPat = null; } }
+
+/* ---------- ゲームに渡す道具箱 g ---------- */
+const g = {
+  W: W, H: H,
+  keys: keys,
+  pointer: pointer,
+  time: 0,           // ゲーム開始からの秒数
+
+  /* 押しっぱなし判定: g.key("left") など。別名: left/right/up/down/action */
+  key(name){ return keys.has(name); },
+  /* このフレームで押された瞬間だけ true */
+  pressed(name){ return keysJust.has(name); },
+  /* 十字入力を -1〜1 で返す */
+  stickX(){ return (keys.has("right")?1:0) - (keys.has("left")?1:0); },
+  stickY(){ return (keys.has("down")?1:0) - (keys.has("up")?1:0); },
+
+  /* 背景を塗る */
+  bg(color){ ctx.fillStyle = color || "#14141f"; ctx.fillRect(0,0,W,H); },
+
+  /* 絵文字を描く(オリジナル絵文字名もOK)
+     opt: {rot:回転(ラジアン), alpha:透明度0〜1, flipX:true で左右反転} */
+  emoji(e, x, y, size, opt){
+    size = size || 40; opt = opt || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (opt.rot)  ctx.rotate(opt.rot);
+    if (opt.flipX) ctx.scale(-1, 1);
+    if (opt.alpha !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, opt.alpha));
+    const sp = sprites[e];
+    if (sp && sp.type === "img"){
+      if (sp.ok) ctx.drawImage(sp.img, -size/2, -size/2, size, size);
+      else drawChar("❓", size);
+    } else if (sp && sp.type === "parts"){
+      for (const p of sp.parts){
+        ctx.save();
+        ctx.translate((p.dx||0) * size/100, (p.dy||0) * size/100);
+        if (p.rot) ctx.rotate(p.rot);
+        drawChar(p.e, size * (p.s !== undefined ? p.s : 1));
+        ctx.restore();
+      }
+    } else {
+      drawChar(e, size);
+    }
+    ctx.restore();
+  },
+
+  /* 文字を描く */
+  text(s, x, y, size, color, align){
+    ctx.save();
+    ctx.font = (size||24) + 'px "Segoe UI","Yu Gothic UI",sans-serif';
+    ctx.fillStyle = color || "#fff";
+    ctx.textAlign = align || "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s, x, y);
+    ctx.restore();
+  },
+
+  /* 四角(ゲージなどに) */
+  rect(x, y, w, h, color){
+    ctx.fillStyle = color || "#fff"; ctx.fillRect(x, y, w, h);
+  },
+
+  /* 当たり判定(円): a,b は {x,y,r} を持つもの */
+  hit(a, b){
+    const dx = a.x - b.x, dy = a.y - b.y, r = (a.r||20) + (b.r||20);
+    return dx*dx + dy*dy < r*r;
+  },
+  dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); },
+  clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); },
+  rand(a, b){ return a + Math.random() * (b - a); },
+  pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; },
+
+  /* 効果音: g.se("coin"|"jump"|"hit"|"boom"|"click"|"clear"|"ping"|"bounce"|"heal") */
+  se(name){ if (SE[name]) SE[name](); },
+  /* BGM: g.bgm("battle") で開始 / g.bgm(false) か g.bgm() で停止 */
+  bgm(name){ if (name) bgmStart(name); else bgmStop(); },
+
+  /* オリジナル絵文字の登録(ゲーム内からも呼べる) */
+  defineEmoji: defineEmoji,
+  defineEmojiImage: defineEmojiImage,
+};
+function drawChar(ch, size){
+  ctx.font = size + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(ch, 0, size * 0.04);  // 絵文字の見た目の中心に微調整
+}
+
+/* ---------- エンジン(登録・切替・ループ) ---------- */
+const games = [];
+let cur = null;       // 今動いているゲーム
+let rafId = 0, lastTs = 0;
+
+const EmojiEngine = {
+  register(game){
+    // 最低限の形チェック(壊れた登録は日本語で知らせる)
+    if (!game || !game.name || typeof game.update !== "function" || typeof game.draw !== "function"){
+      console.warn("ゲームの登録に失敗: name / update / draw が必要です", game);
+      return;
+    }
+    games.push(game);
+  },
+  defineEmoji: defineEmoji,
+  defineEmojiImage: defineEmojiImage,
+
+  start(id){
+    const game = games.find(x => x.id === id) || games[Math.max(0, id|0)];
+    if (!game) return;
+    document.getElementById("menu").style.display = "none";
+    document.getElementById("err").style.display = "none";
+    document.getElementById("stage").style.display = "flex";
+    document.getElementById("backBtn").style.display = "block";
+    cur = game;
+    g.time = 0;
+    keysJust.clear(); pointer.justDown = false;
+    try { if (game.init) game.init(g); }
+    catch(e){ showError(e); return; }
+    lastTs = 0;
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(frame);
+  },
+
+  backToMenu(){
+    cancelAnimationFrame(rafId);
+    bgmStop();   // メニューに戻ったらBGMを止める
+    cur = null;
+    document.getElementById("stage").style.display = "none";
+    document.getElementById("backBtn").style.display = "none";
+    document.getElementById("err").style.display = "none";
+    document.getElementById("menu").style.display = "block";
+  },
+};
+window.EmojiEngine = EmojiEngine;
+
+function showError(e){
+  cancelAnimationFrame(rafId);
+  document.getElementById("errMsg").textContent =
+    (cur ? "ゲーム: " + cur.name + "\n" : "") + (e && e.stack ? e.stack : String(e));
+  document.getElementById("err").style.display = "block";
+  console.error(e);
+}
+
+/* 1コマ分すすめる(描画と分離してあるのでテスト用にも呼べる) */
+function step(dt){
+  if (!cur) return;
+  g.time += dt;
+  try {
+    cur.update(g, dt);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    cur.draw(g);
+  } catch(e){ showError(e); return; }
+  keysJust.clear();
+  pointer.justDown = false;
+}
+function frame(ts){
+  rafId = requestAnimationFrame(frame);
+  if (!lastTs) lastTs = ts;
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);  // タブ復帰時の飛びを抑える
+  lastTs = ts;
+  step(dt);
+}
+
+/* ---------- メニュー生成(全スクリプト読込後) ---------- */
+window.addEventListener("load", () => {
+  const cards = document.getElementById("cards");
+  if (games.length === 0){
+    document.getElementById("nogames").style.display = "block";
+    return;
+  }
+  games.forEach((game, i) => {
+    const d = document.createElement("div");
+    d.className = "card";
+    d.innerHTML = '<div class="icon">' + (game.icon || "🎮") + '</div>' +
+                  '<div class="name">' + game.name + '</div>' +
+                  '<div class="desc">' + (game.desc || "") + '</div>';
+    d.addEventListener("click", () => { ensureAudio(); EmojiEngine.start(game.id !== undefined ? game.id : i); });
+    cards.appendChild(d);
+  });
+});
+document.getElementById("backBtn").addEventListener("click", () => EmojiEngine.backToMenu());
+window.addEventListener("keydown", e => { if (e.code === "Escape") EmojiEngine.backToMenu(); });
+
+/* ---------- テスト用の窓口(通常プレイでは使わない) ---------- */
+window.__dbg = {
+  games: () => games.map(x => ({ id:x.id, name:x.name })),
+  start: (id) => EmojiEngine.start(id),
+  tick:  (sec, n) => { const k = n || 1; for (let i=0;i<k;i++) step(sec || 1/60); },
+  press: (name) => { keys.add(name); keysJust.add(name); },
+  release: (name) => { keys.delete(name); },
+  state: () => cur && cur._state ? JSON.parse(JSON.stringify(cur._state)) : null,
+  raw:   () => cur ? cur._state : null,
+  current: () => cur ? cur.name : null,
+};
+})();
+</script>
+
+<!-- ▼ ゲームはここに1行ずつ足す(games フォルダにJSを置いて、その名前を書く) -->
+<script src="games/yokero.js"></script>
+<script src="games/coin.js"></script>
+<script src="games/shooting.js"></script>
+<script src="games/suramori.js"></script>
+<script src="games/kamehameha.js"></script>
+<script src="games/daisensha.js"></script>
+
+</body>
+</html>
