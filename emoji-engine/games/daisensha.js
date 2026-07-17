@@ -1,5 +1,5 @@
 /* =====================================================
-   サンプルゲーム6: 大戦車バトル (rev77: 1ラウンド1回の必殺技を追加)
+   サンプルゲーム6: 大戦車バトル (rev80: 玉の威力を敵味方共通に固定/守り遅く/ルカニ2倍/こおり延長/へび激化/ブーメラン8の字)
    参考: スラもり2/3 Rocket Slime の大戦車バトル画面(ユーザー提供スクショ)
    配置: 上画面=戦場(味方戦車 左 / 敵戦車 右 / HP数字+ゲージ / ダメージ数字)
         下画面=戦車の中(下のベルトから弾🪨が流れる → 拾って → 右の縦2門の砲へ投げる)
@@ -66,6 +66,8 @@
    rev50: 【玉の供給をDS版どおり滑り台方式に】ベルト常時4個→左上の滑り台(CHUTE)から一定間隔(SUPPLY_INTERVAL=[1.8,1.5,1.2]秒/ボスほど速く)で1個ドロップ→左下のたまり場(REST_X0/REST_DX、最大SUPPLY_MAX=5)に滑って溜まる→取りに行って右の砲へ運ぶ。拾っても即湧きしない=弾切れの緊張＆往復フェイズ。開始3個作り置き。滑走中は拾えない。相棒はプレイヤーぶんを1個残す(待機2個以上で取りに行く)。※重要: この機能は別チャットと同時実装して定数が二重宣言→構文エラーで壊れていたのを、当チャットが重複ブロックを削除して復旧・検証した(同時編集の事故)。
    rev51: 【球探しフィールドを広げる】DS版の広い部屋に寄せる。上の戦場TOP_H 258→204(BATTLE_Y148・やまなり軌道はそのまま=apex8<TOP_H-10で影響なし)、下の戦車の中BOXを y0 282→218・y1 528→536(高さ246→318px)に拡張。地面描画の開始も180に。広がったぶん要素を離す: やまなり砲y340→310・まっすぐ砲y452→466・たまり場REST_Y498→510・投げボタンy470→492。
    rev53: 【多部屋マップ+2Dスクロール】(ユーザー手描きマップ: たま部屋/エンジン部屋/大砲部屋を廊下でつなぐDS版戦車内部)。BOX(1部屋)を廃止し ROOMS[]（歩ける四角の集合=ワールド座標。この配列でマップの形が決まる）に。当たり判定 clampToRooms(近い部屋の縁へ寄せる=廊下で詰まらない)、カメラ updateCamera(自分に追従・WORLD外接矩形でクランプ)、S.cam を追加。移動/相棒/pointerをワールド座標＆部屋クランプに。描画は戦車内部を _ctx.clip(表示窓)+translate(-cam)で囲みワールド座標で部屋床・滑り台・大砲・玉・スライムを描く→restoreで画面固定UI(案内・投げボタン・**ミニマップ**=部屋全体+自分/相棒/砲/玉/視野枠)。CHUTE/REST/CANNONをワールド座標へ移設(たま部屋/大砲部屋)、開始位置は左上たま部屋。※ctxは document.querySelector('#cv') で取得(engineと同一)。★形の微調整はROOMS配列と要素座標(定数)を編集するだけ=実機を見て寄せていく。
+   rev79: 【被弾を穏やかに＋効果音とBGMの音量バランス(ユーザー「効果音がBGMに対してでかすぎ／岩で25・スピード玉で8食らう」)】(1)敵の威力enemyDmg 18/22/20→12/13/14(全ラウンド)。玉のdmgMultは不変。敵弾ダメージ=enemyDmg×玉dmgMult=岩12〜14・速3.6〜4.2に(被弾25/8→穏やかに)。※プレイヤーの玉の威力(DMG20×dmgMult=岩20・速6)は不変。(2)音量: BGMを上げ(bass0.05→0.09・mel0.028→0.05・kick0.04→0.06)、頻繁な効果音を下げ(jump0.2→0.13・hit0.2→0.16・boom0.3→0.2)=効果音がBGMを潰さないように。※engine(emoji-engine.html)側の変更。
+   rev78: 【3ステージ目(ボス)を弱く＋投げをスラもり風の"進行方向ぽいっと"に】(ユーザー「3ステージ目強すぎ・玉の攻撃力は変えないで／投げボタンでスラもり風に進行方向へぽいっと・要らない回復玉を捨てたい」)。(1)ボスだけ弱く: enemyDmg 26→20・fireInterval 1.5→1.9(玉のdmgMultは不変=攻撃力いじらず敵側だけ)。(2)投げをp.face(進行方向)基準に: 進行方向の先(内積>0.2)にLOAD_RANGE以内の砲があればそこへ装填、なければ進行方向へ投げて"捨てる"(discardトス=着弾で発射せず消える)。=要らない回復玉等を処分できる。p.faceは移動時に更新・reset/startRoundで右初期化。案内文更新。※旧throwBall(最寄り砲へ自動装填・遠いと近づけ)は廃止。
    rev76: 【いがぐりを遅く＋メタルの動きを自然化】(1)🌰いがぐり spd 0.7→0.5(遅く)。(2)★メタルの fly を「往復パトロール(不自然)」→「戦車から前へまっすぐ飛んでいく」に変更(METAL_FLY_SPD70)。敵弾に当たれば反射して落下、反射せず敵陣近く(METAL_MAXX430→740)まで飛び切ったらそこで落下。=止まる/往復せず、ちゃんと飛んでから戻る自然な動きに。※勇者の剣・メタルキングの盾(1バトル1回)はCodexが別途追加。
    rev75: 【新玉6種】🌰いがぐり(低速・低威力・耐久2)、🎭モシャス(相殺した敵弾の見た目/specialを一度だけコピー)、🧿ルカニ(次の1発だけ1.4倍)、🚀ロケット(鈍足から加速)、🐍へび(蛇行して敵前で収束)、🪃ブーメラン(命中後に帰還し帰路で敵弾を1発迎撃)を追加。複雑な5種は敵抽選から除外。
    rev74: 【バグ2＋調整3(ユーザー)】(1)★ミラー反射のバグ修正: reflectEnemyToMy/reflectMyToEnemy が やまなり弾の縦速度を残し"変な方向へ飛んで地面で消える"→まっすぐ右/左の直線(90*SPEED_SCALE)で返す(絵文字・威力は元のまま)。(2)★メタルが"中心で止まる"対策: fly中に前で止まって待つ→METAL_LAUNCH+16〜METAL_MAXXを62px/秒でゆっくり往復パトロール(反射した時だけ落下は維持)。relaunchでdirリセット。(3)ボスの弾速が速すぎ不平等→shotSpeed 150→125。(4)装填(供給)速すぎ→SUPPLY_INTERVAL 1.0/0.8/0.6→1.6/1.3/1.0。(5)主人公の足 350→400。※玉6種(ルカニ/いがぐり/モシャス/ロケット/へび/ブーメラン)はCodexが別途追加。
@@ -209,9 +211,10 @@ const WAYPOINTS_METAL = [        // rev69: 入り口→通路→大砲(プレイ
 
 // HPは数字が見えるよう大きめの値に。ダメージも「10」「20」と出る
 const ROUNDS = [
-  { name: "つの団",   enemyHp: 100, fireInterval: 2.8, shotSpeed: 100, enemyDmg: 18 },  // rev61: 敵の弾が少なすぎて緊迫感がない→発射間隔を短く(5.0/4.0/3.0→2.8/2.1/1.5)。弾速up(rev60)で横断が速く画面に溜まりにくいので数を増やせる
-  { name: "きば団",   enemyHp: 150, fireInterval: 2.1, shotSpeed: 125, enemyDmg: 22 },
-  { name: "ボス戦車", enemyHp: 200, fireInterval: 1.5, shotSpeed: 125, enemyDmg: 26 },   // rev74: ボスの弾速が速すぎ不平等→150→125(きば団と同じ。難しさはHP/連射で出す)
+  // rev79: 被弾が大きすぎ(岩で25・スピード玉で8食らう)→敵の威力enemyDmgを下げて数字を穏やかに(玉のdmgMultは不変)。敵弾ダメージ=enemyDmg×玉のdmgMult(岩1.0/速0.3)。目安 岩12〜14・速3.6〜4.2
+  { name: "つの団",   enemyHp: 100, fireInterval: 2.8, shotSpeed: 100, enemyDmg: 12 },  // 岩12・速3.6
+  { name: "きば団",   enemyHp: 150, fireInterval: 2.1, shotSpeed: 125, enemyDmg: 13 },  // 岩13・速3.9
+  { name: "ボス戦車", enemyHp: 200, fireInterval: 1.9, shotSpeed: 125, enemyDmg: 14 },  // 岩14・速4.2(rev78で威力26→20、rev79でさらに14へ)
 ];
 const ENEMY_ARC = { vx: -80, vy: -65 };   // rev29: 敵のやまなり弾。ARC_GRAV=16でBATTLE_Yへ戻り味方戦車に命中(頂点y≒16で画面内)
 const DMG_STRAIGHT = 20, DMG_ARC = 20;   // rev49: まっすぐ/やまなりの威力差をなくす(両方20)。玉のdmgMultを掛ける基準値
@@ -222,7 +225,7 @@ const SPEED_SCALE = 0.60;  // rev60: 弾速の全体倍率を少し速く(0.40�
 // spd=速さ倍率(基準 まっすぐ55/やまなり85) / dmgMult=威力倍率(基準10/20) / hp=耐久(敵弾を何回受け止めて生き残るか) / special=特殊 / weight=出やすさ
 const BALL_TYPES = [
   { key: "normal", e: "🪨", spd: 1.0,  dmgMult: 1.0, hp: 1, special: null,      weight: 44, label: "🪨ふつう" },
-  { key: "guard",  e: "🛡️", spd: 0.45, dmgMult: 0.0, hp: 3, special: null,      weight: 8,  label: "🛡️守り3発" },   // rev46: 出現率↓(16→8)
+  { key: "guard",  e: "🛡️", spd: 0.35, dmgMult: 0.0, hp: 3, special: null,      weight: 8,  label: "🛡️守り3発(遅い)" },   // rev46: 出現率↓(16→8) / rev80: もっと遅く(0.45→0.35)
   { key: "swift",  e: "⚡", spd: 2.3,  dmgMult: 0.3, hp: 1, special: null,      weight: 20, label: "⚡速い" },   // rev73: 攻撃力高すぎ→dmgMult 0.5→0.3(速いぶん弱い玉に)
   { key: "iron",   e: "⚙️", spd: 0.40, dmgMult: 3.0, hp: 1, special: null,      weight: 4,  label: "⚙️重い一撃" },  // rev43:重いロマン砲 / rev46:出現率↓(8→4)
   { key: "bomb",   e: "💣", spd: 0.75, dmgMult: 1.0, hp: 1, special: "splash",  weight: 6,  label: "💣ばくだん" },
@@ -235,10 +238,10 @@ const BALL_TYPES = [
   // rev75: 新玉6種。強すぎ防止のため低〜中威力・低weight。複雑なspecialは下のENEMY_BALL_TYPESで敵抽選から外す
   { key: "chestnut",  e: "🌰", spd: 0.5,  dmgMult: 0.7,  hp: 2, special: null,        weight: 6, label: "🌰いがぐり(攻守万能・耐久2・ゆっくり)" },   // rev76: 速度 0.7→0.5(遅く)
   { key: "copy",      e: "🎭", spd: 0.8,  dmgMult: 0.45, hp: 1, special: "copy",      weight: 3, label: "🎭モシャス(敵弾を一度だけコピー)" },
-  { key: "sap",       e: "🧿", spd: 0.55, dmgMult: 0.25, hp: 1, special: "sap",       weight: 3, label: "🧿ルカニ(次の一発を1.4倍)" },
+  { key: "sap",       e: "🧿", spd: 0.55, dmgMult: 0.25, hp: 1, special: "sap",       weight: 3, label: "🧿ルカニ(当てると敵が次に食らう1発が2倍)" },
   { key: "rocket",    e: "🚀", spd: 1.8,  dmgMult: 0.8,  hp: 1, special: "accel",     weight: 4, label: "🚀ロケット(徐々に加速)" },
   { key: "snake",     e: "🐍", spd: 0.8,  dmgMult: 0.7,  hp: 1, special: "snake",     weight: 4, label: "🐍へび(蛇行して収束)" },
-  { key: "boomerang", e: "🪃", spd: 0.65, dmgMult: 0.6,  hp: 1, special: "boomerang", weight: 3, label: "🪃ブーメラン(命中後に帰還)" },
+  { key: "boomerang", e: "🪃", spd: 0.65, dmgMult: 0.6,  hp: 1, special: "boomerang", weight: 3, label: "🪃ブーメラン(8の字に飛ぶ)" },
 ];
 const BALL_DEF = {}; BALL_TYPES.forEach(t => { BALL_DEF[t.key] = t; });
 const BALL_WEIGHT = BALL_TYPES.reduce((s, t) => s + t.weight, 0);
@@ -248,11 +251,12 @@ const SPLASH_R = 130;     // ばくだん玉が周りの敵弾を巻き込む半
 const HEAL_AMOUNT = 22;   // 🌿かいふく: 自分の戦車のHP回復量
 const POISON_DPS = 6;     // ☠️どく: 毒の1秒あたりダメージ
 const POISON_TIME = 4;    // ☠️どく: 毒の持続秒数(命中でこの長さにリセット)
-const FREEZE_DELAY = 3.0; // ❄️こおり: 命中したとき敵の次の発射を遅らせる秒数
+const FREEZE_DELAY = 6.0; // ❄️こおり: 命中したとき敵の次の発射を遅らせる秒数(rev80: 3→6でもっと止める)
 const SAP_TIME = 5.0;     // 🧿ルカニ: 次弾被ダメージ増加の有効時間(非重複)
-const SAP_MULT = 1.4, SAP_MAX_MULT = 1.4; // 🧿ルカニ: 次の1発だけ被ダメージ1.4倍。増幅倍率は1.4を上限に固定
+const SAP_MULT = 2.0, SAP_MAX_MULT = 2.0; // 🧿ルカニ: 当てた相手が次に受ける1発だけ2倍(rev80: 1.4→2.0)
 const ROCKET_START = 0.25, ROCKET_ACCEL = 0.45; // 🚀: 最高速の25%から毎秒45%ずつ加速。最高spd1.8は⚡swift2.3未満
-const SNAKE_AMP = 18, SNAKE_WAVE = 0.075, SNAKE_CONVERGE = 180; // 🐍: 蛇行幅・波長・敵前で収束する距離
+const SNAKE_AMP = 40, SNAKE_WAVE = 0.09, SNAKE_CONVERGE = 160; // 🐍: 蛇行幅・波長・敵前で収束(rev80: 幅18→40・波長0.075→0.09でもっと激しく)
+const BOOM_AMP = 32, BOOM_FREQ = 6.0, BOOM_FWD = 70; // 🪃rev80: 8の字に動きながら前進(帰還・迎撃は廃止)。振れ幅・周期・前進速度
 // rev43: 玉の「強さ」は敵ごと(つの団=1/きば団=2/ボス=3)。ダメージは round別 enemyDmg、見た目は敵が進むほど玉を大きく(下のENEMY_BALL_SIZE)
 
 let S;
@@ -264,8 +268,9 @@ function pickBallType(g){
   return BALL_TYPES[0];
 }
 // rev75: 敵は従来の単純玉＋いがぐりだけ。敵側で破綻しうる複雑な新specialと、従来どおり回復を抽選から外す
-const ENEMY_EXCLUDED_SPECIALS = new Set(["heal", "copy", "sap", "accel", "snake", "boomerang"]);
-const ENEMY_BALL_TYPES = BALL_TYPES.filter(t => !ENEMY_EXCLUDED_SPECIALS.has(t.special));
+// rev80: 敵が撃たない玉(キーで指定)。薬草(回復)・複雑special・特大威力(重い一撃/でか玉)は敵は使わない
+const ENEMY_EXCLUDED_KEYS = new Set(["heal", "copy", "sap", "rocket", "snake", "boomerang", "iron", "big"]);
+const ENEMY_BALL_TYPES = BALL_TYPES.filter(t => !ENEMY_EXCLUDED_KEYS.has(t.key));
 const ENEMY_BALL_WEIGHT = ENEMY_BALL_TYPES.reduce((s, t) => s + t.weight, 0);
 function pickEnemyBall(g){
   let r = g.rand(0, ENEMY_BALL_WEIGHT);
@@ -337,7 +342,7 @@ function startRound(g, idx){
   S.balls = []; for (let sta = 0; sta < SUPPLIES.length; sta++) for (let slot = 0; slot < 2; slot++) S.balls.push(supplyBall(g, sta, slot, true));
   S.supplyTimer = SUPPLY_INTERVAL[idx] || 2.5; S.supplyIdx = 0;   // rev54: 供給場所を順番に回すための番号
   S.myShots = []; S.enemyShots = []; S.popups = []; S.tosses = [];
-  S.player.carry = []; S.player.x = 250; S.player.y = 250;   // rev53: 左上「たま」部屋からスタート
+  S.player.carry = []; S.player.x = 250; S.player.y = 250; S.player.face = { dx: 1, dy: 0 };   // rev53/78: 左上「たま」部屋からスタート・初期向きは右
   // rev56: 相棒2体は開始時から玉を1個持って出発(=最初のコマから大砲へ運び始める。突っ立ち時間ゼロ)
   S.allies = ALLY_DEFS.map(d => ({ x: d.x0, y: d.y0, r: 22, carry: [{ e: BALL_DEF.normal.e, bt: "normal" }], cd: 0, wp: 0 }));
   S.metal = { mode: "fly", x: METAL_LAUNCH.x, y: BATTLE_Y, vx: 0, vy: 0, flyT: 0, wp: 0, reflected: false };   // rev64/65/69: メタル反射役(開始は発射から)
@@ -353,7 +358,7 @@ function startRound(g, idx){
 function reset(g){
   S = {
     scene: "title", round: 0,
-    player: { x: 250, y: 250, r: 22, carry: [] },
+    player: { x: 250, y: 250, r: 22, carry: [], face: { dx: 1, dy: 0 } },   // rev78: face=進行方向(投げる向き)
     allies: ALLY_DEFS.map(d => ({ x: d.x0, y: d.y0, r: 22, carry: [], cd: 0, wp: 0 })),   // rev48/54/55: 味方NPC=相棒スライム2体(wp=巡回路の現在地)
     metal: { mode: "fly", x: METAL_LAUNCH.x, y: BATTLE_Y, vx: 0, vy: 0, flyT: 0, wp: 0, reflected: false },   // rev64/65/69: メタル反射役
     explosions: [],   // rev66: ばくだんの爆破エフェクト
@@ -479,19 +484,27 @@ function updateMetal(g, dt){
   }
 }
 
-// 持っている弾を「近くの砲へ投げ入れる」。砲が遠いと投げられない=砲まで運ぶ必要(rev25)
+// rev78: 投げは「スラもり風=進行方向へぽいっと」。進行方向の先(内積>0.2)に砲がLOAD_RANGE以内であればその砲へ装填、なければ進行方向へ投げて"捨てる"(要らない回復玉などを処分できる)
 function throwBall(g){
   const p = S.player;
   if (p.carry.length === 0 || S.fireCd > 0) return;
-  const ds = Math.hypot(p.x - CANNON_S.x, p.y - CANNON_S.y);
-  const da = Math.hypot(p.x - CANNON_A.x, p.y - CANNON_A.y);
-  const cannon = da <= ds ? CANNON_A : CANNON_S;
-  if (Math.min(ds, da) > LOAD_RANGE){ S.tooFar = 0.6; return; }   // 遠すぎ=投げられない(「近づけ」表示)
+  const f = (p.face && (p.face.dx || p.face.dy)) ? p.face : { dx: 1, dy: 0 };   // 進行方向(なければ右)
+  // 進行方向の先にある砲を探す(向いている＆射程内)。両砲のうち近い方
+  let target = null, tType = null, tBest = 1e9;
+  for (const cn of [CANNON_A, CANNON_S]){
+    const ax = cn.x - p.x, ay = cn.y - p.y, d = Math.hypot(ax, ay) || 1;
+    if (d <= LOAD_RANGE && (ax/d * f.dx + ay/d * f.dy) > 0.2 && d < tBest){ target = cn; tType = cn.type; tBest = d; }
+  }
   const held = p.carry.pop();   // rev40: 投げる玉の種類を持ち回す
-  // 弾がスライムから砲へ山なりに飛んでいく(投げモーション)。砲に届いたら発射。rev28で落ち着いた速さに
-  S.tosses.push({ x: p.x, y: p.y - 30, x0: p.x, y0: p.y - 30, cx: cannon.x, cy: cannon.y,
-                  t: 0, dur: 0.20, type: cannon.type, e: held.e, bt: held.bt });
-  S.fireCd = 0.06;   // rev27: 連投の待ち時間を大幅短縮(0.45→0.06)=連打でどんどん投げられる(人の連打を取りこぼさない)
+  if (target){
+    // 砲へ装填(山なりトス→着弾で発射)
+    S.tosses.push({ x: p.x, y: p.y - 30, x0: p.x, y0: p.y - 30, cx: target.x, cy: target.y, t: 0, dur: 0.20, type: tType, e: held.e, bt: held.bt });
+  } else {
+    // 進行方向へぽいっと投げ捨てる(砲に入らない=消える)。要らない玉の処分に使える
+    const dist = 190;
+    S.tosses.push({ x: p.x, y: p.y - 30, x0: p.x, y0: p.y - 30, cx: p.x + f.dx * dist, cy: p.y + f.dy * dist, t: 0, dur: 0.28, e: held.e, bt: held.bt, discard: true });
+  }
+  S.fireCd = 0.06;   // rev27: 連投の待ち時間を短く=連打でどんどん投げられる
   g.se("jump");
 }
 
@@ -561,6 +574,7 @@ EmojiEngine.register({
     }
     const len = Math.hypot(dx, dy);
     if (len > 0){
+      p.face = { dx: dx/len, dy: dy/len };   // rev78: 進行方向(投げる向きに使う)。止まっても最後の向きを保つ
       const c = clampToRooms(p.x + dx/len * speed * dt, p.y + dy/len * speed * dt, 14);   // rev53: 部屋の中だけ動ける
       p.x = c.x; p.y = c.y;
     }
@@ -587,7 +601,7 @@ EmojiEngine.register({
       const pr = Math.min(t.t / t.dur, 1);
       t.x = t.x0 + (t.cx - t.x0) * pr;
       t.y = t.y0 + (t.cy - t.y0) * pr - 60 * Math.sin(pr * Math.PI);
-      if (t.t >= t.dur){ t.done = true; fireCannon(g, t.type, t.cx, t.cy, t.bt, t.ally); }
+      if (t.t >= t.dur){ t.done = true; if (!t.discard) fireCannon(g, t.type, t.cx, t.cy, t.bt, t.ally); }   // rev78: discard=進行方向へ投げ捨て(砲に入れず消える)
     }
     S.tosses = S.tosses.filter(t => !t.done);
 
@@ -617,31 +631,36 @@ EmojiEngine.register({
 
     // 自分の弾: 敵戦車に当たったらHPを削る + ダメージ数字
     for (const s of S.myShots){
-      // rev75: 🚀は軌道上の時間だけを徐々に速めるため、やまなりの着弾点を保ったまま加速する
-      let moveDt = dt;
-      if (s.special === "accel"){
-        s.accelScale = Math.min(1, (s.accelScale || ROCKET_START) + ROCKET_ACCEL * dt);
-        moveDt *= s.accelScale;
-      }
-      s.x += s.vx * moveDt;
-      if (s.type === "arc"){
-        s.vy += (s.grav || ARC_GRAV) * moveDt;
+      if (s.special === "boomerang"){
+        // rev80: 🪃は中心を前進させつつ、その周りを8の字(∞)に回りながら敵へ向かう。帰還・迎撃は廃止
+        s.boomT = (s.boomT || 0) + dt;
+        s.boomBaseX = (s.boomBaseX == null ? s.x : s.boomBaseX) + BOOM_FWD * dt;
+        s.x = s.boomBaseX + BOOM_AMP * Math.sin(2 * s.boomT * BOOM_FREQ);   // 横は倍の周期→8の字
+        s.y = BATTLE_Y + BOOM_AMP * Math.sin(s.boomT * BOOM_FREQ);          // 縦
+      } else {
+        // rev75: 🚀は軌道上の時間だけを徐々に速めるため、やまなりの着弾点を保ったまま加速する
+        let moveDt = dt;
+        if (s.special === "accel"){
+          s.accelScale = Math.min(1, (s.accelScale || ROCKET_START) + ROCKET_ACCEL * dt);
+          moveDt *= s.accelScale;
+        }
+        s.x += s.vx * moveDt;
+        if (s.type === "arc"){
+          s.vy += (s.grav || ARC_GRAV) * moveDt;
+          if (s.special === "snake"){
+            s.pathY += s.vy * moveDt;
+          } else {
+            s.y += s.vy * moveDt;
+          }
+        }
+        // 🐍は基準軌道(pathY)の上下を蛇行し、敵戦車の手前SNAKE_CONVERGE pxで中央へ絞る
         if (s.special === "snake"){
-          s.pathY += s.vy * moveDt;
-        } else {
-          s.y += s.vy * moveDt;
+          const fade = g_clamp((ENEMY_X - 70 - s.x) / SNAKE_CONVERGE, 0, 1);
+          s.y = s.pathY + Math.sin((s.x - MY_TANK.x) * SNAKE_WAVE) * SNAKE_AMP * fade;
         }
       }
-      // 🐍は基準軌道(pathY)の上下を蛇行し、敵戦車の手前SNAKE_CONVERGE pxで中央へ絞る
-      if (s.special === "snake"){
-        const fade = g_clamp((ENEMY_X - 70 - s.x) / SNAKE_CONVERGE, 0, 1);
-        s.y = s.pathY + Math.sin((s.x - MY_TANK.x) * SNAKE_WAVE) * SNAKE_AMP * fade;
-      }
-      // 🪃帰還中は砲口付近で回収。敵戦車への再命中は下の!s.returningで禁止
-      if (s.returning && s.x <= MY_TANK.x + 36) s.dead = true;
-      if (!s.dead && !s.returning && s.x > ENEMY_X - 34){
-        const boomerang = s.special === "boomerang";
-        s.dead = !boomerang;
+      if (!s.dead && s.x > ENEMY_X - 34){
+        s.dead = true;
         if (s.special === "splash") splashShots(S.enemyShots, s.x);   // ばくだんは敵の手前でも炸裂
         if (s.dmg > 0){
           // 既にルカニ中なら今回の1発だけ1.4倍(上限もSAP_MULT)。この命中で必ず消費する
@@ -657,22 +676,17 @@ EmojiEngine.register({
           if (s.special === "freeze"){ S.enemyTimer += FREEZE_DELAY; popup(ENEMY_X + 24, 74, "こおり!", "#7fd4ff"); }
           if (s.special === "sap"){ S.enemySapPending = true; S.enemySapTime = SAP_TIME; popup(ENEMY_X + 24, 74, "ルカニ!", "#9d8cff"); }
         }
-        if (boomerang){
-          // 命中後は直線で撃った側へ戻る。帰路では敵戦車判定を行わず、下の専用処理で敵弾を一発だけ落とす
-          s.returning = true; s.returnHit = false; s.type = "straight"; s.y = BATTLE_Y; s.pathY = BATTLE_Y;
-          s.vx = -Math.max(Math.abs(s.vx), 42 * SPEED_SCALE); s.vy = 0; s.grav = 0;
-        }
       }
-      if (!s.dead && s.y > TOP_H - 10) s.dead = true;   // やまなりが届かず落ちた
+      if (!s.dead && s.special !== "boomerang" && s.y > TOP_H - 10) s.dead = true;   // やまなりが届かず落ちた(🪃は上下に振れるので除外)
     }
     // 敵の発射(まっすぐ弾🔴 と やまなり弾🟠 を撃ち分ける=同じ種類の砲でしか相殺できない駆け引き)
     S.enemyTimer -= dt;
     if (S.enemyTimer <= 0){
       S.enemyTimer = ROUNDS[S.round].fireInterval;
-      // rev75: 敵は従来の単純玉＋🌰だけ。速さ/耐久/specialは玉ごと、威力はenemyDmg×dmgMult(倍率上限1.5)
+      // rev80【大原則】玉の威力は敵味方共通・ステージで変化なし。敵弾も 基本威力×dmgMult(味方と同じ計算)
       const eb = pickEnemyBall(g);
       const ek = eb.spd * SPEED_SCALE;   // 玉の速さ×全体倍率
-      const edmg = Math.round(ROUNDS[S.round].enemyDmg * Math.min(eb.dmgMult, 1.5));
+      const edmg = Math.round(DMG_STRAIGHT * eb.dmgMult);
       if (g.rand(0, 1) < 0.5){
         // やまなり弾: 高く弧を描いて味方の低いまっすぐ弾を越える。速さ倍率ekでも vx/vy*ek・grav*ek^2 で着弾点(味方の高さ)を保つ
         S.enemyShots.push({ x: ENEMY_X - 30, y: BATTLE_Y, vx: ENEMY_ARC.vx * ek, vy: ENEMY_ARC.vy * ek, grav: ARC_GRAV * ek * ek, type: "arc", r: 13, e: eb.e, hp: eb.hp, dmg: edmg, special: eb.special });
@@ -696,19 +710,10 @@ EmojiEngine.register({
       }
       if (!s.dead && s.type === "arc" && s.y > TOP_H - 10) s.dead = true;   // 万一届かず落ちたら消す
     }
-    // rev75: 🪃の帰り道は軌道種を問わず相手弾を一発だけ打ち落とし、ブーメラン自身は進み続ける
-    for (const a of S.myShots){
-      if (a.dead || !a.returning || a.returnHit) continue;
-      for (const b of S.enemyShots){
-        if (!b.dead && Math.abs(a.x - b.x) < 24 && Math.abs(a.y - b.y) < 30){
-          b.dead = true; a.returnHit = true; g.se("ping"); break;
-        }
-      }
-    }
     // 相殺: 同じ種類の弾どうしだけ(rev37の撃ち分けの根幹)。rev44: 敵も自分と同じ玉を使うので、双方の耐久(hp)と特殊(ばくだん=範囲/はねかえし=返す)を対称に処理。
     const spawnedMy = [], spawnedEnemy = [];
     for (const a of S.myShots){
-      if (a.dead || a.returning) continue;   // rev75: 帰還ブーメランは専用処理済み。通常相殺で消耗・多重迎撃させない
+      if (a.dead) continue;
       for (const b of S.enemyShots){
         if (b.dead) continue;
         if (a.type === b.type && Math.abs(a.x - b.x) < 22 && Math.abs(a.y - b.y) < 28){
@@ -848,7 +853,10 @@ EmojiEngine.register({
 
     // 弾(飛翔中): 色分けはやめ、向きで敵味方が分かる(右=自分/左=敵)。まっすぐ/やまなりは軌道(低い直線/高い弧)で分かる
     // 自分の弾=投げた玉そのままの絵文字
-    for (const s of S.myShots) g.emoji(s.e || (s.type === "arc" ? "🟦" : "🔵"), s.x, s.y, 30);
+    for (const s of S.myShots){
+      if (s.special === "boomerang") g.emoji(s.e, s.x, s.y, 30, { rot: g.time * 12 });   // rev80: くるくる回して8の字を強調
+      else g.emoji(s.e || (s.type === "arc" ? "🟦" : "🔵"), s.x, s.y, 30);
+    }
     // 敵の弾=自分と同じ玉(左へ飛ぶ)。rev44: 敵の玉は少し大きめ＋敵が進むほど大きい(34/38/42)=向きと大きさで味方(30)と区別＆強い敵ほど大きい玉
     const eSize = 34 + S.round * 4;
     for (const s of S.enemyShots) g.emoji(s.e || "⚫", s.x, s.y, eSize);
@@ -922,7 +930,7 @@ EmojiEngine.register({
 
     // 画面固定UI(プレイ中のみ): 案内・なげるボタン・ミニマップ
     if (S.scene === "play"){
-      g.text(p.carry.length > 0 ? ("弾を " + p.carry.length + "/3 → 大砲部屋まで運んで投げろ!") : "左上の「たま」部屋で玉を拾おう",
+      g.text(p.carry.length > 0 ? ("弾 " + p.carry.length + "/3 → 大砲に向かって投げると装填／向いてる方へ投げると捨てる") : "左上の「たま」部屋で玉を拾おう",
              g.W/2, VIEW_TOP + 16, 17, p.carry.length > 0 ? "#ffe08a" : "#cfe", "center");
       g.emoji("⚪", THROW_BTN.x, THROW_BTN.y, THROW_BTN.r * 2, { alpha: 0.35 });
       g.emoji("👊", THROW_BTN.x, THROW_BTN.y - 8, 34); g.text("なげる", THROW_BTN.x, THROW_BTN.y + 26, 13, "#fff");
