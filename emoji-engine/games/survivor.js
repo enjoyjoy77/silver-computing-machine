@@ -97,11 +97,11 @@ const ENEMY_TYPES = {
   },
   ogre: {
     emoji: "👹",
-    size: 62,
-    r: 27,
-    hp: 30,
-    speed: 44,
-    xp: 5,
+    size: 72,
+    r: 30,
+    hp: 55,
+    speed: 40,
+    xp: 7,
   },
 };
 
@@ -1711,7 +1711,7 @@ function updatePlay(g, dt){
 
   if (
     !S.bossSpawned &&
-    S.elapsed >= 55
+    S.elapsed >= 40
   ){
     spawnBoss(g);
   }
@@ -2707,7 +2707,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev2",
+      "rev3",
       g.W - 8,
       14,
       12,

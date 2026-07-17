@@ -270,7 +270,9 @@ const g = {
   /* 文字を描く */
   text(s, x, y, size, color, align){
     ctx.save();
-    ctx.font = (size||24) + 'px "Segoe UI","Yu Gothic UI",sans-serif';
+    const font = (size||24) + 'px "Segoe UI","Yu Gothic UI",sans-serif';
+    ctx.font = font;
+    lastCharFont = font;  // drawChar側のfontキャッシュとctx.fontの実体を必ず一致させる(ずれると絵文字が字体で描かれ小さく見える)
     ctx.fillStyle = color || "#fff";
     ctx.textAlign = align || "center";
     ctx.textBaseline = "middle";
