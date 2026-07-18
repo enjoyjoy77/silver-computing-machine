@@ -294,6 +294,15 @@ const STAGE4_ENEMY_TYPES = {
   },
 };
 
+/* EXの連続ボスは毎回この中からランダムに選ぶ(いろんな見た目のボスが出るように) */
+const EX_BOSS_POOL = [
+  MIDBOSS_TYPE,
+  STAGE1_BOSS_TYPE,
+  STAGE2_BOSS_TYPE,
+  STAGE3_BOSS_TYPE,
+  STAGE4_BOSS_TYPE,
+];
+
 const ENEMY_CAP = 45;
 const SHOT_CAP = 60;
 
@@ -747,7 +756,7 @@ function spawnMidboss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "mid",
   });
 
@@ -787,7 +796,7 @@ function spawnStage1Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "stage1",
   });
 
@@ -828,7 +837,7 @@ function spawnStage2Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "stage2",
   });
 
@@ -896,7 +905,7 @@ function spawnStage3Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "stage3",
   });
 
@@ -964,7 +973,7 @@ function spawnStage4Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "stage4",
   });
 
@@ -1011,7 +1020,7 @@ function enterStage4(g){
 
 function enterExStage(g){
   S.stage = 5;
-  S.exBossTimer = 45;
+  S.exBossTimer = 25;
 
   addFloater(
     g.W / 2,
@@ -1042,18 +1051,20 @@ function spawnExBoss(g){
   const scale =
     1 + S.exBossCount * 0.35;
 
+  const base = g.pick(EX_BOSS_POOL);
+
   S.enemies.push({
     id: ++S.enemyId,
     x: g.W / 2,
     y: 130,
-    r: STAGE3_BOSS_TYPE.r,
-    emoji: STAGE3_BOSS_TYPE.emoji,
-    size: STAGE3_BOSS_TYPE.size,
-    hp: STAGE3_BOSS_TYPE.hp * scale,
-    maxHp: STAGE3_BOSS_TYPE.hp * scale,
-    speed: STAGE3_BOSS_TYPE.speed *
+    r: base.r,
+    emoji: base.emoji,
+    size: base.size,
+    hp: base.hp * scale,
+    maxHp: base.hp * scale,
+    speed: base.speed *
       (1 + S.exBossCount * 0.06),
-    xp: STAGE3_BOSS_TYPE.xp * scale,
+    xp: base.xp * scale,
     slow: 0,
     orbitCooldown: 0,
     fieldCooldown: 0,
@@ -1063,7 +1074,7 @@ function spawnExBoss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.4,
+    attackTimer: 2.0,
     bossKind: "ex",
   });
 
@@ -2203,43 +2214,103 @@ function updateBossAttacks(g, dt){
       continue;
     }
 
-    enemy.attackTimer = 2.4;
+    enemy.attackTimer = 2.0;
 
     const baseAngle = Math.atan2(
       S.player.y - enemy.y,
       S.player.x - enemy.x
     );
 
-    const shotCount = 5;
+    const pattern = g.rand(0, 1);
 
-    for (let i = 0; i < shotCount; i++){
-      if (S.enemyShots.length >= 40){
-        break;
+    if (pattern < 0.4){
+      const shotCount = 5;
+
+      for (let i = 0; i < shotCount; i++){
+        if (S.enemyShots.length >= 40){
+          break;
+        }
+
+        const spread =
+          (i - (shotCount - 1) / 2) * 0.22;
+        const angle = baseAngle + spread;
+
+        S.enemyShots.push({
+          x: enemy.x,
+          y: enemy.y,
+          vx: Math.cos(angle) * 210,
+          vy: Math.sin(angle) * 210,
+          r: 11,
+          heavy: false,
+          life: 3,
+          dead: false,
+        });
       }
 
-      const spread =
-        (i - (shotCount - 1) / 2) * 0.22;
-      const angle = baseAngle + spread;
+      addFloater(
+        enemy.x,
+        enemy.y - enemy.r - 40,
+        "⚠",
+        "#ff6a6a",
+        26,
+        0.5
+      );
+    } else if (pattern < 0.75){
+      const ringCount = 10;
 
-      S.enemyShots.push({
-        x: enemy.x,
-        y: enemy.y,
-        vx: Math.cos(angle) * 210,
-        vy: Math.sin(angle) * 210,
-        r: 11,
-        life: 3,
-        dead: false,
-      });
+      for (let i = 0; i < ringCount; i++){
+        if (S.enemyShots.length >= 40){
+          break;
+        }
+
+        const angle =
+          (i / ringCount) * Math.PI * 2;
+
+        S.enemyShots.push({
+          x: enemy.x,
+          y: enemy.y,
+          vx: Math.cos(angle) * 175,
+          vy: Math.sin(angle) * 175,
+          r: 11,
+          heavy: false,
+          life: 3.5,
+          dead: false,
+        });
+      }
+
+      addFloater(
+        enemy.x,
+        enemy.y - enemy.r - 40,
+        "💢",
+        "#ff9d5c",
+        28,
+        0.5
+      );
+    } else {
+      if (S.enemyShots.length < 40){
+        S.enemyShots.push({
+          x: enemy.x,
+          y: enemy.y,
+          vx: Math.cos(baseAngle) * 430,
+          vy: Math.sin(baseAngle) * 430,
+          r: 15,
+          heavy: true,
+          life: 2.5,
+          dead: false,
+        });
+      }
+
+      S.flash = Math.max(S.flash, 0.15);
+
+      addFloater(
+        enemy.x,
+        enemy.y - enemy.r - 40,
+        "⚡撃!",
+        "#ffe66d",
+        30,
+        0.5
+      );
     }
-
-    addFloater(
-      enemy.x,
-      enemy.y - enemy.r - 40,
-      "⚠",
-      "#ff6a6a",
-      26,
-      0.5
-    );
 
     g.se("hit");
   }
@@ -2278,24 +2349,25 @@ function updateEnemyShots(g, dt){
 
 function hitPlayerByShot(g, shot){
   const player = S.player;
+  const damage = shot.heavy ? 2 : 1;
 
-  player.hp--;
+  player.hp -= damage;
   player.invincible = 0.9;
   player.knockTimer = 0.15;
   player.knockX = shot.vx * 0.7;
   player.knockY = shot.vy * 0.7;
 
-  S.hitFlash = 0.18;
-  S.shake = 0.15;
+  S.hitFlash = shot.heavy ? 0.28 : 0.18;
+  S.shake = shot.heavy ? 0.28 : 0.15;
   S.killChain = 0;
   S.chainTimer = 0;
 
   addFloater(
     player.x,
     player.y - 32,
-    "-1 HP",
+    "-" + damage + " HP",
     "#ff6767",
-    28,
+    shot.heavy ? 34 : 28,
     0.7
   );
 
@@ -2936,7 +3008,7 @@ function updatePlay(g, dt){
 
     if (S.exBossTimer <= 0){
       spawnExBoss(g);
-      S.exBossTimer = 60;
+      S.exBossTimer = 32;
     }
   }
 
@@ -2974,18 +3046,22 @@ function updatePlay(g, dt){
   );
 
   if (S.enemies.length > ENEMY_CAP){
-    const boss = S.enemies.find(
+    const bosses = S.enemies.filter(
       enemy => enemy.boss
     );
 
-    S.enemies.length = ENEMY_CAP;
+    const nonBosses = S.enemies.filter(
+      enemy => !enemy.boss
+    );
 
-    if (
-      boss &&
-      S.enemies.indexOf(boss) < 0
-    ){
-      S.enemies[ENEMY_CAP - 1] = boss;
-    }
+    const keepCount = Math.max(
+      0,
+      ENEMY_CAP - bosses.length
+    );
+
+    S.enemies = bosses.concat(
+      nonBosses.slice(0, keepCount)
+    );
   }
 }
 
@@ -3253,10 +3329,10 @@ function drawShots(g, ox, oy){
 function drawEnemyShots(g, ox, oy){
   for (const shot of S.enemyShots){
     g.emoji(
-      "☄️",
+      shot.heavy ? "🔥" : "☄️",
       shot.x + ox,
       shot.y + oy,
-      26,
+      shot.heavy ? 40 : 26,
       {
         rot: Math.atan2(
           shot.vy,
@@ -4256,7 +4332,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev15",
+      "rev16",
       g.W - 8,
       14,
       12,
