@@ -153,6 +153,15 @@ const STAGE3_BOSS_TYPE = {
   xp: 90,
 };
 
+const STAGE4_BOSS_TYPE = {
+  emoji: "🕳️",
+  size: 176,
+  r: 70,
+  hp: 1650,
+  speed: 50,
+  xp: 120,
+};
+
 /* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
 const STAGE2_ENEMY_TYPES = {
   slime: {
@@ -233,6 +242,50 @@ const STAGE3_ENEMY_TYPES = {
   },
   ogre: {
     emoji: "🗿",
+    size: 74,
+    r: 31,
+    hp: 65,
+    speed: 40,
+    xp: 8,
+  },
+};
+
+/* ステージ4=深宇宙の縄張り。同じ進行曲線に別の顔をあてがう */
+const STAGE4_ENEMY_TYPES = {
+  slime: {
+    emoji: "⭐",
+    size: 34,
+    r: 15,
+    hp: 1,
+    speed: 64,
+    xp: 1,
+  },
+  bat: {
+    emoji: "☄️",
+    size: 34,
+    r: 15,
+    hp: 2,
+    speed: 92,
+    xp: 1.2,
+  },
+  zombie: {
+    emoji: "🌑",
+    size: 43,
+    r: 19,
+    hp: 4,
+    speed: 54,
+    xp: 1.8,
+  },
+  ghost: {
+    emoji: "🌀",
+    size: 42,
+    r: 18,
+    hp: 6,
+    speed: 76,
+    xp: 2.2,
+  },
+  ogre: {
+    emoji: "🐋",
     size: 74,
     r: 31,
     hp: 65,
@@ -416,6 +469,7 @@ function reset(g){
     stage: 1,
     stage2StartElapsed: 0,
     stage3StartElapsed: 0,
+    stage4StartElapsed: 0,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
@@ -426,6 +480,7 @@ function reset(g){
     stage1BossSpawned: false,
     stage2BossSpawned: false,
     stage3BossSpawned: false,
+    stage4BossSpawned: false,
     exBossTimer: 0,
     exBossCount: 0,
     chest: null,
@@ -485,11 +540,13 @@ function enemyTemplate(g){
   const t = S.elapsed;
   const roll = g.rand(0, 1);
   const table =
-    S.stage >= 3
-      ? STAGE3_ENEMY_TYPES
-      : S.stage === 2
-        ? STAGE2_ENEMY_TYPES
-        : ENEMY_TYPES;
+    S.stage >= 4
+      ? STAGE4_ENEMY_TYPES
+      : S.stage === 3
+        ? STAGE3_ENEMY_TYPES
+        : S.stage === 2
+          ? STAGE2_ENEMY_TYPES
+          : ENEMY_TYPES;
 
   if (t < 15){
     return table.slime;
@@ -884,14 +941,82 @@ function enterStage3(g){
   g.se("clear");
 }
 
-function enterExStage(g){
+function spawnStage4Boss(g){
+  S.stage4BossSpawned = true;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE4_BOSS_TYPE.r,
+    emoji: STAGE4_BOSS_TYPE.emoji,
+    size: STAGE4_BOSS_TYPE.size,
+    hp: STAGE4_BOSS_TYPE.hp,
+    maxHp: STAGE4_BOSS_TYPE.hp,
+    speed: STAGE4_BOSS_TYPE.speed,
+    xp: STAGE4_BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    fieldCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
+    boss: true,
+    attackTimer: 2.4,
+    bossKind: "stage4",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ ステージ4ボス出現 ⚠",
+    "#8ab4ff",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.46);
+  S.flash = Math.max(S.flash, 0.28);
+  g.se("boom");
+}
+
+function enterStage4(g){
   S.stage = 4;
-  S.exBossTimer = 45;
+  S.stage4StartElapsed = S.elapsed;
 
   addFloater(
     g.W / 2,
     205,
     "ステージ3ボス撃破!",
+    "#ffe66d",
+    32,
+    1.5
+  );
+
+  addFloater(
+    g.W / 2,
+    250,
+    "STAGE 4 突入!",
+    "#8ab4ff",
+    36,
+    1.5
+  );
+
+  S.shake = Math.max(S.shake, 0.34);
+  S.flash = Math.max(S.flash, 0.34);
+  g.se("clear");
+}
+
+function enterExStage(g){
+  S.stage = 5;
+  S.exBossTimer = 45;
+
+  addFloater(
+    g.W / 2,
+    205,
+    "ステージ4ボス撃破!",
     "#ffe66d",
     32,
     1.5
@@ -1315,6 +1440,8 @@ function damageEnemy(g, enemy, damage, source){
     } else if (enemy.bossKind === "stage2"){
       enterStage3(g);
     } else if (enemy.bossKind === "stage3"){
+      enterStage4(g);
+    } else if (enemy.bossKind === "stage4"){
       enterExStage(g);
     } else if (enemy.bossKind === "ex"){
       addFloater(
@@ -2796,7 +2923,15 @@ function updatePlay(g, dt){
     spawnStage3Boss(g);
   }
 
-  if (S.stage === 4){
+  if (
+    S.stage === 4 &&
+    !S.stage4BossSpawned &&
+    S.elapsed - S.stage4StartElapsed >= 75
+  ){
+    spawnStage4Boss(g);
+  }
+
+  if (S.stage === 5){
     S.exBossTimer -= dt;
 
     if (S.exBossTimer <= 0){
@@ -2914,7 +3049,9 @@ function drawBackground(g){
   const bonus =
     S.elapsed >= 75;
 
-  if (S.stage >= 3){
+  if (S.stage >= 4){
+    g.bg("#050818");
+  } else if (S.stage === 3){
     g.bg("#101c1c");
   } else if (S.stage === 2){
     g.bg("#1a0f2e");
@@ -3076,6 +3213,20 @@ function drawShots(g, ox, oy){
         shot.y + oy,
         31,
         { rot: g.time * 10 }
+      );
+    } else if (shot.type === "missile"){
+      g.emoji(
+        "🚀",
+        shot.x + ox,
+        shot.y + oy,
+        24,
+        {
+          rot:
+            Math.atan2(
+              shot.vy,
+              shot.vx
+            ) + Math.PI / 2,
+        }
       );
     } else {
       g.emoji(
@@ -3275,11 +3426,13 @@ function drawHud(g){
     const stageLabel =
       S.stage === 2 ? "STAGE 2" :
       S.stage === 3 ? "STAGE 3" :
+      S.stage === 4 ? "STAGE 4" :
       "EX";
 
     const stageColor =
       S.stage === 2 ? "#8deaff" :
       S.stage === 3 ? "#8affc1" :
+      S.stage === 4 ? "#8ab4ff" :
       "#c9a2ff";
 
     g.text(
@@ -3349,13 +3502,21 @@ function drawHud(g){
     );
   }
 
-  if (S.stage === 4){
+  if (S.stage === 5){
     g.text(
       "全ステージ制覇。ここからは力尽きるまでの延長戦",
       g.W / 2,
       84,
       18,
       "#c9a2ff"
+    );
+  } else if (S.stage === 4){
+    g.text(
+      "深宇宙の縄張り。敵の顔ぶれがまた変わった",
+      g.W / 2,
+      84,
+      18,
+      "#8ab4ff"
     );
   } else if (S.stage === 3){
     g.text(
@@ -3816,13 +3977,21 @@ function drawResult(g){
       : "#ff7c89"
   );
 
-  if (S.stage === 4){
+  if (S.stage === 5){
     g.text(
       "🏆 全ステージ制覇(EX到達)",
       g.W / 2,
       140,
       20,
       "#c9a2ff"
+    );
+  } else if (S.stage === 4){
+    g.text(
+      "🏆 ステージ4 到達",
+      g.W / 2,
+      140,
+      20,
+      "#8ab4ff"
     );
   } else if (S.stage === 3){
     g.text(
@@ -4087,7 +4256,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev14",
+      "rev15",
       g.W - 8,
       14,
       12,
