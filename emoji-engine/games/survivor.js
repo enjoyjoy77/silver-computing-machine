@@ -43,6 +43,12 @@ const CARDS = [
     desc: "近くの敵へ連鎖",
   },
   {
+    id: "missile",
+    emoji: "🚀",
+    name: "ホーミングミサイル",
+    desc: "敵を追尾して確実に命中",
+  },
+  {
     id: "cold",
     emoji: "❄️",
     name: "冷気",
@@ -420,7 +426,10 @@ function reset(g){
     stage1BossSpawned: false,
     stage2BossSpawned: false,
     stage3BossSpawned: false,
+    exBossTimer: 0,
+    exBossCount: 0,
     chest: null,
+    levelChoiceTimer: 0,
 
     kills: 0,
     killChain: 0,
@@ -877,6 +886,7 @@ function enterStage3(g){
 
 function enterExStage(g){
   S.stage = 4;
+  S.exBossTimer = 45;
 
   addFloater(
     g.W / 2,
@@ -899,6 +909,51 @@ function enterExStage(g){
   S.shake = Math.max(S.shake, 0.36);
   S.flash = Math.max(S.flash, 0.35);
   g.se("clear");
+}
+
+function spawnExBoss(g){
+  S.exBossCount++;
+
+  const scale =
+    1 + S.exBossCount * 0.35;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE3_BOSS_TYPE.r,
+    emoji: STAGE3_BOSS_TYPE.emoji,
+    size: STAGE3_BOSS_TYPE.size,
+    hp: STAGE3_BOSS_TYPE.hp * scale,
+    maxHp: STAGE3_BOSS_TYPE.hp * scale,
+    speed: STAGE3_BOSS_TYPE.speed *
+      (1 + S.exBossCount * 0.06),
+    xp: STAGE3_BOSS_TYPE.xp * scale,
+    slow: 0,
+    orbitCooldown: 0,
+    fieldCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
+    boss: true,
+    attackTimer: 2.4,
+    bossKind: "ex",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ EXボス出現 ⚠",
+    "#c9a2ff",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.4);
+  S.flash = Math.max(S.flash, 0.25);
+  g.se("boom");
 }
 
 function nearestEnemy(g, x, y, exceptIds, maxDistance){
@@ -1020,6 +1075,48 @@ function fireVolley(g){
         returning: false,
         hitOut: [],
         hitBack: [],
+        dead: false,
+      });
+    }
+  }
+
+  if (cardLevel("missile") > 0){
+    const missileLevel = cardLevel("missile");
+    const missileCount = Math.min(
+      3,
+      1 + Math.floor(missileLevel / 3)
+    );
+
+    const missileDamage =
+      (1.0 + missileLevel * 0.5) *
+      evolutionPower("missile");
+
+    for (let i = 0; i < missileCount; i++){
+      const missileTarget = nearestEnemy(
+        g,
+        S.player.x,
+        S.player.y
+      );
+
+      if (!missileTarget){
+        break;
+      }
+
+      const angle0 = Math.atan2(
+        missileTarget.y - S.player.y,
+        missileTarget.x - S.player.x
+      );
+
+      addShot({
+        type: "missile",
+        x: S.player.x,
+        y: S.player.y,
+        r: 9,
+        vx: Math.cos(angle0) * 340,
+        vy: Math.sin(angle0) * 340,
+        damage: missileDamage,
+        life: 3,
+        targetId: missileTarget.id,
         dead: false,
       });
     }
@@ -1219,6 +1316,15 @@ function damageEnemy(g, enemy, damage, source){
       enterStage3(g);
     } else if (enemy.bossKind === "stage3"){
       enterExStage(g);
+    } else if (enemy.bossKind === "ex"){
+      addFloater(
+        g.W / 2,
+        210,
+        "EXボス撃破!",
+        "#c9a2ff",
+        34,
+        1.3
+      );
     }
 
     g.se("clear");
@@ -1454,10 +1560,75 @@ function updateBoomerang(g, shot, dt){
   }
 }
 
+function updateMissile(g, shot, dt){
+  const target = S.enemies.find(
+    enemy =>
+      enemy.id === shot.targetId &&
+      !enemy.dead
+  );
+
+  const speed = 340;
+  const turnRate = 6;
+
+  const curAngle = Math.atan2(
+    shot.vy,
+    shot.vx
+  );
+
+  let desiredAngle = curAngle;
+
+  if (target){
+    desiredAngle = Math.atan2(
+      target.y - shot.y,
+      target.x - shot.x
+    );
+  }
+
+  let diff = desiredAngle - curAngle;
+
+  while (diff > Math.PI){
+    diff -= Math.PI * 2;
+  }
+
+  while (diff < -Math.PI){
+    diff += Math.PI * 2;
+  }
+
+  const maxTurn = turnRate * dt;
+
+  const newAngle =
+    curAngle +
+    Math.max(
+      -maxTurn,
+      Math.min(maxTurn, diff)
+    );
+
+  shot.vx = Math.cos(newAngle) * speed;
+  shot.vy = Math.sin(newAngle) * speed;
+  shot.x += shot.vx * dt;
+  shot.y += shot.vy * dt;
+  shot.life -= dt;
+
+  for (const enemy of S.enemies){
+    if (
+      enemy.dead ||
+      !g.hit(shot, enemy)
+    ){
+      continue;
+    }
+
+    projectileHit(g, shot, enemy);
+    shot.dead = true;
+    break;
+  }
+}
+
 function updateShots(g, dt){
   for (const shot of S.shots){
     if (shot.type === "boomerang"){
       updateBoomerang(g, shot, dt);
+    } else if (shot.type === "missile"){
+      updateMissile(g, shot, dt);
     } else {
       updateNormalShot(g, shot, dt);
     }
@@ -1760,14 +1931,14 @@ function updateCold(g, dt){
   );
 
   const baseDamage =
-    (0.5 + level * 0.3) *
+    (0.35 + level * 0.2) *
     evolutionPower("cold");
 
   const damage =
     baseDamage *
     (
       1 +
-      Math.min(caught.length, 8) * 0.12
+      Math.min(caught.length, 8) * 0.08
     );
 
   const ringCount = 8;
@@ -2190,6 +2361,7 @@ function beginLevelUp(g){
   S.scene = "levelup";
   S.freeze = 0;
   S.flash = 0.15;
+  S.levelChoiceTimer = 10;
 
   addFloater(
     S.player.x,
@@ -2518,7 +2690,14 @@ function updateChest(g, dt){
   S.chest = null;
 }
 
-function updateLevelChoice(g){
+function updateLevelChoice(g, dt){
+  S.levelChoiceTimer -= dt;
+
+  if (S.levelChoiceTimer <= 0){
+    chooseCard(g, 1);
+    return;
+  }
+
   if (
     g.pressed("Digit1") ||
     g.pressed("Numpad1")
@@ -2615,6 +2794,15 @@ function updatePlay(g, dt){
     S.elapsed - S.stage3StartElapsed >= 75
   ){
     spawnStage3Boss(g);
+  }
+
+  if (S.stage === 4){
+    S.exBossTimer -= dt;
+
+    if (S.exBossTimer <= 0){
+      spawnExBoss(g);
+      S.exBossTimer = 60;
+    }
   }
 
   S.spawnTimer -= dt;
@@ -3345,6 +3533,19 @@ function drawLevelUp(g){
     "#d2d8ee"
   );
 
+  g.text(
+    "残り" +
+      Math.max(0, S.levelChoiceTimer)
+        .toFixed(1) +
+      "秒で自動選択",
+    g.W / 2,
+    150,
+    15,
+    S.levelChoiceTimer < 3
+      ? "#ff9d5c"
+      : "#9fa9d8"
+  );
+
   const width = 250;
   const height = 245;
   const gap = 22;
@@ -3740,7 +3941,7 @@ EmojiEngine.register({
     }
 
     if (S.scene === "levelup"){
-      updateLevelChoice(g);
+      updateLevelChoice(g, dt);
       return;
     }
 
@@ -3886,7 +4087,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev13",
+      "rev14",
       g.W - 8,
       14,
       12,
