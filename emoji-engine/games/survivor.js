@@ -609,6 +609,7 @@ function reset(g){
     stage3StartElapsed: 0,
     stage4StartElapsed: 0,
     stage5StartElapsed: 0,
+    stage6StartElapsed: 0,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
@@ -621,6 +622,7 @@ function reset(g){
     stage3BossSpawned: false,
     stage4BossSpawned: false,
     stage5BossSpawned: false,
+    stage6BossSpawned: false,
     exBossTimer: 0,
     exBossCount: 0,
     chest: null,
@@ -680,14 +682,16 @@ function enemyTemplate(g){
   const t = S.elapsed;
   const roll = g.rand(0, 1);
   const table =
-    S.stage >= 5
-      ? STAGE5_ENEMY_TYPES
-      : S.stage === 4
-        ? STAGE4_ENEMY_TYPES
-        : S.stage === 3
-          ? STAGE3_ENEMY_TYPES
-          : S.stage === 2
-            ? STAGE2_ENEMY_TYPES
+    S.stage >= 6
+      ? STAGE6_ENEMY_TYPES
+      : S.stage === 5
+        ? STAGE5_ENEMY_TYPES
+        : S.stage === 4
+          ? STAGE4_ENEMY_TYPES
+          : S.stage === 3
+            ? STAGE3_ENEMY_TYPES
+            : S.stage === 2
+              ? STAGE2_ENEMY_TYPES
             : ENEMY_TYPES;
 
   if (t < 15){
@@ -1219,14 +1223,82 @@ function enterStage5(g){
   g.se("clear");
 }
 
-function enterExStage(g){
+function spawnStage6Boss(g){
+  S.stage6BossSpawned = true;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE6_BOSS_TYPE.r,
+    emoji: STAGE6_BOSS_TYPE.emoji,
+    size: STAGE6_BOSS_TYPE.size,
+    hp: STAGE6_BOSS_TYPE.hp,
+    maxHp: STAGE6_BOSS_TYPE.hp,
+    speed: STAGE6_BOSS_TYPE.speed,
+    xp: STAGE6_BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    fieldCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
+    boss: true,
+    attackTimer: 2.0,
+    bossKind: "stage6",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ ステージ6ボス出現 ⚠",
+    "#ff8a8a",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.54);
+  S.flash = Math.max(S.flash, 0.32);
+  g.se("boom");
+}
+
+function enterStage6(g){
   S.stage = 6;
-  S.exBossTimer = 25;
+  S.stage6StartElapsed = S.elapsed;
 
   addFloater(
     g.W / 2,
     205,
     "ステージ5ボス撃破!",
+    "#ffe66d",
+    32,
+    1.5
+  );
+
+  addFloater(
+    g.W / 2,
+    250,
+    "STAGE 6 突入!",
+    "#ff8a8a",
+    36,
+    1.5
+  );
+
+  S.shake = Math.max(S.shake, 0.38);
+  S.flash = Math.max(S.flash, 0.38);
+  g.se("clear");
+}
+
+function enterExStage(g){
+  S.stage = 7;
+  S.exBossTimer = 25;
+
+  addFloater(
+    g.W / 2,
+    205,
+    "ステージ6ボス撃破!",
     "#ffe66d",
     32,
     1.5
@@ -1580,6 +1652,23 @@ function damageEnemy(g, enemy, damage, source){
     return false;
   }
 
+  const poisonLevel = cardLevel("poison");
+
+  if (
+    poisonLevel > 0 &&
+    source !== "poison"
+  ){
+    const poisonDamage =
+      (0.3 + poisonLevel * 0.2) *
+      evolutionPower("poison");
+
+    enemy.poisonTimer = 3;
+    enemy.poisonDamage = Math.max(
+      enemy.poisonDamage || 0,
+      poisonDamage
+    );
+  }
+
   enemy.hp -= damage;
 
   if (enemy.hp > 0){
@@ -1693,6 +1782,8 @@ function damageEnemy(g, enemy, damage, source){
     } else if (enemy.bossKind === "stage4"){
       enterStage5(g);
     } else if (enemy.bossKind === "stage5"){
+      enterStage6(g);
+    } else if (enemy.bossKind === "stage6"){
       enterExStage(g);
     } else if (enemy.bossKind === "ex"){
       addFloater(
@@ -1706,6 +1797,7 @@ function damageEnemy(g, enemy, damage, source){
     }
 
     const healAmount =
+      enemy.bossKind === "stage6" ? 6 :
       enemy.bossKind === "stage5" ? 5 :
       enemy.bossKind === "stage4" ? 4 :
       enemy.bossKind === "stage2" ||
@@ -2288,6 +2380,36 @@ function updateField(g, dt){
         enemy,
         damage,
         "field"
+      );
+    }
+  }
+}
+
+function updatePoison(g, dt){
+  if (cardLevel("poison") <= 0){
+    return;
+  }
+
+  for (const enemy of S.enemies){
+    if (
+      enemy.dead ||
+      !(enemy.poisonTimer > 0)
+    ){
+      continue;
+    }
+
+    enemy.poisonTimer -= dt;
+    enemy.poisonTickTimer =
+      (enemy.poisonTickTimer || 0) - dt;
+
+    if (enemy.poisonTickTimer <= 0){
+      enemy.poisonTickTimer = 0.5;
+
+      damageEnemy(
+        g,
+        enemy,
+        enemy.poisonDamage || 0,
+        "poison"
       );
     }
   }
@@ -3392,12 +3514,24 @@ function updatePlay(g, dt){
     spawnStage5Boss(g);
   }
 
-  if (S.stage === 6){
+  if (
+    S.stage === 6 &&
+    !S.stage6BossSpawned &&
+    S.elapsed - S.stage6StartElapsed >= 75
+  ){
+    spawnStage6Boss(g);
+  }
+
+  if (S.stage === 7){
     S.exBossTimer -= dt;
 
     if (S.exBossTimer <= 0){
       spawnExBoss(g);
-      S.exBossTimer = 32;
+
+      S.exBossTimer = Math.max(
+        12,
+        32 - S.exBossCount * 1.5
+      );
     }
   }
 
@@ -3419,6 +3553,7 @@ function updatePlay(g, dt){
   updateOrbit(g, dt);
   updateField(g, dt);
   updateCold(g, dt);
+  updatePoison(g, dt);
   updateBarrier(g, dt);
   updateShots(g, dt);
   updateBossAttacks(g, dt);
@@ -3516,7 +3651,9 @@ function drawBackground(g){
   const bonus =
     S.elapsed >= 75;
 
-  if (S.stage >= 5){
+  if (S.stage >= 6){
+    g.bg("#1a0505");
+  } else if (S.stage === 5){
     g.bg("#170822");
   } else if (S.stage === 4){
     g.bg("#050818");
@@ -3631,6 +3768,16 @@ function drawEnemies(g, ox, oy){
       enemy.size,
       { alpha: alpha }
     );
+
+    if (enemy.poisonTimer > 0){
+      g.emoji(
+        "☠️",
+        enemy.x + enemy.size * 0.32 + ox,
+        enemy.y - enemy.size * 0.32 + oy,
+        16,
+        { alpha: 0.9 }
+      );
+    }
 
     if (enemy.boss){
       const width = 110;
@@ -3929,6 +4076,7 @@ function drawHud(g){
       S.stage === 3 ? "STAGE 3" :
       S.stage === 4 ? "STAGE 4" :
       S.stage === 5 ? "STAGE 5" :
+      S.stage === 6 ? "STAGE 6" :
       "EX";
 
     const stageColor =
@@ -3936,6 +4084,7 @@ function drawHud(g){
       S.stage === 3 ? "#8affc1" :
       S.stage === 4 ? "#8ab4ff" :
       S.stage === 5 ? "#e2b8ff" :
+      S.stage === 6 ? "#ff8a8a" :
       "#c9a2ff";
 
     g.text(
@@ -4005,13 +4154,21 @@ function drawHud(g){
     );
   }
 
-  if (S.stage === 6){
+  if (S.stage === 7){
     g.text(
       "全ステージ制覇。ここからは力尽きるまでの延長戦",
       g.W / 2,
       84,
       18,
       "#c9a2ff"
+    );
+  } else if (S.stage === 6){
+    g.text(
+      "深淵の縄張り。敵の顔ぶれがまた変わった",
+      g.W / 2,
+      84,
+      18,
+      "#ff8a8a"
     );
   } else if (S.stage === 5){
     g.text(
@@ -4488,13 +4645,21 @@ function drawResult(g){
       : "#ff7c89"
   );
 
-  if (S.stage === 6){
+  if (S.stage === 7){
     g.text(
       "🏆 全ステージ制覇(EX到達)",
       g.W / 2,
       140,
       20,
       "#c9a2ff"
+    );
+  } else if (S.stage === 6){
+    g.text(
+      "🏆 ステージ6 到達",
+      g.W / 2,
+      140,
+      20,
+      "#ff8a8a"
     );
   } else if (S.stage === 5){
     g.text(
@@ -4776,7 +4941,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev18",
+      "rev19",
       g.W - 8,
       14,
       12,
