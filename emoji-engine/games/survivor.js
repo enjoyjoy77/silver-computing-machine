@@ -115,27 +115,36 @@ const MIDBOSS_TYPE = {
   emoji: "🐲",
   size: 118,
   r: 48,
-  hp: 175,
+  hp: 260,
   speed: 46,
-  xp: 24,
+  xp: 30,
 };
 
 const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
   size: 134,
   r: 53,
-  hp: 320,
+  hp: 470,
   speed: 43,
-  xp: 34,
+  xp: 42,
 };
 
 const STAGE2_BOSS_TYPE = {
   emoji: "🐙",
   size: 150,
   r: 59,
-  hp: 500,
+  hp: 730,
   speed: 41,
-  xp: 48,
+  xp: 60,
+};
+
+const STAGE3_BOSS_TYPE = {
+  emoji: "👽",
+  size: 164,
+  r: 65,
+  hp: 1150,
+  speed: 47,
+  xp: 90,
 };
 
 /* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
@@ -174,6 +183,50 @@ const STAGE2_ENEMY_TYPES = {
   },
   ogre: {
     emoji: "🦑",
+    size: 74,
+    r: 31,
+    hp: 65,
+    speed: 40,
+    xp: 8,
+  },
+};
+
+/* ステージ3=機械遺跡の縄張り。ステージ2と同じ進行曲線に別の顔をあてがう */
+const STAGE3_ENEMY_TYPES = {
+  slime: {
+    emoji: "⚙️",
+    size: 34,
+    r: 15,
+    hp: 1,
+    speed: 64,
+    xp: 1,
+  },
+  bat: {
+    emoji: "🛸",
+    size: 34,
+    r: 15,
+    hp: 2,
+    speed: 92,
+    xp: 1.2,
+  },
+  zombie: {
+    emoji: "🤖",
+    size: 43,
+    r: 19,
+    hp: 4,
+    speed: 54,
+    xp: 1.8,
+  },
+  ghost: {
+    emoji: "👁️",
+    size: 42,
+    r: 18,
+    hp: 6,
+    speed: 76,
+    xp: 2.2,
+  },
+  ogre: {
+    emoji: "🗿",
     size: 74,
     r: 31,
     hp: 65,
@@ -342,6 +395,7 @@ function reset(g){
 
     enemies: [],
     shots: [],
+    enemyShots: [],
     xpOrbs: [],
     effects: [],
 
@@ -355,14 +409,17 @@ function reset(g){
     nextXp: 5,
     stage: 1,
     stage2StartElapsed: 0,
+    stage3StartElapsed: 0,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
     coldTimer: 2,
+    coldLastSoundAt: -999,
     enemyId: 0,
     midbossSpawned: false,
     stage1BossSpawned: false,
     stage2BossSpawned: false,
+    stage3BossSpawned: false,
     chest: null,
 
     kills: 0,
@@ -419,9 +476,11 @@ function enemyTemplate(g){
   const t = S.elapsed;
   const roll = g.rand(0, 1);
   const table =
-    S.stage >= 2
-      ? STAGE2_ENEMY_TYPES
-      : ENEMY_TYPES;
+    S.stage >= 3
+      ? STAGE3_ENEMY_TYPES
+      : S.stage === 2
+        ? STAGE2_ENEMY_TYPES
+        : ENEMY_TYPES;
 
   if (t < 15){
     return table.slime;
@@ -622,6 +681,7 @@ function spawnMidboss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
+    attackTimer: 2.4,
     bossKind: "mid",
   });
 
@@ -661,6 +721,7 @@ function spawnStage1Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
+    attackTimer: 2.4,
     bossKind: "stage1",
   });
 
@@ -701,6 +762,7 @@ function spawnStage2Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
+    attackTimer: 2.4,
     bossKind: "stage2",
   });
 
@@ -745,13 +807,81 @@ function enterStage2(g){
   g.se("clear");
 }
 
-function enterExStage(g){
+function spawnStage3Boss(g){
+  S.stage3BossSpawned = true;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE3_BOSS_TYPE.r,
+    emoji: STAGE3_BOSS_TYPE.emoji,
+    size: STAGE3_BOSS_TYPE.size,
+    hp: STAGE3_BOSS_TYPE.hp,
+    maxHp: STAGE3_BOSS_TYPE.hp,
+    speed: STAGE3_BOSS_TYPE.speed,
+    xp: STAGE3_BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    fieldCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
+    boss: true,
+    attackTimer: 2.4,
+    bossKind: "stage3",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ ステージ3ボス出現 ⚠",
+    "#8affc1",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.42);
+  S.flash = Math.max(S.flash, 0.25);
+  g.se("boom");
+}
+
+function enterStage3(g){
   S.stage = 3;
+  S.stage3StartElapsed = S.elapsed;
 
   addFloater(
     g.W / 2,
     205,
     "ステージ2ボス撃破!",
+    "#ffe66d",
+    32,
+    1.5
+  );
+
+  addFloater(
+    g.W / 2,
+    250,
+    "STAGE 3 突入!",
+    "#8affc1",
+    36,
+    1.5
+  );
+
+  S.shake = Math.max(S.shake, 0.32);
+  S.flash = Math.max(S.flash, 0.32);
+  g.se("clear");
+}
+
+function enterExStage(g){
+  S.stage = 4;
+
+  addFloater(
+    g.W / 2,
+    205,
+    "ステージ3ボス撃破!",
     "#ffe66d",
     32,
     1.5
@@ -1086,6 +1216,8 @@ function damageEnemy(g, enemy, damage, source){
     } else if (enemy.bossKind === "stage1"){
       enterStage2(g);
     } else if (enemy.bossKind === "stage2"){
+      enterStage3(g);
+    } else if (enemy.bossKind === "stage3"){
       enterExStage(g);
     }
 
@@ -1571,9 +1703,9 @@ function updateField(g, dt){
 
   const power = evolutionPower("field");
   const radius =
-    (30 + level * 5) * power;
+    (16 + level * 2) * power;
   const damage =
-    (0.4 + level * 0.25) * power;
+    (1.5 + level * 0.9) * power;
 
   for (const enemy of S.enemies){
     if (
@@ -1586,7 +1718,7 @@ function updateField(g, dt){
     if (
       g.dist(enemy, S.player) <= radius
     ){
-      enemy.fieldCooldown = 0.15;
+      enemy.fieldCooldown = 0.25;
       damageEnemy(
         g,
         enemy,
@@ -1679,7 +1811,10 @@ function updateCold(g, dt){
     );
   }
 
-  g.se("ping");
+  if (S.elapsed - S.coldLastSoundAt >= 1.0){
+    S.coldLastSoundAt = S.elapsed;
+    g.se("ping");
+  }
 }
 
 function hitPlayer(g, enemy){
@@ -1746,6 +1881,125 @@ function hitPlayer(g, enemy){
       0.6
     );
   }
+
+  g.se("boom");
+
+  if (player.hp <= 0){
+    player.hp = 0;
+    finishGame(g, false);
+  }
+}
+
+function updateBossAttacks(g, dt){
+  for (const enemy of S.enemies){
+    if (
+      enemy.dead ||
+      !enemy.boss
+    ){
+      continue;
+    }
+
+    enemy.attackTimer -= dt;
+
+    if (enemy.attackTimer > 0){
+      continue;
+    }
+
+    enemy.attackTimer = 2.4;
+
+    const baseAngle = Math.atan2(
+      S.player.y - enemy.y,
+      S.player.x - enemy.x
+    );
+
+    const shotCount = 5;
+
+    for (let i = 0; i < shotCount; i++){
+      if (S.enemyShots.length >= 40){
+        break;
+      }
+
+      const spread =
+        (i - (shotCount - 1) / 2) * 0.22;
+      const angle = baseAngle + spread;
+
+      S.enemyShots.push({
+        x: enemy.x,
+        y: enemy.y,
+        vx: Math.cos(angle) * 210,
+        vy: Math.sin(angle) * 210,
+        r: 11,
+        life: 3,
+        dead: false,
+      });
+    }
+
+    addFloater(
+      enemy.x,
+      enemy.y - enemy.r - 40,
+      "⚠",
+      "#ff6a6a",
+      26,
+      0.5
+    );
+
+    g.se("hit");
+  }
+}
+
+function updateEnemyShots(g, dt){
+  for (const shot of S.enemyShots){
+    shot.x += shot.vx * dt;
+    shot.y += shot.vy * dt;
+    shot.life -= dt;
+
+    if (
+      shot.life <= 0 ||
+      shot.x < -60 ||
+      shot.x > g.W + 60 ||
+      shot.y < -60 ||
+      shot.y > g.H + 60
+    ){
+      shot.dead = true;
+      continue;
+    }
+
+    if (
+      S.player.invincible <= 0 &&
+      g.hit(shot, S.player)
+    ){
+      shot.dead = true;
+      hitPlayerByShot(g, shot);
+    }
+  }
+
+  S.enemyShots = S.enemyShots.filter(
+    shot => !shot.dead
+  );
+}
+
+function hitPlayerByShot(g, shot){
+  const player = S.player;
+
+  player.hp--;
+  player.invincible = 0.9;
+  player.knockTimer = 0.15;
+  player.knockX = shot.vx * 0.7;
+  player.knockY = shot.vy * 0.7;
+
+  S.hitFlash = 0.18;
+  S.shake = 0.15;
+  S.killChain = 0;
+  S.chainTimer = 0;
+
+  addFloater(
+    player.x,
+    player.y - 32,
+    "-1 HP",
+    "#ff6767",
+    28,
+    0.7
+  );
 
   g.se("boom");
 
@@ -2024,6 +2278,40 @@ function chooseCard(g, index){
   S.choices = [];
 }
 
+function rollChestRarity(g){
+  const roll = g.rand(0, 1);
+
+  if (roll < 0.03){
+    return {
+      label: "LEGENDARY!!",
+      color: "#ffe66d",
+      scale: 1.7,
+    };
+  }
+
+  if (roll < 0.15){
+    return {
+      label: "EPIC!",
+      color: "#c9a2ff",
+      scale: 1.4,
+    };
+  }
+
+  if (roll < 0.4){
+    return {
+      label: "RARE",
+      color: "#8deaff",
+      scale: 1.18,
+    };
+  }
+
+  return {
+    label: "",
+    color: "#fff",
+    scale: 1,
+  };
+}
+
 function openChest(g){
   const count = Math.floor(
     g.rand(1, 6)
@@ -2039,9 +2327,12 @@ function openChest(g){
 
   S.chest = {
     items: items,
+    rarities: [],
     revealed: 0,
     timer: 0.7,
     closing: false,
+    spinTimer: 0,
+    spinIcon: null,
   };
 
   S.scene = "chest";
@@ -2068,6 +2359,18 @@ function updateChest(g, dt){
     return;
   }
 
+  if (chest.spinTimer > 0){
+    chest.spinTimer -= dt;
+    chest.spinIconTimer -= dt;
+
+    if (chest.spinIconTimer <= 0){
+      chest.spinIconTimer = 0.05;
+      chest.spinIcon = g.pick(CARDS).emoji;
+    }
+
+    return;
+  }
+
   chest.timer -= dt;
 
   if (chest.timer > 0){
@@ -2075,7 +2378,17 @@ function updateChest(g, dt){
   }
 
   if (chest.revealed < chest.items.length){
+    if (chest.spinIcon === null){
+      chest.spinTimer = 0.5;
+      chest.spinIconTimer = 0;
+      chest.spinIcon = "";
+      return;
+    }
+
     const card = chest.items[chest.revealed];
+    const rarity = rollChestRarity(g);
+    chest.rarities.push(rarity);
+    chest.spinIcon = null;
 
     grantCardLevel(g, card);
     chest.revealed++;
@@ -2095,17 +2408,17 @@ function updateChest(g, dt){
 
     S.shake = Math.max(
       S.shake,
-      0.16 + combo * 0.055
+      (0.16 + combo * 0.055) * rarity.scale
     );
 
     S.goldFlash = Math.max(
       S.goldFlash,
-      0.22 + combo * 0.07
+      (0.22 + combo * 0.07) * rarity.scale
     );
 
     S.flash = Math.max(
       S.flash,
-      0.05 + combo * 0.025
+      (0.05 + combo * 0.025) * rarity.scale
     );
 
     addBurst(
@@ -2113,7 +2426,7 @@ function updateChest(g, dt){
       centerX,
       centerY,
       "🎉",
-      7 + combo * 3,
+      Math.round((7 + combo * 3) * rarity.scale),
       22 + combo * 2
     );
 
@@ -2122,7 +2435,7 @@ function updateChest(g, dt){
       centerX,
       centerY,
       "✨",
-      5 + combo * 3,
+      Math.round((5 + combo * 3) * rarity.scale),
       18 + combo * 2
     );
 
@@ -2131,9 +2444,20 @@ function updateChest(g, dt){
       centerX,
       centerY,
       "💰",
-      2 + combo * 2,
+      Math.round((2 + combo * 2) * rarity.scale),
       20 + combo * 2
     );
+
+    if (rarity.label){
+      addFloater(
+        centerX,
+        centerY - 90,
+        rarity.label,
+        rarity.color,
+        26 + rarity.scale * 10,
+        1.0
+      );
+    }
 
     g.se(
       sounds[(combo - 1) % sounds.length]
@@ -2285,6 +2609,14 @@ function updatePlay(g, dt){
     spawnStage2Boss(g);
   }
 
+  if (
+    S.stage === 3 &&
+    !S.stage3BossSpawned &&
+    S.elapsed - S.stage3StartElapsed >= 75
+  ){
+    spawnStage3Boss(g);
+  }
+
   S.spawnTimer -= dt;
 
   if (S.spawnTimer <= 0){
@@ -2304,6 +2636,8 @@ function updatePlay(g, dt){
   updateField(g, dt);
   updateCold(g, dt);
   updateShots(g, dt);
+  updateBossAttacks(g, dt);
+  updateEnemyShots(g, dt);
   updateEnemyHits(g);
 
   if (S.scene !== "play"){
@@ -2392,7 +2726,9 @@ function drawBackground(g){
   const bonus =
     S.elapsed >= 75;
 
-  if (S.stage >= 2){
+  if (S.stage >= 3){
+    g.bg("#101c1c");
+  } else if (S.stage === 2){
     g.bg("#1a0f2e");
   } else if (bonus){
     g.bg("#29210c");
@@ -2575,6 +2911,23 @@ function drawShots(g, ox, oy){
   }
 }
 
+function drawEnemyShots(g, ox, oy){
+  for (const shot of S.enemyShots){
+    g.emoji(
+      "☄️",
+      shot.x + ox,
+      shot.y + oy,
+      26,
+      {
+        rot: Math.atan2(
+          shot.vy,
+          shot.vx
+        ),
+      }
+    );
+  }
+}
+
 function drawOrbit(g, ox, oy){
   const level = cardLevel("orbit");
 
@@ -2617,23 +2970,23 @@ function drawField(g, ox, oy){
 
   const power = evolutionPower("field");
   const radius =
-    (30 + level * 5) * power;
+    (16 + level * 2) * power;
 
-  for (let i = 0; i < 10; i++){
+  for (let i = 0; i < 8; i++){
     const angle =
-      (i / 10) * Math.PI * 2 +
-      g.time * 1.5;
+      (i / 8) * Math.PI * 2 +
+      g.time * 3;
 
     g.emoji(
-      "✨",
+      "⚡",
       S.player.x +
         Math.cos(angle) * radius +
         ox,
       S.player.y +
         Math.sin(angle) * radius +
         oy,
-      14,
-      { alpha: 0.6 }
+      12,
+      { alpha: 0.7 }
     );
   }
 }
@@ -2731,12 +3084,22 @@ function drawHud(g){
   );
 
   if (S.stage >= 2){
+    const stageLabel =
+      S.stage === 2 ? "STAGE 2" :
+      S.stage === 3 ? "STAGE 3" :
+      "EX";
+
+    const stageColor =
+      S.stage === 2 ? "#8deaff" :
+      S.stage === 3 ? "#8affc1" :
+      "#c9a2ff";
+
     g.text(
-      S.stage === 3 ? "EX" : "STAGE 2",
+      stageLabel,
       g.W / 2,
       22,
       26,
-      S.stage === 3 ? "#c9a2ff" : "#8deaff"
+      stageColor
     );
   } else {
     const remaining = Math.max(
@@ -2798,13 +3161,21 @@ function drawHud(g){
     );
   }
 
-  if (S.stage === 3){
+  if (S.stage === 4){
     g.text(
       "全ステージ制覇。ここからは力尽きるまでの延長戦",
       g.W / 2,
       84,
       18,
       "#c9a2ff"
+    );
+  } else if (S.stage === 3){
+    g.text(
+      "機械遺跡の縄張り。敵の顔ぶれがまた変わった",
+      g.W / 2,
+      84,
+      18,
+      "#8affc1"
     );
   } else if (S.stage === 2){
     g.text(
@@ -3128,6 +3499,24 @@ function drawChest(g){
     {}
   );
 
+  if (chest.spinTimer > 0 && chest.spinIcon){
+    g.text(
+      "?",
+      g.W / 2,
+      300,
+      22,
+      "#d4d8eb"
+    );
+
+    g.emoji(
+      chest.spinIcon,
+      g.W / 2,
+      340,
+      50,
+      { rot: g.time * 20 }
+    );
+  }
+
   const count = chest.items.length;
   const gap = 150;
   const left =
@@ -3135,6 +3524,11 @@ function drawChest(g){
 
   for (let i = 0; i < chest.revealed; i++){
     const card = chest.items[i];
+    const rarity = chest.rarities[i] || {
+      label: "",
+      color: "#fff",
+      scale: 1,
+    };
     const x = left + i * gap;
     const newest = i === chest.revealed - 1;
     const iconPulse =
@@ -3146,7 +3540,7 @@ function drawChest(g){
       card.emoji,
       x,
       370,
-      58 * iconPulse
+      58 * iconPulse * rarity.scale
     );
 
     g.text(
@@ -3154,8 +3548,18 @@ function drawChest(g){
       x,
       412,
       16,
-      newest ? "#ffe66d" : "#fff"
+      rarity.label ? rarity.color : "#fff"
     );
+
+    if (rarity.label){
+      g.text(
+        rarity.label,
+        x,
+        432,
+        13,
+        rarity.color
+      );
+    }
   }
 
   g.text(
@@ -3211,13 +3615,21 @@ function drawResult(g){
       : "#ff7c89"
   );
 
-  if (S.stage === 3){
+  if (S.stage === 4){
     g.text(
       "🏆 全ステージ制覇(EX到達)",
       g.W / 2,
       140,
       20,
       "#c9a2ff"
+    );
+  } else if (S.stage === 3){
+    g.text(
+      "🏆 ステージ3 到達",
+      g.W / 2,
+      140,
+      20,
+      "#8affc1"
     );
   } else if (S.stage === 2){
     g.text(
@@ -3377,6 +3789,7 @@ EmojiEngine.register({
     } else {
       drawXpOrbs(g, ox, oy);
       drawShots(g, ox, oy);
+      drawEnemyShots(g, ox, oy);
       drawEnemies(g, ox, oy);
       drawOrbit(g, ox, oy);
       drawField(g, ox, oy);
@@ -3473,7 +3886,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev11",
+      "rev13",
       g.W - 8,
       14,
       12,
