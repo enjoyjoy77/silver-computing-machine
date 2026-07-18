@@ -40,7 +40,7 @@ const CARDS = [
     id: "cold",
     emoji: "❄️",
     name: "冷気",
-    desc: "周囲に冷気ダメージ+減速して反撃",
+    desc: "敵が多いほど強い冷気+進化で氷結",
   },
   {
     id: "rapid",
@@ -105,7 +105,7 @@ const ENEMY_TYPES = {
   },
 };
 
-const BOSS_TYPE = {
+const MIDBOSS_TYPE = {
   emoji: "🐲",
   size: 108,
   r: 44,
@@ -114,7 +114,7 @@ const BOSS_TYPE = {
   xp: 18,
 };
 
-const STAGE3_BOSS_TYPE = {
+const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
   size: 122,
   r: 48,
@@ -123,8 +123,17 @@ const STAGE3_BOSS_TYPE = {
   xp: 25,
 };
 
-/* ステージ3=番外の新しい縄張り。同じ強さの型に別の顔をあてがう(進行曲線はいじらない) */
-const STAGE3_ENEMY_TYPES = {
+const STAGE2_BOSS_TYPE = {
+  emoji: "🐙",
+  size: 138,
+  r: 54,
+  hp: 250,
+  speed: 34,
+  xp: 35,
+};
+
+/* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
+const STAGE2_ENEMY_TYPES = {
   slime: {
     emoji: "🐛",
     size: 34,
@@ -339,13 +348,15 @@ function reset(g){
     xp: 0,
     nextXp: 5,
     stage: 1,
+    stage2StartElapsed: 0,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
     coldTimer: 2,
     enemyId: 0,
-    bossSpawned: false,
-    stage3BossSpawned: false,
+    midbossSpawned: false,
+    stage1BossSpawned: false,
+    stage2BossSpawned: false,
     chest: null,
 
     kills: 0,
@@ -402,8 +413,8 @@ function enemyTemplate(g){
   const t = S.elapsed;
   const roll = g.rand(0, 1);
   const table =
-    S.stage === 3
-      ? STAGE3_ENEMY_TYPES
+    S.stage >= 2
+      ? STAGE2_ENEMY_TYPES
       : ENEMY_TYPES;
 
   if (t < 15){
@@ -577,32 +588,69 @@ function spawnEnemy(g){
     knockTimer: 0,
     knockX: 0,
     knockY: 0,
+    frozen: 0,
   });
 }
 
-function spawnBoss(g){
-  S.bossSpawned = true;
-
-  const x = g.W / 2;
-  const y = 130;
+function spawnMidboss(g){
+  S.midbossSpawned = true;
 
   S.enemies.push({
     id: ++S.enemyId,
-    x: x,
-    y: y,
-    r: BOSS_TYPE.r,
-    emoji: BOSS_TYPE.emoji,
-    size: BOSS_TYPE.size,
-    hp: BOSS_TYPE.hp,
-    maxHp: BOSS_TYPE.hp,
-    speed: BOSS_TYPE.speed,
-    xp: BOSS_TYPE.xp,
+    x: g.W / 2,
+    y: 130,
+    r: MIDBOSS_TYPE.r,
+    emoji: MIDBOSS_TYPE.emoji,
+    size: MIDBOSS_TYPE.size,
+    hp: MIDBOSS_TYPE.hp,
+    maxHp: MIDBOSS_TYPE.hp,
+    speed: MIDBOSS_TYPE.speed,
+    xp: MIDBOSS_TYPE.xp,
     slow: 0,
     orbitCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
     knockY: 0,
+    frozen: 0,
+    boss: true,
+    bossKind: "mid",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ 中ボス出現 ⚠",
+    "#ff9b6a",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.25);
+  g.se("boom");
+}
+
+function spawnStage1Boss(g){
+  S.stage1BossSpawned = true;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE1_BOSS_TYPE.r,
+    emoji: STAGE1_BOSS_TYPE.emoji,
+    size: STAGE1_BOSS_TYPE.size,
+    hp: STAGE1_BOSS_TYPE.hp,
+    maxHp: STAGE1_BOSS_TYPE.hp,
+    speed: STAGE1_BOSS_TYPE.speed,
+    xp: STAGE1_BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
     boss: true,
     bossKind: "stage1",
   });
@@ -610,79 +658,107 @@ function spawnBoss(g){
   addFloater(
     g.W / 2,
     200,
-    "⚠ ボス出現 ⚠",
+    "⚠ ステージ1ボス出現 ⚠",
     "#ff6a6a",
     34,
     1.3
   );
 
-  S.shake = Math.max(S.shake, 0.25);
+  S.shake = Math.max(S.shake, 0.32);
+  S.flash = Math.max(S.flash, 0.18);
   g.se("boom");
 }
 
-function spawnStage3Boss(g){
-  S.stage3BossSpawned = true;
+function spawnStage2Boss(g){
+  S.stage2BossSpawned = true;
 
   S.enemies.push({
     id: ++S.enemyId,
     x: g.W / 2,
     y: 130,
-    r: STAGE3_BOSS_TYPE.r,
-    emoji: STAGE3_BOSS_TYPE.emoji,
-    size: STAGE3_BOSS_TYPE.size,
-    hp: STAGE3_BOSS_TYPE.hp,
-    maxHp: STAGE3_BOSS_TYPE.hp,
-    speed: STAGE3_BOSS_TYPE.speed,
-    xp: STAGE3_BOSS_TYPE.xp,
+    r: STAGE2_BOSS_TYPE.r,
+    emoji: STAGE2_BOSS_TYPE.emoji,
+    size: STAGE2_BOSS_TYPE.size,
+    hp: STAGE2_BOSS_TYPE.hp,
+    maxHp: STAGE2_BOSS_TYPE.hp,
+    speed: STAGE2_BOSS_TYPE.speed,
+    xp: STAGE2_BOSS_TYPE.xp,
     slow: 0,
     orbitCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
     knockY: 0,
+    frozen: 0,
     boss: true,
-    bossKind: "stage3",
+    bossKind: "stage2",
   });
 
   addFloater(
     g.W / 2,
     200,
-    "⚠ ステージボス出現 ⚠",
+    "⚠ ステージ2ボス出現 ⚠",
     "#c9a2ff",
     34,
     1.3
   );
 
-  S.shake = Math.max(S.shake, 0.25);
+  S.shake = Math.max(S.shake, 0.38);
+  S.flash = Math.max(S.flash, 0.22);
   g.se("boom");
 }
 
-function enterStage3(g){
-  S.stage = 3;
+function enterStage2(g){
+  S.stage = 2;
+  S.stage2StartElapsed = S.elapsed;
 
   addFloater(
     g.W / 2,
-    210,
-    "STAGE 3 突入!",
-    "#c9a2ff",
-    34,
+    205,
+    "ステージ1ボス撃破!",
+    "#ffe66d",
+    32,
     1.5
   );
 
   addFloater(
     g.W / 2,
     250,
-    "見知らぬ縄張り……",
-    "#c9a2ff",
-    20,
+    "STAGE 2 突入!",
+    "#8deaff",
+    36,
     1.5
   );
 
-  S.shake = Math.max(S.shake, 0.2);
-  S.flash = 0.2;
+  S.shake = Math.max(S.shake, 0.3);
+  S.flash = Math.max(S.flash, 0.3);
   g.se("clear");
+}
 
-  spawnStage3Boss(g);
+function enterExStage(g){
+  S.stage = 3;
+
+  addFloater(
+    g.W / 2,
+    205,
+    "ステージ2ボス撃破!",
+    "#ffe66d",
+    32,
+    1.5
+  );
+
+  addFloater(
+    g.W / 2,
+    250,
+    "全ステージ制覇! EX突入",
+    "#c9a2ff",
+    36,
+    1.7
+  );
+
+  S.shake = Math.max(S.shake, 0.36);
+  S.flash = Math.max(S.flash, 0.35);
+  g.se("clear");
 }
 
 function nearestEnemy(g, x, y, exceptIds, maxDistance){
@@ -988,35 +1064,19 @@ function damageEnemy(g, enemy, damage, source){
       32
     );
 
-    addFloater(
-      enemy.x,
-      enemy.y - 60,
-      "ボス撃破!",
-      "#ffe66d",
-      36,
-      1.2
-    );
-
-    if (enemy.bossKind === "stage3"){
+    if (enemy.bossKind === "mid"){
       addFloater(
-        g.W / 2,
-        210,
-        "ステージボス撃破!",
-        "#c9a2ff",
-        34,
-        1.5
+        enemy.x,
+        enemy.y - 60,
+        "中ボス撃破!",
+        "#ffe66d",
+        36,
+        1.2
       );
-    } else {
-      S.stage = 2;
-
-      addFloater(
-        g.W / 2,
-        210,
-        "STAGE 2 突入!",
-        "#8deaff",
-        34,
-        1.5
-      );
+    } else if (enemy.bossKind === "stage1"){
+      enterStage2(g);
+    } else if (enemy.bossKind === "stage2"){
+      enterExStage(g);
     }
 
     g.se("clear");
@@ -1365,25 +1425,34 @@ function updateEnemies(g, dt){
       const dx = S.player.x - enemy.x;
       const dy = S.player.y - enemy.y;
       const distance = Math.hypot(dx, dy);
-      const slowRate =
-        enemy.slow > 0 ? 0.48 : 1;
+      const speedRate =
+        enemy.frozen > 0
+          ? 0
+          : enemy.slow > 0
+            ? 0.48
+            : 1;
 
       enemy.x += dx /
         Math.max(1, distance) *
         enemy.speed *
-        slowRate *
+        speedRate *
         dt;
 
       enemy.y += dy /
         Math.max(1, distance) *
         enemy.speed *
-        slowRate *
+        speedRate *
         dt;
     }
 
     enemy.slow = Math.max(
       0,
       enemy.slow - dt
+    );
+
+    enemy.frozen = Math.max(
+      0,
+      enemy.frozen - dt
     );
 
     enemy.orbitCooldown = Math.max(
@@ -1480,13 +1549,28 @@ function updateCold(g, dt){
     2.25 - level * 0.25
   );
 
+  const evolved = isEvolved("cold");
+
   const radius =
     (105 + level * 22) *
     evolutionPower("cold");
 
-  const damage =
+  const caught = S.enemies.filter(
+    enemy =>
+      !enemy.dead &&
+      g.dist(enemy, S.player) <= radius
+  );
+
+  const baseDamage =
     (0.5 + level * 0.3) *
     evolutionPower("cold");
+
+  const damage =
+    baseDamage *
+    (
+      1 +
+      Math.min(caught.length, 8) * 0.12
+    );
 
   addEffect({
     type: "text",
@@ -1494,28 +1578,30 @@ function updateCold(g, dt){
     y: S.player.y,
     text: "❄️",
     color: "#bdefff",
-    size: isEvolved("cold") ? 55 : 40,
+    size: evolved ? 55 : 40,
     t: 0.35,
     maxT: 0.35,
   });
 
-  for (const enemy of S.enemies){
-    if (
-      !enemy.dead &&
-      g.dist(enemy, S.player) <= radius
-    ){
+  for (const enemy of caught){
+    if (evolved){
+      enemy.frozen = Math.max(
+        enemy.frozen,
+        1.2
+      );
+    } else {
       enemy.slow = Math.max(
         enemy.slow,
-        isEvolved("cold") ? 2.3 : 1.5
-      );
-
-      damageEnemy(
-        g,
-        enemy,
-        damage,
-        "cold"
+        1.5
       );
     }
+
+    damageEnemy(
+      g,
+      enemy,
+      damage,
+      "cold"
+    );
   }
 
   g.se("ping");
@@ -1559,7 +1645,10 @@ function hitPlayer(g, enemy){
 
   if (
     cardLevel("cold") > 0 &&
-    enemy.slow > 0
+    (
+      enemy.slow > 0 ||
+      enemy.frozen > 0
+    )
   ){
     const counterDamage =
       (1.5 + cardLevel("cold") * 0.5) *
@@ -1881,6 +1970,19 @@ function openChest(g){
   };
 
   S.scene = "chest";
+  S.shake = Math.max(S.shake, 0.2);
+  S.goldFlash = Math.max(S.goldFlash, 0.25);
+
+  addBurst(
+    g,
+    g.W / 2,
+    220,
+    "✨",
+    10,
+    26
+  );
+
+  g.se("ping");
 }
 
 function updateChest(g, dt){
@@ -1902,25 +2004,65 @@ function updateChest(g, dt){
 
     grantCardLevel(g, card);
     chest.revealed++;
-    chest.timer = 0.45;
+    chest.timer = Math.max(
+      0.24,
+      0.48 - chest.revealed * 0.045
+    );
+
+    const combo = chest.revealed;
+    const centerX = g.W / 2;
+    const centerY = g.H / 2 - 20;
+    const sounds = [
+      "coin",
+      "jump",
+      "ping",
+    ];
 
     S.shake = Math.max(
       S.shake,
-      0.12 + chest.revealed * 0.03
+      0.16 + combo * 0.055
     );
 
-    S.goldFlash = 0.25;
+    S.goldFlash = Math.max(
+      S.goldFlash,
+      0.22 + combo * 0.07
+    );
+
+    S.flash = Math.max(
+      S.flash,
+      0.05 + combo * 0.025
+    );
 
     addBurst(
       g,
-      g.W / 2,
-      g.H / 2 - 20,
+      centerX,
+      centerY,
       "🎉",
-      6 + chest.revealed * 2,
-      g.rand(20, 34)
+      7 + combo * 3,
+      22 + combo * 2
     );
 
-    g.se("coin");
+    addBurst(
+      g,
+      centerX,
+      centerY,
+      "✨",
+      5 + combo * 3,
+      18 + combo * 2
+    );
+
+    addBurst(
+      g,
+      centerX,
+      centerY,
+      "💰",
+      2 + combo * 2,
+      20 + combo * 2
+    );
+
+    g.se(
+      sounds[(combo - 1) % sounds.length]
+    );
     return;
   }
 
@@ -1928,15 +2070,48 @@ function updateChest(g, dt){
     chest.closing = true;
     chest.timer = 1.0;
 
+    S.shake = Math.max(S.shake, 0.65);
+    S.flash = Math.max(S.flash, 0.55);
+    S.goldFlash = Math.max(S.goldFlash, 0.75);
+
+    addBurst(
+      g,
+      g.W / 2,
+      g.H / 2 - 10,
+      "🎉",
+      22 + chest.items.length * 5,
+      38
+    );
+
+    addBurst(
+      g,
+      g.W / 2,
+      g.H / 2 - 10,
+      "✨",
+      26 + chest.items.length * 5,
+      34
+    );
+
+    addBurst(
+      g,
+      g.W / 2,
+      g.H / 2 - 10,
+      "💰",
+      14 + chest.items.length * 4,
+      36
+    );
+
     addFloater(
       g.W / 2,
       g.H / 2 + 150,
       "GET! ×" + chest.items.length,
       "#ffe66d",
-      26,
+      32,
       1.0
     );
 
+    g.se("boom");
+    g.se("clear");
     return;
   }
 
@@ -2001,15 +2176,6 @@ function updateLevelChoice(g){
 function updatePlay(g, dt){
   S.elapsed += dt;
 
-  if (
-    S.stage === 1 &&
-    S.elapsed >= 90
-  ){
-    S.elapsed = 90;
-    finishGame(g, true);
-    return;
-  }
-
   S.chainTimer -= dt;
 
   if (
@@ -2022,17 +2188,26 @@ function updatePlay(g, dt){
   updatePlayer(g, dt);
 
   if (
-    !S.bossSpawned &&
+    !S.midbossSpawned &&
     S.elapsed >= 40
   ){
-    spawnBoss(g);
+    spawnMidboss(g);
+  }
+
+  if (
+    S.stage === 1 &&
+    !S.stage1BossSpawned &&
+    S.elapsed >= 90
+  ){
+    spawnStage1Boss(g);
   }
 
   if (
     S.stage === 2 &&
-    S.elapsed >= 100
+    !S.stage2BossSpawned &&
+    S.elapsed - S.stage2StartElapsed >= 75
   ){
-    enterStage3(g);
+    spawnStage2Boss(g);
   }
 
   S.spawnTimer -= dt;
@@ -2141,7 +2316,7 @@ function drawBackground(g){
   const bonus =
     S.elapsed >= 75;
 
-  if (S.stage === 3){
+  if (S.stage >= 2){
     g.bg("#1a0f2e");
   } else if (bonus){
     g.bg("#29210c");
@@ -2221,7 +2396,11 @@ function drawXpOrbs(g, ox, oy){
 function drawEnemies(g, ox, oy){
   for (const enemy of S.enemies){
     const alpha =
-      enemy.slow > 0 ? 0.68 : 1;
+      enemy.frozen > 0
+        ? 0.5
+        : enemy.slow > 0
+          ? 0.68
+          : 1;
 
     g.emoji(
       enemy.emoji,
@@ -2235,11 +2414,15 @@ function drawEnemies(g, ox, oy){
       const width = 110;
 
       g.text(
-        "ボス",
+        enemy.bossKind === "mid"
+          ? "中ボス"
+          : "ステージボス",
         enemy.x + ox,
         enemy.y - enemy.r - 34 + oy,
         18,
-        "#ffb0b0"
+        enemy.bossKind === "mid"
+          ? "#ffcf8a"
+          : "#ffb0b0"
       );
 
       g.rect(
@@ -2441,7 +2624,7 @@ function drawHud(g){
 
   if (S.stage >= 2){
     g.text(
-      S.stage === 3 ? "STAGE 3" : "STAGE 2",
+      S.stage === 3 ? "EX" : "STAGE 2",
       g.W / 2,
       22,
       26,
@@ -2509,7 +2692,7 @@ function drawHud(g){
 
   if (S.stage === 3){
     g.text(
-      "見知らぬ縄張り。敵の顔ぶれが変わった",
+      "全ステージ制覇。ここからは力尽きるまでの延長戦",
       g.W / 2,
       84,
       18,
@@ -2517,7 +2700,7 @@ function drawHud(g){
     );
   } else if (S.stage === 2){
     g.text(
-      "ボス撃破後の延長戦。倒されるまで続く",
+      "見知らぬ縄張り。敵の顔ぶれが変わった",
       g.W / 2,
       84,
       18,
@@ -2777,12 +2960,26 @@ function drawLevelUp(g){
 }
 
 function drawChest(g){
+  const chest = S.chest;
+
+  const partyColors = [
+    "#12091fcc",
+    "#091a2acc",
+    "#241008cc",
+    "#1e0925cc",
+    "#08231dcc",
+  ];
+
+  const colorIndex = chest
+    ? chest.revealed % partyColors.length
+    : 0;
+
   g.rect(
     0,
     0,
     g.W,
     g.H,
-    "#000000cc"
+    partyColors[colorIndex]
   );
 
   g.text(
@@ -2793,17 +2990,25 @@ function drawChest(g){
     "#ffe66d"
   );
 
-  const chest = S.chest;
-
   if (!chest){
     return;
   }
 
+  const pulse =
+    1 +
+    Math.sin(
+      g.time * (12 + chest.revealed * 2)
+    ) * (
+      0.05 + chest.revealed * 0.012
+    );
+
   const chestBounce =
-    chest.closing || chest.revealed > 0
-      ? 100
-      : 100 +
-        Math.sin(g.time * 14) * 6;
+    chest.closing
+      ? 118 * pulse
+      : (
+        100 +
+        Math.sin(g.time * 14) * 6
+      ) * pulse;
 
   g.emoji(
     chest.revealed >= chest.items.length
@@ -2823,12 +3028,17 @@ function drawChest(g){
   for (let i = 0; i < chest.revealed; i++){
     const card = chest.items[i];
     const x = left + i * gap;
+    const newest = i === chest.revealed - 1;
+    const iconPulse =
+      newest && !chest.closing
+        ? 1 + Math.sin(g.time * 18) * 0.12
+        : 1;
 
     g.emoji(
       card.emoji,
       x,
       370,
-      58
+      58 * iconPulse
     );
 
     g.text(
@@ -2836,7 +3046,7 @@ function drawChest(g){
       x,
       412,
       16,
-      "#fff"
+      newest ? "#ffe66d" : "#fff"
     );
   }
 
@@ -2895,7 +3105,7 @@ function drawResult(g){
 
   if (S.stage === 3){
     g.text(
-      "🏆 ステージ3 到達(見知らぬ縄張りまで)",
+      "🏆 全ステージ制覇(EX到達)",
       g.W / 2,
       140,
       20,
@@ -2903,7 +3113,7 @@ function drawResult(g){
     );
   } else if (S.stage === 2){
     g.text(
-      "🏆 ステージ2 到達(ボス撃破)",
+      "🏆 ステージ2 到達",
       g.W / 2,
       140,
       20,
@@ -3154,7 +3364,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev8",
+      "rev9",
       g.W - 8,
       14,
       12,
