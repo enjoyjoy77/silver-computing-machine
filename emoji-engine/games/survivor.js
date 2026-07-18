@@ -139,7 +139,7 @@ const MIDBOSS_TYPE = {
   emoji: "🐲",
   size: 118,
   r: 48,
-  hp: 260,
+  hp: 360,
   speed: 46,
   xp: 30,
 };
@@ -148,7 +148,7 @@ const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
   size: 134,
   r: 53,
-  hp: 470,
+  hp: 660,
   speed: 43,
   xp: 42,
 };
@@ -157,7 +157,7 @@ const STAGE2_BOSS_TYPE = {
   emoji: "🐙",
   size: 150,
   r: 59,
-  hp: 730,
+  hp: 1020,
   speed: 41,
   xp: 60,
 };
@@ -166,7 +166,7 @@ const STAGE3_BOSS_TYPE = {
   emoji: "👽",
   size: 164,
   r: 65,
-  hp: 1150,
+  hp: 1600,
   speed: 47,
   xp: 90,
 };
@@ -175,7 +175,7 @@ const STAGE4_BOSS_TYPE = {
   emoji: "🕳️",
   size: 176,
   r: 70,
-  hp: 1650,
+  hp: 2300,
   speed: 50,
   xp: 120,
 };
@@ -184,7 +184,7 @@ const STAGE5_BOSS_TYPE = {
   emoji: "♾️",
   size: 190,
   r: 75,
-  hp: 2350,
+  hp: 3300,
   speed: 53,
   xp: 160,
 };
@@ -193,7 +193,7 @@ const STAGE6_BOSS_TYPE = {
   emoji: "😈",
   size: 204,
   r: 80,
-  hp: 3300,
+  hp: 4600,
   speed: 56,
   xp: 210,
 };
@@ -4941,7 +4941,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev19",
+      "rev20",
       g.W - 8,
       14,
       12,

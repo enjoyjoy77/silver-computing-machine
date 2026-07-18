@@ -1,6 +1,6 @@
 /* =====================================================
    掘って守る
-   深追いするほど、帰り道は長くなる
+   採掘 → 警告 → 防衛を3サイクル繰り返す
 ===================================================== */
 (function(){
 "use strict";
@@ -12,7 +12,60 @@ const COLS = 14;
 const MAX_DEPTH = 1584;
 const BASE_UP_SPEED = 60;
 const MIN_UP_RATE = 0.4;
-const MAX_UPGRADES = 4;
+
+const CYCLES = [
+  {
+    mining: 20,
+    warning: 3,
+    defend: 7,
+    enemies: [
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+    ],
+  },
+  {
+    mining: 18,
+    warning: 3,
+    defend: 9,
+    enemies: [
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "fast",
+      "fast",
+    ],
+  },
+  {
+    mining: 15,
+    warning: 3,
+    defend: 12,
+    enemies: [
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "fast",
+      "fast",
+      "fast",
+      "large",
+    ],
+  },
+];
 
 const RESOURCES = [
   "💎",
@@ -82,6 +135,10 @@ function layerValue(layer){
   }
 
   return 50;
+}
+
+function upgradeCost(id){
+  return 30 + S.upgrades[id] * 25;
 }
 
 function addFloater(
@@ -201,6 +258,12 @@ function reset(g){
     elapsed: 0,
     won: false,
 
+    cycle: 0,
+    phase: "mining",
+    phaseElapsed: 0,
+    phaseDuration: CYCLES[0].mining,
+    phaseSerial: 0,
+
     player: {
       col: startCol,
       row: 0,
@@ -215,6 +278,7 @@ function reset(g){
     carried: [],
     carriedValue: 0,
     bankedValue: 0,
+    upgradePoints: 0,
 
     digTarget: null,
     digProgress: 0,
@@ -228,14 +292,15 @@ function reset(g){
     },
 
     upgradeCount: 0,
-    upgradeChoices: [],
     returnCount: 0,
 
     baseHp: 100,
     baseMaxHp: 100,
     enemies: [],
     enemyId: 0,
-    spawnTimer: 4,
+    spawnQueue: [],
+    spawnIndex: 0,
+    spawnTimer: 0,
     autoTimer: 0,
     manualTimer: 0,
     aimX: 850,
@@ -266,7 +331,7 @@ function startGame(g){
   reset(g);
   S.scene = "play";
   S.waveBanner = {
-    text: "第1採掘 / 小規模襲撃",
+    text: "第1採掘フェーズ",
     t: 2,
   };
   g.bgm("battle");
@@ -297,38 +362,27 @@ function isAtSurface(){
   return S.player.y <= 0.01;
 }
 
-function currentWave(){
-  if (S.elapsed < 25){
-    return 1;
-  }
-
-  if (S.elapsed < 50){
-    return 2;
-  }
-
-  if (S.elapsed < 75){
-    return 3;
-  }
-
-  return 4;
+function cycleNumber(){
+  return S.cycle + 1;
 }
 
-function waveName(){
-  const wave = currentWave();
+function phaseRemaining(){
+  return Math.max(
+    0,
+    S.phaseDuration - S.phaseElapsed
+  );
+}
 
-  if (wave === 1){
-    return "第1採掘 / 小規模襲撃";
+function phaseLabel(){
+  if (S.phase === "mining"){
+    return "採掘中";
   }
 
-  if (wave === 2){
-    return "第2採掘 / 中規模襲撃";
+  if (S.phase === "warning"){
+    return "帰還警告";
   }
 
-  if (wave === 3){
-    return "第3採掘 / 大規模襲撃";
-  }
-
-  return "最終襲撃";
+  return "防衛中";
 }
 
 function showWave(g, text){
@@ -340,29 +394,7 @@ function showWave(g, text){
   g.se("ping");
 }
 
-function checkWaveChange(g, before, after){
-  if (before < 25 && after >= 25){
-    showWave(
-      g,
-      "第2採掘 / 中規模襲撃"
-    );
-  }
-
-  if (before < 50 && after >= 50){
-    showWave(
-      g,
-      "第3採掘 / 大規模襲撃"
-    );
-  }
-
-  if (before < 75 && after >= 75){
-    showWave(
-      g,
-      "⚠ 最終襲撃 ⚠"
-    );
-    S.shake = Math.max(S.shake, 0.25);
-  }
-
+function checkEmergencyReady(g, before, after){
   if (
     before < 45 &&
     after >= 45 &&
@@ -547,37 +579,42 @@ function tryDig(g, col, row, dt){
   }
 }
 
-function openUpgradeChoice(g){
-  if (
-    S.upgradeCount >= MAX_UPGRADES ||
-    S.carried.length <= 0
-  ){
-    S.carried = [];
-    S.carriedValue = 0;
-    return;
-  }
-
+function openUpgradeShop(g){
   S.scene = "upgrade";
-  S.upgradeChoices = UPGRADES.slice();
   g.se("ping");
 }
 
 function returnToBase(g){
   if (S.carried.length <= 0){
+    addFloater(
+      355,
+      245,
+      "空手で帰還",
+      "#b8cada",
+      27,
+      1
+    );
+    g.se("click");
     return;
   }
 
+  const returnedValue = S.carriedValue;
+
   S.returnCount++;
-  S.bankedValue += S.carriedValue;
+  S.bankedValue += returnedValue;
+  S.upgradePoints += returnedValue;
+  S.carried = [];
+  S.carriedValue = 0;
   S.freeze = Math.max(S.freeze, 5 / 60);
   S.whiteFlash = Math.max(S.whiteFlash, 0.22);
 
   addFloater(
     355,
     245,
-    "帰還成功!  +" + S.carriedValue,
+    "帰還成功!  強化ポイント +" +
+      returnedValue,
     "#8fffc1",
-    30,
+    28,
     1.1
   );
 
@@ -602,7 +639,7 @@ function returnToBase(g){
   }
 
   g.se("clear");
-  openUpgradeChoice(g);
+  openUpgradeShop(g);
 }
 
 function useEmergency(g){
@@ -656,19 +693,40 @@ function useEmergency(g){
   returnToBase(g);
 }
 
-function chooseUpgrade(g, index){
+function buyUpgrade(g, index){
   if (
     S.scene !== "upgrade" ||
     index < 0 ||
-    index >= S.upgradeChoices.length
+    index >= UPGRADES.length
   ){
     return;
   }
 
-  const upgrade = S.upgradeChoices[index];
+  const upgrade = UPGRADES[index];
+  const cost = upgradeCost(upgrade.id);
+
+  if (S.upgradePoints < cost){
+    addFloater(
+      355,
+      145,
+      "ポイント不足: " + cost + "必要",
+      "#ff8d93",
+      22,
+      0.8
+    );
+    g.se("click");
+    return;
+  }
+
+  S.upgradePoints -= cost;
 
   if (upgrade.id === "armor"){
     const oldMax = S.baseMaxHp;
+    const hpRatio =
+      oldMax > 0
+        ? S.baseHp / oldMax
+        : 1;
+
     S.upgrades.armor++;
     S.baseMaxHp =
       100 *
@@ -677,29 +735,36 @@ function chooseUpgrade(g, index){
         S.upgrades.armor * 0.2
       );
 
-    S.baseHp +=
-      S.baseMaxHp - oldMax;
+    S.baseHp =
+      S.baseMaxHp * hpRatio;
   } else {
     S.upgrades[upgrade.id]++;
   }
 
   S.upgradeCount++;
-  S.carried = [];
-  S.carriedValue = 0;
-  S.scene = "play";
 
   addFloater(
     355,
-    190,
+    145,
     upgrade.emoji + " " +
       upgrade.name +
-      " 強化!",
+      " Lv." +
+      S.upgrades[upgrade.id],
     "#ffe66d",
-    29,
-    1.1
+    25,
+    0.9
   );
 
   g.se("clear");
+}
+
+function closeUpgradeShop(g){
+  if (S.scene !== "upgrade"){
+    return;
+  }
+
+  S.scene = "play";
+  g.se("click");
 }
 
 function updateUpgrade(g){
@@ -707,14 +772,21 @@ function updateUpgrade(g){
   const gap = 10;
   const left = 25;
   const top = 175;
-  const height = 190;
+  const height = 205;
 
   if (g.pointer.justDown){
-    for (
-      let i = 0;
-      i < S.upgradeChoices.length;
-      i++
-    ){
+    const backHit =
+      S.pointerX >= 265 &&
+      S.pointerX <= 455 &&
+      S.pointerY >= 430 &&
+      S.pointerY <= 485;
+
+    if (backHit){
+      closeUpgradeShop(g);
+      return;
+    }
+
+    for (let i = 0; i < UPGRADES.length; i++){
       const x =
         left +
         i * (cardWidth + gap);
@@ -725,7 +797,7 @@ function updateUpgrade(g){
         S.pointerY >= top &&
         S.pointerY <= top + height
       ){
-        chooseUpgrade(g, i);
+        buyUpgrade(g, i);
         return;
       }
     }
@@ -741,9 +813,16 @@ function updateUpgrade(g){
 
   for (let i = 0; i < numberKeys.length; i++){
     if (g.pressed(numberKeys[i])){
-      chooseUpgrade(g, i);
+      buyUpgrade(g, i);
       return;
     }
+  }
+
+  if (
+    g.pressed("action") ||
+    g.pressed("Enter")
+  ){
+    closeUpgradeShop(g);
   }
 }
 
@@ -865,67 +944,68 @@ function updateMining(g, dt){
   }
 }
 
-function spawnInterval(){
-  const wave = currentWave();
-
-  if (wave === 1){
-    return 7;
+function enemyStats(type){
+  if (type === "fast"){
+    return {
+      emoji: "🦂",
+      hp: 16 + S.cycle * 4,
+      damage: 10 + S.cycle * 2,
+      duration: 4.8,
+      size: 14,
+    };
   }
 
-  if (wave === 2){
-    return 5;
+  if (type === "large"){
+    return {
+      emoji: "👹",
+      hp: 64,
+      damage: 26,
+      duration: 9,
+      size: 22,
+    };
   }
 
-  if (wave === 3){
-    return 3.4;
-  }
-
-  return 2.2;
+  return {
+    emoji: "👾",
+    hp: 18 + S.cycle * 7,
+    damage: 9 + S.cycle * 3,
+    duration: 7 + S.cycle,
+    size: 15,
+  };
 }
 
-function spawnEnemy(g){
-  const wave = currentWave();
-  const duration =
-    g.rand(10, 15);
+function prepareDefense(){
+  S.enemies = [];
+  S.spawnQueue =
+    CYCLES[S.cycle].enemies.slice();
+  S.spawnIndex = 0;
+  S.spawnTimer = 0;
+  S.autoTimer = 0;
+  S.manualTimer = 0;
+}
 
-  let hp = 13;
-  let damage = 9;
-
-  if (wave === 2){
-    hp = 20;
-    damage = 12;
-  } else if (wave === 3){
-    hp = 28;
-    damage = 15;
-  } else if (wave === 4){
-    hp = 34;
-    damage = 18;
-  }
+function spawnEnemy(g, type){
+  const stats = enemyStats(type);
 
   S.enemies.push({
     id: ++S.enemyId,
-    emoji: g.pick([
-      "👾",
-      "🦂",
-    ]),
+    type: type,
+    emoji: stats.emoji,
     x: 938,
-    r: 15,
-    hp: hp,
-    maxHp: hp,
-    damage: damage,
-    duration: duration,
-    remaining: duration,
+    r: stats.size,
+    hp: stats.hp,
+    maxHp: stats.hp,
+    damage: stats.damage,
+    duration: stats.duration,
+    remaining: stats.duration,
     warned: false,
+    criticalWarned: false,
   });
 
   S.warningFlash = Math.max(
     S.warningFlash,
     0.18
   );
-
-  if (wave === 4){
-    g.se("ping");
-  }
 }
 
 function killEnemy(g, enemy){
@@ -957,11 +1037,30 @@ function turretDamage(){
 }
 
 function updateDefense(g, dt){
-  S.spawnTimer -= dt;
+  const queueLength =
+    S.spawnQueue.length;
 
-  if (S.spawnTimer <= 0){
-    spawnEnemy(g);
-    S.spawnTimer = spawnInterval();
+  if (S.spawnIndex < queueLength){
+    S.spawnTimer -= dt;
+
+    if (S.spawnTimer <= 0){
+      spawnEnemy(
+        g,
+        S.spawnQueue[S.spawnIndex]
+      );
+
+      S.spawnIndex++;
+
+      const remainingSpawns =
+        queueLength - S.spawnIndex;
+      const timeLeft =
+        Math.max(0.1, phaseRemaining());
+
+      S.spawnTimer =
+        remainingSpawns > 0
+          ? timeLeft / remainingSpawns
+          : 999;
+    }
   }
 
   S.manualTimer = Math.max(
@@ -992,8 +1091,8 @@ function updateDefense(g, dt){
     if (target){
       const efficiency =
         isAtSurface()
-          ? 0.65
-          : 0.22;
+          ? 0.75
+          : 0.25;
 
       target.hp -=
         turretDamage() *
@@ -1094,7 +1193,7 @@ function updateDefense(g, dt){
 
     if (
       !enemy.warned &&
-      enemy.remaining <= 8
+      enemy.remaining <= 5
     ){
       enemy.warned = true;
 
@@ -1112,7 +1211,7 @@ function updateDefense(g, dt){
 
     if (
       !enemy.criticalWarned &&
-      enemy.remaining <= 3
+      enemy.remaining <= 2.5
     ){
       enemy.criticalWarned = true;
 
@@ -1134,7 +1233,6 @@ function updateDefense(g, dt){
         S.baseHp
       );
 
-      // 被弾はしっかり体感できるよう、止め・揺れ・表示のすべてを強めに出す
       S.freeze = Math.max(
         S.freeze,
         8 / 60
@@ -1185,7 +1283,77 @@ function updateDefense(g, dt){
   );
 }
 
-function updatePlay(g, dt){
+function enterPhase(g, phase){
+  S.phase = phase;
+  S.phaseElapsed = 0;
+  S.phaseSerial++;
+
+  if (phase === "mining"){
+    S.phaseDuration =
+      CYCLES[S.cycle].mining;
+    S.enemies = [];
+    S.spawnQueue = [];
+    showWave(
+      g,
+      "第" + cycleNumber() +
+        "採掘フェーズ"
+    );
+    return;
+  }
+
+  if (phase === "warning"){
+    S.phaseDuration =
+      CYCLES[S.cycle].warning;
+    S.enemies = [];
+    S.spawnQueue = [];
+    S.shake = Math.max(S.shake, 0.18);
+    S.warningFlash = 0.7;
+    showWave(
+      g,
+      "⚠ 防衛準備・地上へ戻れ!"
+    );
+    return;
+  }
+
+  S.phaseDuration =
+    CYCLES[S.cycle].defend;
+  prepareDefense();
+  S.shake = Math.max(S.shake, 0.25);
+  S.redFlash = Math.max(S.redFlash, 0.18);
+  showWave(
+    g,
+    "第" + cycleNumber() +
+      "波 防衛開始!"
+  );
+}
+
+function completePhase(g){
+  if (S.phase === "mining"){
+    enterPhase(g, "warning");
+    return;
+  }
+
+  if (S.phase === "warning"){
+    enterPhase(g, "defend");
+    return;
+  }
+
+  S.enemies = [];
+  S.spawnQueue = [];
+
+  if (S.cycle >= CYCLES.length - 1){
+    finishGame(
+      g,
+      S.baseHp > 0
+    );
+    return;
+  }
+
+  S.cycle++;
+  enterPhase(g, "mining");
+}
+
+function updateTimeline(g, dt){
   const before = S.elapsed;
 
   S.elapsed = Math.min(
@@ -1193,25 +1361,64 @@ function updatePlay(g, dt){
     S.elapsed + dt
   );
 
-  checkWaveChange(
+  checkEmergencyReady(
     g,
     before,
     S.elapsed
   );
 
-  updateDefense(g, dt);
+  S.phaseElapsed += dt;
 
-  if (S.scene === "over"){
-    return;
+  if (
+    S.phase === "warning"
+  ){
+    const oldSecond = Math.ceil(
+      S.phaseDuration -
+      (S.phaseElapsed - dt)
+    );
+
+    const newSecond = Math.ceil(
+      phaseRemaining()
+    );
+
+    if (
+      newSecond !== oldSecond &&
+      newSecond > 0
+    ){
+      S.warningFlash = 0.35;
+      g.se("ping");
+    }
+  }
+}
+
+function updatePlay(g, dt){
+  updateTimeline(g, dt);
+
+  if (S.phase === "defend"){
+    updateDefense(g, dt);
+
+    if (S.scene === "over"){
+      return;
+    }
   }
 
   updateMining(g, dt);
 
   if (
-    S.elapsed >= TOTAL_TIME &&
-    S.baseHp > 0
+    S.scene === "play" &&
+    S.phaseElapsed >= S.phaseDuration
   ){
-    finishGame(g, true);
+    completePhase(g);
+  }
+
+  if (
+    S.scene !== "over" &&
+    S.elapsed >= TOTAL_TIME
+  ){
+    finishGame(
+      g,
+      S.baseHp > 0
+    );
   }
 }
 
@@ -1540,13 +1747,16 @@ function drawDefenseBand(g, ox, oy){
   );
 
   g.text(
-    waveName(),
+    "第" + cycleNumber() +
+      "波 " + phaseLabel(),
     840,
     55,
-    15,
-    currentWave() === 4
+    16,
+    S.phase === "defend"
       ? "#ff867f"
-      : "#a9c7df"
+      : S.phase === "warning"
+        ? "#ffcf6e"
+        : "#9edfff"
   );
 
   g.rect(
@@ -1649,15 +1859,16 @@ function drawDefenseBand(g, ox, oy){
       enemy.remaining
     );
 
-    // 近づくほど大きく・危険な色に見せる
     const urgency = g.clamp(
-      1 - enemy.remaining / 8,
+      1 - enemy.remaining / 6,
       0,
       1
     );
 
     const size =
-      31 + urgency * 22;
+      enemy.type === "large"
+        ? 48 + urgency * 16
+        : 31 + urgency * 22;
 
     const pulse =
       enemy.remaining <= 3
@@ -1673,48 +1884,30 @@ function drawDefenseBand(g, ox, oy){
     );
 
     if (enemy.remaining <= 5){
-      const blink =
-        Math.floor(
-          g.time * (enemy.remaining <= 3 ? 8 : 4)
-        ) % 2 === 0;
-
       g.text(
         "⚠",
         enemy.x + ox,
-        225 + oy,
+        218 + oy,
         20,
         enemy.remaining <= 3
           ? "#ff5c63"
-          : "#ffb36a",
-        "center"
+          : "#ffb36a"
       );
-
-      if (blink){
-        g.rect(
-          enemy.x - size / 2 + ox,
-          255 - size / 2 + oy,
-          size,
-          size,
-          enemy.remaining <= 3
-            ? "#ff3a4222"
-            : "#ffb36a18"
-        );
-      }
     }
 
     g.rect(
-      enemy.x - 15 + ox,
-      232 + oy,
-      30,
-      4,
+      enemy.x - 17 + ox,
+      230 + oy,
+      34,
+      5,
       "#30141a"
     );
 
     g.rect(
-      enemy.x - 15 + ox,
-      232 + oy,
-      30 * hpRatioEnemy,
-      4,
+      enemy.x - 17 + ox,
+      230 + oy,
+      34 * hpRatioEnemy,
+      5,
       "#ff7b82"
     );
   }
@@ -1741,7 +1934,10 @@ function drawDefenseBand(g, ox, oy){
     );
   }
 
-  if (isAtSurface()){
+  if (
+    S.phase === "defend" &&
+    isAtSurface()
+  ){
     g.text(
       "左右:照準  action:発射",
       840,
@@ -1753,33 +1949,50 @@ function drawDefenseBand(g, ox, oy){
     g.text(
       "⌄",
       S.aimX,
-      223,
+      220,
       24,
       "#80eaff"
     );
-  } else {
+  } else if (S.phase === "defend"){
     g.text(
-      "地下では弱い自動砲台",
+      "地下: 自動砲台効率 0.25",
       840,
       305,
       15,
       "#8faabd"
     );
+  } else if (S.phase === "warning"){
+    g.text(
+      "防衛前の帰還猶予",
+      840,
+      305,
+      16,
+      "#ffcf6e"
+    );
+  } else {
+    g.text(
+      "採掘中は基地安全",
+      840,
+      305,
+      16,
+      "#8fffc1"
+    );
   }
 
   g.text(
-    "強化",
+    "強化ポイント " +
+      S.upgradePoints,
     840,
-    350,
-    18,
-    "#fff"
+    342,
+    17,
+    "#ffe66d"
   );
 
   g.text(
     "🔫" + S.upgrades.power +
       "  🛡️" + S.upgrades.armor,
     840,
-    382,
+    377,
     21,
     "#fff"
   );
@@ -1789,7 +2002,7 @@ function drawDefenseBand(g, ox, oy){
       "  ⛏️" + S.upgrades.drill +
       "  🎒" + S.upgrades.carry,
     840,
-    416,
+    411,
     19,
     "#fff"
   );
@@ -1797,28 +2010,41 @@ function drawDefenseBand(g, ox, oy){
   g.text(
     "帰還 " +
       S.returnCount +
-      "回  強化 " +
+      "回  購入 " +
       S.upgradeCount +
-      "/" +
-      MAX_UPGRADES,
+      "回",
     840,
-    452,
+    447,
     15,
     "#b8cada"
   );
 
   g.text(
-    "⏱ " +
+    phaseLabel() +
+      " あと " +
+      phaseRemaining().toFixed(1) +
+      "秒",
+    840,
+    482,
+    19,
+    S.phase === "defend"
+      ? "#ff747e"
+      : S.phase === "warning"
+        ? "#ffcf6e"
+        : "#9edfff"
+  );
+
+  g.text(
+    "全体 " +
       Math.max(
         0,
         TOTAL_TIME - S.elapsed
-      ).toFixed(1),
+      ).toFixed(1) +
+      "秒",
     840,
-    495,
-    26,
-    TOTAL_TIME - S.elapsed < 15
-      ? "#ff747e"
-      : "#fff"
+    510,
+    16,
+    "#dcecf7"
   );
 }
 
@@ -1829,8 +2055,8 @@ function drawMineHud(g){
   g.rect(
     12,
     12,
-    360,
-    86,
+    390,
+    112,
     "#090d14dd"
   );
 
@@ -1859,19 +2085,33 @@ function drawMineHud(g){
     "left"
   );
 
-  const speed =
-    moveSpeed();
+  g.text(
+    "第" + cycleNumber() +
+      "波 " + phaseLabel() +
+      "・あと " +
+      phaseRemaining().toFixed(1) +
+      "秒",
+    28,
+    88,
+    17,
+    S.phase === "defend"
+      ? "#ff747e"
+      : S.phase === "warning"
+        ? "#ffcf6e"
+        : "#8fffc1",
+    "left"
+  );
 
   g.text(
-    "移動速度 " +
-      speed.toFixed(1) +
-      "px/秒",
+    S.phase === "mining"
+      ? "時間終了で帰還警告"
+      : S.phase === "warning"
+        ? "まもなく敵が来る!"
+        : "地上で手動射撃が有効",
     28,
-    86,
-    16,
-    layer === 1
-      ? "#8fffc1"
-      : "#ffcf75",
+    112,
+    15,
+    "#c7d5e4",
     "left"
   );
 
@@ -1908,11 +2148,15 @@ function drawMineHud(g){
 
   if (isAtSurface()){
     g.text(
-      "↓で採掘開始",
+      S.phase === "defend"
+        ? "左右で照準・actionで射撃"
+        : "↓で採掘開始",
       355,
-      125,
-      21,
-      "#ffe6a1"
+      148,
+      19,
+      S.phase === "defend"
+        ? "#ffcf6e"
+        : "#ffe6a1"
     );
   } else {
     g.text(
@@ -1944,7 +2188,7 @@ function drawWaveBanner(g){
 
   g.rect(
     125,
-    115,
+    145,
     470,
     66,
     "#08101eee"
@@ -1953,11 +2197,88 @@ function drawWaveBanner(g){
   g.text(
     S.waveBanner.text,
     360,
-    148,
+    178,
     29,
-    currentWave() === 4
+    S.phase === "defend"
       ? "#ff837d"
-      : "#ffe66d"
+      : S.phase === "warning"
+        ? "#ffcf6e"
+        : "#8fffc1"
+  );
+}
+
+function drawWarning(g){
+  if (S.phase !== "warning"){
+    return;
+  }
+
+  const count = Math.max(
+    1,
+    Math.ceil(phaseRemaining())
+  );
+
+  const pulse =
+    1 +
+    Math.sin(g.time * 12) * 0.06;
+
+  if (
+    Math.floor(g.time * 8) % 2 === 0
+  ){
+    g.rect(
+      0,
+      0,
+      g.W,
+      14,
+      "#ff344d"
+    );
+
+    g.rect(
+      0,
+      g.H - 14,
+      g.W,
+      14,
+      "#ff344d"
+    );
+
+    g.rect(
+      0,
+      0,
+      14,
+      g.H,
+      "#ff344d"
+    );
+
+    g.rect(
+      g.W - 14,
+      0,
+      14,
+      g.H,
+      "#ff344d"
+    );
+  }
+
+  g.rect(
+    105,
+    205,
+    510,
+    145,
+    "#26080dee"
+  );
+
+  g.text(
+    "⚠ 防衛まで " + count,
+    360,
+    264,
+    44 * pulse,
+    "#ffdc6e"
+  );
+
+  g.text(
+    "地上へ戻れ!",
+    360,
+    320,
+    28,
+    "#fff"
   );
 }
 
@@ -1967,22 +2288,32 @@ function drawUpgrade(g){
     0,
     MINE_WIDTH,
     g.H,
-    "#08101bea"
+    "#08101bf2"
   );
 
   g.text(
-    "帰還資源をすべて使って強化",
+    "強化ショップ",
     360,
-    90,
+    55,
     31,
     "#ffe66d"
   );
 
   g.text(
-    "1つ選ぶとすぐ採掘へ戻る",
+    "所持ポイント " +
+      S.upgradePoints +
+      "・何度でも購入可能",
     360,
-    127,
-    18,
+    94,
+    22,
+    "#fff"
+  );
+
+  g.text(
+    "数字キー1〜5 またはカードを選択",
+    360,
+    126,
+    16,
     "#c7d5e4"
   );
 
@@ -1990,16 +2321,14 @@ function drawUpgrade(g){
   const gap = 10;
   const left = 25;
   const top = 175;
-  const height = 190;
+  const height = 205;
 
-  for (
-    let i = 0;
-    i < S.upgradeChoices.length;
-    i++
-  ){
-    const upgrade =
-      S.upgradeChoices[i];
-
+  for (let i = 0; i < UPGRADES.length; i++){
+    const upgrade = UPGRADES[i];
+    const cost =
+      upgradeCost(upgrade.id);
+    const affordable =
+      S.upgradePoints >= cost;
     const x =
       left +
       i * (cardWidth + gap);
@@ -2009,7 +2338,9 @@ function drawUpgrade(g){
       top,
       cardWidth,
       height,
-      "#283449"
+      affordable
+        ? "#3b5971"
+        : "#30333b"
     );
 
     g.rect(
@@ -2017,7 +2348,9 @@ function drawUpgrade(g){
       top + 4,
       cardWidth - 8,
       height - 8,
-      "#172033"
+      affordable
+        ? "#17283a"
+        : "#1d2027"
     );
 
     g.text(
@@ -2032,163 +2365,160 @@ function drawUpgrade(g){
     g.emoji(
       upgrade.emoji,
       x + cardWidth / 2,
-      top + 52,
-      45
+      top + 50,
+      42,
+      {
+        alpha:
+          affordable ? 1 : 0.55,
+      }
     );
 
     g.text(
       upgrade.name,
       x + cardWidth / 2,
-      top + 93,
-      21,
-      "#fff"
+      top + 88,
+      20,
+      affordable
+        ? "#fff"
+        : "#8c929b"
     );
 
     g.text(
       "Lv." +
         S.upgrades[upgrade.id],
       x + cardWidth / 2,
-      top + 119,
+      top + 113,
       16,
       "#9edfff"
     );
 
-    if (upgrade.id === "power"){
-      g.text(
-        "火力",
-        x + cardWidth / 2,
-        top + 149,
-        15,
-        "#c6d2df"
-      );
+    g.text(
+      upgrade.desc,
+      x + cardWidth / 2,
+      top + 144,
+      12,
+      "#c6d2df"
+    );
 
-      g.text(
-        "+30%",
-        x + cardWidth / 2,
-        top + 170,
-        15,
-        "#ffe66d"
-      );
-    } else if (upgrade.id === "armor"){
-      g.text(
-        "最大耐久",
-        x + cardWidth / 2,
-        top + 149,
-        15,
-        "#c6d2df"
-      );
+    g.text(
+      cost + " pt",
+      x + cardWidth / 2,
+      top + 178,
+      20,
+      affordable
+        ? "#ffe66d"
+        : "#ff858c"
+    );
 
-      g.text(
-        "+20%",
-        x + cardWidth / 2,
-        top + 170,
-        15,
-        "#ffe66d"
-      );
-    } else if (upgrade.id === "lift"){
-      g.text(
-        "上昇速度",
-        x + cardWidth / 2,
-        top + 149,
-        15,
-        "#c6d2df"
-      );
-
-      g.text(
-        "+15%",
-        x + cardWidth / 2,
-        top + 170,
-        15,
-        "#ffe66d"
-      );
-    } else if (upgrade.id === "drill"){
-      g.text(
-        "掘削速度",
-        x + cardWidth / 2,
-        top + 149,
-        15,
-        "#c6d2df"
-      );
-
-      g.text(
-        "+25%",
-        x + cardWidth / 2,
-        top + 170,
-        15,
-        "#ffe66d"
-      );
-    } else {
-      g.text(
-        "重量軽減",
-        x + cardWidth / 2,
-        top + 149,
-        15,
-        "#c6d2df"
-      );
-
-      g.text(
-        "2.5% / 4%",
-        x + cardWidth / 2,
-        top + 170,
-        14,
-        "#ffe66d"
-      );
-    }
+    g.text(
+      affordable
+        ? "購入可能"
+        : "ポイント不足",
+      x + cardWidth / 2,
+      top + 197,
+      12,
+      affordable
+        ? "#8fffc1"
+        : "#a27b80"
+    );
   }
+
+  g.rect(
+    265,
+    430,
+    190,
+    55,
+    "#42546c"
+  );
+
+  g.text(
+    "戻る  action / Enter",
+    360,
+    457,
+    19,
+    "#fff"
+  );
+
+  g.text(
+    phaseLabel() +
+      " あと " +
+      phaseRemaining().toFixed(1) +
+      "秒",
+    360,
+    510,
+    15,
+    "#9eb4c8"
+  );
 }
 
 function drawTitle(g){
   g.text(
     "⛏️",
     360,
-    100,
-    92
+    78,
+    78
   );
 
   g.text(
     "掘って守る",
     360,
-    186,
-    46,
+    151,
+    43,
     "#fff"
   );
 
   g.text(
-    "深追いするほど、帰り道は長くなる",
+    "3回の採掘 → 警告 → 防衛を生き残れ",
     360,
-    238,
-    24,
+    204,
+    23,
     "#ffe66d"
   );
 
   g.text(
-    "← ↑ ↓ → で掘り進む。既に掘った道は通れる",
+    "採掘中は基地安全。警告が出たら地上へ戻ろう",
     360,
-    303,
-    22,
-    "#d5e4ef"
+    254,
+    19,
+    "#8fffc1"
   );
 
   g.text(
-    "地上では ← → で照準、actionで発射",
+    "地上防衛: 左右で照準・actionで発射",
     360,
-    340,
-    19,
+    291,
+    18,
     "#9cc9e6"
   );
 
   g.text(
-    "資源を持つほど、深い層からの上昇が遅くなる",
+    "資源を持ち帰ると強化ポイントに変換",
     360,
-    384,
+    328,
     18,
-    "#ffb58b"
+    "#ffe39b"
+  );
+
+  g.text(
+    "強化ポイントは持ち越し・購入回数制限なし",
+    360,
+    361,
+    17,
+    "#d8b6ff"
+  );
+
+  g.text(
+    "← ↑ ↓ → で掘る・掘った道を移動",
+    360,
+    402,
+    18,
+    "#d5e4ef"
   );
 
   g.text(
     "クリック または スペースで開始",
     360,
-    462,
+    472,
     23,
     "#fff"
   );
@@ -2207,10 +2537,10 @@ function drawResult(g){
 
   g.text(
     S.won
-      ? "🏰 最終襲撃を防いだ!"
+      ? "🏰 最終防衛に成功!"
       : "🔥 基地が陥落した",
     g.W / 2,
-    105,
+    90,
     42,
     S.won
       ? "#ffe66d"
@@ -2218,31 +2548,38 @@ function drawResult(g){
   );
 
   g.text(
-    "採掘価値  " +
+    "持ち帰った資源価値  " +
       S.bankedValue,
     g.W / 2,
-    185,
-    29,
+    165,
+    27,
     "#fff"
+  );
+
+  g.text(
+    "残り強化ポイント  " +
+      S.upgradePoints,
+    g.W / 2,
+    210,
+    24,
+    "#ffe66d"
   );
 
   g.text(
     "帰還回数  " +
       S.returnCount,
     g.W / 2,
-    230,
-    24,
+    250,
+    23,
     "#c6d8e8"
   );
 
   g.text(
-    "強化回数  " +
-      S.upgradeCount +
-      " / " +
-      MAX_UPGRADES,
+    "強化購入回数  " +
+      S.upgradeCount,
     g.W / 2,
-    270,
-    24,
+    288,
+    23,
     "#c6d8e8"
   );
 
@@ -2252,8 +2589,8 @@ function drawResult(g){
       " / " +
       Math.ceil(S.baseMaxHp),
     g.W / 2,
-    310,
-    24,
+    326,
+    23,
     "#c6d8e8"
   );
 
@@ -2264,7 +2601,7 @@ function drawResult(g){
       "  ⛏️" + S.upgrades.drill +
       "  🎒" + S.upgrades.carry,
     g.W / 2,
-    367,
+    382,
     27,
     "#fff"
   );
@@ -2272,7 +2609,7 @@ function drawResult(g){
   g.text(
     "クリック または スペースでもう一度",
     g.W / 2,
-    458,
+    468,
     22,
     "#fff"
   );
@@ -2282,7 +2619,7 @@ EmojiEngine.register({
   id: "horiban",
   name: "掘って守る",
   icon: "⛏️",
-  desc: "資源の重さを見きわめて地上へ戻り、基地を守る",
+  desc: "採掘と防衛を繰り返し、資源で基地を強化する",
 
   init(g){
     reset(g);
@@ -2328,23 +2665,27 @@ EmojiEngine.register({
     }
 
     if (S.scene === "upgrade"){
-      const before = S.elapsed;
+      updateTimeline(g, dt);
 
-      S.elapsed = Math.min(
-        TOTAL_TIME,
-        S.elapsed + dt
-      );
+      if (S.phase === "defend"){
+        updateDefense(g, dt);
 
-      checkWaveChange(
-        g,
-        before,
-        S.elapsed
-      );
-
-      updateDefense(g, dt);
+        if (S.scene === "over"){
+          return;
+        }
+      }
 
       if (
-        S.scene !== "over" &&
+        S.phaseElapsed >= S.phaseDuration
+      ){
+        completePhase(g);
+
+        if (S.scene === "over"){
+          return;
+        }
+      }
+
+      if (
         S.elapsed >= TOTAL_TIME
       ){
         finishGame(
@@ -2420,6 +2761,7 @@ EmojiEngine.register({
       drawMineHud(g);
       drawFloaters(g, ox, oy);
       drawWaveBanner(g);
+      drawWarning(g);
 
       if (S.scene === "upgrade"){
         drawUpgrade(g);
@@ -2471,7 +2813,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev3",
+      "rev4",
       g.W - 8,
       14,
       12,
