@@ -31,6 +31,12 @@ const CARDS = [
     desc: "近くの敵を削り吹き飛ばす",
   },
   {
+    id: "field",
+    emoji: "🛡️",
+    name: "エネルギーフィールド",
+    desc: "至近距離を常時攻撃する結界",
+  },
+  {
     id: "chain",
     emoji: "⚡",
     name: "連鎖雷",
@@ -107,29 +113,29 @@ const ENEMY_TYPES = {
 
 const MIDBOSS_TYPE = {
   emoji: "🐲",
-  size: 108,
-  r: 44,
-  hp: 90,
-  speed: 38,
-  xp: 18,
+  size: 118,
+  r: 48,
+  hp: 175,
+  speed: 46,
+  xp: 24,
 };
 
 const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
-  size: 122,
-  r: 48,
-  hp: 160,
-  speed: 36,
-  xp: 25,
+  size: 134,
+  r: 53,
+  hp: 320,
+  speed: 43,
+  xp: 34,
 };
 
 const STAGE2_BOSS_TYPE = {
   emoji: "🐙",
-  size: 138,
-  r: 54,
-  hp: 250,
-  speed: 34,
-  xp: 35,
+  size: 150,
+  r: 59,
+  hp: 500,
+  speed: 41,
+  xp: 48,
 };
 
 /* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
@@ -584,6 +590,7 @@ function spawnEnemy(g){
     xp: template.xp,
     slow: 0,
     orbitCooldown: 0,
+    fieldCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
@@ -608,6 +615,7 @@ function spawnMidboss(g){
     xp: MIDBOSS_TYPE.xp,
     slow: 0,
     orbitCooldown: 0,
+    fieldCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
@@ -646,6 +654,7 @@ function spawnStage1Boss(g){
     xp: STAGE1_BOSS_TYPE.xp,
     slow: 0,
     orbitCooldown: 0,
+    fieldCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
@@ -685,6 +694,7 @@ function spawnStage2Boss(g){
     xp: STAGE2_BOSS_TYPE.xp,
     slow: 0,
     orbitCooldown: 0,
+    fieldCooldown: 0,
     dead: false,
     knockTimer: 0,
     knockX: 0,
@@ -1280,6 +1290,20 @@ function updateBoomerang(g, shot, dt){
   shot.x += shot.vx * dt;
   shot.y += shot.vy * dt;
 
+  if (!shot.returning){
+    const perpAngle =
+      Math.atan2(shot.vy, shot.vx) +
+      Math.PI / 2;
+
+    const curve =
+      Math.sin(shot.age * 6) * 220;
+
+    shot.x += Math.cos(perpAngle) *
+      curve * dt;
+    shot.y += Math.sin(perpAngle) *
+      curve * dt;
+  }
+
   const hitList = shot.returning
     ? shot.hitBack
     : shot.hitOut;
@@ -1459,6 +1483,11 @@ function updateEnemies(g, dt){
       0,
       enemy.orbitCooldown - dt
     );
+
+    enemy.fieldCooldown = Math.max(
+      0,
+      enemy.fieldCooldown - dt
+    );
   }
 }
 
@@ -1471,8 +1500,10 @@ function updateOrbit(g, dt){
 
   const radius =
     52 + level * 7;
-  const satelliteCount =
-    isEvolved("orbit") ? 2 : 1;
+  const satelliteCount = Math.min(
+    4,
+    1 + Math.floor(level / 3)
+  );
   const power =
     evolutionPower("orbit");
   const damage =
@@ -1531,6 +1562,41 @@ function updateOrbit(g, dt){
   }
 }
 
+function updateField(g, dt){
+  const level = cardLevel("field");
+
+  if (level <= 0){
+    return;
+  }
+
+  const power = evolutionPower("field");
+  const radius =
+    (30 + level * 5) * power;
+  const damage =
+    (0.4 + level * 0.25) * power;
+
+  for (const enemy of S.enemies){
+    if (
+      enemy.dead ||
+      enemy.fieldCooldown > 0
+    ){
+      continue;
+    }
+
+    if (
+      g.dist(enemy, S.player) <= radius
+    ){
+      enemy.fieldCooldown = 0.15;
+      damageEnemy(
+        g,
+        enemy,
+        damage,
+        "field"
+      );
+    }
+  }
+}
+
 function updateCold(g, dt){
   const level = cardLevel("cold");
 
@@ -1545,8 +1611,8 @@ function updateCold(g, dt){
   }
 
   S.coldTimer = Math.max(
-    0.75,
-    2.25 - level * 0.25
+    0.4,
+    1.2 - level * 0.12
   );
 
   const evolved = isEvolved("cold");
@@ -1572,16 +1638,25 @@ function updateCold(g, dt){
       Math.min(caught.length, 8) * 0.12
     );
 
-  addEffect({
-    type: "text",
-    x: S.player.x,
-    y: S.player.y,
-    text: "❄️",
-    color: "#bdefff",
-    size: evolved ? 55 : 40,
-    t: 0.35,
-    maxT: 0.35,
-  });
+  const ringCount = 8;
+
+  for (let i = 0; i < ringCount; i++){
+    const angle =
+      (i / ringCount) * Math.PI * 2;
+
+    addEffect({
+      type: "text",
+      x: S.player.x +
+        Math.cos(angle) * radius,
+      y: S.player.y +
+        Math.sin(angle) * radius,
+      text: "❄️",
+      color: "#bdefff",
+      size: evolved ? 26 : 20,
+      t: 0.3,
+      maxT: 0.3,
+    });
+  }
 
   for (const enemy of caught){
     if (evolved){
@@ -2226,6 +2301,7 @@ function updatePlay(g, dt){
 
   updateEnemies(g, dt);
   updateOrbit(g, dt);
+  updateField(g, dt);
   updateCold(g, dt);
   updateShots(g, dt);
   updateEnemyHits(g);
@@ -2508,8 +2584,10 @@ function drawOrbit(g, ox, oy){
 
   const radius =
     52 + level * 7;
-  const count =
-    isEvolved("orbit") ? 2 : 1;
+  const count = Math.min(
+    4,
+    1 + Math.floor(level / 3)
+  );
 
   for (let i = 0; i < count; i++){
     const angle =
@@ -2526,6 +2604,36 @@ function drawOrbit(g, ox, oy){
         oy,
       isEvolved("orbit") ? 35 : 29,
       { rot: -g.time * 5 }
+    );
+  }
+}
+
+function drawField(g, ox, oy){
+  const level = cardLevel("field");
+
+  if (level <= 0){
+    return;
+  }
+
+  const power = evolutionPower("field");
+  const radius =
+    (30 + level * 5) * power;
+
+  for (let i = 0; i < 10; i++){
+    const angle =
+      (i / 10) * Math.PI * 2 +
+      g.time * 1.5;
+
+    g.emoji(
+      "✨",
+      S.player.x +
+        Math.cos(angle) * radius +
+        ox,
+      S.player.y +
+        Math.sin(angle) * radius +
+        oy,
+      14,
+      { alpha: 0.6 }
     );
   }
 }
@@ -3271,6 +3379,7 @@ EmojiEngine.register({
       drawShots(g, ox, oy);
       drawEnemies(g, ox, oy);
       drawOrbit(g, ox, oy);
+      drawField(g, ox, oy);
       drawPlayer(g, ox, oy);
       drawEffects(g, ox, oy);
       drawHud(g);
@@ -3364,7 +3473,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev9",
+      "rev11",
       g.W - 8,
       14,
       12,
