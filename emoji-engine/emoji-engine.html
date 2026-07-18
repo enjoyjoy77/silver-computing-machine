@@ -28,6 +28,8 @@
   #nogames { text-align:center; color:#f99; margin-top:40px; font-size:15px;
     line-height:1.8; display:none; }
 
+  #menuSoundBtn { position:fixed; top:4px; right:132px; z-index:50; }
+
   /* ===== ゲーム画面 ===== */
   #stage { position:fixed; inset:0; display:none; z-index:20;
     align-items:center; justify-content:center; background:#000; }
@@ -36,6 +38,15 @@
     background:#232338cc; color:#ddd; border:1px solid #555; border-radius:8px;
     padding:6px 14px; font-size:13px; cursor:pointer; }
   #backBtn:hover { background:#33334f; }
+
+  .soundBtn { background:#232338cc; color:#ddd; border:1px solid #555;
+    border-radius:8px; padding:4px 9px; font-size:16px; line-height:1;
+    cursor:pointer; }
+  .soundBtn:hover { background:#33334f; }
+  .soundBtn:focus-visible { outline:2px solid #aaa; outline-offset:2px; }
+
+  #gameSoundBtn { position:fixed; top:8px; left:126px; z-index:30; display:none;
+    padding:5px 9px; }
 
   /* ===== エラー表示(日本語) ===== */
   #err { position:fixed; inset:0; z-index:40; display:none; background:#000000dd;
@@ -54,6 +65,7 @@
 <div id="rev">rev 82 (2026-07-18)</div>
 
 <div id="menu">
+  <button id="menuSoundBtn" class="soundBtn" type="button" aria-label="サウンドをオフにする" title="サウンドをオフにする">🔊</button>
   <h1>🎮 絵文字ゲームエンジン</h1>
   <div class="sub">あそぶゲームを選んでね(クリック/タップ)</div>
   <div id="cards"></div>
@@ -66,6 +78,7 @@
 
 <div id="stage"><canvas id="cv"></canvas></div>
 <button id="backBtn">← メニューへ</button>
+<button id="gameSoundBtn" class="soundBtn" type="button" aria-label="サウンドをオフにする" title="サウンドをオフにする">🔊</button>
 
 <div id="err">
   <div class="box">
@@ -150,6 +163,43 @@ function defineEmojiImage(name, src){
   sprites[name] = rec;
 }
 
+/* ---------- サウンド設定 ---------- */
+const SOUND_STORAGE_KEY = "emojiEngineMuted";
+let muted = false;
+
+try {
+  muted = localStorage.getItem(SOUND_STORAGE_KEY) === "true";
+} catch(e){
+  muted = false;
+}
+
+function updateSoundButtons(){
+  const icon = muted ? "🔇" : "🔊";
+  const label = muted ? "サウンドをオンにする" : "サウンドをオフにする";
+  const buttons = [
+    document.getElementById("menuSoundBtn"),
+    document.getElementById("gameSoundBtn"),
+  ];
+  for (const button of buttons){
+    button.textContent = icon;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.setAttribute("aria-pressed", muted ? "true" : "false");
+  }
+}
+
+function toggleSound(){
+  muted = !muted;
+  try {
+    localStorage.setItem(SOUND_STORAGE_KEY, String(muted));
+  } catch(e){
+    console.warn("サウンド設定を保存できませんでした", e);
+  }
+  updateSoundButtons();
+}
+
+updateSoundButtons();
+
 /* ---------- 効果音(小さなシンセ。ファイル不要) ---------- */
 let ac = null;
 function ensureAudio(){
@@ -163,6 +213,7 @@ window.addEventListener("pointerdown", ensureAudio);
 window.addEventListener("keydown", ensureAudio);
 
 function tone(freq0, freq1, dur, type, vol){
+  if (muted) return;
   if (!ac) return;
   const t = ac.currentTime;
   const o = ac.createOscillator(), gn = ac.createGain();
@@ -174,6 +225,7 @@ function tone(freq0, freq1, dur, type, vol){
   o.start(t); o.stop(t + dur);
 }
 function noise(dur, vol){
+  if (muted) return;
   if (!ac) return;
   const n = Math.floor(ac.sampleRate * dur);
   const buf = ac.createBuffer(1, n, ac.sampleRate);
@@ -361,6 +413,7 @@ const EmojiEngine = {
     document.getElementById("err").style.display = "none";
     document.getElementById("stage").style.display = "flex";
     document.getElementById("backBtn").style.display = "block";
+    document.getElementById("gameSoundBtn").style.display = "block";
     cur = game;
     g.time = 0;
     keysJust.clear(); pointer.justDown = false;
@@ -377,6 +430,7 @@ const EmojiEngine = {
     cur = null;
     document.getElementById("stage").style.display = "none";
     document.getElementById("backBtn").style.display = "none";
+    document.getElementById("gameSoundBtn").style.display = "none";
     document.getElementById("err").style.display = "none";
     document.getElementById("menu").style.display = "block";
   },
@@ -430,6 +484,8 @@ window.addEventListener("load", () => {
   });
 });
 document.getElementById("backBtn").addEventListener("click", () => EmojiEngine.backToMenu());
+document.getElementById("menuSoundBtn").addEventListener("click", toggleSound);
+document.getElementById("gameSoundBtn").addEventListener("click", toggleSound);
 window.addEventListener("keydown", e => { if (e.code === "Escape") EmojiEngine.backToMenu(); });
 
 /* ---------- テスト用の窓口(通常プレイでは使わない) ---------- */
