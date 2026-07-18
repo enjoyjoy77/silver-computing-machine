@@ -403,7 +403,8 @@ function carryPenalty(){
   };
 }
 
-function upSpeed(){
+function moveSpeed(){
+  // 掘った通路をなめらかに進む速さ。上下左右とも共通で、重さがあるほど遅くなる
   const layer = depthLayer(S.player.y);
   const base =
     BASE_UP_SPEED *
@@ -769,66 +770,12 @@ function updateMining(g, dt){
     }
   }
 
-  if (g.key("up")){
-    const targetRow = player.row - 1;
-
-    if (targetRow < 0){
-      S.digTarget = null;
-      S.digProgress = 0;
-      return;
-    }
-
-    const targetKey = cellKey(
-      player.col,
-      targetRow
-    );
-
-    if (S.dug.has(targetKey)){
-      // 既に掘った道を戻る場合だけ、重さに応じてゆっくり進む
-      S.digTarget = null;
-      S.digProgress = 0;
-
-      const oldY = player.y;
-      const floor = targetRow * CELL;
-
-      player.y = Math.max(
-        floor,
-        player.y - upSpeed() * dt
-      );
-
-      if (player.y <= floor){
-        player.row = targetRow;
-      }
-
-      player.x =
-        player.col * CELL +
-        CELL / 2;
-
-      if (
-        oldY > 0 &&
-        player.y <= 0
-      ){
-        player.row = 0;
-        returnToBase(g);
-      }
-
-      return;
-    }
-
-    // 上がまだ掘れていない: 他の方向と同じく掘る
-    tryDig(
-      g,
-      player.col,
-      targetRow,
-      dt
-    );
-    return;
-  }
-
   let dc = 0;
   let dr = 0;
 
-  if (g.key("left")){
+  if (g.key("up")){
+    dr = -1;
+  } else if (g.key("left")){
     dc = -1;
     player.facing = -1;
   } else if (g.key("right")){
@@ -842,12 +789,80 @@ function updateMining(g, dt){
     return;
   }
 
-  tryDig(
-    g,
-    player.col + dc,
-    player.row + dr,
-    dt
+  const targetCol = player.col + dc;
+  const targetRow = player.row + dr;
+
+  if (
+    targetCol < 0 ||
+    targetCol >= COLS ||
+    targetRow < 0 ||
+    targetRow * CELL > MAX_DEPTH
+  ){
+    S.digTarget = null;
+    S.digProgress = 0;
+    return;
+  }
+
+  const targetKey = cellKey(
+    targetCol,
+    targetRow
   );
+
+  if (!S.dug.has(targetKey)){
+    // まだ掘っていない: 他の方向と同じ扱いで掘る
+    tryDig(g, targetCol, targetRow, dt);
+    return;
+  }
+
+  // 既に掘った通路をなめらかに進む。上下左右とも同じ速さの式(重いほど遅い)
+  S.digTarget = null;
+  S.digProgress = 0;
+
+  const speed = moveSpeed() * dt;
+
+  if (dc !== 0){
+    const targetX =
+      targetCol * CELL + CELL / 2;
+    const dir = dc > 0 ? 1 : -1;
+
+    player.x += dir * speed;
+
+    if (
+      (dir > 0 && player.x >= targetX) ||
+      (dir < 0 && player.x <= targetX)
+    ){
+      player.x = targetX;
+      player.col = targetCol;
+    }
+
+    return;
+  }
+
+  const targetY = targetRow * CELL;
+  const dir = dr > 0 ? 1 : -1;
+  const oldY = player.y;
+
+  player.y += dir * speed;
+
+  if (
+    (dir > 0 && player.y >= targetY) ||
+    (dir < 0 && player.y <= targetY)
+  ){
+    player.y = targetY;
+    player.row = targetRow;
+  }
+
+  player.x =
+    player.col * CELL + CELL / 2;
+
+  if (
+    dir < 0 &&
+    oldY > 0 &&
+    player.y <= 0
+  ){
+    player.row = 0;
+    returnToBase(g);
+  }
 }
 
 function spawnInterval(){
@@ -1845,10 +1860,10 @@ function drawMineHud(g){
   );
 
   const speed =
-    upSpeed();
+    moveSpeed();
 
   g.text(
-    "上昇 " +
+    "移動速度 " +
       speed.toFixed(1) +
       "px/秒",
     28,
@@ -1901,7 +1916,7 @@ function drawMineHud(g){
     );
   } else {
     g.text(
-      "← ↓ → 掘る　↑ 地上へ戻る",
+      "← ↑ ↓ → で掘る/進む",
       355,
       520,
       18,
@@ -2147,7 +2162,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "← ↓ → で掘る　↑ で地上へ戻る",
+    "← ↑ ↓ → で掘り進む。既に掘った道は通れる",
     360,
     303,
     22,
@@ -2456,7 +2471,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev2",
+      "rev3",
       g.W - 8,
       14,
       12,
