@@ -770,33 +770,58 @@ function updateMining(g, dt){
   }
 
   if (g.key("up")){
-    S.digTarget = null;
-    S.digProgress = 0;
+    const targetRow = player.row - 1;
 
-    const oldY = player.y;
-    player.y = Math.max(
-      0,
-      player.y - upSpeed() * dt
-    );
-
-    player.row = Math.max(
-      0,
-      Math.floor(
-        (player.y + CELL / 2) / CELL
-      )
-    );
-
-    player.x =
-      player.col * CELL +
-      CELL / 2;
-
-    if (
-      oldY > 0 &&
-      player.y <= 0
-    ){
-      returnToBase(g);
+    if (targetRow < 0){
+      S.digTarget = null;
+      S.digProgress = 0;
+      return;
     }
 
+    const targetKey = cellKey(
+      player.col,
+      targetRow
+    );
+
+    if (S.dug.has(targetKey)){
+      // 既に掘った道を戻る場合だけ、重さに応じてゆっくり進む
+      S.digTarget = null;
+      S.digProgress = 0;
+
+      const oldY = player.y;
+      const floor = targetRow * CELL;
+
+      player.y = Math.max(
+        floor,
+        player.y - upSpeed() * dt
+      );
+
+      if (player.y <= floor){
+        player.row = targetRow;
+      }
+
+      player.x =
+        player.col * CELL +
+        CELL / 2;
+
+      if (
+        oldY > 0 &&
+        player.y <= 0
+      ){
+        player.row = 0;
+        returnToBase(g);
+      }
+
+      return;
+    }
+
+    // 上がまだ掘れていない: 他の方向と同じく掘る
+    tryDig(
+      g,
+      player.col,
+      targetRow,
+      dt
+    );
     return;
   }
 
@@ -1054,17 +1079,35 @@ function updateDefense(g, dt){
 
     if (
       !enemy.warned &&
-      enemy.remaining <= 5
+      enemy.remaining <= 8
     ){
       enemy.warned = true;
 
       addFloater(
         850,
         278,
-        "⚠️ 接近中",
+        "⚠️ 接近中!",
         "#ffb36a",
-        19,
-        0.8
+        22,
+        1
+      );
+
+      g.se("ping");
+    }
+
+    if (
+      !enemy.criticalWarned &&
+      enemy.remaining <= 3
+    ){
+      enemy.criticalWarned = true;
+
+      addFloater(
+        850,
+        278,
+        "🚨 あと少しで到達!",
+        "#ff5c63",
+        24,
+        1
       );
     }
 
@@ -1076,17 +1119,32 @@ function updateDefense(g, dt){
         S.baseHp
       );
 
+      // 被弾はしっかり体感できるよう、止め・揺れ・表示のすべてを強めに出す
+      S.freeze = Math.max(
+        S.freeze,
+        8 / 60
+      );
+
       S.redFlash = Math.max(
         S.redFlash,
-        0.45
+        0.75
       );
 
       S.shake = Math.max(
         S.shake,
         S.baseHp /
           S.baseMaxHp <= 0.2
-          ? 0.58
-          : 0.32
+          ? 0.75
+          : 0.5
+      );
+
+      addFloater(
+        g.W / 2,
+        150,
+        "🚨 基地被弾! -" + enemy.damage,
+        "#ff4c58",
+        36,
+        1.1
       );
 
       addFloater(
@@ -1560,6 +1618,8 @@ function drawDefenseBand(g, ox, oy){
     "#53758d"
   );
 
+  let minRemaining = 999;
+
   for (const enemy of S.enemies){
     const hpRatioEnemy =
       g.clamp(
@@ -1569,12 +1629,63 @@ function drawDefenseBand(g, ox, oy){
         1
       );
 
+    minRemaining = Math.min(
+      minRemaining,
+      enemy.remaining
+    );
+
+    // 近づくほど大きく・危険な色に見せる
+    const urgency = g.clamp(
+      1 - enemy.remaining / 8,
+      0,
+      1
+    );
+
+    const size =
+      31 + urgency * 22;
+
+    const pulse =
+      enemy.remaining <= 3
+        ? 1 +
+          Math.sin(g.time * 14) * 0.12
+        : 1;
+
     g.emoji(
       enemy.emoji,
       enemy.x + ox,
       255 + oy,
-      31
+      size * pulse
     );
+
+    if (enemy.remaining <= 5){
+      const blink =
+        Math.floor(
+          g.time * (enemy.remaining <= 3 ? 8 : 4)
+        ) % 2 === 0;
+
+      g.text(
+        "⚠",
+        enemy.x + ox,
+        225 + oy,
+        20,
+        enemy.remaining <= 3
+          ? "#ff5c63"
+          : "#ffb36a",
+        "center"
+      );
+
+      if (blink){
+        g.rect(
+          enemy.x - size / 2 + ox,
+          255 - size / 2 + oy,
+          size,
+          size,
+          enemy.remaining <= 3
+            ? "#ff3a4222"
+            : "#ffb36a18"
+        );
+      }
+    }
 
     g.rect(
       enemy.x - 15 + ox,
@@ -1590,6 +1701,28 @@ function drawDefenseBand(g, ox, oy){
       30 * hpRatioEnemy,
       4,
       "#ff7b82"
+    );
+  }
+
+  if (
+    S.enemies.length > 0 &&
+    minRemaining <= 6
+  ){
+    const dangerAlpha =
+      0.12 +
+      (1 - minRemaining / 6) * 0.22;
+
+    g.rect(
+      720,
+      0,
+      240,
+      g.H,
+      "#ff2d2d" +
+        Math.floor(
+          dangerAlpha * 255
+        )
+          .toString(16)
+          .padStart(2, "0")
     );
   }
 
@@ -2323,7 +2456,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev1",
+      "rev2",
       g.W - 8,
       14,
       12,
