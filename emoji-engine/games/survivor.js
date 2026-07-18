@@ -72,6 +72,24 @@ const CARDS = [
     name: "生命力",
     desc: "最大HP増加と全回復",
   },
+  {
+    id: "barrier",
+    emoji: "🔰",
+    name: "リフレクトバリア",
+    desc: "充填後の被弾を1回無効化",
+  },
+  {
+    id: "vampire",
+    emoji: "🩸",
+    name: "ヴァンパイア",
+    desc: "敵を倒すと確率で体力回復",
+  },
+  {
+    id: "poison",
+    emoji: "☠️",
+    name: "猛毒",
+    desc: "攻撃が当たった敵に継続毒",
+  },
 ];
 
 const ENEMY_TYPES = {
@@ -160,6 +178,24 @@ const STAGE4_BOSS_TYPE = {
   hp: 1650,
   speed: 50,
   xp: 120,
+};
+
+const STAGE5_BOSS_TYPE = {
+  emoji: "♾️",
+  size: 190,
+  r: 75,
+  hp: 2350,
+  speed: 53,
+  xp: 160,
+};
+
+const STAGE6_BOSS_TYPE = {
+  emoji: "😈",
+  size: 204,
+  r: 80,
+  hp: 3300,
+  speed: 56,
+  xp: 210,
 };
 
 /* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
@@ -294,6 +330,94 @@ const STAGE4_ENEMY_TYPES = {
   },
 };
 
+/* ステージ5=時空の狭間の縄張り。同じ進行曲線に別の顔をあてがう */
+const STAGE5_ENEMY_TYPES = {
+  slime: {
+    emoji: "⏳",
+    size: 34,
+    r: 15,
+    hp: 1,
+    speed: 64,
+    xp: 1,
+  },
+  bat: {
+    emoji: "💫",
+    size: 34,
+    r: 15,
+    hp: 2,
+    speed: 92,
+    xp: 1.2,
+  },
+  zombie: {
+    emoji: "🌗",
+    size: 43,
+    r: 19,
+    hp: 4,
+    speed: 54,
+    xp: 1.8,
+  },
+  ghost: {
+    emoji: "🔮",
+    size: 42,
+    r: 18,
+    hp: 6,
+    speed: 76,
+    xp: 2.2,
+  },
+  ogre: {
+    emoji: "🌋",
+    size: 74,
+    r: 31,
+    hp: 65,
+    speed: 40,
+    xp: 8,
+  },
+};
+
+/* ステージ6=深淵の縄張り。同じ進行曲線に別の顔をあてがう */
+const STAGE6_ENEMY_TYPES = {
+  slime: {
+    emoji: "💀",
+    size: 34,
+    r: 15,
+    hp: 1,
+    speed: 64,
+    xp: 1,
+  },
+  bat: {
+    emoji: "🦉",
+    size: 34,
+    r: 15,
+    hp: 2,
+    speed: 92,
+    xp: 1.2,
+  },
+  zombie: {
+    emoji: "⚰️",
+    size: 43,
+    r: 19,
+    hp: 4,
+    speed: 54,
+    xp: 1.8,
+  },
+  ghost: {
+    emoji: "🎭",
+    size: 42,
+    r: 18,
+    hp: 6,
+    speed: 76,
+    xp: 2.2,
+  },
+  ogre: {
+    emoji: "🐊",
+    size: 74,
+    r: 31,
+    hp: 65,
+    speed: 40,
+    xp: 8,
+  },
+};
+
 /* EXの連続ボスは毎回この中からランダムに選ぶ(いろんな見た目のボスが出るように) */
 const EX_BOSS_POOL = [
   MIDBOSS_TYPE,
@@ -301,6 +425,8 @@ const EX_BOSS_POOL = [
   STAGE2_BOSS_TYPE,
   STAGE3_BOSS_TYPE,
   STAGE4_BOSS_TYPE,
+  STAGE5_BOSS_TYPE,
+  STAGE6_BOSS_TYPE,
 ];
 
 const ENEMY_CAP = 45;
@@ -459,12 +585,15 @@ function reset(g){
       knockTimer: 0,
       knockX: 0,
       knockY: 0,
+      shieldReady: false,
+      shieldTimer: 0,
     },
 
     enemies: [],
     shots: [],
     enemyShots: [],
     xpOrbs: [],
+    healDrops: [],
     effects: [],
 
     cards: makeBuild(),
@@ -479,6 +608,7 @@ function reset(g){
     stage2StartElapsed: 0,
     stage3StartElapsed: 0,
     stage4StartElapsed: 0,
+    stage5StartElapsed: 0,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
@@ -490,6 +620,7 @@ function reset(g){
     stage2BossSpawned: false,
     stage3BossSpawned: false,
     stage4BossSpawned: false,
+    stage5BossSpawned: false,
     exBossTimer: 0,
     exBossCount: 0,
     chest: null,
@@ -549,13 +680,15 @@ function enemyTemplate(g){
   const t = S.elapsed;
   const roll = g.rand(0, 1);
   const table =
-    S.stage >= 4
-      ? STAGE4_ENEMY_TYPES
-      : S.stage === 3
-        ? STAGE3_ENEMY_TYPES
-        : S.stage === 2
-          ? STAGE2_ENEMY_TYPES
-          : ENEMY_TYPES;
+    S.stage >= 5
+      ? STAGE5_ENEMY_TYPES
+      : S.stage === 4
+        ? STAGE4_ENEMY_TYPES
+        : S.stage === 3
+          ? STAGE3_ENEMY_TYPES
+          : S.stage === 2
+            ? STAGE2_ENEMY_TYPES
+            : ENEMY_TYPES;
 
   if (t < 15){
     return table.slime;
@@ -1018,14 +1151,82 @@ function enterStage4(g){
   g.se("clear");
 }
 
-function enterExStage(g){
+function spawnStage5Boss(g){
+  S.stage5BossSpawned = true;
+
+  S.enemies.push({
+    id: ++S.enemyId,
+    x: g.W / 2,
+    y: 130,
+    r: STAGE5_BOSS_TYPE.r,
+    emoji: STAGE5_BOSS_TYPE.emoji,
+    size: STAGE5_BOSS_TYPE.size,
+    hp: STAGE5_BOSS_TYPE.hp,
+    maxHp: STAGE5_BOSS_TYPE.hp,
+    speed: STAGE5_BOSS_TYPE.speed,
+    xp: STAGE5_BOSS_TYPE.xp,
+    slow: 0,
+    orbitCooldown: 0,
+    fieldCooldown: 0,
+    dead: false,
+    knockTimer: 0,
+    knockX: 0,
+    knockY: 0,
+    frozen: 0,
+    boss: true,
+    attackTimer: 2.0,
+    bossKind: "stage5",
+  });
+
+  addFloater(
+    g.W / 2,
+    200,
+    "⚠ ステージ5ボス出現 ⚠",
+    "#e2b8ff",
+    34,
+    1.3
+  );
+
+  S.shake = Math.max(S.shake, 0.5);
+  S.flash = Math.max(S.flash, 0.3);
+  g.se("boom");
+}
+
+function enterStage5(g){
   S.stage = 5;
-  S.exBossTimer = 25;
+  S.stage5StartElapsed = S.elapsed;
 
   addFloater(
     g.W / 2,
     205,
     "ステージ4ボス撃破!",
+    "#ffe66d",
+    32,
+    1.5
+  );
+
+  addFloater(
+    g.W / 2,
+    250,
+    "STAGE 5 突入!",
+    "#e2b8ff",
+    36,
+    1.5
+  );
+
+  S.shake = Math.max(S.shake, 0.36);
+  S.flash = Math.max(S.flash, 0.36);
+  g.se("clear");
+}
+
+function enterExStage(g){
+  S.stage = 6;
+  S.exBossTimer = 25;
+
+  addFloater(
+    g.W / 2,
+    205,
+    "ステージ5ボス撃破!",
     "#ffe66d",
     32,
     1.5
@@ -1335,6 +1536,16 @@ function addXpOrb(g, enemy){
   });
 }
 
+function spawnHealDrop(g, x, y, amount){
+  S.healDrops.push({
+    x: x,
+    y: y,
+    r: 16,
+    amount: amount,
+    dead: false,
+  });
+}
+
 function showKillBanner(count){
   let text = null;
   let color = "#fff";
@@ -1406,6 +1617,33 @@ function damageEnemy(g, enemy, damage, source){
     0.55
   );
 
+  const vampireLevel = cardLevel("vampire");
+
+  if (
+    vampireLevel > 0 &&
+    S.player.hp < S.player.maxHp
+  ){
+    const lifestealChance =
+      Math.min(0.5, vampireLevel * 0.12) *
+      evolutionPower("vampire");
+
+    if (g.rand(0, 1) < lifestealChance){
+      S.player.hp = Math.min(
+        S.player.maxHp,
+        S.player.hp + 1
+      );
+
+      addFloater(
+        S.player.x,
+        S.player.y - 45,
+        "🩸+1 HP",
+        "#ff8db0",
+        18,
+        0.5
+      );
+    }
+  }
+
   addSpark(
     enemy.x,
     enemy.y,
@@ -1453,6 +1691,8 @@ function damageEnemy(g, enemy, damage, source){
     } else if (enemy.bossKind === "stage3"){
       enterStage4(g);
     } else if (enemy.bossKind === "stage4"){
+      enterStage5(g);
+    } else if (enemy.bossKind === "stage5"){
       enterExStage(g);
     } else if (enemy.bossKind === "ex"){
       addFloater(
@@ -1464,6 +1704,21 @@ function damageEnemy(g, enemy, damage, source){
         1.3
       );
     }
+
+    const healAmount =
+      enemy.bossKind === "stage5" ? 5 :
+      enemy.bossKind === "stage4" ? 4 :
+      enemy.bossKind === "stage2" ||
+      enemy.bossKind === "stage3" ||
+      enemy.bossKind === "ex" ? 3 :
+      2;
+
+    spawnHealDrop(
+      g,
+      enemy.x,
+      enemy.y + 40,
+      healAmount
+    );
 
     g.se("clear");
     openChest(g);
@@ -2126,6 +2381,83 @@ function updateCold(g, dt){
   }
 }
 
+function barrierRechargeTime(){
+  return Math.max(
+    3,
+    12 - cardLevel("barrier") * 1.2
+  );
+}
+
+function tryAbsorbWithBarrier(g){
+  if (
+    cardLevel("barrier") <= 0 ||
+    !S.player.shieldReady
+  ){
+    return false;
+  }
+
+  S.player.shieldReady = false;
+  S.player.shieldTimer = barrierRechargeTime();
+  S.player.invincible = Math.max(
+    S.player.invincible,
+    0.9
+  );
+
+  S.flash = Math.max(S.flash, 0.25);
+  S.shake = Math.max(S.shake, 0.15);
+
+  addBurst(
+    g,
+    S.player.x,
+    S.player.y,
+    "🔰",
+    10,
+    26
+  );
+
+  addFloater(
+    S.player.x,
+    S.player.y - 40,
+    "バリア発動!",
+    "#8deaff",
+    26,
+    0.7
+  );
+
+  g.se("bounce");
+  return true;
+}
+
+function updateBarrier(g, dt){
+  const level = cardLevel("barrier");
+
+  if (level <= 0){
+    return;
+  }
+
+  if (S.player.shieldReady){
+    return;
+  }
+
+  S.player.shieldTimer -= dt;
+
+  if (S.player.shieldTimer <= 0){
+    S.player.shieldReady = true;
+    S.goldFlash = Math.max(S.goldFlash, 0.2);
+
+    addFloater(
+      S.player.x,
+      S.player.y - 40,
+      "🔰 バリア充填!",
+      "#8deaff",
+      20,
+      0.7
+    );
+
+    g.se("ping");
+  }
+}
+
 function hitPlayer(g, enemy){
   const player = S.player;
 
@@ -2133,6 +2465,10 @@ function hitPlayer(g, enemy){
     player.invincible > 0 ||
     enemy.dead
   ){
+    return;
+  }
+
+  if (tryAbsorbWithBarrier(g)){
     return;
   }
 
@@ -2348,6 +2684,10 @@ function updateEnemyShots(g, dt){
 }
 
 function hitPlayerByShot(g, shot){
+  if (tryAbsorbWithBarrier(g)){
+    return;
+  }
+
   const player = S.player;
   const damage = shot.heavy ? 2 : 1;
 
@@ -2494,6 +2834,47 @@ function updateXpOrbs(g, dt){
   if (S.xpOrbs.length > 50){
     S.xpOrbs.length = 50;
   }
+}
+
+function updateHealDrops(g, dt){
+  for (const drop of S.healDrops){
+    if (!g.hit(drop, S.player)){
+      continue;
+    }
+
+    drop.dead = true;
+
+    if (S.player.hp < S.player.maxHp){
+      S.player.hp = Math.min(
+        S.player.maxHp,
+        S.player.hp + drop.amount
+      );
+
+      addFloater(
+        S.player.x,
+        S.player.y - 40,
+        "+" + drop.amount + " HP",
+        "#8dffa0",
+        26,
+        0.8
+      );
+
+      g.se("heal");
+    } else {
+      addFloater(
+        S.player.x,
+        S.player.y - 40,
+        "HP満タン",
+        "#8dffa0",
+        18,
+        0.6
+      );
+    }
+  }
+
+  S.healDrops = S.healDrops.filter(
+    drop => !drop.dead
+  );
 }
 
 function weightedPick(g, cards){
@@ -3003,7 +3384,15 @@ function updatePlay(g, dt){
     spawnStage4Boss(g);
   }
 
-  if (S.stage === 5){
+  if (
+    S.stage === 5 &&
+    !S.stage5BossSpawned &&
+    S.elapsed - S.stage5StartElapsed >= 75
+  ){
+    spawnStage5Boss(g);
+  }
+
+  if (S.stage === 6){
     S.exBossTimer -= dt;
 
     if (S.exBossTimer <= 0){
@@ -3030,6 +3419,7 @@ function updatePlay(g, dt){
   updateOrbit(g, dt);
   updateField(g, dt);
   updateCold(g, dt);
+  updateBarrier(g, dt);
   updateShots(g, dt);
   updateBossAttacks(g, dt);
   updateEnemyShots(g, dt);
@@ -3040,6 +3430,7 @@ function updatePlay(g, dt){
   }
 
   updateXpOrbs(g, dt);
+  updateHealDrops(g, dt);
 
   S.enemies = S.enemies.filter(
     enemy => !enemy.dead
@@ -3125,7 +3516,9 @@ function drawBackground(g){
   const bonus =
     S.elapsed >= 75;
 
-  if (S.stage >= 4){
+  if (S.stage >= 5){
+    g.bg("#170822");
+  } else if (S.stage === 4){
     g.bg("#050818");
   } else if (S.stage === 3){
     g.bg("#101c1c");
@@ -3202,6 +3595,22 @@ function drawXpOrbs(g, ox, oy){
         alpha:
           orb.edgeBonus ? 1 : 0.82,
       }
+    );
+  }
+}
+
+function drawHealDrops(g, ox, oy){
+  for (const drop of S.healDrops){
+    const pulse =
+      1 +
+      Math.sin(g.time * 5) * 0.1;
+
+    g.emoji(
+      "🍖",
+      drop.x + ox,
+      drop.y + oy,
+      30 * pulse,
+      {}
     );
   }
 }
@@ -3433,6 +3842,22 @@ function drawPlayer(g, ox, oy){
     48,
     { alpha: blink ? 0.25 : 1 }
   );
+
+  if (
+    cardLevel("barrier") > 0 &&
+    S.player.shieldReady
+  ){
+    const pulse =
+      1 + Math.sin(g.time * 6) * 0.15;
+
+    g.emoji(
+      "🔰",
+      S.player.x + ox,
+      S.player.y - 34 + oy,
+      22 * pulse,
+      { alpha: 0.9 }
+    );
+  }
 }
 
 function drawEffects(g, ox, oy){
@@ -3503,12 +3928,14 @@ function drawHud(g){
       S.stage === 2 ? "STAGE 2" :
       S.stage === 3 ? "STAGE 3" :
       S.stage === 4 ? "STAGE 4" :
+      S.stage === 5 ? "STAGE 5" :
       "EX";
 
     const stageColor =
       S.stage === 2 ? "#8deaff" :
       S.stage === 3 ? "#8affc1" :
       S.stage === 4 ? "#8ab4ff" :
+      S.stage === 5 ? "#e2b8ff" :
       "#c9a2ff";
 
     g.text(
@@ -3578,13 +4005,21 @@ function drawHud(g){
     );
   }
 
-  if (S.stage === 5){
+  if (S.stage === 6){
     g.text(
       "全ステージ制覇。ここからは力尽きるまでの延長戦",
       g.W / 2,
       84,
       18,
       "#c9a2ff"
+    );
+  } else if (S.stage === 5){
+    g.text(
+      "時空の狭間の縄張り。敵の顔ぶれがまた変わった",
+      g.W / 2,
+      84,
+      18,
+      "#e2b8ff"
     );
   } else if (S.stage === 4){
     g.text(
@@ -4053,13 +4488,21 @@ function drawResult(g){
       : "#ff7c89"
   );
 
-  if (S.stage === 5){
+  if (S.stage === 6){
     g.text(
       "🏆 全ステージ制覇(EX到達)",
       g.W / 2,
       140,
       20,
       "#c9a2ff"
+    );
+  } else if (S.stage === 5){
+    g.text(
+      "🏆 ステージ5 到達",
+      g.W / 2,
+      140,
+      20,
+      "#e2b8ff"
     );
   } else if (S.stage === 4){
     g.text(
@@ -4234,6 +4677,7 @@ EmojiEngine.register({
       drawTitle(g);
     } else {
       drawXpOrbs(g, ox, oy);
+      drawHealDrops(g, ox, oy);
       drawShots(g, ox, oy);
       drawEnemyShots(g, ox, oy);
       drawEnemies(g, ox, oy);
@@ -4332,7 +4776,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev16",
+      "rev18",
       g.W - 8,
       14,
       12,
