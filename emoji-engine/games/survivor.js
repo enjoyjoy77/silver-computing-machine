@@ -313,7 +313,7 @@ const STAGE4_ENEMY_TYPES = {
     xp: 1.8,
   },
   ghost: {
-    emoji: "🌀",
+    emoji: "🪐",
     size: 42,
     r: 18,
     hp: 6,
@@ -1527,6 +1527,7 @@ function fireVolley(g){
         life: 3,
         targetId: missileTarget.id,
         dead: false,
+        trailTimer: 0,
       });
     }
   }
@@ -2093,6 +2094,13 @@ function updateMissile(g, shot, dt){
   shot.x += shot.vx * dt;
   shot.y += shot.vy * dt;
   shot.life -= dt;
+
+  shot.trailTimer = (shot.trailTimer || 0) - dt;
+
+  if (shot.trailTimer <= 0){
+    shot.trailTimer = 0.04;
+    addSpark(shot.x, shot.y, "💨", 12, 0.22);
+  }
 
   for (const enemy of S.enemies){
     if (
@@ -3885,7 +3893,7 @@ function drawShots(g, ox, oy){
 function drawEnemyShots(g, ox, oy){
   for (const shot of S.enemyShots){
     g.emoji(
-      shot.heavy ? "🔥" : "☄️",
+      shot.heavy ? "🧨" : "🟣",
       shot.x + ox,
       shot.y + oy,
       shot.heavy ? 40 : 26,
@@ -3949,7 +3957,7 @@ function drawField(g, ox, oy){
       g.time * 3;
 
     g.emoji(
-      "⚡",
+      "💠",
       S.player.x +
         Math.cos(angle) * radius +
         ox,
@@ -4941,7 +4949,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev20",
+      "rev21",
       g.W - 8,
       14,
       12,
