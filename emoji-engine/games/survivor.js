@@ -139,7 +139,7 @@ const MIDBOSS_TYPE = {
   emoji: "🐲",
   size: 92,
   r: 36,
-  hp: 360,
+  hp: 580,
   speed: 130,
   xp: 30,
 };
@@ -148,7 +148,7 @@ const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
   size: 98,
   r: 39,
-  hp: 660,
+  hp: 1050,
   speed: 136,
   xp: 42,
 };
@@ -157,7 +157,7 @@ const STAGE2_BOSS_TYPE = {
   emoji: "🐙",
   size: 104,
   r: 42,
-  hp: 1020,
+  hp: 1650,
   speed: 142,
   xp: 60,
 };
@@ -166,7 +166,7 @@ const STAGE3_BOSS_TYPE = {
   emoji: "👽",
   size: 108,
   r: 44,
-  hp: 1600,
+  hp: 2550,
   speed: 148,
   xp: 90,
 };
@@ -175,7 +175,7 @@ const STAGE4_BOSS_TYPE = {
   emoji: "🕳️",
   size: 112,
   r: 46,
-  hp: 2300,
+  hp: 3700,
   speed: 155,
   xp: 120,
 };
@@ -184,7 +184,7 @@ const STAGE5_BOSS_TYPE = {
   emoji: "♾️",
   size: 116,
   r: 48,
-  hp: 3300,
+  hp: 5300,
   speed: 162,
   xp: 160,
 };
@@ -193,7 +193,7 @@ const STAGE6_BOSS_TYPE = {
   emoji: "😈",
   size: 120,
   r: 50,
-  hp: 4600,
+  hp: 7350,
   speed: 170,
   xp: 210,
 };
@@ -3173,6 +3173,7 @@ function rollChestRarity(g){
       label: "LEGENDARY!!",
       color: "#ffe66d",
       scale: 1.7,
+      bonusLevels: 3,
     };
   }
 
@@ -3181,6 +3182,7 @@ function rollChestRarity(g){
       label: "EPIC!",
       color: "#c9a2ff",
       scale: 1.4,
+      bonusLevels: 2,
     };
   }
 
@@ -3189,6 +3191,7 @@ function rollChestRarity(g){
       label: "RARE",
       color: "#8deaff",
       scale: 1.18,
+      bonusLevels: 1,
     };
   }
 
@@ -3196,6 +3199,7 @@ function rollChestRarity(g){
     label: "",
     color: "#fff",
     scale: 1,
+    bonusLevels: 0,
   };
 }
 
@@ -3278,6 +3282,11 @@ function updateChest(g, dt){
     chest.spinIcon = null;
 
     grantCardLevel(g, card);
+
+    for (let i = 0; i < rarity.bonusLevels; i++){
+      grantCardLevel(g, card);
+    }
+
     chest.revealed++;
     chest.timer = Math.max(
       0.24,
@@ -3339,7 +3348,10 @@ function updateChest(g, dt){
       addFloater(
         centerX,
         centerY - 90,
-        rarity.label,
+        rarity.label +
+          (rarity.bonusLevels > 0
+            ? " (+" + rarity.bonusLevels + ")"
+            : ""),
         rarity.color,
         26 + rarity.scale * 10,
         1.0
@@ -4954,7 +4966,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev22",
+      "rev23",
       g.W - 8,
       14,
       12,
