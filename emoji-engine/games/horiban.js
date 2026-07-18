@@ -1,6 +1,7 @@
 /* =====================================================
-   掘って守る
+   絵文字キーパー(旧: 掘って守る)
    採掘 → 警告 → 防衛を3サイクル繰り返す
+   rev5: 掘削=穴が空くだけ(移動は歩き)、防衛バランス調整
 ===================================================== */
 (function(){
 "use strict";
@@ -10,16 +11,15 @@ const MINE_WIDTH = 720;
 const CELL = 48;
 const COLS = 14;
 const MAX_DEPTH = 1584;
-const BASE_UP_SPEED = 60;
+const BASE_UP_SPEED = 90;
 const MIN_UP_RATE = 0.4;
 
 const CYCLES = [
   {
-    mining: 20,
+    mining: 19,
     warning: 3,
-    defend: 7,
+    defend: 8,
     enemies: [
-      "normal",
       "normal",
       "normal",
       "normal",
@@ -28,12 +28,10 @@ const CYCLES = [
     ],
   },
   {
-    mining: 18,
+    mining: 17,
     warning: 3,
-    defend: 9,
+    defend: 10,
     enemies: [
-      "normal",
-      "normal",
       "normal",
       "normal",
       "normal",
@@ -49,9 +47,6 @@ const CYCLES = [
     warning: 3,
     defend: 12,
     enemies: [
-      "normal",
-      "normal",
-      "normal",
       "normal",
       "normal",
       "normal",
@@ -416,7 +411,7 @@ function checkEmergencyReady(g, before, after){
 }
 
 function drillTime(){
-  return 0.48 / (
+  return 0.42 / (
     1 + S.upgrades.drill * 0.25
   );
 }
@@ -524,15 +519,10 @@ function collectResource(g, col, row){
 }
 
 function completeDig(g, col, row){
+  // 掘っても移動しない。穴が空くだけ(進むのは歩き)
   S.dug.add(cellKey(col, row));
-  S.player.col = col;
-  S.player.row = row;
-  S.player.x = col * CELL + CELL / 2;
-  S.player.y = row * CELL;
   S.digTarget = null;
   S.digProgress = 0;
-
-  collectResource(g, col, row);
   g.se("click");
 }
 
@@ -551,10 +541,6 @@ function tryDig(g, col, row, dt){
   const key = cellKey(col, row);
 
   if (S.dug.has(key)){
-    S.player.col = col;
-    S.player.row = row;
-    S.player.x = col * CELL + CELL / 2;
-    S.player.y = row * CELL;
     S.digTarget = null;
     S.digProgress = 0;
     return;
@@ -912,6 +898,7 @@ function updateMining(g, dt){
     ){
       player.x = targetX;
       player.col = targetCol;
+      collectResource(g, player.col, player.row);
     }
 
     return;
@@ -929,6 +916,7 @@ function updateMining(g, dt){
   ){
     player.y = targetY;
     player.row = targetRow;
+    collectResource(g, player.col, player.row);
   }
 
   player.x =
@@ -948,9 +936,9 @@ function enemyStats(type){
   if (type === "fast"){
     return {
       emoji: "🦂",
-      hp: 16 + S.cycle * 4,
+      hp: 14 + S.cycle * 3,
       damage: 10 + S.cycle * 2,
-      duration: 4.8,
+      duration: 4,
       size: 14,
     };
   }
@@ -958,18 +946,18 @@ function enemyStats(type){
   if (type === "large"){
     return {
       emoji: "👹",
-      hp: 64,
-      damage: 26,
-      duration: 9,
+      hp: 52,
+      damage: 22,
+      duration: 7,
       size: 22,
     };
   }
 
   return {
     emoji: "👾",
-    hp: 18 + S.cycle * 7,
+    hp: 16 + S.cycle * 5,
     damage: 9 + S.cycle * 3,
-    duration: 7 + S.cycle,
+    duration: 5.5,
     size: 15,
   };
 }
@@ -1029,7 +1017,7 @@ function killEnemy(g, enemy){
 }
 
 function turretDamage(){
-  return 9 *
+  return 12 *
     (
       1 +
       S.upgrades.power * 0.3
@@ -1053,12 +1041,19 @@ function updateDefense(g, dt){
 
       const remainingSpawns =
         queueLength - S.spawnIndex;
-      const timeLeft =
-        Math.max(0.1, phaseRemaining());
+
+      // 全員がフェーズ内に基地へ届き得るよう、前半に寄せて出す
+      const timeLeft = Math.max(
+        0.1,
+        phaseRemaining() - 6
+      );
 
       S.spawnTimer =
         remainingSpawns > 0
-          ? timeLeft / remainingSpawns
+          ? Math.max(
+            0.4,
+            timeLeft / remainingSpawns
+          )
           : 999;
     }
   }
@@ -1091,8 +1086,8 @@ function updateDefense(g, dt){
     if (target){
       const efficiency =
         isAtSurface()
-          ? 0.75
-          : 0.25;
+          ? 0.6
+          : 0.4;
 
       target.hp -=
         turretDamage() *
@@ -1100,8 +1095,8 @@ function updateDefense(g, dt){
 
       S.autoTimer =
         isAtSurface()
-          ? 0.55
-          : 1.05;
+          ? 0.65
+          : 0.9;
 
       if (target.hp <= 0){
         killEnemy(g, target);
@@ -1146,7 +1141,7 @@ function updateDefense(g, dt){
 
       if (
         target &&
-        best <= 62
+        best <= 45
       ){
         target.hp -=
           turretDamage();
@@ -1169,7 +1164,7 @@ function updateDefense(g, dt){
         g.se("click");
       }
 
-      S.manualTimer = 0.28;
+      S.manualTimer = 0.35;
     }
   }
 
@@ -1955,7 +1950,7 @@ function drawDefenseBand(g, ox, oy){
     );
   } else if (S.phase === "defend"){
     g.text(
-      "地下: 自動砲台効率 0.25",
+      "地下: 自動砲台が弱めに応戦",
       840,
       305,
       15,
@@ -2460,7 +2455,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "掘って守る",
+    "絵文字キーパー",
     360,
     151,
     43,
@@ -2508,7 +2503,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "← ↑ ↓ → で掘る・掘った道を移動",
+    "← ↑ ↓ → で掘る(穴が空く)・空いた道を歩く",
     360,
     402,
     18,
@@ -2617,7 +2612,7 @@ function drawResult(g){
 
 EmojiEngine.register({
   id: "horiban",
-  name: "掘って守る",
+  name: "絵文字キーパー",
   icon: "⛏️",
   desc: "採掘と防衛を繰り返し、資源で基地を強化する",
 
@@ -2813,7 +2808,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev4",
+      "rev5",
       g.W - 8,
       14,
       12,

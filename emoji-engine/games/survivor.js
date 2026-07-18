@@ -46,7 +46,7 @@ const CARDS = [
     id: "missile",
     emoji: "🚀",
     name: "ホーミングミサイル",
-    desc: "敵を追尾して確実に命中",
+    desc: "数は少ないが必中の高火力弾。ボスに特大ダメージ",
   },
   {
     id: "cold",
@@ -137,64 +137,64 @@ const ENEMY_TYPES = {
 
 const MIDBOSS_TYPE = {
   emoji: "🐲",
-  size: 118,
-  r: 48,
+  size: 92,
+  r: 36,
   hp: 360,
-  speed: 46,
+  speed: 130,
   xp: 30,
 };
 
 const STAGE1_BOSS_TYPE = {
   emoji: "🦖",
-  size: 134,
-  r: 53,
+  size: 98,
+  r: 39,
   hp: 660,
-  speed: 43,
+  speed: 136,
   xp: 42,
 };
 
 const STAGE2_BOSS_TYPE = {
   emoji: "🐙",
-  size: 150,
-  r: 59,
+  size: 104,
+  r: 42,
   hp: 1020,
-  speed: 41,
+  speed: 142,
   xp: 60,
 };
 
 const STAGE3_BOSS_TYPE = {
   emoji: "👽",
-  size: 164,
-  r: 65,
+  size: 108,
+  r: 44,
   hp: 1600,
-  speed: 47,
+  speed: 148,
   xp: 90,
 };
 
 const STAGE4_BOSS_TYPE = {
   emoji: "🕳️",
-  size: 176,
-  r: 70,
+  size: 112,
+  r: 46,
   hp: 2300,
-  speed: 50,
+  speed: 155,
   xp: 120,
 };
 
 const STAGE5_BOSS_TYPE = {
   emoji: "♾️",
-  size: 190,
-  r: 75,
+  size: 116,
+  r: 48,
   hp: 3300,
-  speed: 53,
+  speed: 162,
   xp: 160,
 };
 
 const STAGE6_BOSS_TYPE = {
   emoji: "😈",
-  size: 204,
-  r: 80,
+  size: 120,
+  r: 50,
   hp: 4600,
-  speed: 56,
+  speed: 170,
   xp: 210,
 };
 
@@ -893,7 +893,7 @@ function spawnMidboss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "mid",
   });
 
@@ -933,7 +933,7 @@ function spawnStage1Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage1",
   });
 
@@ -974,7 +974,7 @@ function spawnStage2Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage2",
   });
 
@@ -1042,7 +1042,7 @@ function spawnStage3Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage3",
   });
 
@@ -1110,7 +1110,7 @@ function spawnStage4Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage4",
   });
 
@@ -1178,7 +1178,7 @@ function spawnStage5Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage5",
   });
 
@@ -1246,7 +1246,7 @@ function spawnStage6Boss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "stage6",
   });
 
@@ -1347,7 +1347,7 @@ function spawnExBoss(g){
     knockY: 0,
     frozen: 0,
     boss: true,
-    attackTimer: 2.0,
+    attackTimer: 1.4,
     bossKind: "ex",
   });
 
@@ -1492,12 +1492,12 @@ function fireVolley(g){
   if (cardLevel("missile") > 0){
     const missileLevel = cardLevel("missile");
     const missileCount = Math.min(
-      3,
-      1 + Math.floor(missileLevel / 3)
+      2,
+      1 + Math.floor(missileLevel / 5)
     );
 
     const missileDamage =
-      (1.0 + missileLevel * 0.5) *
+      (3.0 + missileLevel * 1.4) *
       evolutionPower("missile");
 
     for (let i = 0; i < missileCount; i++){
@@ -1926,10 +1926,15 @@ function chainLightning(g, firstEnemy, damage){
 }
 
 function projectileHit(g, shot, enemy){
+  const bossBonus =
+    shot.type === "missile" && enemy.boss
+      ? 1.6
+      : 1;
+
   damageEnemy(
     g,
     enemy,
-    shot.damage,
+    shot.damage * bossBonus,
     shot.type
   );
 
@@ -2680,7 +2685,7 @@ function updateBossAttacks(g, dt){
       continue;
     }
 
-    enemy.attackTimer = 2.0;
+    enemy.attackTimer = 1.4;
 
     const baseAngle = Math.atan2(
       S.player.y - enemy.y,
@@ -4949,7 +4954,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev21",
+      "rev22",
       g.W - 8,
       14,
       12,
