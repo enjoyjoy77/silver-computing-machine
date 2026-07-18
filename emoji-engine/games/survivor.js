@@ -285,6 +285,7 @@ function reset(g){
     level: 0,
     xp: 0,
     nextXp: 5,
+    stage: 1,
 
     spawnTimer: 0.3,
     attackTimer: 0.15,
@@ -848,6 +849,17 @@ function damageEnemy(g, enemy, damage, source){
       "#ffe66d",
       36,
       1.2
+    );
+
+    S.stage = 2;
+
+    addFloater(
+      g.W / 2,
+      210,
+      "STAGE 2 突入!",
+      "#8deaff",
+      34,
+      1.5
     );
 
     g.se("clear");
@@ -1692,7 +1704,10 @@ function updateLevelChoice(g){
 function updatePlay(g, dt){
   S.elapsed += dt;
 
-  if (S.elapsed >= 90){
+  if (
+    S.stage !== 2 &&
+    S.elapsed >= 90
+  ){
     S.elapsed = 90;
     finishGame(g, true);
     return;
@@ -2118,20 +2133,30 @@ function drawHud(g){
     "left"
   );
 
-  const remaining = Math.max(
-    0,
-    90 - S.elapsed
-  );
+  if (S.stage === 2){
+    g.text(
+      "STAGE 2",
+      g.W / 2,
+      22,
+      26,
+      "#8deaff"
+    );
+  } else {
+    const remaining = Math.max(
+      0,
+      90 - S.elapsed
+    );
 
-  g.text(
-    remaining.toFixed(1),
-    g.W / 2,
-    22,
-    28,
-    S.elapsed >= 75
-      ? "#ffe66d"
-      : "#fff"
-  );
+    g.text(
+      remaining.toFixed(1),
+      g.W / 2,
+      22,
+      28,
+      S.elapsed >= 75
+        ? "#ffe66d"
+        : "#fff"
+    );
+  }
 
   g.text(
     "撃破 " + S.kills,
@@ -2176,7 +2201,15 @@ function drawHud(g){
     );
   }
 
-  if (
+  if (S.stage === 2){
+    g.text(
+      "ボス撃破後の延長戦。倒されるまで続く",
+      g.W / 2,
+      84,
+      18,
+      "#8deaff"
+    );
+  } else if (
     S.elapsed >= 50 &&
     S.elapsed < 55
   ){
@@ -2473,6 +2506,16 @@ function drawResult(g){
       : "#ff7c89"
   );
 
+  if (S.stage === 2){
+    g.text(
+      "🏆 ステージ2 到達(ボス撃破)",
+      g.W / 2,
+      140,
+      20,
+      "#8deaff"
+    );
+  }
+
   g.text(
     "撃破数  " + S.kills,
     g.W / 2,
@@ -2707,7 +2750,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev3",
+      "rev4",
       g.W - 8,
       14,
       12,

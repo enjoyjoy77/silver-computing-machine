@@ -51,7 +51,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 79 (2026-07-14)</div>
+<div id="rev">rev 82 (2026-07-18)</div>
 
 <div id="menu">
   <h1>🎮 絵文字ゲームエンジン</h1>
@@ -270,9 +270,7 @@ const g = {
   /* 文字を描く */
   text(s, x, y, size, color, align){
     ctx.save();
-    const font = (size||24) + 'px "Segoe UI","Yu Gothic UI",sans-serif';
-    ctx.font = font;
-    lastCharFont = font;  // drawChar側のfontキャッシュとctx.fontの実体を必ず一致させる(ずれると絵文字が字体で描かれ小さく見える)
+    ctx.font = (size||24) + 'px "Segoe UI","Yu Gothic UI",sans-serif';
     ctx.fillStyle = color || "#fff";
     ctx.textAlign = align || "center";
     ctx.textBaseline = "middle";
@@ -304,13 +302,39 @@ const g = {
   defineEmoji: defineEmoji,
   defineEmojiImage: defineEmojiImage,
 };
-let lastCharFont = "";
+/* 絵文字グリフのビットマップキャッシュ。
+   毎フレーム fillText で色付き絵文字を描くのはCanvas 2Dで特に重い処理(フォント解決+カラーグリフ合成)。
+   同じ「文字×大きさ」は初回だけオフスクリーンcanvasへ焼き込み、以降は drawImage で使い回す。
+   ・ctx.font を毎回書き換えないので、g.text()側のfont変更と競合して絵文字が違うフォントで
+     描かれ小さく見える不具合(rev2/rev3で発生)がそもそも起きなくなる(共有state自体を無くした)。
+   ・drawImageはfillTextより大幅に軽い(絵文字が増えるほど効く)。
+   サイズはpx単位で丸めてキーにする(小数第一位まで違う程度の揺れ=呼吸アニメ等は同じ絵として扱って問題ない)。 */
+const glyphCache = new Map();
+const GLYPH_PAD = 1.4;  // 絵文字の実描画がフォント指定サイズより少しはみ出すことがあるための余白
+function getGlyph(ch, sizeKey){
+  const key = ch + "@" + sizeKey;
+  let bmp = glyphCache.get(key);
+  if (bmp) return bmp;
+
+  if (glyphCache.size > 400){
+    glyphCache.clear();  // 想定外に多様なサイズを使うゲームでの無限増殖を防ぐ安全弁(滅多に起きない)
+  }
+
+  const dim = Math.max(1, Math.ceil(sizeKey * GLYPH_PAD));
+  const off = document.createElement("canvas");
+  off.width = dim; off.height = dim;
+  const octx = off.getContext("2d");
+  octx.font = sizeKey + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+  octx.textAlign = "center";
+  octx.textBaseline = "middle";
+  octx.fillText(ch, dim / 2, dim / 2 + sizeKey * 0.04);
+  glyphCache.set(key, off);
+  return off;
+}
 function drawChar(ch, size){
-  const font = size + 'px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-  if (font !== lastCharFont){ ctx.font = font; lastCharFont = font; }  // 同じ大きさが連続するときのfont再設定を省く(処理落ち対策)
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(ch, 0, size * 0.04);  // 絵文字の見た目の中心に微調整
+  const sizeKey = Math.round(size);
+  const bmp = getGlyph(ch, sizeKey);
+  ctx.drawImage(bmp, -bmp.width / 2, -bmp.height / 2, bmp.width, bmp.height);
 }
 
 /* ---------- エンジン(登録・切替・ループ) ---------- */
