@@ -142,6 +142,7 @@ const MIDBOSS_TYPE = {
   hp: 580,
   speed: 130,
   xp: 30,
+  attackStyle: "mid",
 };
 
 const STAGE1_BOSS_TYPE = {
@@ -151,6 +152,7 @@ const STAGE1_BOSS_TYPE = {
   hp: 1050,
   speed: 136,
   xp: 42,
+  attackStyle: "stage1",
 };
 
 const STAGE2_BOSS_TYPE = {
@@ -160,6 +162,7 @@ const STAGE2_BOSS_TYPE = {
   hp: 1650,
   speed: 142,
   xp: 60,
+  attackStyle: "stage2",
 };
 
 const STAGE3_BOSS_TYPE = {
@@ -169,6 +172,7 @@ const STAGE3_BOSS_TYPE = {
   hp: 2550,
   speed: 148,
   xp: 90,
+  attackStyle: "stage3",
 };
 
 const STAGE4_BOSS_TYPE = {
@@ -178,6 +182,7 @@ const STAGE4_BOSS_TYPE = {
   hp: 3700,
   speed: 155,
   xp: 120,
+  attackStyle: "stage4",
 };
 
 const STAGE5_BOSS_TYPE = {
@@ -187,6 +192,7 @@ const STAGE5_BOSS_TYPE = {
   hp: 5300,
   speed: 162,
   xp: 160,
+  attackStyle: "stage5",
 };
 
 const STAGE6_BOSS_TYPE = {
@@ -196,6 +202,7 @@ const STAGE6_BOSS_TYPE = {
   hp: 7350,
   speed: 170,
   xp: 210,
+  attackStyle: "stage6",
 };
 
 /* ステージ2以降の縄張り。同じ進行曲線に別の顔をあてがう */
@@ -895,6 +902,7 @@ function spawnMidboss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "mid",
+    attackStyle: "mid",
   });
 
   addFloater(
@@ -935,6 +943,7 @@ function spawnStage1Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage1",
+    attackStyle: "stage1",
   });
 
   addFloater(
@@ -976,6 +985,7 @@ function spawnStage2Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage2",
+    attackStyle: "stage2",
   });
 
   addFloater(
@@ -1044,6 +1054,7 @@ function spawnStage3Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage3",
+    attackStyle: "stage3",
   });
 
   addFloater(
@@ -1112,6 +1123,7 @@ function spawnStage4Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage4",
+    attackStyle: "stage4",
   });
 
   addFloater(
@@ -1180,6 +1192,7 @@ function spawnStage5Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage5",
+    attackStyle: "stage5",
   });
 
   addFloater(
@@ -1248,6 +1261,7 @@ function spawnStage6Boss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "stage6",
+    attackStyle: "stage6",
   });
 
   addFloater(
@@ -1349,6 +1363,7 @@ function spawnExBoss(g){
     boss: true,
     attackTimer: 1.4,
     bossKind: "ex",
+    attackStyle: base.attackStyle,
   });
 
   addFloater(
@@ -1713,9 +1728,11 @@ function damageEnemy(g, enemy, damage, source){
     vampireLevel > 0 &&
     S.player.hp < S.player.maxHp
   ){
-    const lifestealChance =
-      Math.min(0.5, vampireLevel * 0.12) *
-      evolutionPower("vampire");
+    const lifestealChance = Math.min(
+      0.28,
+      vampireLevel * 0.06 *
+        evolutionPower("vampire")
+    );
 
     if (g.rand(0, 1) < lifestealChance){
       S.player.hp = Math.min(
@@ -2518,8 +2535,8 @@ function updateCold(g, dt){
 
 function barrierRechargeTime(){
   return Math.max(
-    3,
-    12 - cardLevel("barrier") * 1.2
+    6,
+    20 - cardLevel("barrier") * 1.5
   );
 }
 
@@ -2670,6 +2687,202 @@ function hitPlayer(g, enemy){
   }
 }
 
+function pushEnemyShot(shot){
+  if (S.enemyShots.length >= 40){
+    return;
+  }
+
+  S.enemyShots.push(shot);
+}
+
+function bossFloater(enemy, text, color, size){
+  addFloater(
+    enemy.x,
+    enemy.y - enemy.r - 40,
+    text,
+    color,
+    size || 28,
+    0.55
+  );
+}
+
+function dragonBreathAttack(g, enemy, baseAngle){
+  const shotCount = 7;
+
+  for (let i = 0; i < shotCount; i++){
+    const spread = (i - (shotCount - 1) / 2) * 0.1;
+    const angle = baseAngle + spread;
+
+    pushEnemyShot({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * 300,
+      vy: Math.sin(angle) * 300,
+      r: 12,
+      heavy: false,
+      life: 2.2,
+      dead: false,
+    });
+  }
+
+  bossFloater(enemy, "🔥ブレス!", "#ff6a3a", 28);
+  S.flash = Math.max(S.flash, 0.12);
+}
+
+function groundPoundAttack(g, enemy, baseAngle){
+  const ringCount = 16;
+
+  for (let i = 0; i < ringCount; i++){
+    const angle = (i / ringCount) * Math.PI * 2;
+
+    pushEnemyShot({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * 150,
+      vy: Math.sin(angle) * 150,
+      r: 14,
+      heavy: false,
+      life: 2.6,
+      dead: false,
+    });
+  }
+
+  bossFloater(enemy, "💥地響き!", "#ff9d5c", 30);
+  S.shake = Math.max(S.shake, 0.22);
+}
+
+function inkSprayAttack(g, enemy, baseAngle){
+  const shotCount = 12;
+  const arc = 1.5;
+
+  for (let i = 0; i < shotCount; i++){
+    const spread =
+      (i - (shotCount - 1) / 2) * (arc / shotCount);
+    const angle = baseAngle + spread;
+
+    pushEnemyShot({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * 195,
+      vy: Math.sin(angle) * 195,
+      r: 10,
+      heavy: false,
+      life: 3.2,
+      dead: false,
+    });
+  }
+
+  bossFloater(enemy, "🖋インク乱射!", "#8a6bff", 28);
+}
+
+function abductionBeamAttack(g, enemy, baseAngle){
+  pushEnemyShot({
+    x: enemy.x,
+    y: enemy.y,
+    vx: Math.cos(baseAngle) * 580,
+    vy: Math.sin(baseAngle) * 580,
+    r: 9,
+    heavy: true,
+    life: 1.4,
+    dead: false,
+  });
+
+  bossFloater(enemy, "👁ビーム照射!", "#8dffb0", 30);
+  S.flash = Math.max(S.flash, 0.18);
+}
+
+function gravityPullAttack(g, enemy, baseAngle){
+  const player = S.player;
+  const dx = enemy.x - player.x;
+  const dy = enemy.y - player.y;
+  const distance = Math.hypot(dx, dy);
+  const pullStrength = 210;
+
+  player.knockTimer = Math.max(
+    player.knockTimer,
+    0.45
+  );
+
+  player.knockX +=
+    dx / Math.max(1, distance) * pullStrength;
+  player.knockY +=
+    dy / Math.max(1, distance) * pullStrength;
+
+  const ringCount = 6;
+
+  for (let i = 0; i < ringCount; i++){
+    const angle =
+      (i / ringCount) * Math.PI * 2 + g.time;
+
+    pushEnemyShot({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * 130,
+      vy: Math.sin(angle) * 130,
+      r: 11,
+      heavy: false,
+      life: 2.0,
+      dead: false,
+    });
+  }
+
+  bossFloater(enemy, "🕳️重力波!", "#b28dff", 30);
+  S.shake = Math.max(S.shake, 0.2);
+}
+
+function infinitySpiralAttack(g, enemy, baseAngle){
+  const ringCount = 18;
+
+  for (let i = 0; i < ringCount; i++){
+    const angle = (i / ringCount) * Math.PI * 2;
+    const speed = i % 2 === 0 ? 160 : 230;
+
+    pushEnemyShot({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      r: 10,
+      heavy: false,
+      life: 3.4,
+      dead: false,
+    });
+  }
+
+  bossFloater(enemy, "♾️螺旋弾幕!", "#e2b8ff", 30);
+  S.flash = Math.max(S.flash, 0.14);
+}
+
+function meteorRainAttack(g, enemy, baseAngle){
+  const count = 5;
+
+  for (let i = 0; i < count; i++){
+    if (S.enemyShots.length >= 40){
+      break;
+    }
+
+    const angle = g.rand(0, Math.PI * 2);
+    const dist = g.rand(0, 95);
+
+    S.enemyShots.push({
+      x: S.player.x + Math.cos(angle) * dist,
+      y: S.player.y + Math.sin(angle) * dist,
+      vx: 0,
+      vy: 0,
+      r: 52,
+      heavy: true,
+      life: 0.3,
+      dead: false,
+      telegraph: true,
+      delay: 0.65,
+      totalDelay: 0.65,
+    });
+  }
+
+  bossFloater(enemy, "😈隕石落下!", "#ff5c5c", 32);
+  S.flash = Math.max(S.flash, 0.1);
+}
+
 function updateBossAttacks(g, dt){
   for (const enemy of S.enemies){
     if (
@@ -2692,95 +2905,22 @@ function updateBossAttacks(g, dt){
       S.player.x - enemy.x
     );
 
-    const pattern = g.rand(0, 1);
+    const style = enemy.attackStyle || "mid";
 
-    if (pattern < 0.4){
-      const shotCount = 5;
-
-      for (let i = 0; i < shotCount; i++){
-        if (S.enemyShots.length >= 40){
-          break;
-        }
-
-        const spread =
-          (i - (shotCount - 1) / 2) * 0.22;
-        const angle = baseAngle + spread;
-
-        S.enemyShots.push({
-          x: enemy.x,
-          y: enemy.y,
-          vx: Math.cos(angle) * 210,
-          vy: Math.sin(angle) * 210,
-          r: 11,
-          heavy: false,
-          life: 3,
-          dead: false,
-        });
-      }
-
-      addFloater(
-        enemy.x,
-        enemy.y - enemy.r - 40,
-        "⚠",
-        "#ff6a6a",
-        26,
-        0.5
-      );
-    } else if (pattern < 0.75){
-      const ringCount = 10;
-
-      for (let i = 0; i < ringCount; i++){
-        if (S.enemyShots.length >= 40){
-          break;
-        }
-
-        const angle =
-          (i / ringCount) * Math.PI * 2;
-
-        S.enemyShots.push({
-          x: enemy.x,
-          y: enemy.y,
-          vx: Math.cos(angle) * 175,
-          vy: Math.sin(angle) * 175,
-          r: 11,
-          heavy: false,
-          life: 3.5,
-          dead: false,
-        });
-      }
-
-      addFloater(
-        enemy.x,
-        enemy.y - enemy.r - 40,
-        "💢",
-        "#ff9d5c",
-        28,
-        0.5
-      );
+    if (style === "mid"){
+      dragonBreathAttack(g, enemy, baseAngle);
+    } else if (style === "stage1"){
+      groundPoundAttack(g, enemy, baseAngle);
+    } else if (style === "stage2"){
+      inkSprayAttack(g, enemy, baseAngle);
+    } else if (style === "stage3"){
+      abductionBeamAttack(g, enemy, baseAngle);
+    } else if (style === "stage4"){
+      gravityPullAttack(g, enemy, baseAngle);
+    } else if (style === "stage5"){
+      infinitySpiralAttack(g, enemy, baseAngle);
     } else {
-      if (S.enemyShots.length < 40){
-        S.enemyShots.push({
-          x: enemy.x,
-          y: enemy.y,
-          vx: Math.cos(baseAngle) * 430,
-          vy: Math.sin(baseAngle) * 430,
-          r: 15,
-          heavy: true,
-          life: 2.5,
-          dead: false,
-        });
-      }
-
-      S.flash = Math.max(S.flash, 0.15);
-
-      addFloater(
-        enemy.x,
-        enemy.y - enemy.r - 40,
-        "⚡撃!",
-        "#ffe66d",
-        30,
-        0.5
-      );
+      meteorRainAttack(g, enemy, baseAngle);
     }
 
     g.se("hit");
@@ -2789,6 +2929,16 @@ function updateBossAttacks(g, dt){
 
 function updateEnemyShots(g, dt){
   for (const shot of S.enemyShots){
+    if (shot.telegraph){
+      shot.delay -= dt;
+
+      if (shot.delay > 0){
+        continue;
+      }
+
+      shot.telegraph = false;
+    }
+
     shot.x += shot.vx * dt;
     shot.y += shot.vy * dt;
     shot.life -= dt;
@@ -3909,6 +4059,21 @@ function drawShots(g, ox, oy){
 
 function drawEnemyShots(g, ox, oy){
   for (const shot of S.enemyShots){
+    if (shot.telegraph){
+      const progress =
+        1 - shot.delay / shot.totalDelay;
+
+      g.emoji(
+        "⭕",
+        shot.x + ox,
+        shot.y + oy,
+        shot.r * (0.3 + 0.7 * progress),
+        { alpha: 0.35 + 0.35 * progress }
+      );
+
+      continue;
+    }
+
     g.emoji(
       shot.heavy ? "🧨" : "🟣",
       shot.x + ox,
@@ -4966,7 +5131,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev23",
+      "rev24",
       g.W - 8,
       14,
       12,
