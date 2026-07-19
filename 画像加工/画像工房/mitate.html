@@ -420,7 +420,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev23-getusermedia";
+const REV = "v2 rev24-puni4a";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1306,6 +1306,14 @@ const PUNI_SKIRT_DEPTH = 0.0015;   // 付け根を各頂点直下のレリーフ
 const PUNI_TUNE = {
   rings: 7, segments: 24, substeps: 7,
   soft: 0.5, keep: 0.55,
+
+  // 段階4-1: 板の並進加速度を自由粒へ慣性擬似力として伝える。
+  // 0で完全無効。soft/keepとは独立。
+  inertia: 0.35,
+  inertiaMaxAccel: 18.0,       // tiltGroupローカル単位/s^2
+  inertiaTeleportDist: 0.30,   // 1フレームのワールド移動が30cm超ならテレポート扱い
+  inertiaMaxDt: 0.10,          // 復帰・タブ停止などの長いフレームは捨てる
+
   hariK: 220, velDamping: 7.0, edgeCompliance: 3.0e-5, volCompliance: 1.0e-7,
   gravity: -0.10, ligamentK: 0.075, coreK: 0.22, coreStart: 0.32, maxSquish: 0.68,
   maxStep: 0.008, maxCorrection: 0.006, minZ: 0.001, volMinRatio: 0.58, volMaxRatio: 1.35,
@@ -1330,6 +1338,120 @@ const PUNI = {
   raycaster: new THREE.Raycaster(), ndc: new THREE.Vector2(),
   tmpV0: new THREE.Vector3(), tmpV1: new THREE.Vector3(),
 };
+
+// 段階4-1: item.tiltGroupのワールド並進を追跡する。
+// pendingDVは描画フレームと固定物理歩の位相差で慣性が消えないように、
+// -a_local*dtを次の固定歩まで蓄積する。
+const PUNI_MOTION = new WeakMap();
+const _puniMotionWorldPos = new THREE.Vector3();
+const _puniMotionWorldQ = new THREE.Quaternion();
+const _puniMotionWorldScale = new THREE.Vector3();
+
+function puniMotionState(item){
+  let m = PUNI_MOTION.get(item);
+  if(!m){
+    m = {
+      ready: false,
+      worldPos: new THREE.Vector3(),
+      worldVel: new THREE.Vector3(),
+      pendingDV: new THREE.Vector3(),
+      stepAccel: new THREE.Vector3(),
+      lastAccel: new THREE.Vector3(),
+      teleported: false,
+    };
+    PUNI_MOTION.set(item, m);
+  }
+  return m;
+}
+
+function puniResetItemMotion(item){
+  if(!item?.tiltGroup) return;
+  const m = puniMotionState(item);
+  item.tiltGroup.updateWorldMatrix(true, false);
+  item.tiltGroup.getWorldPosition(m.worldPos);
+  m.worldVel.set(0,0,0);
+  m.pendingDV.set(0,0,0);
+  m.stepAccel.set(0,0,0);
+  m.lastAccel.set(0,0,0);
+  m.ready = true;
+  m.teleported = false;
+}
+
+// 描画フレームごとに呼ぶ。
+// world加速度をtiltGroupローカルへ逆回転・逆scale変換して蓄積する。
+function puniUpdateItemMotion(item, dt){
+  if(!item?.tiltGroup) return;
+  const m = puniMotionState(item);
+
+  item.tiltGroup.updateWorldMatrix(true, false);
+  item.tiltGroup.getWorldPosition(_puniMotionWorldPos);
+
+  if(!m.ready || !Number.isFinite(dt) || dt <= 0 || dt > PUNI_TUNE.inertiaMaxDt){
+    puniResetItemMotion(item);
+    return;
+  }
+
+  const move = _puniMotionWorldPos.distanceTo(m.worldPos);
+  if(!Number.isFinite(move) || move > PUNI_TUNE.inertiaTeleportDist){
+    puniResetItemMotion(item);
+    m.teleported = true;
+    return;
+  }
+
+  // tmpV0 = v_now(world), tmpV1 = a_world
+  PUNI.tmpV0.copy(_puniMotionWorldPos).sub(m.worldPos).multiplyScalar(1/dt);
+  PUNI.tmpV1.copy(PUNI.tmpV0).sub(m.worldVel).multiplyScalar(1/dt);
+
+  item.tiltGroup.getWorldQuaternion(_puniMotionWorldQ).invert();
+  item.tiltGroup.getWorldScale(_puniMotionWorldScale);
+  PUNI.tmpV1.applyQuaternion(_puniMotionWorldQ);
+  PUNI.tmpV1.x /= Math.max(Math.abs(_puniMotionWorldScale.x), 1e-6);
+  PUNI.tmpV1.y /= Math.max(Math.abs(_puniMotionWorldScale.y), 1e-6);
+  PUNI.tmpV1.z /= Math.max(Math.abs(_puniMotionWorldScale.z), 1e-6);
+
+  const amag = PUNI.tmpV1.length();
+  if(!Number.isFinite(amag)){
+    puniResetItemMotion(item);
+    return;
+  }
+  if(amag > PUNI_TUNE.inertiaMaxAccel){
+    PUNI.tmpV1.multiplyScalar(PUNI_TUNE.inertiaMaxAccel / amag);
+  }
+
+  m.lastAccel.copy(PUNI.tmpV1);
+
+  // ∫(-a_local * inertia)dt。固定歩が来るまで保持する。
+  m.pendingDV.addScaledVector(
+    PUNI.tmpV1,
+    -clamp(PUNI_TUNE.inertia, 0, 1) * dt
+  );
+
+  m.worldPos.copy(_puniMotionWorldPos);
+  m.worldVel.copy(PUNI.tmpV0);
+  m.teleported = false;
+}
+
+function puniPrepareItemMotionStep(item, h){
+  const m = puniMotionState(item);
+  if(!m.ready || !Number.isFinite(h) || h <= 0){
+    m.stepAccel.set(0,0,0);
+    m.pendingDV.set(0,0,0);
+    return;
+  }
+
+  // この固定歩全体でpendingDVと同じ速度変化になる加速度。
+  m.stepAccel.copy(m.pendingDV).multiplyScalar(1/h);
+  m.pendingDV.set(0,0,0);
+
+  const maxA = PUNI_TUNE.inertiaMaxAccel;
+  const amag = m.stepAccel.length();
+  if(amag > maxA) m.stepAccel.multiplyScalar(maxA/amag);
+}
+
+function puniFinishItemMotionStep(item){
+  puniMotionState(item).stepAccel.set(0,0,0);
+}
+
 function puniBuildTopology(puff){
   const rings = PUNI_TUNE.rings; const seg = PUNI_TUNE.segments;
   const N = 1 + rings * seg;
@@ -1466,6 +1588,7 @@ function puniSpawn(opts = {}){
   puff.phys = puniBuildTopology(puff); puniMakeMesh(puff);
   activeItem.puffs.push(puff);
   PUNI.selected = puff; PUNI.enabled = true; PUNI.lastItem = activeItem; PUNI.acc = 0;
+  puniResetItemMotion(activeItem);
   puniRenderPuff(puff); puniSyncUI();
   schedulePuffsSave(activeItem);
   return puniState(puff);
@@ -1473,6 +1596,7 @@ function puniSpawn(opts = {}){
 function puniRebuild(puff){
   if(!puff || !puff.item) return false;
   const item = puff.item;
+  puniResetItemMotion(item);
   const index = item.puffs.indexOf(puff);
   if(index < 0) return false;
   puniDisposePuff(puff);
@@ -1517,14 +1641,21 @@ function puniSetPinnedTargets(puff){
   }
 }
 function puniIntegrate(puff, sdt){
-  const p = puff.phys; const damp = Math.max(0, 1 - PUNI_TUNE.velDamping*sdt);
+  const p = puff.phys;
+  const damp = Math.max(0, 1 - PUNI_TUNE.velDamping*sdt);
+  const inertiaA = puniMotionState(puff.item).stepAccel;
+
   for(let i=0; i<p.N; i++){
     if(p.invMass[i] === 0) continue;
     const j = i*3;
-    let vx = (p.pos[j]-p.prev[j])/sdt, vy = (p.pos[j+1]-p.prev[j+1])/sdt, vz = (p.pos[j+2]-p.prev[j+2])/sdt;
-    vx += (p.target[j]-p.pos[j]) * PUNI_TUNE.hariK * sdt;
-    vy += ((p.target[j+1]-p.pos[j+1]) * PUNI_TUNE.hariK + PUNI_TUNE.gravity) * sdt;
-    vz += (p.target[j+2]-p.pos[j+2]) * PUNI_TUNE.hariK * sdt;
+    let vx = (p.pos[j]-p.prev[j])/sdt;
+    let vy = (p.pos[j+1]-p.prev[j+1])/sdt;
+    let vz = (p.pos[j+2]-p.prev[j+2])/sdt;
+
+    vx += ((p.target[j]-p.pos[j]) * PUNI_TUNE.hariK + inertiaA.x) * sdt;
+    vy += ((p.target[j+1]-p.pos[j+1]) * PUNI_TUNE.hariK + PUNI_TUNE.gravity + inertiaA.y) * sdt;
+    vz += ((p.target[j+2]-p.pos[j+2]) * PUNI_TUNE.hariK + inertiaA.z) * sdt;
+
     vx *= damp; vy *= damp; vz *= damp;
     p.prev[j]=p.pos[j]; p.prev[j+1]=p.pos[j+1]; p.prev[j+2]=p.pos[j+2];
     let dx = vx*sdt, dy = vy*sdt, dz = vz*sdt;
@@ -1718,16 +1849,39 @@ function puniFrame(dt, isXR){
   if(!PUNI.enabled) return;
   const puffs = puniActivePuffs();
   if(!puffs.length) return;
+  const movingItems = [...new Set(puffs.map(puff => puff.item))];
+  for(const item of movingItems) puniUpdateItemMotion(item, dt);
+
   puniUpdatePointerCollider(dt);
   if(isXR){ puniUpdateXRColliders(puffs); }
-  else { PUNI.xrPrevWorld.clear(); for(const puff of puffs) puff.phys.xrColliders.length = 0; }
+  else {
+    PUNI.xrPrevWorld.clear();
+    for(const puff of puffs) puff.phys.xrColliders.length = 0;
+  }
+
   PUNI.acc += Math.min(dt, 0.05);
   let steps = 0;
+
   while(PUNI.acc >= PUNI_FIXED && steps < 3){
+    // 同一itemに複数puffがあっても、慣性速度差分の消費は固定歩ごとに1回。
+    for(const item of movingItems) puniPrepareItemMotionStep(item, PUNI_FIXED);
     for(const puff of puffs) puniSoftStep(puff, PUNI_FIXED);
-    PUNI.acc -= PUNI_FIXED; steps++;
+    for(const item of movingItems) puniFinishItemMotionStep(item);
+
+    PUNI.acc -= PUNI_FIXED;
+    steps++;
   }
-  if(steps === 3 && PUNI.acc >= PUNI_FIXED){ PUNI.acc = 0; }
+
+  if(steps === 3 && PUNI.acc >= PUNI_FIXED){
+    PUNI.acc = 0;
+    // 捨てた物理時間の慣性を次フレームへ持ち越さない。
+    for(const item of movingItems){
+      const m = puniMotionState(item);
+      m.pendingDV.set(0,0,0);
+      m.stepAccel.set(0,0,0);
+    }
+  }
+
   for(const puff of puffs) puniRenderPuff(puff);
 }
 function puniPointerRay(e){
@@ -1835,6 +1989,103 @@ function puniSettle(sec = 2.0){
   puniStepSeconds(sec);
   return puniState();
 }
+
+// PC数値検証用。
+// itemをworld方向へ1フレームで移動して止め、その後sec秒収束させる。
+// テスト終了時にitemのtransformと追跡状態は元へ戻す。
+function puniKick(dx = 0.06, dy = 0, dz = 0, sec = 2.0){
+  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  if(!puff || !puff.phys){
+    throw new Error("puni: call __puni.spawn() first");
+  }
+
+  const item = puff.item;
+  const p = puff.phys;
+  const duration = clamp(Number(sec) || 2.0, PUNI_FIXED*2, 10);
+  const steps = Math.max(2, Math.round(duration/PUNI_FIXED));
+  const savedPos = item.group.position.clone();
+  const baseline = new Float32Array(p.pos);
+  const worldDelta = new THREE.Vector3(
+    Number(dx) || 0,
+    Number(dy) || 0,
+    Number(dz) || 0
+  );
+
+  p.collider.active = false;
+  p.collider.havePrev = false;
+  for(const c of p.xrColliders) c.active = false;
+
+  puniResetItemMotion(item);
+
+  // worldDeltaをgroup.parentローカルの差分へ変換する。
+  if(item.group.parent){
+    item.group.parent.updateWorldMatrix(true, false);
+    item.group.parent.getWorldQuaternion(_puniMotionWorldQ).invert();
+    item.group.parent.getWorldScale(_puniMotionWorldScale);
+    worldDelta.applyQuaternion(_puniMotionWorldQ);
+    worldDelta.x /= Math.max(Math.abs(_puniMotionWorldScale.x), 1e-6);
+    worldDelta.y /= Math.max(Math.abs(_puniMotionWorldScale.y), 1e-6);
+    worldDelta.z /= Math.max(Math.abs(_puniMotionWorldScale.z), 1e-6);
+  }
+
+  let peakDisp = 0;
+  let peakResid = 0;
+  let nan = false;
+
+  try {
+    // 1フレームで板を移動。
+    item.group.position.add(worldDelta);
+    item.group.updateWorldMatrix(true, true);
+
+    for(let s=0; s<steps; s++){
+      // s=0で加速、s=1で移動停止による減速、それ以降は静止。
+      puniUpdateItemMotion(item, PUNI_FIXED);
+      puniPrepareItemMotionStep(item, PUNI_FIXED);
+      puniSoftStep(puff, PUNI_FIXED);
+      puniFinishItemMotionStep(item);
+
+      let frameMax = 0;
+      for(let i=0; i<p.N; i++){
+        if(p.invMass[i] === 0) continue;
+        const j = i*3;
+        const ddx = p.pos[j]   - baseline[j];
+        const ddy = p.pos[j+1] - baseline[j+1];
+        const ddz = p.pos[j+2] - baseline[j+2];
+        frameMax = Math.max(frameMax, Math.hypot(ddx, ddy, ddz));
+      }
+
+      peakDisp = Math.max(peakDisp, frameMax);
+      peakResid = Math.max(peakResid, puniRestResid(puff));
+      nan ||= p.nan || !Number.isFinite(frameMax);
+    }
+
+    puniRenderPuff(puff);
+    const state = puniState(puff);
+    return {
+      requested: {
+        dx:+(Number(dx)||0).toFixed(4),
+        dy:+(Number(dy)||0).toFixed(4),
+        dz:+(Number(dz)||0).toFixed(4),
+        sec:+duration.toFixed(3),
+      },
+      inertia:+PUNI_TUNE.inertia.toFixed(3),
+      peakDisp:+peakDisp.toFixed(6),
+      peakResid:+peakResid.toFixed(6),
+      restResid:state.restResid,
+      volRatio:state.volRatio,
+      maxSpeed:state.maxSpeed,
+      nan:!!(nan || state.nan),
+      settled:!nan && state.restResid < 0.01,
+      state,
+    };
+  } finally {
+    item.group.position.copy(savedPos);
+    item.group.updateWorldMatrix(true, true);
+    puniResetItemMotion(item);
+    PUNI.acc = 0;
+  }
+}
+
 function puniRender(){
   const puffs = puniActivePuffs();
   for(const puff of puffs) puniRenderPuff(puff);
@@ -1962,7 +2213,8 @@ function puniUpdateXRColliders(puffs){
 }
 
 window.__puni = {
-  spawn: puniSpawn, poke: puniPoke, settle: puniSettle, state: puniState, render: puniRender,
+  spawn: puniSpawn, poke: puniPoke, kick: puniKick,
+  settle: puniSettle, state: puniState, render: puniRender,
   enable(v = true){
     PUNI.enabled = !!v;
     for(const it of items){ if(!it.puffs) continue; for(const puff of it.puffs){ if(puff.mesh) puff.mesh.visible = PUNI.enabled; } }
@@ -1974,6 +2226,21 @@ window.__puni = {
   },
   setSoft(v){ PUNI_TUNE.soft = clamp(Number(v), 0, 1); puniApplyFeel(); return { soft: PUNI_TUNE.soft, hariK: PUNI_TUNE.hariK, edgeCompliance: PUNI_TUNE.edgeCompliance }; },
   setKeep(v){ PUNI_TUNE.keep = clamp(Number(v), 0, 1); puniApplyFeel(); return { keep: PUNI_TUNE.keep, velDamping: PUNI_TUNE.velDamping }; },
+  setInertia(v){
+    PUNI_TUNE.inertia = clamp(Number(v), 0, 1);
+    for(const it of items) puniResetItemMotion(it);
+    PUNI.acc = 0;
+    return {
+      inertia:PUNI_TUNE.inertia,
+      maxAccel:PUNI_TUNE.inertiaMaxAccel,
+      teleportDist:PUNI_TUNE.inertiaTeleportDist,
+    };
+  },
+  resetMotion(){
+    for(const it of items) puniResetItemMotion(it);
+    PUNI.acc = 0;
+    return true;
+  },
   setXRColliders(entries = []){
     PUNI.xrColliders = entries.map(e => ({
       active: e.active !== false,
@@ -2479,7 +2746,9 @@ function layoutRowAt(cx, cz, py){
     it.group.rotation.y = Math.atan2(_camPos.x - px, _camPos.z - pz);   // こちらを向かせる
     it.group.scale.setScalar(scale);
     it.tiltGroup.rotation.x = 0;
+    puniResetItemMotion(it);
   }
+  PUNI.acc = 0;
   grab[0]=grab[1]=null; pinch=null;
 }
 // 視線の先に並べる(初期配置=pendingPlace / 呼び戻し=A/B/X/Y)
@@ -2507,7 +2776,9 @@ function resetAllItems(){
     scene.attach(it.group);
     it.group.position.set(0,0,0); it.group.quaternion.identity(); it.group.scale.setScalar(1);
     it.tiltGroup.rotation.x = 0;
+    puniResetItemMotion(it);
   }
+  PUNI.acc = 0;
   grab[0]=grab[1]=null; pinch=null;
 }
 
