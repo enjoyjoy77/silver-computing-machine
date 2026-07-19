@@ -156,6 +156,7 @@ let popCells, popTimer, fallingCells, msgTimer;
 let pairsPlaced;
 let running = false;
 let tut = null; // れんしゅうモードの状態(null=とことん)
+let tutGuide = null; // れんしゅうの置き場所ガイド(点線ワクのマス一覧)
 
 const keys = {left:false,right:false,down:false};
 const pressedOnce = [];  // 1フレーム内で処理する押下イベント
@@ -226,6 +227,7 @@ function spawnPair(){
   if(tut){
     const L = TUT_LESSONS[tut.idx];
     if(L.hints && L.hints.length) setLessonHint(L.hints[Math.min(tut.locks, L.hints.length-1)]);
+    tutGuide = L.guides ? L.guides[Math.min(tut.locks, L.guides.length-1)] : null;
   }
 }
 
@@ -264,15 +266,20 @@ function tryRotate(dir, frame){ // dir: +1右回転 -1左回転
   if(frame - lastRotFail <= QUICKTURN_WINDOW){
     const flip = (pair.rot + 2) % 4;
     if(pairFits(pair.x, pair.y, flip)){
-      pair.rot = flip; lastRotFail = -999; rotOk(); return true;
+      pair.rot = flip; lastRotFail = -999; rotOk(); tutQtDone(); return true;
     }
     // 180度先も塞がっていたら床蹴り付きで(上下入れ替え)
     if(pairFits(pair.x, pair.y-1, flip)){
-      pair.y -= 1; pair.rot = flip; lastRotFail = -999; rotOk(); return true;
+      pair.y -= 1; pair.rot = flip; lastRotFail = -999; rotOk(); tutQtDone(); return true;
     }
   }
   lastRotFail = frame;
   return false;
+}
+function tutQtDone(){ // クイックターン成立の瞬間(れんしゅんモードのレッスン合格判定)
+  if(!tut) return;
+  tut.flags.qt = true;
+  if(TUT_LESSONS[tut.idx].goal==="qt") tutClear();
 }
 function rotOk(){
   if(grounded && lockResets < LOCK_RESET_MAX){ lockTimer = 0; lockResets++; }
@@ -290,12 +297,13 @@ function lockPair(){
   sfx("lock");
   chainCount = 0;
   pendingScore = 0;
-  startDrop();
+  startDrop(true);
 }
 
 // ---- 落下(ちぎり)フェーズ: 浮いているぷよを1つずつ落とす ----
-function startDrop(){
+function startDrop(fromLock){
   fallingCells = collectFalling();
+  if(fromLock && tut && fallingCells.length>0) tut.flags.chigiri = true; // 設置直後のちぎり検出
   if(fallingCells.length===0){ checkClear(); return; }
   phase = "dropping";
   popTimer = 0;
@@ -674,22 +682,34 @@ updateHud();
 const TUT_LESSONS = [
   {
     title:"レッスン1: そうさをおぼえる",
-    text:"まずはうごかしてみよう。<br><b>← →</b> よこにうごく<br><b>Z / X</b> くるっとまわる<br><b>↓</b> はやく落ちる<br><br>ぜんぶ1回ずつためして、ぷよを<b>2組</b>ゆかに置けたらクリア!",
+    text:"まずはうごかしてみよう。<br><b>← →</b> よこにうごく<br><b>Z / X</b> くるっとまわる<br><b>↓</b> はやく落ちる<br><br><b>もくひょう:</b> ぜんぶ1回ずつためして、ぷよを<b>2組</b>ゆかに置く",
     setup:(g)=>{},
     queue:[1,3,2,4],
     goal:"basic", tries:Infinity, hints:[]
   },
   {
     title:"レッスン2: 4つつなげて消す",
-    text:"おなじ色のぷよが<b>タテかヨコに4つ</b>つながると消えます。<br>ゆかに赤が2つあるよ。くばられる<b>赤2つ</b>をとなりにくっつけて、4つにして消そう!",
+    text:"おなじ色のぷよが<b>タテかヨコに4つ</b>つながると消えます(ななめはダメ)。<br>ゆかに赤が2つあるよ。くばられる<b>赤2つ</b>をとなりにくっつけよう。<br><br><b>もくひょう:</b> 赤を4つにして消す<br>黄色い<b>点線のワク</b>が置き場所のヒント!",
     setup:(g)=>{ g[13][0]=1; g[13][1]=1; },
     queue:[1,1],
     goal:"chain", goalChain:1, tries:1,
-    hints:["回転でヨコ向きにして、左はしの赤のとなりに置こう"]
+    hints:["回転でヨコ向きにして、点線のワクに置こう"],
+    guides:[[[2,13],[3,13]]],
+    failText:"4つがつながらなかった…ヨコ向きで赤のとなりへ!"
   },
   {
-    title:"レッスン3: 連鎖を見てみよう",
-    text:"「<b>連鎖</b>」は、消えたあとに上から落ちてきたぷよが<b>つづけて消える</b>こと。<br>いま、青の上に赤が2つのっているね。<br><b>青を4つにして消すと</b>…なにが起きるかな?",
+    title:"レッスン3: ちぎりをおぼえる",
+    text:"ヨコ向きのぷよを<b>だんさ</b>に置くと、うかんだ方が<b>ちぎれて下まで落ちる</b>よ。<br>左はしの黄色のだんさをまたぐように、ヨコ向きで置いてみよう。<br><br><b>もくひょう:</b> ちぎりを1回おこす",
+    setup:(g)=>{ g[13][0]=4; },
+    queue:[2,3],
+    goal:"chigiri", tries:1,
+    hints:["ヨコ向きにして、いちばん左へ。片方が黄色にのり、片方が落ちる!"],
+    guides:[[[0,12],[1,13]]],
+    failText:"ちぎれなかった…だんさをまたぐようにヨコ置き!"
+  },
+  {
+    title:"レッスン4: 連鎖を見てみよう",
+    text:"「<b>連鎖</b>」は、消えたあとに上から落ちてきたぷよが<b>つづけて消える</b>こと。<br>いま、青の上に赤が2つのっているね。<br><b>青を4つにして消すと</b>…なにが起きるかな?<br><br><b>もくひょう:</b> 2連鎖を見る",
     setup:(g)=>{
       g[13][0]=1; g[12][0]=1;          // 左はしに赤2(残留)
       g[13][1]=3; g[12][1]=3; g[13][2]=3; // 青3
@@ -697,26 +717,69 @@ const TUT_LESSONS = [
     },
     queue:[3,3],
     goal:"chain", goalChain:2, tries:1,
-    hints:["青をヨコ向きにして、3〜4列目に置いてみよう"]
+    hints:["青をヨコ向きにして、点線のワクへ"],
+    guides:[[[3,13],[4,13]]],
+    failText:"連鎖にならなかった…青が4つつながる場所へ!"
   },
   {
-    title:"レッスン4: 連鎖を組んでみよう",
-    text:"こんどは<b>じぶんで</b>さっきの形を作るよ。<br>じゅんばん:<br>1. 赤を<b>タテのまま2列目</b>(青の上)へ<br>2. 青を<b>ヨコ向きで3〜4列目</b>へ<br>これで2連鎖!",
+    title:"レッスン5: 連鎖を組んでみよう",
+    text:"こんどは<b>じぶんで</b>さっきの形を作るよ。<br>じゅんばん:<br>1. 赤を<b>タテのまま2列目</b>(青の上)へ<br>2. 青を<b>ヨコ向きで3〜4列目</b>へ<br><br><b>もくひょう:</b> 2連鎖!",
     setup:(g)=>{
       g[13][0]=1; g[12][0]=1;
       g[13][1]=3; g[12][1]=3; g[13][2]=3;
     },
     queue:[1,1,3,3],
     goal:"chain", goalChain:2, tries:2,
-    hints:["赤をタテのまま、2列目(青の上)にそっと置こう","青をヨコ向きにして、3〜4列目へ。2連鎖だ!"]
+    hints:["赤をタテのまま、点線のワク(青の上)にそっと置こう","青をヨコ向きにして、点線のワクへ。2連鎖だ!"],
+    guides:[[[1,11],[1,10]],[[2,13],[3,13]]],
+    failText:"おしい…1手目は赤をタテで2列目、2手目は青をヨコで3〜4列目!"
   },
   {
-    title:"レッスン5: じぶんで2連鎖",
-    text:"そつぎょう試験!<br>なにもない場所から<b>2連鎖</b>を作ろう。<br>くばられるのは 赤2組 → 青2組 のくりかえし。<br>おてほん: 左はしに赤をタテ2組(でも1つはヨコにずらす)…レッスン4の形を思い出して、すきに組んでOK!",
+    title:"レッスン6: ベタづみ2連鎖",
+    text:"連鎖のべつの形。<br>下のだんに赤、上のだんに青が<b>3つずつヨコにならんでいる</b>ね。<br>赤と青をタテにした1組を右はしにたすと…<b>下の赤が消えて、上の青がぜんぶ落ちて</b>また消える!<br><br><b>もくひょう:</b> 2連鎖",
+    setup:(g)=>{
+      g[13][0]=1; g[13][1]=1; g[13][2]=1;
+      g[12][0]=3; g[12][1]=3; g[12][2]=3;
+    },
+    queue:[1,3],
+    goal:"chain", goalChain:2, tries:1,
+    hints:["回転せずタテのまま、点線のワク(4列目)へ"],
+    guides:[[[3,13],[3,12]]],
+    failText:"赤が下・青が上のまま、4列目に置こう!"
+  },
+  {
+    title:"レッスン7: かいだんで3連鎖",
+    text:"連鎖は<b>いくつでも</b>つなげられる!<br>いまの盤面は「みどりを消すと青が落ちて消え、青が消えると赤が落ちて消える」しかけずみ。<br>みどりのタテ1組でスイッチON!<br><br><b>もくひょう:</b> 3連鎖!",
+    setup:(g)=>{
+      g[12][0]=1; g[13][0]=1;                    // 赤(残留)
+      g[13][1]=3; g[12][1]=3; g[11][1]=1; g[10][1]=1; // 青2+赤2
+      g[13][2]=2; g[12][2]=2; g[11][2]=3; g[10][2]=3; // 緑2+青2
+    },
+    queue:[2,2],
+    goal:"chain", goalChain:3, tries:1,
+    hints:["みどりをタテのまま、点線のワク(4列目)へ。3連鎖を見よ!"],
+    guides:[[[3,13],[3,12]]],
+    failText:"みどりをタテのまま4列目へ!"
+  },
+  {
+    title:"レッスン8: クイックターン",
+    text:"おまけの上級そうさ。<br>左右がふさがった<b>せまい谷</b>では、ふつうは回転できない。でも<b>回転を2連打</b>すると上下が入れかわる!(クイックターン)<br><br><b>もくひょう:</b> 谷のそこでクイックターン",
+    setup:(g)=>{
+      for(let y=9;y<14;y++){ g[y][0]=(y%2?2:4); g[y][2]=(y%2?4:2); }
+    },
+    queue:[1,3],
+    goal:"qt", tries:1,
+    hints:["←で谷(2列目)に入れて、いちばん下まで落ちたら Z か X を2連打!"],
+    guides:[[[1,13],[1,12]]],
+    failText:"谷のそこに落ちてから、回転を2連打!"
+  },
+  {
+    title:"レッスン9: そつぎょう試験",
+    text:"なにもない場所から<b>じぶんで2連鎖</b>を作ろう。<br>くばられるのは 赤2組 → 青2組 のくりかえし。<br>レッスン5の形でも、レッスン6のベタづみでもOK!<br><br><b>もくひょう:</b> 2連鎖(できたらそつぎょう!)",
     setup:(g)=>{},
     queue:[1,1,1,1,3,3,3,3],
     goal:"chain", goalChain:2, tries:Infinity,
-    hints:["こまったら「やりなおす」でさいしょから。れい: 赤を左はしにタテ→赤を2列目にタテ→青で赤の下をつくる…じゆうに!"]
+    hints:["こまったら「やりなおす」でさいしょから。れい: 左はしに赤タテ→2列目に青タテ2組→青の上に赤タテ→青のよこに青…じゆうに!"]
   }
 ];
 

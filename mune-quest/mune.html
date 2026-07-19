@@ -87,8 +87,9 @@
 import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
+import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v6 rev2";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html
+const REV = "v6 rev3";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / rev3=素体GLBをDraco圧縮(1.48MB→80KB)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -526,7 +527,9 @@ plateMesh.position.set(0,0,-0.010); plateGroup.add(plateMesh);
 // 解剖学ベースの上半身(段階3-1): Blender公式のCC0写実女性素体(GLB)を胸板に取り付ける。
 // 読めたら板は隠す(読めなければ従来の板のまま=フォールバック)。ふくらみ物理は不変。
 let torso = null;
-new GLTFLoader().load("./lib/models/female_base.glb", (gltf)=>{
+const _dracoLoader = new DRACOLoader().setDecoderPath("./lib/draco/");   // Draco復元器(オフライン同梱・展開は別スレッド)。読めなければ従来どおり板にフォールバック
+const _gltfLoader = new GLTFLoader(); _gltfLoader.setDRACOLoader(_dracoLoader);
+_gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
   torso = gltf.scene;
   bustMat.side = THREE.DoubleSide;   // カット断面から内側が見えても肌色に(ふくらみは閉じているので無害)
   // ※ズレ(x≈+1.34)は頂点でなく「ノードの位置」に入っている→必ずシーン座標(ノード変換込み)で測る
