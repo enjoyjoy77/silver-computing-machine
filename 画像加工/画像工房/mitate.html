@@ -430,7 +430,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev27-puni4c";
+const REV = "v2 rev28-xrplace";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -2788,6 +2788,7 @@ function enterXR(){
   for(const it of items) if(it.group.parent !== scene) scene.add(it.group);
   // 前セッションから残ったボタンのラッチを消す(突入後の最初の押下を確実にエッジ扱いに)
   recallHeld = false; stickPrev.left = stickPrev.right = stickPrev.none = false;
+  xrPuniPlacePrev.left = xrPuniPlacePrev.right = xrPuniPlacePrev.none = false;
   xrAttach(mode);
 }
 // 没入中のモード循環(スティック押し込み)
@@ -2968,6 +2969,9 @@ let xrSession=null, xrMode=null, hitSource=null, hitReq=false, placed=false;
 // だから開始フレームで実際の頭の位置・向きを読み、視線の先1.1mに置き直す。
 const _camPos = new THREE.Vector3(), _camQ = new THREE.Quaternion(), _fwd = new THREE.Vector3(), _fwdRight = new THREE.Vector3();
 let pendingPlace = false, recallHeld = false;
+// puni中のA/X配置は手ごとに立ち上がり検出。
+// B/Yの呼び戻しラッチとは分離し、モード切替をまたいだ押しっぱなしも再発火させない。
+const xrPuniPlacePrev = { left:false, right:false, none:false };
 // スティック押し込み(モード切替)のエッジ検出は手ごとに持つ(片手ホールドでもう片手が効かない事故を防ぐ)
 const stickPrev = { left:false, right:false, none:false };
 // 表示中の全itemを (cx,cz) 中心・高さpy で横一列に、ユーザーの方を向けて並べる
@@ -3048,15 +3052,27 @@ function deadzone(v){
 // 毎フレーム: A/B/X/Y(呼び戻し) と グリップ+スティック(回転) をまとめて処理
 function pollInput(dt){
   const sess = renderer.xr.getSession(); if(!sess) return;
-  let recallPressed = false, cycleNow = false, recalledThisFrame = false;
+  let recallPressed = false, facePressed = false;
+  let cycleNow = false, recalledThisFrame = false;
+  const puniPlaceEdges = [];
   let bestYaw = 0, bestTilt = 0, bestMag = 0, bestHd = null;   // 倒し量が大きい手だけ採用(2倍速事故を防ぐ)
   let bestDollyY = 0, bestDollyHd = null;   // 手元寄せ: 上下が最も大きい手だけ採用
   for(const src of sess.inputSources){
     const gp = src.gamepad; if(!gp) continue;
     const b = gp.buttons, ax = gp.axes;
     const hd = (src.handedness === 'left' || src.handedness === 'right') ? src.handedness : 'none';
-    // 呼び戻し: A/X または B/Y
-    if((b[4] && b[4].pressed) || (b[5] && b[5].pressed)) recallPressed = true;
+    // Quest Touch: buttons[4]=A/X（puni中だけスポット配置に転用）/ buttons[5]=B/Y（呼び戻し）
+    const primaryNow = !!(b[4] && b[4].pressed);
+    const secondaryNow = !!(b[5] && b[5].pressed);
+    facePressed = facePressed || primaryNow || secondaryNow;
+
+    if(mode === 'puni' && !src.hand){
+      if(primaryNow && !xrPuniPlacePrev[hd]) puniPlaceEdges.push(src);
+      if(secondaryNow) recallPressed = true;
+    } else if(primaryNow || secondaryNow){
+      recallPressed = true;
+    }
+    xrPuniPlacePrev[hd] = primaryNow;
     const gripHeld = b && b[1] && b[1].pressed;   // buttons[1] = グリップ(中指)
     // スティック押し込み(buttons[3])はグリップ非押下時のみモード切替。手ごとに立ち上がりを見る
     const stickNow = !!(b && b[3] && b[3].pressed && !gripHeld);
@@ -3078,12 +3094,16 @@ function pollInput(dt){
       if(y !== 0 && Math.abs(rawY) > Math.abs(rawX) && Math.abs(y) > Math.abs(bestDollyY)){ bestDollyY = y; bestDollyHd = hd; }
     }
   }
+  // puni中のA/X: レーザーの当たっている板にスポットを置く(このフレームで確定)
+  for(const src of puniPlaceEdges) xrPuniPlaceFromSource(src);
+
   // 呼び戻し(押した瞬間の1回だけ)
   if(recallPressed && !recallHeld){
     placeInFront(); recalledThisFrame = true;
     if(xrMode==='ar'){ placed = true; reticle.visible = false; }
   }
-  recallHeld = recallPressed;
+  // puni中のA/Xもラッチへ含め、押したままモードを抜けた際の呼び戻し誤発火を防ぐ。
+  recallHeld = facePressed;
   // モード循環(いずれかの手の押した瞬間の1回だけ)
   if(cycleNow) cycleMode();
   // 回転: そのグリップ手が「指す/掴む」体を回す(狙った体に効かせる)。掴み中は不可
@@ -3143,6 +3163,80 @@ function ctrlPos(k){ return new THREE.Vector3().setFromMatrixPosition(controller
 // groupをシーンに戻したとき、コントローラーのついでの傾き(roll/pitch)を落として水平回頭(yaw)だけ残す
 const _flatEuler = new THREE.Euler();
 function flattenYaw(g){ _flatEuler.setFromQuaternion(g.quaternion, 'YXZ'); g.rotation.set(0, _flatEuler.y, 0); }
+/* ---- XR中のぷるぷる実機配置(コントローラA/Xボタン) ---- */
+function xrControllerIndexForSource(src){
+  const exact = controllers.findIndex(c => c.userData && c.userData.src === src);
+  if(exact >= 0) return exact;
+  return controllers.findIndex(c => c.userData && c.userData.handedness === src.handedness);
+}
+
+function xrPulse(src, strength, ms){
+  const actuator =
+    src?.gamepad?.hapticActuators?.[0] ||
+    src?.gamepad?.vibrationActuator;
+  try {
+    if(actuator?.pulse){
+      void actuator.pulse(strength, ms);
+    } else if(actuator?.playEffect){
+      void actuator.playEffect('dual-rumble', {
+        duration: ms, strongMagnitude: strength, weakMagnitude: strength
+      });
+    }
+  } catch {
+    // ハプティック非対応・拒否は操作失敗にしない。
+  }
+}
+
+// コントローラーレーザーと、表示中の全itemのreliefMeshとの最短交差
+function xrPuniHit(i){
+  const c = controllers[i];
+  if(!c) return null;
+
+  tmpV.setFromMatrixPosition(c.matrixWorld);
+  const dir = new THREE.Vector3(0,0,-1).transformDirection(c.matrixWorld).normalize();
+  raycaster.set(tmpV, dir);
+
+  let best = null, bestD = Infinity;
+  for(const it of items){
+    if(!it.group.visible || !it.reliefMesh) continue;
+    const hits = raycaster.intersectObject(it.reliefMesh, false);
+    if(!hits.length || hits[0].distance >= bestD) continue;
+
+    const point = hits[0].point.clone();
+    it.tiltGroup.worldToLocal(point);
+    const w = it.w || 1;
+    const h = it.h || 1;
+
+    bestD = hits[0].distance;
+    best = { item: it, u: clamp(point.x/w + 0.5, 0, 1), v: clamp(point.y/h, 0, 1) };
+  }
+  return best;
+}
+
+function xrPuniPlaceFromSource(src){
+  // 素手のselect/pinchは既存の掴みと衝突するため対象外(コントローラのみ)
+  if(mode !== 'puni' || src?.hand) return false;
+
+  const i = xrControllerIndexForSource(src);
+  const hit = i >= 0 ? xrPuniHit(i) : null;
+  if(!hit){
+    xrPulse(src, 0.16, 28);   // 空振り(弱く短い振動)
+    return false;
+  }
+
+  // 狙ったitemを明示的にactiveへしてから、2Dと同じpuniSpawn経路へ渡す
+  if(hit.item !== activeItem) setActive(hit.item);
+
+  const shortSide = puniShortSide(hit.item);
+  const r = Number($('puniRadiusRange').value)/100 * shortSide;
+  const h = Number($('puniHeightRange').value)/100 * shortSide;
+  puniSpawn({ u:hit.u, v:hit.v, r, h });
+
+  // puniSpawn内で displace・選択・UI同期・保存まで実行済み
+  xrPulse(src, 0.55, 45);   // 配置成功(強めの振動)
+  return true;
+}
+
 // コントローラーiのレーザーが指すitem(reliefモード)を返す
 function itemUnderRay(i){
   const c = controllers[i]; tmpV.setFromMatrixPosition(c.matrixWorld);
