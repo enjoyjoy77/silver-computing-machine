@@ -309,10 +309,10 @@
       <div class="handoff-progress-text" id="handoffSendProgressText"></div>
     </div>
     <div id="handoffCodeResult" style="display:none">
-      <p style="text-align:center">受け取る側で、下のコードを入力／QRを読み取ってください</p>
+      <p style="text-align:center">受け取る側で、下のコードを入力してください<br><small style="color:var(--dim)">（QRはスマホで受け取る場合用。Questはブラウザの制限でQRを読めないので、Quest側で下のコードを手入力してください）</small></p>
       <div id="handoffQR" style="display:none"></div>
       <div style="text-align:center">
-        <button class="handoff-btn" id="handoffQRBigBtn" style="display:none">🔍 QRを大きく（パススルー用）</button>
+        <button class="handoff-btn" id="handoffQRBigBtn" style="display:none">🔍 QRを大きく（スマホ用）</button>
       </div>
       <div class="handoff-code" id="handoffCode"></div>
       <p style="text-align:center" id="handoffExpires"></p>
@@ -382,7 +382,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev15-qr";
+const REV = "v2 rev15b-qr";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
