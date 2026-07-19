@@ -153,25 +153,192 @@ export async function handoffClear(slot) {
   } catch { /* 無視 */ }
 }
 
-// ---------- 棚(コレクション): 複数フィギュアを貯める ----------
-// figure = { id(自動採番), name, image:Blob(元画像/切り抜き), depth:Blob(深度PNG), puffs:[{u,v,r,h,soft,keep}], ts }
-export async function figuresAdd({ name, image, depth, puffs = [] }) {
+// ---------- 名前付き棚 + フィギュアコレクション ----------
+// IndexedDBのバージョンと figures のkeyPathは変更しない。
+// shelf = { id:string, name:string }
+// figure = {
+//   id(IndexedDB自動採番), name, image:Blob, depth:Blob,
+//   puffs:[{u,v,r,h,soft,keep}], shelfId:string, ts
+// }
+
+const SHELVES_KEY = "kobo-shelves";
+const TARGET_SHELF_KEY = "kobo-target-shelf";
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); }
+  catch { return null; }
+}
+
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function makeShelfId() {
+  try {
+    if (crypto?.randomUUID) return "shelf-" + crypto.randomUUID();
+  } catch { /* fallbackへ */ }
+  return "shelf-" + Date.now().toString(36) + "-" +
+    Math.random().toString(36).slice(2, 10);
+}
+
+function normalizeShelfName(name, fallback = "マイ棚") {
+  const normalized = String(name ?? "").trim().slice(0, 40);
+  return normalized || fallback;
+}
+
+function readShelves() {
+  try {
+    const parsed = JSON.parse(storageGet(SHELVES_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+
+    const seen = new Set();
+    return parsed
+      .map(shelf => ({
+        id: String(shelf?.id || ""),
+        name: normalizeShelfName(shelf?.name),
+      }))
+      .filter(shelf => {
+        if (!shelf.id || seen.has(shelf.id)) return false;
+        seen.add(shelf.id);
+        return true;
+      });
+  } catch {
+    return [];
+  }
+}
+
+function writeShelves(shelves) {
+  storageSet(SHELVES_KEY, JSON.stringify(shelves));
+}
+
+// 既定棚は配列の先頭。旧figureはここに見せる。
+export function shelvesEnsureDefault() {
+  let shelves = readShelves();
+  if (!shelves.length) {
+    shelves = [{
+      id: "shelf-" + Date.now().toString(36) + "-" +
+        Math.random().toString(36).slice(2, 8),
+      name: "マイ棚",
+    }];
+    writeShelves(shelves);
+  }
+
+  const target = storageGet(TARGET_SHELF_KEY);
+  if (!shelves.some(shelf => shelf.id === target)) {
+    storageSet(TARGET_SHELF_KEY, shelves[0].id);
+  }
+  return shelves[0].id;
+}
+
+export function shelvesAll() {
+  shelvesEnsureDefault();
+  return readShelves().map(shelf => ({ ...shelf }));
+}
+
+export function shelvesAdd(name) {
+  shelvesEnsureDefault();
+  const shelves = readShelves();
+  const shelf = {
+    id: makeShelfId(),
+    name: normalizeShelfName(name, "新しい棚"),
+  };
+  shelves.push(shelf);
+  writeShelves(shelves);
+  setTargetShelf(shelf.id);
+  return shelf.id;
+}
+
+export function shelvesRename(id, name) {
+  shelvesEnsureDefault();
+  const shelves = readShelves();
+  const shelf = shelves.find(item => item.id === String(id));
+  if (!shelf) return false;
+
+  shelf.name = normalizeShelfName(name, shelf.name);
+  writeShelves(shelves);
+  return true;
+}
+
+export function getTargetShelf() {
+  shelvesEnsureDefault();
+  const shelves = readShelves();
+  const target = storageGet(TARGET_SHELF_KEY);
+  return shelves.some(shelf => shelf.id === target)
+    ? target
+    : shelves[0].id;
+}
+
+export function setTargetShelf(id) {
+  shelvesEnsureDefault();
+  const shelfId = String(id || "");
+  if (!readShelves().some(shelf => shelf.id === shelfId)) return false;
+  storageSet(TARGET_SHELF_KEY, shelfId);
+  return true;
+}
+
+export async function shelvesRemove(id) {
+  shelvesEnsureDefault();
+  const shelfId = String(id || "");
+  const shelves = readShelves();
+
+  if (shelves.length <= 1) return false;
+
+  const index = shelves.findIndex(shelf => shelf.id === shelfId);
+  if (index < 0) return false;
+
+  // 既定棚自体を削除する場合は、次の棚を新しい既定棚にする。
+  const destinationId = index === 0 ? shelves[1].id : shelves[0].id;
+  const figures = await figuresAll(shelfId);
+  for (const figure of figures) {
+    await figuresMove(figure.id, destinationId);
+  }
+
+  const nextShelves = shelves.filter(shelf => shelf.id !== shelfId);
+  writeShelves(nextShelves);
+
+  if (getTargetShelf() === shelfId ||
+      !nextShelves.some(shelf => shelf.id === storageGet(TARGET_SHELF_KEY))) {
+    setTargetShelf(destinationId);
+  }
+  return true;
+}
+
+export async function figuresAdd({
+  name, image, depth, puffs = [], shelfId
+}) {
+  const targetShelfId =
+    shelvesAll().some(shelf => shelf.id === String(shelfId || ""))
+      ? String(shelfId)
+      : getTargetShelf();
+
   const db = await dbOpen();
   try {
     return await new Promise((res, rej) => {
       const tx = db.transaction(FIG_STORE, "readwrite");
       const rq = tx.objectStore(FIG_STORE).add({
-        name, image, depth,
+        name,
+        image,
+        depth,
         puffs: sanitizePuffs(puffs),
+        shelfId: targetShelfId,
         ts: Date.now(),
       });
       rq.onsuccess = () => res(rq.result);
       tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error || new Error("ブラウザの保存領域が足りません"));
+      tx.onabort = () =>
+        rej(tx.error || new Error("ブラウザの保存領域が足りません"));
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
-// ぷるぷるスポットの設定だけ更新(棚のレコードを書き換え)
+
+// ぷるぷるスポットの設定だけ更新
 export async function figuresUpdatePuffs(id, puffs) {
   const db = await dbOpen();
   try {
@@ -181,20 +348,34 @@ export async function figuresUpdatePuffs(id, puffs) {
       const rq = store.get(id);
       rq.onsuccess = () => {
         const figure = rq.result;
-        if (!figure) { tx.abort(); return; }
+        if (!figure) {
+          tx.abort();
+          return;
+        }
         figure.puffs = sanitizePuffs(puffs);
         store.put(figure);
       };
       rq.onerror = () => rej(rq.error);
       tx.oncomplete = res;
       tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error || new Error("フィギュアを保存できませんでした"));
+      tx.onabort = () =>
+        rej(tx.error || new Error("フィギュアを保存できませんでした"));
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
-// 複数体を1トランザクションで追加(途中で失敗すると全体abort=部分追加しない)。受け取り用
-export async function figuresAddMany(figures) {
+
+// 複数体を1トランザクションで追加。
+// 第2引数省略時は現在の追加先棚へまとめて入れる。
+export async function figuresAddMany(figures, shelfId) {
   if (!Array.isArray(figures) || !figures.length) return [];
+
+  const targetShelfId =
+    shelvesAll().some(shelf => shelf.id === String(shelfId || ""))
+      ? String(shelfId)
+      : getTargetShelf();
+
   const db = await dbOpen();
   try {
     return await new Promise((res, rej) => {
@@ -202,6 +383,7 @@ export async function figuresAddMany(figures) {
       const store = tx.objectStore(FIG_STORE);
       const ids = [];
       const baseTs = Date.now();
+
       for (let i = 0; i < figures.length; i++) {
         const figure = figures[i];
         const rq = store.add({
@@ -209,32 +391,89 @@ export async function figuresAddMany(figures) {
           image: figure.image,
           depth: figure.depth,
           puffs: sanitizePuffs(figure.puffs),
+          shelfId: targetShelfId,
           ts: baseTs + i,
         });
         rq.onsuccess = () => ids.push(rq.result);
       }
+
       tx.oncomplete = () => res(ids);
       tx.onerror = () => rej(tx.error);
-      tx.onabort = () => rej(tx.error || new Error("ブラウザの保存領域が足りません"));
+      tx.onabort = () =>
+        rej(tx.error || new Error("ブラウザの保存領域が足りません"));
     });
-  } finally { db.close(); }
+  } finally {
+    db.close();
+  }
 }
-export async function figuresAll() {
+
+// 引数なしは後方互換で全件。
+// shelfId指定時はその棚だけ。
+// 旧レコードは読み取り時だけ既定棚のshelfIdを補完する。
+export async function figuresAll(shelfId) {
   try {
+    const defaultShelfId = shelvesEnsureDefault();
+    const filterShelfId =
+      shelfId === undefined || shelfId === null ? null : String(shelfId);
+
     const db = await dbOpen();
     try {
       return await new Promise((res, rej) => {
         const tx = db.transaction(FIG_STORE, "readonly");
         const rq = tx.objectStore(FIG_STORE).getAll();
-        rq.onsuccess = () => res(
-          (rq.result || [])
-            .map(figure => ({ ...figure, puffs: sanitizePuffs(figure.puffs) }))  // 旧レコード(puffs無し)互換
-            .sort((a, b) => a.ts - b.ts)  // 古い順
-        );
+
+        rq.onsuccess = () => {
+          const figures = (rq.result || [])
+            .map(figure => ({
+              ...figure,
+              shelfId: figure.shelfId || defaultShelfId,
+              puffs: sanitizePuffs(figure.puffs),
+            }))
+            .filter(figure =>
+              filterShelfId === null || figure.shelfId === filterShelfId)
+            .sort((a, b) => a.ts - b.ts);
+
+          res(figures);
+        };
         rq.onerror = () => rej(rq.error);
       });
-    } finally { db.close(); }
-  } catch { return []; }
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+export async function figuresMove(id, shelfId) {
+  const targetShelfId = String(shelfId || "");
+  if (!shelvesAll().some(shelf => shelf.id === targetShelfId)) return false;
+
+  const db = await dbOpen();
+  try {
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(FIG_STORE, "readwrite");
+      const store = tx.objectStore(FIG_STORE);
+      const rq = store.get(id);
+
+      rq.onsuccess = () => {
+        const figure = rq.result;
+        if (!figure) {
+          res(false);
+          return;
+        }
+        figure.shelfId = targetShelfId;
+        store.put(figure);
+      };
+      rq.onerror = () => rej(rq.error);
+      tx.oncomplete = () => res(true);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () =>
+        rej(tx.error || new Error("フィギュアを移動できませんでした"));
+    });
+  } finally {
+    db.close();
+  }
 }
 export async function figuresRemove(id) {
   try {

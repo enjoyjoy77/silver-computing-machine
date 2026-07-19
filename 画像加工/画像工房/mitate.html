@@ -93,6 +93,26 @@
   #err{position:fixed;left:50%;top:58px;transform:translateX(-50%);background:#3a1414;border:1px solid #7a2a2a;
     color:#ffd9d9;padding:11px 16px;border-radius:11px;font-size:12px;z-index:120;display:none;max-width:92vw;text-align:center;}
 
+  .shelf-controls{
+    display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+    margin-bottom:9px;padding:9px;
+    background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  }
+  .shelf-controls label{
+    color:var(--dim);font-size:11px;font-weight:700;
+  }
+  .shelf-controls select{
+    min-width:150px;max-width:240px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--ink);border-radius:8px;
+    padding:7px 9px;font:inherit;font-size:12px;font-weight:700;
+  }
+  .shelf-control-btn{
+    border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    border-radius:8px;padding:7px 9px;font:inherit;font-size:11px;
+    font-weight:700;cursor:pointer;
+  }
+  .shelf-control-btn:hover{border-color:var(--accent);}
+  .shelf-control-btn:disabled{opacity:.35;cursor:default;}
   .handoff-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;width:min(94vw,640px);}
   .handoff-btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);
     border-radius:11px;padding:11px 16px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
@@ -140,6 +160,13 @@
   </div>
   <!-- 棚(コレクション): 複数フィギュアを貯めてAR/VRで並べる -->
   <div id="shelf-wrap" style="width:min(94vw,640px)">
+    <div class="shelf-controls">
+      <label for="shelf-select">棚:</label>
+      <select id="shelf-select"></select>
+      <button class="shelf-control-btn" id="shelf-add" type="button">＋ 新規</button>
+      <button class="shelf-control-btn" id="shelf-rename" type="button">✎ 名前変更</button>
+      <button class="shelf-control-btn" id="shelf-remove" type="button">🗑 削除</button>
+    </div>
     <div style="font-size:12px;font-weight:700;color:var(--dim);letter-spacing:.06em;margin-bottom:8px">
       🗂 棚のフィギュア <span id="shelf-count"></span>
       <button id="shelf-clear" style="float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:3px 9px;font:inherit;font-size:11px;cursor:pointer">棚を空に</button>
@@ -319,12 +346,14 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import {
   saveBlob, handoffTake, handoffClear,
-  figuresAdd, figuresAll, figuresRemove, figuresClear,
+  figuresAdd, figuresAll, figuresRemove,
   figuresUpdatePuffs, figuresAddMany,
+  shelvesAll, shelvesAdd, shelvesRename, shelvesRemove,
+  getTargetShelf, setTargetShelf,
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev12-sync1b";
+const REV = "v2 rev13-shelves-pcdepth";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -345,40 +374,137 @@ function fileToImage(fileOrBlob){
   });
 }
 
-// ---- 棚の一覧表示 ----
-function selectedShelfIds(){
-  return [...$('shelf').querySelectorAll('.shelf-chk')]
+// ---- 名前付き棚の一覧表示 ----
+function currentShelfId() {
+  return $("shelf-select").value || getTargetShelf();
+}
+
+function selectedShelfIds() {
+  return [...$("shelf").querySelectorAll(".shelf-chk")]
     .filter(chk => chk.checked)
     .map(chk => Number(chk.dataset.id));
 }
-function updateHandoffSendButton(){
-  const button = $('handoffSendBtn');
+
+function updateHandoffSendButton() {
+  const button = $("handoffSendBtn");
   if (!button) return;
   button.disabled = selectedShelfIds().length === 0;
 }
+
+function refreshShelfSelector(preferredId = getTargetShelf()) {
+  const shelves = shelvesAll();
+  const select = $("shelf-select");
+  const selectedId = shelves.some(shelf => shelf.id === preferredId)
+    ? preferredId
+    : shelves[0].id;
+
+  select.replaceChildren();
+  for (const shelf of shelves) {
+    const option = document.createElement("option");
+    option.value = shelf.id;
+    option.textContent = shelf.name;
+    option.selected = shelf.id === selectedId;
+    select.appendChild(option);
+  }
+
+  setTargetShelf(selectedId);
+  $("shelf-remove").disabled = shelves.length <= 1;
+  return selectedId;
+}
+
+$("shelf-select").addEventListener("change", async event => {
+  setTargetShelf(event.target.value);
+  await renderShelf();
+});
+
+$("shelf-add").addEventListener("click", async () => {
+  const name = prompt("新しい棚の名前", "新しい棚");
+  if (name === null) return;
+
+  const id = shelvesAdd(name);
+  refreshShelfSelector(id);
+  await renderShelf();
+});
+
+$("shelf-rename").addEventListener("click", async () => {
+  const id = currentShelfId();
+  const shelf = shelvesAll().find(item => item.id === id);
+  if (!shelf) return;
+
+  const name = prompt("棚の新しい名前", shelf.name);
+  if (name === null) return;
+
+  shelvesRename(id, name);
+  refreshShelfSelector(id);
+  await renderShelf();
+});
+
+$("shelf-remove").addEventListener("click", async () => {
+  const id = currentShelfId();
+  const shelf = shelvesAll().find(item => item.id === id);
+  if (!shelf) return;
+
+  if (!confirm(`「${shelf.name}」を削除しますか？\n中の子は既定棚へ移動します。`)) {
+    return;
+  }
+
+  const removed = await shelvesRemove(id);
+  if (!removed) {
+    showErr("最後の1棚は削除できません。");
+    return;
+  }
+
+  refreshShelfSelector(getTargetShelf());
+  await renderShelf();
+  toast("棚を削除し、中の子を既定棚へ移動しました。");
+});
+
 let shelfUrls = [];
-async function renderShelf(){
-  shelfUrls.forEach(u => URL.revokeObjectURL(u)); shelfUrls = [];
-  const figs = await figuresAll();
-  const shelf = $('shelf'); shelf.innerHTML = '';
-  $('shelf-count').textContent = figs.length ? '（'+figs.length+'体）' : '';
-  $('shelf-empty').style.display = figs.length ? 'none' : 'block';
-  for(const fig of figs){
-    const url = URL.createObjectURL(fig.image); shelfUrls.push(url);
-    const card = document.createElement('div');
-    card.style.cssText = 'flex:0 0 auto;width:96px;text-align:center';
+
+async function renderShelf() {
+  shelfUrls.forEach(url => URL.revokeObjectURL(url));
+  shelfUrls = [];
+
+  const shelfId = currentShelfId();
+  setTargetShelf(shelfId);
+  const figs = await figuresAll(shelfId);
+
+  const shelf = $("shelf");
+  shelf.innerHTML = "";
+  $("shelf-count").textContent = figs.length ? `（${figs.length}体）` : "";
+  $("shelf-empty").style.display = figs.length ? "none" : "block";
+
+  for (const fig of figs) {
+    const url = URL.createObjectURL(fig.image);
+    shelfUrls.push(url);
+
+    const card = document.createElement("div");
+    card.style.cssText = "flex:0 0 auto;width:96px;text-align:center";
     card.innerHTML =
-      '<label style="display:block;cursor:pointer;position:relative">'
-      + '<img src="'+url+'" style="width:96px;height:96px;object-fit:contain;background:var(--panel2);border:2px solid var(--accent);border-radius:10px">'
-      + '<input type="checkbox" class="shelf-chk" checked data-id="'+fig.id+'" style="position:absolute;top:6px;left:6px;width:18px;height:18px">'
-      + '</label>'
-      + '<div style="font-size:10px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(fig.name||'')+'</div>'
-      + '<button class="shelf-del" data-id="'+fig.id+'" style="margin-top:2px;background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:2px 8px;font:inherit;font-size:10px;cursor:pointer">🗑 削除</button>';
+      '<label style="display:block;cursor:pointer;position:relative">' +
+      '<img src="' + url + '" style="width:96px;height:96px;object-fit:contain;background:var(--panel2);border:2px solid var(--accent);border-radius:10px">' +
+      '<input type="checkbox" class="shelf-chk" checked data-id="' + fig.id + '" style="position:absolute;top:6px;left:6px;width:18px;height:18px">' +
+      "</label>" +
+      '<div style="font-size:10px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+      (fig.name || "") +
+      "</div>" +
+      '<button class="shelf-del" data-id="' + fig.id + '" style="margin-top:2px;background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:2px 8px;font:inherit;font-size:10px;cursor:pointer">🗑 削除</button>';
+
     shelf.appendChild(card);
   }
-  shelf.querySelectorAll('.shelf-del').forEach(b => b.addEventListener('click', async () => { await figuresRemove(+b.dataset.id); await renderShelf(); }));
-  shelf.querySelectorAll('.shelf-chk').forEach(chk => { chk.addEventListener('change', updateHandoffSendButton); });
-  $('goBtn').classList.toggle('ready', figs.length > 0);
+
+  shelf.querySelectorAll(".shelf-del").forEach(button => {
+    button.addEventListener("click", async () => {
+      await figuresRemove(Number(button.dataset.id));
+      await renderShelf();
+    });
+  });
+
+  shelf.querySelectorAll(".shelf-chk").forEach(checkbox => {
+    checkbox.addEventListener("change", updateHandoffSendButton);
+  });
+
+  $("goBtn").classList.toggle("ready", figs.length > 0);
   updateHandoffSendButton();
 }
 
@@ -387,7 +513,15 @@ let manualImg = null, manualDepth = null;
 async function tryManualAdd(){
   if(!(manualImg && manualDepth)) return;
   const nm = (manualImg.name || '手動').replace(/\.[^.]+$/, '');
-  try{ await figuresAdd({ name: nm, image: manualImg, depth: manualDepth }); toast('棚に追加しました'); }
+  try {
+  await figuresAdd({
+    name: nm,
+    image: manualImg,
+    depth: manualDepth,
+    shelfId: currentShelfId(),
+  });
+  toast("棚に追加しました");
+}
   catch(e){ showErr('棚追加に失敗: ' + e.message); }
   manualImg = manualDepth = null;
   $('zoneImg').classList.remove('set'); $('imgT').textContent = '元画像をドロップ / タップ'; $('imgIco').textContent = '🖼️'; $('imgIco').style.background = '';
@@ -418,7 +552,15 @@ function dz(zone, cb){
 dz($('zoneImg'), pickImg); dz($('zoneDepth'), pickDepth);
 document.body.addEventListener('dragover', e => e.preventDefault());
 document.body.addEventListener('drop', e => e.preventDefault());
-$('shelf-clear').addEventListener('click', async () => { if(confirm('棚を空にしますか?')){ await figuresClear(); await renderShelf(); } });
+$("shelf-clear").addEventListener("click", async () => {
+  if (!confirm("選択中の棚を空にしますか？")) return;
+
+  const figures = await figuresAll(currentShelfId());
+  for (const figure of figures) {
+    await figuresRemove(figure.id);
+  }
+  await renderShelf();
+});
 // ---- Quest送受信(番号コード) ----
 const CLOUDFLARE_HOST = 'silver-computing-machine-7ql.pages.dev';
 const HANDOFF_MAX_BYTES = 30 * 1024 * 1024;
@@ -504,7 +646,7 @@ $('handoffSendBtn').onclick = async () => {
   $('handoffCopyBtn').style.display = 'none';
   $('handoffSendCloseBtn').disabled = true;
   try {
-    const figures = await figuresAll();
+    const figures = await figuresAll(currentShelfId());
     const selected = figures.filter(figure => ids.includes(figure.id));
     if (!selected.length) { throw new Error('Questへ送る子にチェックを入れてください'); }
     const estimatedSize = selected.reduce(
@@ -584,7 +726,7 @@ $('handoffReceiveStartBtn').onclick = async () => {
     });
     $('handoffReceiveProgressText').textContent = '棚へ保存しています…';
     const parsed = parseHandoffBundle(arrayBuffer);
-    await figuresAddMany(parsed.figures);
+    await figuresAddMany(parsed.figures, currentShelfId());
     await renderShelf();
     closeModal('handoffReceiveModal');
     toast(`${parsed.figures.length}体を棚に追加しました。`);
@@ -609,8 +751,8 @@ for (const modalId of ['handoffSendModal', 'handoffReceiveModal', 'handoffCloudf
   });
 }
 
-$('goBtn').onclick = async () => {
-  const figs = await figuresAll();
+$("goBtn").onclick = async () => {
+  const figs = await figuresAll(currentShelfId());
   const ids = selectedShelfIds();
   const selected = figs.filter(f => ids.includes(f.id));
   if(!selected.length){ showErr('立体で見る子にチェックを入れてください'); return; }
@@ -624,12 +766,23 @@ $('newBtn').onclick = async () => {
 };
 $('toDepthBtn').onclick = async () => { if(xrSession) xrSession.end(); await flushPuffsSave(); location.href = 'depth.html'; };
 
-// 受け渡し(深度づくりから)= 棚に1体追加。棚一覧を表示
+// 受け渡し(深度づくりから)= 選択中の棚に1体追加
 (async () => {
+  refreshShelfSelector(getTargetShelf());
+
   const src = await handoffTake('source');
   const dep = await handoffTake('depth');
   if(src?.blob && dep?.blob){
-    try{ await figuresAdd({ name: src.name || '受け取り', image: src.blob, depth: dep.blob }); }catch(e){ console.error(e); }
+    try {
+  await figuresAdd({
+    name: src.name || "受け取り",
+    image: src.blob,
+    depth: dep.blob,
+    shelfId: currentShelfId(),
+  });
+} catch (e) {
+  console.error(e);
+}
     handoffClear('source'); handoffClear('depth');
     $('banner').classList.add('show');
   }

@@ -20,6 +20,30 @@
   .btn-save-wrap .btn-primary { flex: 1.4; min-width: 200px; }
   .btn-save-wrap .btn-plain { flex: 1; min-width: 160px; }
   .sub-actions { display: flex; gap: 8px; margin-top: 9px; }
+  .depth-option-wrap{
+    width:min(100%,620px);margin:0 auto 14px;padding:12px 14px;
+    border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  }
+  .depth-option-row{
+    display:flex;align-items:center;justify-content:center;
+    gap:8px;flex-wrap:wrap;
+  }
+  .depth-option-row label{
+    color:var(--muted);font-size:12px;font-weight:700;
+  }
+  .depth-option-row select{
+    max-width:100%;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;
+    padding:8px 10px;font:inherit;font-size:12px;
+  }
+  .depth-option-note{
+    margin-top:7px;color:var(--muted);font-size:10.5px;
+    line-height:1.6;text-align:center;
+  }
+  #shelf-target-wrap{
+    margin:0 auto 9px;padding:8px 10px;
+    background:rgba(24,33,28,.94);border-radius:11px;
+  }
 </style>
 </head>
 <body>
@@ -58,6 +82,19 @@
     <button class="btn-plain" id="handoff-use" disabled>この画像で深度を作る</button>
   </div>
 
+  <div class="depth-option-wrap" id="model-select-wrap" hidden>
+    <div class="depth-option-row">
+      <label for="model-select">PC用モデル:</label>
+      <select id="model-select">
+        <option value="small">標準 — small（Apache-2.0・商用可）</option>
+        <option value="base">最高精細 — base（個人利用・非商用／初回約400MB目安）</option>
+      </select>
+    </div>
+    <div class="depth-option-note" id="model-select-note">
+      モデルを切り替えると再読み込みします。
+    </div>
+  </div>
+
   <div id="prepare-wrap">
     <button class="btn-big" id="btn-prepare">
       <span class="icon">⬇</span>
@@ -76,11 +113,16 @@
 
   <!-- チェックした複数体をまとめて棚に入れて立体ビューアへ -->
   <div id="view-bar" style="display:none;position:sticky;bottom:12px;z-index:5;margin-top:6px;text-align:center">
+    <div class="depth-option-row" id="shelf-target-wrap">
+      <label for="shelf-target-select">入れる棚:</label>
+      <select id="shelf-target-select"></select>
+      <button class="btn-plain" id="shelf-target-add" type="button">＋ 新しい棚</button>
+    </div>
     <button class="btn-primary" id="btn-view-all" style="max-width:460px;margin:0 auto;box-shadow:0 4px 16px rgba(20,30,25,.35)">🧊 立体で見る →</button>
   </div>
 
   <footer class="kobo">
-    使用モデル: Depth Anything V2 small（Apache-2.0・商用可）— 軽くて十分きれいなこれ一本です<br>
+    <span id="model-usage">使用モデル: Depth Anything V2 small（Apache-2.0・商用可）</span><br>
     推論: Transformers.js（WebGPU対応・非対応環境はWASMに自動切替）／ 初回のみモデル取得のためインターネット接続が必要です<br>
     深度マップはPNGとして保存でき、別の端末の「立体で見る」でも読み込めます。
   </footer>
@@ -88,9 +130,14 @@
 
 <script type="module">
 import { env, pipeline, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
-import { isIOS, saveBlob, canvasToBlob, handoffSend, handoffTake, handoffClear, figuresAdd, agoText, detectBackend } from "./assets/common.js";
+import {
+  isIOS, saveBlob, canvasToBlob,
+  handoffSend, handoffTake, handoffClear,
+  figuresAdd, agoText, detectBackend,
+  shelvesAll, shelvesAdd, getTargetShelf, setTargetShelf,
+} from "./assets/common.js";
 
-const REV = "v2 rev5";
+const REV = "v2 rev6-shelves-pcdepth";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
@@ -106,9 +153,73 @@ const results    = $("results");
 const progressBar  = $("model-progress");
 const progressFill = $("model-progress-fill");
 
-// モデルはsmall一本(軽量・商用OK)。base版はQuestで重すぎる+非商用ライセンスのため廃止(2026-07-05)
-const MODEL = { id: "onnx-community/depth-anything-v2-small", label: "Depth Anything V2 small" };
+const IS_MOBILE =
+  isIOS ||
+  /Android|Mobile|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  matchMedia("(pointer:coarse) and (max-width:900px)").matches;
+
+const MODELS = {
+  small: {
+    id: "onnx-community/depth-anything-v2-small",
+    label: "Depth Anything V2 small",
+    usage: "使用モデル: Depth Anything V2 small（Apache-2.0・商用可）",
+  },
+  base: {
+    id: "onnx-community/depth-anything-v2-base",
+    label: "Depth Anything V2 base（個人利用・非商用）",
+    usage: "使用モデル: Depth Anything V2 base（CC-BY-NC-4.0・個人利用／非商用・初回約400MB目安）",
+  },
+};
+
 let pipe = null;
+let loadedModelId = "";
+let modelLoading = false;
+
+const modelSelect = $("model-select");
+
+function selectedModel() {
+  if (IS_MOBILE) return MODELS.small;
+  return MODELS[modelSelect.value] || MODELS.small;
+}
+
+function updateModelUsage() {
+  $("model-usage").textContent = selectedModel().usage;
+}
+
+if (!IS_MOBILE) {
+  $("model-select-wrap").hidden = false;
+} else {
+  modelSelect.value = "small";
+}
+updateModelUsage();
+
+function refreshShelfTarget() {
+  const shelves = shelvesAll();
+  const target = getTargetShelf();
+  const select = $("shelf-target-select");
+
+  select.replaceChildren();
+  for (const shelf of shelves) {
+    const option = document.createElement("option");
+    option.value = shelf.id;
+    option.textContent = shelf.name;
+    option.selected = shelf.id === target;
+    select.appendChild(option);
+  }
+}
+
+refreshShelfTarget();
+
+$("shelf-target-select").addEventListener("change", event => {
+  setTargetShelf(event.target.value);
+});
+
+$("shelf-target-add").addEventListener("click", () => {
+  const name = prompt("新しい棚の名前", "新しい棚");
+  if (name === null) return;
+  shelvesAdd(name);
+  refreshShelfTarget();
+});
 let backend = "wasm";
 let queue = [];
 let busy = false;
@@ -134,44 +245,86 @@ function onProgress(p) {
 }
 
 async function init() {
+  if (modelLoading) return;
+
   const prepareBtn = $("btn-prepare");
+  const spec = selectedModel();
+
+  if (pipe && loadedModelId === spec.id) return;
+
+  modelLoading = true;
   prepareBtn.disabled = true;
   prepareBtn.querySelector("span:last-child").textContent = "準備中…";
-  setStatus("loading", MODEL.label + " を準備しています…");
+  setStatus("loading", spec.label + " を準備しています…");
+
   for (const k in progressSeen) delete progressSeen[k];
   progressFill.style.width = "0%";
 
-  backend = await detectBackend();
-  $("backend-label").textContent = backend === "webgpu" ? "WebGPU（高速）" : "WASM";
-  $("badge-backend").textContent = backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
+  dropzone.classList.add("disabled");
+  $("handoff-use").disabled = true;
 
-  const spec = MODEL;
-  // q8(量子化)はWebGPU非対応のopを含むためWASM専用。WebGPUのiOSは中間のfp16
-  const dtypeFor = dev => dev === "webgpu" ? (isIOS ? "fp16" : "fp32")
-                                           : (isIOS ? "q8" : "fp32");
+  if (pipe) {
+    try { await pipe.dispose?.(); } catch (error) { console.warn(error); }
+    pipe = null;
+    loadedModelId = "";
+  }
+
+  backend = await detectBackend();
+  $("backend-label").textContent =
+    backend === "webgpu" ? "WebGPU（高速）" : "WASM";
+  $("badge-backend").textContent =
+    backend === "webgpu" ? "WebGPU 高速モード" : "WASM 互換モード";
+
+  // 現行モデルで実在するdtype名だけを指定する。
+  // q8は現行どおりiOS/WASMのsmallだけに限定。
+  const dtypeFor = dev => {
+    if (spec.id === MODELS.base.id) {
+      return dev === "webgpu" ? "fp32" : "fp32";
+    }
+    return dev === "webgpu"
+      ? (isIOS ? "fp16" : "fp32")
+      : (isIOS ? "q8" : "fp32");
+  };
+
   try {
-    pipe = await pipeline("depth-estimation", spec.id, { device: backend, dtype: dtypeFor(backend), progress_callback: onProgress });
-  } catch (e) {
-    console.error(e);
+    pipe = await pipeline("depth-estimation", spec.id, {
+      device: backend,
+      dtype: dtypeFor(backend),
+      progress_callback: onProgress,
+    });
+  } catch (error) {
+    console.error(error);
+
     if (backend === "webgpu") {
       backend = "wasm";
       $("backend-label").textContent = "WASM（フォールバック）";
       $("badge-backend").textContent = "WASM 互換モード";
+
       try {
-        pipe = await pipeline("depth-estimation", spec.id, { device: "wasm", dtype: dtypeFor("wasm"), progress_callback: onProgress });
-      } catch (e2) {
-        console.error(e2);
+        pipe = await pipeline("depth-estimation", spec.id, {
+          device: "wasm",
+          dtype: dtypeFor("wasm"),
+          progress_callback: onProgress,
+        });
+      } catch (fallbackError) {
+        console.error(fallbackError);
+        modelLoading = false;
         return failPrepare(prepareBtn);
       }
     } else {
+      modelLoading = false;
       return failPrepare(prepareBtn);
     }
   }
+
+  loadedModelId = spec.id;
+  modelLoading = false;
   progressBar.style.display = "none";
   setStatus("ready", spec.label + " 準備完了。画像をドロップしてください。");
   $("prepare-wrap").classList.add("done");
   dropzone.classList.remove("disabled");
   $("handoff-use").disabled = false;
+  updateModelUsage();
   pump();
 }
 function failPrepare(prepareBtn) {
@@ -180,6 +333,17 @@ function failPrepare(prepareBtn) {
   prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
 }
 $("btn-prepare").addEventListener("click", init);
+
+modelSelect.addEventListener("change", async () => {
+  updateModelUsage();
+
+  if (!loadedModelId && !pipe) return;
+
+  $("prepare-wrap").classList.remove("done");
+  dropzone.classList.add("disabled");
+  setStatus("loading", selectedModel().label + " へ切り替えています…");
+  await init();
+});
 
 // ---------- 受け渡しバナー ----------
 let handoffItem = null;
@@ -282,7 +446,17 @@ $("btn-view-all").addEventListener("click", async () => {
   if (!chosen.length) { setStatus("error", "立体で見る子にチェックを入れてください"); return; }
   btn.disabled = true; btn.textContent = "棚に追加中…（" + chosen.length + "体）";
   try {
-    for (const d of chosen) await figuresAdd({ name: d.name, image: d.blob, depth: await canvasToBlob(d.outCv) });
+    const shelfId = $("shelf-target-select").value || getTargetShelf();
+    setTargetShelf(shelfId);
+
+    for (const d of chosen) {
+      await figuresAdd({
+        name: d.name,
+        image: d.blob,
+        depth: await canvasToBlob(d.outCv),
+        shelfId,
+      });
+    }
     location.href = "mitate.html";
   } catch (err) {
     console.error(err);

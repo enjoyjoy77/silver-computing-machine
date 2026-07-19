@@ -105,20 +105,32 @@
         <a class="step" href="depth.html">
           <div class="step-head">
             <div class="step-no alt">2b</div>
-            <h2>⛰ 深度づくり → 🧊 ミタテ</h2>
-            <span class="en">Depth → Mitate</span>
+            <h2>⛰ 深度づくり — 奥行きを作る</h2>
+            <span class="en">Depth</span>
           </div>
-          <p>AIで奥行きを推定して立体化。ぐりぐり回す・ゆらゆら疑似3D・動画保存。Quest等なら<b>AR/VRに実寸サイズで設置</b>——買わなくても「うちの子」を部屋に飾れます。</p>
-          <div class="tags"><span class="badge">実寸AR/VR</span><span class="badge">動画で保存</span><span class="badge">GLB書き出し</span></div>
+          <p>AIで奥行き(深度マップ)を推定。できた子は<b>好きな「棚」に入れて貯めます</b>。あとは下の<b>ミタテ</b>で立体に。<b>PCなら高精細モデル</b>も選べます。</p>
+          <div class="tags"><span class="badge">奥行き推定</span><span class="badge">棚に貯める</span><span class="badge">PCは高精細も</span></div>
         </a>
       </div>
     </div>
+
+    <div class="arrow">▼ 作った子は「棚」に入ります ▼</div>
+
+    <a class="step" href="mitate.html" style="border:2px solid var(--accent)">
+      <div class="step-head">
+        <div class="step-no">3</div>
+        <h2>🧊 ミタテ — 棚を開いて立体で見る</h2>
+        <span class="en">Mitate / Shelf</span>
+      </div>
+      <p>棚に貯めた子を<b>ぐりぐり回す・ゆらゆら・ぷるぷる触る</b>。Questなら<b>AR/VRに実寸で設置</b>。別の端末で作ったものは<b>🔑コードで受け取り</b>→棚に追加。<b>Questはここを直接開けばOK</b>です。</p>
+      <div class="tags"><span class="badge">立体/AR/VR</span><span class="badge">ぷるぷる</span><span class="badge">🔑コードで受け取る</span><span class="badge">動画/GLB</span></div>
+    </a>
   </div>
 
   <div class="note-card">
     <h3>💡 使い方のヒント</h3>
     ・AIを使うツール(キリトリ・深度づくり)は、初回だけ「準備する」ボタンでモデルをダウンロードします(押すまで通信ゼロ)。2回目からはキャッシュで即起動。<br>
-    ・おすすめの流れ: <b>PCでキリトリ→おきばで買う前チェック</b>。買わない(買えない)なら<b>深度づくり→ミタテをQuestで開いて実寸で飾る</b>。<br>
+    ・おすすめの流れ: <b>PCでキリトリ→深度づくりで棚に貯める</b> → <b>Questでミタテを開いて棚から実寸で飾る</b>(別端末なら🔑コードで受け取り)。買う前の下見は<b>おきば</b>。<br>
     ・各ページ右上の <b>rev表示</b> が更新確認の目印。表示が変わっていなければ古い版です(再読み込みしてください)。
   </div>
 
@@ -130,7 +142,8 @@
       <tr><td rowspan="3">キリトリ</td><td>BiRefNet lite（標準）</td><td class="ok">○ 可（MIT）</td></tr>
       <tr><td>BiRefNet</td><td class="ok">○ 可（MIT）</td></tr>
       <tr><td>RMBG-1.4</td><td class="ng">× 不可（BRIA非商用）</td></tr>
-      <tr><td>深度づくり</td><td>Depth Anything V2 small（これ一本）</td><td class="ok">○ 可（Apache-2.0）</td></tr>
+      <tr><td rowspan="2">深度づくり</td><td>Depth Anything V2 small（標準）</td><td class="ok">○ 可（Apache-2.0）</td></tr>
+      <tr><td>Depth Anything V2 base（PCの最高精細）</td><td class="ng">△ 個人利用のみ（CC-BY-NC・非商用）</td></tr>
     </table>
   </div>
 
@@ -140,7 +153,7 @@
   </footer>
 </div>
 <script>
-  document.getElementById("rev-badge").textContent = "v2 rev4";
+  document.getElementById("rev-badge").textContent = "v2 rev5";
 </script>
 </body>
 </html>
