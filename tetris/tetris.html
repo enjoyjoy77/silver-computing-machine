@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>テトリス完全再現</title>
+<style>
+  :root{
+    --bg:#0b0e14;
+    --panel:#151a24;
+    --line:#2a3040;
+    --text:#e8ecf4;
+    --sub:#8b93a7;
+    --accent:#5fd0ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:"Yu Gothic UI","Meiryo",sans-serif;overflow:hidden}
+  #app{display:flex;align-items:center;justify-content:center;height:100%;gap:24px;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:12px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;text-align:center}
+  .panel h3{margin:0 0 6px;font-size:13px;color:var(--sub);font-weight:normal}
+  .panel .val{font-size:22px;font-weight:bold;color:var(--accent)}
+  canvas{display:block;background:#05070c;border:2px solid var(--line);border-radius:6px}
+  #board-wrap{position:relative}
+  #overlay{
+    position:absolute;inset:0;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:10px;
+    background:rgba(5,7,12,0.86);border-radius:6px;text-align:center;padding:20px;
+  }
+  #overlay h2{margin:0;font-size:26px}
+  #overlay p{margin:0;color:var(--sub);font-size:14px;line-height:1.7}
+  button{
+    background:var(--accent);color:#052; border:none;border-radius:8px;
+    padding:10px 22px;font-size:15px;font-weight:bold;cursor:pointer;color:#04202a;
+  }
+  button:hover{filter:brightness(1.08)}
+  #next-list{display:flex;flex-direction:column;gap:6px;align-items:center}
+  .mini-canvas{background:#05070c;border-radius:4px}
+  #help{font-size:12px;color:var(--sub);line-height:1.9;text-align:left;max-width:230px}
+  #help b{color:var(--text)}
+  .msg-line{font-size:13px;color:var(--accent);min-height:18px}
+  #mute{position:fixed;top:10px;right:10px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="col">
+    <div class="panel">
+      <h3>HOLD</h3>
+      <canvas id="holdCanvas" class="mini-canvas" width="100" height="70"></canvas>
+    </div>
+    <div class="panel">
+      <h3>スコア</h3>
+      <div class="val" id="scoreVal">0</div>
+    </div>
+    <div class="panel">
+      <h3>レベル</h3>
+      <div class="val" id="levelVal">1</div>
+    </div>
+    <div class="panel">
+      <h3>ライン</h3>
+      <div class="val" id="linesVal">0</div>
+    </div>
+  </div>
+
+  <div id="board-wrap">
+    <canvas id="boardCanvas" width="300" height="600"></canvas>
+    <div id="overlay">
+      <h2 id="overlayTitle">テトリス完全再現</h2>
+      <p id="overlayText">標準ルール(ガイドライン)準拠<br>SRS回転・7種先読み・ホールド対応</p>
+      <button id="startBtn">はじめる</button>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="panel">
+      <h3>NEXT</h3>
+      <div id="next-list">
+        <canvas class="mini-canvas" width="100" height="60"></canvas>
+        <canvas class="mini-canvas" width="100" height="60"></canvas>
+        <canvas class="mini-canvas" width="100" height="60"></canvas>
+        <canvas class="mini-canvas" width="100" height="60"></canvas>
+        <canvas class="mini-canvas" width="100" height="60"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="msg-line" id="msgLine"></div>
+    </div>
+    <div class="panel" id="help">
+      <b>操作方法</b><br>
+      ← → : 移動<br>
+      ↓ : ソフトドロップ<br>
+      Space : ハードドロップ<br>
+      ↑ / X : 右回転<br>
+      Z / Ctrl : 左回転<br>
+      A : 180度回転<br>
+      C / Shift : ホールド<br>
+      P : 一時停止
+    </div>
+  </div>
+</div>
+<button id="mute">🔊 音ON</button>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev1 (2026-07-19)</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   テトリス完全再現(Tetris Guideline準拠)
+   - 7-bagランダム生成
+   - SRS(Super Rotation System)と壁蹴りオフセットテーブル
+   - ホールド/ネクスト5個/ゴーストピース
+   - ロック遅延(500ms)+ 15回移動リセット制限 + Step Reset
+   - スコアリング(T-Spin/Back-to-Back/Combo)
+   - レベル別落下速度(Gravity)テーブル
+   - DAS/ARR入力調整
+   ============================================================ */
+
+// ---------- 定数 ----------
+const COLS = 10;
+const HIDDEN_ROWS = 20;   // 不可視バッファ領域
+const VISIBLE_ROWS = 20;  // 可視領域
+const ROWS = HIDDEN_ROWS + VISIBLE_ROWS;
+const CELL = 30;
+
+const COLORS = {
+  I: "#00f0f0", O: "#f0f000", T: "#a000f0",
+  S: "#00f000", Z: "#f00000", J: "#0000f0", L: "#f0a000",
+  GHOST: "rgba(255,255,255,0.18)"
+};
+
+// SRSピース定義(col,row) 4x4/3x3ボックス内、row+は下方向
+const SHAPES = {
+  I: [
+    [[0,1],[1,1],[2,1],[3,1]],
+    [[2,0],[2,1],[2,2],[2,3]],
+    [[0,2],[1,2],[2,2],[3,2]],
+    [[1,0],[1,1],[1,2],[1,3]]
+  ],
+  O: [
+    [[0,0],[1,0],[0,1],[1,1]],
+    [[0,0],[1,0],[0,1],[1,1]],
+    [[0,0],[1,0],[0,1],[1,1]],
+    [[0,0],[1,0],[0,1],[1,1]]
+  ],
+  T: [
+    [[1,0],[0,1],[1,1],[2,1]],
+    [[1,0],[1,1],[2,1],[1,2]],
+    [[0,1],[1,1],[2,1],[1,2]],
+    [[1,0],[0,1],[1,1],[1,2]]
+  ],
+  S: [
+    [[1,0],[2,0],[0,1],[1,1]],
+    [[1,0],[1,1],[2,1],[2,2]],
+    [[1,1],[2,1],[0,2],[1,2]],
+    [[0,0],[0,1],[1,1],[1,2]]
+  ],
+  Z: [
+    [[0,0],[1,0],[1,1],[2,1]],
+    [[2,0],[1,1],[2,1],[1,2]],
+    [[0,1],[1,1],[1,2],[2,2]],
+    [[1,0],[0,1],[1,1],[0,2]]
+  ],
+  J: [
+    [[0,0],[0,1],[1,1],[2,1]],
+    [[1,0],[2,0],[1,1],[1,2]],
+    [[0,1],[1,1],[2,1],[2,2]],
+    [[1,0],[1,1],[0,2],[1,2]]
+  ],
+  L: [
+    [[2,0],[0,1],[1,1],[2,1]],
+    [[1,0],[1,1],[1,2],[2,2]],
+    [[0,1],[1,1],[2,1],[0,2]],
+    [[0,0],[1,0],[1,1],[1,2]]
+  ]
+};
+const BOX = { I:4, O:2, T:3, S:3, Z:3, J:3, L:3 };
+
+// Wall Kick オフセットテーブル(下方向Y+基準に変換済み)
+const KICK_JLSTZ = {
+  "0>1": [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+  "1>0": [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+  "1>2": [[0,0],[1,0],[1,1],[0,-2],[1,-2]],
+  "2>1": [[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+  "2>3": [[0,0],[1,0],[1,-1],[0,2],[1,2]],
+  "3>2": [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+  "3>0": [[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+  "0>3": [[0,0],[1,0],[1,-1],[0,2],[1,2]]
+};
+const KICK_I = {
+  "0>1": [[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+  "1>0": [[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+  "1>2": [[0,0],[-1,0],[2,0],[-1,-2],[2,1]],
+  "2>1": [[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+  "2>3": [[0,0],[2,0],[-1,0],[2,-1],[-1,2]],
+  "3>2": [[0,0],[-2,0],[1,0],[-2,1],[1,-2]],
+  "3>0": [[0,0],[1,0],[-2,0],[1,2],[-2,-1]],
+  "0>3": [[0,0],[-1,0],[2,0],[-1,-2],[2,1]]
+};
+
+// レベル別落下速度(G = 1フレームあたりの落下マス数, 60fps換算)
+const GRAVITY_TABLE = [
+  null, // index0は未使用
+  0.01667, 0.02107, 0.02698, 0.03503, 0.04635,
+  0.06294, 0.08771, 0.12380, 0.17750, 0.25980,
+  0.38800, 0.59000, 0.92000, 1.46000, 2.36000
+];
+function gravityForLevel(level){
+  const idx = Math.min(level, 15);
+  return GRAVITY_TABLE[idx];
+}
+
+// スコアテーブル(レベル1基準。実際はレベル倍)
+const SCORE = {
+  single:100, double:300, triple:500, tetris:800,
+  tspin:400, tspinSingle:800, tspinDouble:1200, tspinTriple:1600,
+  tspinMiniSingle:200, tspinMiniDouble:400, tspinMini:100,
+  softDrop:1, hardDrop:2, comboBase:50
+};
+
+const LOCK_DELAY_MS = 500;
+const MOVE_RESET_LIMIT = 15;
+const DAS_MS = 167;   // Delayed Auto Shift
+const ARR_MS = 33;    // Auto Repeat Rate
+const SOFT_DROP_FACTOR = 20;
+
+// ---------- 音(WebAudio、ファイル不要の合成音) ----------
+let audioCtx = null;
+let muted = false;
+function ensureAudio(){ if(!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+function beep(freq, dur, type, gain){
+  if(muted || !audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type||"square"; o.frequency.value = freq;
+  g.gain.value = gain==null?0.06:gain;
+  o.connect(g); g.connect(audioCtx.destination);
+  const t = audioCtx.currentTime;
+  g.gain.setValueAtTime(g.gain.value, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.start(t); o.stop(t+dur);
+}
+const SFX = {
+  move(){ beep(220,0.03,"square",0.02); },
+  rotate(){ beep(330,0.04,"square",0.03); },
+  lock(){ beep(160,0.06,"square",0.04); },
+  hold(){ beep(280,0.05,"triangle",0.04); },
+  clear(n){ beep(500+n*80,0.12,"sawtooth",0.05); },
+  tetris(){ beep(880,0.25,"sawtooth",0.07); },
+  tspin(){ beep(660,0.18,"sawtooth",0.06); },
+  levelup(){ beep(990,0.2,"triangle",0.06); },
+  gameover(){ beep(120,0.5,"sawtooth",0.08); }
+};
+
+// ---------- 7-Bagジェネレータ ----------
+class SevenBag {
+  constructor(){ this.bag = []; }
+  refill(){
+    const m = ["I","O","T","S","Z","J","L"];
+    for(let i=m.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [m[i],m[j]] = [m[j],m[i]];
+    }
+    this.bag = m;
+  }
+  next(){
+    if(this.bag.length===0) this.refill();
+    return this.bag.shift();
+  }
+}
+
+// ---------- ゲーム状態 ----------
+function emptyBoard(){
+  const b = [];
+  for(let r=0;r<ROWS;r++) b.push(new Array(COLS).fill(null));
+  return b;
+}
+
+const state = {
+  board: emptyBoard(),
+  bag: new SevenBag(),
+  queue: [],
+  current: null,   // {type, rot, col, row}
+  hold: null,
+  holdUsed: false,
+  score: 0,
+  level: 1,
+  lines: 0,
+  combo: -1,
+  backToBack: false,
+  status: "title", // title | playing | paused | gameover
+  lastActionWasRotate: false,
+  lastKickIndex: 0,
+  moveResetCount: 0,
+  lowestRowReached: -1,
+  lockTimer: 0,     // ms
+  isGrounded: false,
+  gravityAcc: 0,     // マス単位の蓄積落下量
+  msg: ""
+};
+
+function refillQueue(){
+  while(state.queue.length < 5) state.queue.push(state.bag.next());
+}
+
+function spawnPiece(type){
+  const box = BOX[type];
+  const col = Math.floor((COLS - box)/2);
+  const row = HIDDEN_ROWS - 2; // 可視領域のすぐ上あたりから出現
+  state.current = { type, rot:0, col, row };
+  state.holdUsed = false;
+  state.lastActionWasRotate = false;
+  state.moveResetCount = 0;
+  state.lowestRowReached = row;
+  state.lockTimer = 0;
+  state.isGrounded = false;
+  state.gravityAcc = 0;
+  if(checkCollision(state.current, 0, 0, state.current.rot)){
+    gameOver();
+  }
+}
+
+function nextFromQueue(){
+  refillQueue();
+  const type = state.queue.shift();
+  refillQueue();
+  spawnPiece(type);
+}
+
+function cellsFor(piece, rot){
+  rot = (rot==null)?piece.rot:rot;
+  const shape = SHAPES[piece.type][rot];
+  return shape.map(([c,r]) => [piece.col+c, piece.row+r]);
+}
+
+function checkCollision(piece, dCol, dRow, rot){
+  const shape = SHAPES[piece.type][rot];
+  for(const [c,r] of shape){
+    const col = piece.col + c + dCol;
+    const row = piece.row + r + dRow;
+    if(col < 0 || col >= COLS || row >= ROWS) return true;
+    if(row < 0) continue;
+    if(state.board[row][col]) return true;
+  }
+  return false;
+}
+
+function lockOverlapsAboveVisible(piece){
+  // ブロックが可視領域の上端より上で固定=ゲームオーバー相当の演出用
+  const shape = SHAPES[piece.type][piece.rot];
+  for(const [c,r] of shape){
+    const row = piece.row + r;
+    if(row < HIDDEN_ROWS) return true;
+  }
+  return false;
+}
+
+function tryMove(dCol, dRow){
+  const p = state.current;
+  if(!p) return false;
+  if(!checkCollision(p, dCol, dRow, p.rot)){
+    p.col += dCol; p.row += dRow;
+    if(dRow !== 0){
+      if(p.row > state.lowestRowReached){
+        state.lowestRowReached = p.row;
+        state.moveResetCount = 0; // Step Reset
+      }
+    }
+    onPieceMoved(dRow===0);
+    return true;
+  }
+  return false;
+}
+
+function onPieceMoved(isHorizontalOrRotate){
+  const p = state.current;
+  state.lastActionWasRotate = false;
+  const grounded = checkCollision(p, 0, 1, p.rot);
+  if(grounded){
+    if(!state.isGrounded){
+      state.isGrounded = true;
+      state.lockTimer = 0;
+    } else if(isHorizontalOrRotate){
+      if(state.moveResetCount < MOVE_RESET_LIMIT){
+        state.lockTimer = 0;
+        state.moveResetCount++;
+      }
+    }
+  } else {
+    state.isGrounded = false;
+    state.lockTimer = 0;
+  }
+}
+
+function tryRotate(dir){ // dir: +1=CW, -1=CCW, 2=180
+  const p = state.current;
+  if(!p) return false;
+  if(p.type === "O"){
+    p.rot = (p.rot + dir + 4) % 4;
+    SFX.rotate();
+    return true;
+  }
+  const fromRot = p.rot;
+  let toRot, key;
+  if(dir === 2){
+    toRot = (fromRot + 2) % 4;
+  } else {
+    toRot = (fromRot + dir + 4) % 4;
+  }
+  const table = (p.type === "I") ? KICK_I : KICK_JLSTZ;
+
+  let tests;
+  if(dir === 2){
+    // 180度回転はガイドライン任意仕様。単純に2回分のオフセット(0,0)のみ許容+簡易キック
+    tests = [[0,0], [1,0], [-1,0], [0,-1], [0,1]];
+  } else {
+    key = `${fromRot}>${toRot}`;
+    tests = table[key] || [[0,0]];
+  }
+
+  for(let i=0;i<tests.length;i++){
+    const [dx,dy] = tests[i];
+    if(!checkCollision(p, dx, dy, toRot)){
+      p.col += dx; p.row += dy; p.rot = toRot;
+      state.lastActionWasRotate = true;
+      state.lastKickIndex = i;
+      if(p.row > state.lowestRowReached){
+        state.lowestRowReached = p.row;
+        state.moveResetCount = 0;
+      }
+      onPieceMoved(true);
+      SFX.rotate();
+      return true;
+    }
+  }
+  return false;
+}
+
+// T-Spin判定(3-Corner Test)
+function detectTSpin(piece){
+  if(piece.type !== "T") return null;
+  if(!state.lastActionWasRotate) return null;
+  // Tミノの中心は各回転状態で共通に(1,1)相当(3x3ボックス)
+  const cx = piece.col + 1, cy = piece.row + 1;
+  const corners = [
+    [cx-1, cy-1], [cx+1, cy-1], [cx-1, cy+1], [cx+1, cy+1]
+  ];
+  let filled = 0;
+  const cornerFilled = corners.map(([c,r])=>{
+    if(c<0 || c>=COLS || r>=ROWS) return true;
+    if(r<0) return false;
+    return !!state.board[r][c];
+  });
+  filled = cornerFilled.filter(Boolean).length;
+  if(filled < 3) return null;
+
+  // 凸側(前方2隅)を回転状態別に判定
+  // rot0:上向き→前方は上側2隅(A,B) index0,1
+  // rot1:右向き→前方は右側2隅 index1,3
+  // rot2:下向き→前方は下側2隅 index2,3
+  // rot3:左向き→前方は左側2隅 index0,2
+  const frontIdxByRot = { 0:[0,1], 1:[1,3], 2:[2,3], 3:[0,2] };
+  const front = frontIdxByRot[piece.rot];
+  const frontFilled = front.filter(i=>cornerFilled[i]).length;
+
+  const usedBigKick = state.lastKickIndex === 4; // Test5(最大移動)使用
+  if(frontFilled === 2 || usedBigKick){
+    return "full";
+  }
+  return "mini";
+}
+
+function hardDrop(){
+  const p = state.current;
+  if(!p) return;
+  let dist = 0;
+  while(!checkCollision(p, 0, 1, p.rot)){
+    p.row += 1; dist++;
+  }
+  if(dist > 0){
+    state.score += dist * SCORE.hardDrop;
+    state.lastActionWasRotate = false;
+  }
+  lockPiece();
+}
+
+function softDropStep(){
+  const moved = tryMove(0, 1);
+  if(moved) state.score += SCORE.softDrop;
+  return moved;
+}
+
+function lockPiece(){
+  const p = state.current;
+  if(!p) return;
+
+  const tspin = detectTSpin(p);
+
+  const shape = SHAPES[p.type][p.rot];
+  let anyAboveVisible = false;
+  for(const [c,r] of shape){
+    const col = p.col + c, row = p.row + r;
+    if(row < 0){ anyAboveVisible = true; continue; }
+    state.board[row][col] = p.type;
+    if(row < HIDDEN_ROWS) anyAboveVisible = true;
+  }
+
+  const clearedRows = [];
+  for(let r=0;r<ROWS;r++){
+    if(state.board[r].every(cell => cell !== null)) clearedRows.push(r);
+  }
+  const n = clearedRows.length;
+
+  if(n > 0){
+    const remain = state.board.filter((_,idx)=>!clearedRows.includes(idx));
+    const newBoard = [];
+    for(let i=0;i<n;i++) newBoard.push(new Array(COLS).fill(null));
+    state.board = newBoard.concat(remain);
+  }
+
+  applyScore(n, tspin);
+
+  if(n > 0){
+    state.lines += n;
+    const newLevel = Math.floor(state.lines/10) + 1;
+    if(newLevel > state.level){ state.level = newLevel; SFX.levelup(); flashMsg(`レベルアップ! Lv.${state.level}`); }
+    if(n === 4) SFX.tetris();
+    else if(tspin) SFX.tspin();
+    else SFX.clear(n);
+  } else if(tspin){
+    SFX.tspin();
+  } else {
+    SFX.lock();
+  }
+
+  updateHUD();
+
+  if(anyAboveVisible && n===0 && boardTopBlocked()){
+    gameOver();
+    return;
+  }
+
+  state.current = null;
+  nextFromQueue();
+}
+
+function boardTopBlocked(){
+  for(let c=0;c<COLS;c++){
+    if(state.board[HIDDEN_ROWS-1][c]) return true;
+    if(state.board[HIDDEN_ROWS-2] && state.board[HIDDEN_ROWS-2][c]) return true;
+  }
+  return false;
+}
+
+function applyScore(n, tspin){
+  const L = state.level;
+  let base = 0;
+  let isB2BAction = false;
+  let label = "";
+
+  if(tspin === "full"){
+    if(n===0){ base = SCORE.tspin; label="T-Spin"; }
+    else if(n===1){ base = SCORE.tspinSingle; label="T-Spin Single"; }
+    else if(n===2){ base = SCORE.tspinDouble; label="T-Spin Double"; }
+    else if(n===3){ base = SCORE.tspinTriple; label="T-Spin Triple"; }
+    isB2BAction = true;
+  } else if(tspin === "mini"){
+    if(n===0){ base = SCORE.tspinMini; label="T-Spin Mini"; }
+    else if(n===1){ base = SCORE.tspinMiniSingle; label="T-Spin Mini Single"; }
+    else if(n===2){ base = SCORE.tspinMiniDouble; label="T-Spin Mini Double"; }
+    isB2BAction = true;
+  } else if(n===1){ base = SCORE.single; label="Single"; }
+  else if(n===2){ base = SCORE.double; label="Double"; }
+  else if(n===3){ base = SCORE.triple; label="Triple"; }
+  else if(n===4){ base = SCORE.tetris; label="TETRIS"; isB2BAction = true; }
+
+  let scoreGain = base * L;
+
+  if(n > 0 || tspin){
+    if(isB2BAction && state.backToBack && base > 0){
+      scoreGain = Math.floor(scoreGain * 1.5);
+      label += " Back-to-Back";
+    }
+  }
+
+  if(n > 0){
+    state.combo++;
+    if(state.combo > 0){
+      scoreGain += SCORE.comboBase * state.combo * L;
+      label += ` ${state.combo}Combo`;
+    }
+    state.backToBack = isB2BAction ? true : (base>0 ? false : state.backToBack);
+  } else if(tspin){
+    // ライン消去なしT-Spinはコンボを継続させない/切らない仕様は実装によるが、ここでは維持のみ
+  } else {
+    state.combo = -1;
+  }
+
+  if(scoreGain > 0){
+    state.score += scoreGain;
+    flashMsg(label);
+  }
+}
+
+function flashMsg(text){
+  state.msg = text;
+  clearTimeout(flashMsg._t);
+  flashMsg._t = setTimeout(()=>{ state.msg=""; }, 1400);
+}
+
+function gameOver(){
+  state.status = "gameover";
+  SFX.gameover();
+  showOverlay("ゲームオーバー", `スコア: ${state.score}<br>ライン: ${state.lines}`, "もう一度");
+}
+
+// ---------- ホールド ----------
+function doHold(){
+  if(!state.current || state.holdUsed) return;
+  SFX.hold();
+  const curType = state.current.type;
+  if(state.hold === null){
+    state.hold = curType;
+    state.current = null;
+    nextFromQueue();
+  } else {
+    const swap = state.hold;
+    state.hold = curType;
+    spawnPiece(swap);
+  }
+  state.holdUsed = true;
+  drawHold();
+}
+
+// ---------- 入力(DAS/ARR) ----------
+const keys = {};
+const inputState = {
+  left: { held:false, dasTimer:0, arrTimer:0 },
+  right:{ held:false, dasTimer:0, arrTimer:0 }
+};
+
+const KEYMAP = {
+  ArrowLeft: "left", ArrowRight: "right", ArrowDown: "softdrop",
+  Space: "harddrop",
+  ArrowUp: "cw", KeyX: "cw",
+  KeyZ: "ccw", ControlLeft: "ccw", ControlRight: "ccw",
+  KeyA: "r180",
+  KeyC: "hold", ShiftLeft: "hold", ShiftRight: "hold",
+  KeyP: "pause"
+};
+
+window.addEventListener("keydown", (e)=>{
+  ensureAudio();
+  const action = KEYMAP[e.code];
+  if(!action) return;
+  e.preventDefault();
+  if(keys[e.code]) return; // 押しっぱなし判定用(自動リピート抑制)
+  keys[e.code] = true;
+
+  if(action === "pause"){
+    togglePause();
+    return;
+  }
+  if(state.status !== "playing") return;
+
+  switch(action){
+    case "left":
+      inputState.left.held = true; inputState.left.dasTimer = 0; inputState.left.arrTimer = 0;
+      if(tryMove(-1,0)) SFX.move();
+      break;
+    case "right":
+      inputState.right.held = true; inputState.right.dasTimer = 0; inputState.right.arrTimer = 0;
+      if(tryMove(1,0)) SFX.move();
+      break;
+    case "softdrop":
+      softDropStep();
+      break;
+    case "harddrop":
+      hardDrop();
+      break;
+    case "cw": tryRotate(1); break;
+    case "ccw": tryRotate(-1); break;
+    case "r180": tryRotate(2); break;
+    case "hold": doHold(); break;
+  }
+});
+
+window.addEventListener("keyup", (e)=>{
+  const action = KEYMAP[e.code];
+  keys[e.code] = false;
+  if(action === "left") inputState.left.held = false;
+  if(action === "right") inputState.right.held = false;
+});
+
+function updateDAS(dtMs){
+  if(state.status !== "playing") return;
+  ["left","right"].forEach(dir=>{
+    const st = inputState[dir];
+    if(!st.held) return;
+    st.dasTimer += dtMs;
+    if(st.dasTimer >= DAS_MS){
+      st.arrTimer += dtMs;
+      while(st.arrTimer >= ARR_MS){
+        st.arrTimer -= ARR_MS;
+        const moved = tryMove(dir==="left"?-1:1, 0);
+        if(!moved){ st.arrTimer = 0; break; }
+      }
+    }
+  });
+}
+
+// ---------- ゲームループ ----------
+let lastTime = null;
+let rafId = null;
+
+function simulate(dtMs){
+  if(state.status !== "playing") return;
+  updateDAS(dtMs);
+
+  const p = state.current;
+  if(!p) return;
+
+  const g = gravityForLevel(state.level);
+  state.gravityAcc += g * (dtMs/ (1000/60));
+
+  while(state.gravityAcc >= 1){
+    state.gravityAcc -= 1;
+    if(!tryMove(0,1)){
+      state.gravityAcc = 0;
+      break;
+    }
+  }
+
+  const grounded = checkCollision(p, 0, 1, p.rot);
+  if(grounded){
+    if(!state.isGrounded){ state.isGrounded = true; state.lockTimer = 0; }
+    state.lockTimer += dtMs;
+    if(state.lockTimer >= LOCK_DELAY_MS || state.moveResetCount >= MOVE_RESET_LIMIT){
+      lockPiece();
+    }
+  } else {
+    state.isGrounded = false;
+    state.lockTimer = 0;
+  }
+}
+
+function loop(ts){
+  if(lastTime===null) lastTime = ts;
+  let dt = ts - lastTime;
+  lastTime = ts;
+  if(dt > 100) dt = 100; // タブ非アクティブ復帰時の暴走防止
+  simulate(dt);
+  render();
+  rafId = requestAnimationFrame(loop);
+}
+
+// ---------- 描画 ----------
+const boardCanvas = document.getElementById("boardCanvas");
+const bctx = boardCanvas.getContext("2d");
+const holdCanvas = document.getElementById("holdCanvas");
+const hctx = holdCanvas.getContext("2d");
+const nextCanvases = Array.from(document.querySelectorAll("#next-list canvas"));
+
+function drawCell(ctx, x, y, size, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, size, size);
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x+0.5, y+0.5, size-1, size-1);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(x, y, size, Math.max(2, size*0.14));
+}
+
+function ghostRow(piece){
+  let r = piece.row;
+  const test = { type:piece.type, rot:piece.rot, col:piece.col, row:piece.row };
+  while(!checkCollision(test, 0, 1, test.rot)){ test.row++; }
+  return test.row;
+}
+
+function render(){
+  bctx.clearRect(0,0,boardCanvas.width, boardCanvas.height);
+
+  // 固定ブロック(可視領域のみ描画)
+  for(let r=HIDDEN_ROWS; r<ROWS; r++){
+    for(let c=0;c<COLS;c++){
+      const v = state.board[r][c];
+      if(v){
+        drawCell(bctx, c*CELL, (r-HIDDEN_ROWS)*CELL, CELL, COLORS[v]);
+      }
+    }
+  }
+
+  // グリッド線
+  bctx.strokeStyle = "rgba(255,255,255,0.05)";
+  for(let c=0;c<=COLS;c++){
+    bctx.beginPath(); bctx.moveTo(c*CELL,0); bctx.lineTo(c*CELL, VISIBLE_ROWS*CELL); bctx.stroke();
+  }
+  for(let r=0;r<=VISIBLE_ROWS;r++){
+    bctx.beginPath(); bctx.moveTo(0,r*CELL); bctx.lineTo(COLS*CELL, r*CELL); bctx.stroke();
+  }
+
+  const p = state.current;
+  if(p && state.status === "playing"){
+    // ゴースト
+    const gRow = ghostRow(p);
+    const shape = SHAPES[p.type][p.rot];
+    for(const [c,r] of shape){
+      const row = gRow + r, col = p.col + c;
+      if(row >= HIDDEN_ROWS){
+        bctx.fillStyle = COLORS.GHOST;
+        bctx.fillRect(col*CELL, (row-HIDDEN_ROWS)*CELL, CELL, CELL);
+      }
+    }
+    // 現在のミノ
+    for(const [c,r] of shape){
+      const row = p.row + r, col = p.col + c;
+      if(row >= HIDDEN_ROWS){
+        drawCell(bctx, col*CELL, (row-HIDDEN_ROWS)*CELL, CELL, COLORS[p.type]);
+      }
+    }
+  }
+
+  document.getElementById("msgLine").textContent = state.msg;
+}
+
+function drawMiniPiece(ctx, type){
+  ctx.clearRect(0,0,ctx.canvas.width, ctx.canvas.height);
+  if(!type) return;
+  const shape = SHAPES[type][0];
+  const size = 16;
+  const box = BOX[type];
+  const offsetX = (ctx.canvas.width - box*size)/2;
+  const offsetY = (ctx.canvas.height - box*size)/2;
+  for(const [c,r] of shape){
+    drawCell(ctx, offsetX+c*size, offsetY+r*size, size, COLORS[type]);
+  }
+}
+
+function drawHold(){
+  drawMiniPiece(hctx, state.hold);
+  if(state.holdUsed && hctx.canvas){
+    hctx.fillStyle = "rgba(0,0,0,0.35)";
+    hctx.fillRect(0,0,hctx.canvas.width, hctx.canvas.height);
+  }
+}
+
+function drawNext(){
+  refillQueue();
+  for(let i=0;i<5;i++){
+    drawMiniPiece(nextCanvases[i].getContext("2d"), state.queue[i]);
+  }
+}
+
+function updateHUD(){
+  document.getElementById("scoreVal").textContent = state.score;
+  document.getElementById("levelVal").textContent = state.level;
+  document.getElementById("linesVal").textContent = state.lines;
+  drawHold();
+  drawNext();
+}
+
+// ---------- オーバーレイ/開始/一時停止 ----------
+const overlay = document.getElementById("overlay");
+const overlayTitle = document.getElementById("overlayTitle");
+const overlayText = document.getElementById("overlayText");
+const startBtn = document.getElementById("startBtn");
+
+function showOverlay(title, text, btnLabel){
+  overlayTitle.textContent = title;
+  overlayText.innerHTML = text;
+  startBtn.textContent = btnLabel;
+  overlay.style.display = "flex";
+}
+function hideOverlay(){ overlay.style.display = "none"; }
+
+function resetGame(){
+  state.board = emptyBoard();
+  state.bag = new SevenBag();
+  state.queue = [];
+  state.current = null;
+  state.hold = null;
+  state.holdUsed = false;
+  state.score = 0;
+  state.level = 1;
+  state.lines = 0;
+  state.combo = -1;
+  state.backToBack = false;
+  state.msg = "";
+  refillQueue();
+  nextFromQueue();
+  updateHUD();
+}
+
+function startGame(){
+  ensureAudio();
+  resetGame();
+  state.status = "playing";
+  hideOverlay();
+  lastTime = null;
+}
+
+function togglePause(){
+  if(state.status === "playing"){
+    state.status = "paused";
+    showOverlay("一時停止中", "Pキーまたはボタンで再開", "再開");
+  } else if(state.status === "paused"){
+    state.status = "playing";
+    hideOverlay();
+    lastTime = null;
+  }
+}
+
+startBtn.addEventListener("click", ()=>{
+  if(state.status === "paused"){ togglePause(); }
+  else { startGame(); }
+});
+
+// ミュートボタン
+const muteBtn = document.getElementById("mute");
+muteBtn.addEventListener("click", ()=>{
+  muted = !muted;
+  muteBtn.textContent = muted ? "🔇 音OFF" : "🔊 音ON";
+});
+
+// ---------- デバッグ窓口(検証用) ----------
+window.__dbg = {
+  state(){
+    return {
+      status: state.status, score: state.score, level: state.level, lines: state.lines,
+      current: state.current ? {...state.current} : null,
+      hold: state.hold, queue: [...state.queue],
+      combo: state.combo, backToBack: state.backToBack
+    };
+  },
+  tick(ms){ simulate(ms); render(); },
+  board(){ return state.board.map(r=>r.map(c=>c||null)); },
+  raw(){ return state; }
+};
+
+// 初期表示
+render();
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
