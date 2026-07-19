@@ -1247,7 +1247,8 @@ window.__dbg = {
   toggleAdvice(){ toggleAdvice(); return state.showAdvice; }
 };
 
-// 初期表示
+// 初期表示(タイトル画面の「はじめる」を最初から見せる)
+overlay.style.display = "flex";
 render();
 requestAnimationFrame(loop);
 })();

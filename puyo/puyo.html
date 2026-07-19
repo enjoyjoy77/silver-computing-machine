@@ -397,6 +397,7 @@ function checkClear(){
     groupBonusSum += (g.cells.length>=11)?10:GROUP_BONUS[g.cells.length];
     for(const [x,y] of g.cells) popCells.push({x,y,color:g.color});
   }
+  if(tut) tut.flags.colors = Math.max(tut.flags.colors||0, colorSet.size); // れんしゅん: 同時消し色数の記録
   const chainB = chainCount<=CHAIN_BONUS.length ? CHAIN_BONUS[chainCount-1] : CHAIN_BONUS[18]+(chainCount-19)*32;
   const colorB = COLOR_BONUS[colorSet.size];
   let bonus = chainB + groupBonusSum + colorB;
@@ -474,7 +475,7 @@ function simulate(){
   if(canFall){
     grounded=false; lockTimer=0;
     fallCounter++;
-    const spd = keys.down ? SOFT_FRAMES : FALL_SPEED[level-1];
+    const spd = keys.down ? SOFT_FRAMES : (tut && TUT_LESSONS[tut.idx].fallSpeed) || FALL_SPEED[level-1];
     if(fallCounter>=spd){
       fallCounter=0;
       pair.y++;
@@ -777,8 +778,8 @@ const TUT_LESSONS = [
       for(let y=9;y<14;y++){ g[y][0]=(y%2?2:4); g[y][2]=(y%2?4:2); }
     },
     queue:[1,3],
-    goal:"qt", tries:1,
-    hints:["←で谷(2列目)に入れて、いちばん下まで落ちたら Z か X を2連打!"],
+    goal:"qt", tries:1, fallSpeed:6,
+    hints:["←で谷(2列目)へ。落ちるのを待って(↓はおさない! すぐ固定されちゃう)、底についたら Z か X を2連打!"],
     guides:[[[1,13],[1,12]]],
     failText:"谷のそこに落ちてから、回転を2連打!"
   },
@@ -849,6 +850,7 @@ function tutOnSettle(chain){
   let ok = false;
   if(L.goal==="chain") ok = chain >= L.goalChain;
   else if(L.goal==="chigiri") ok = !!tut.flags.chigiri;
+  else if(L.goal==="twocolor") ok = (tut.flags.colors||0) >= 2;
   else if(L.goal==="qt") ok = !!tut.flags.qt; // 通常はtutQtDoneで即クリア。保険
   if(ok){ tutClear(); return true; }
   tut.attempts++;
