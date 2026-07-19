@@ -410,7 +410,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev20-shelf-scan";
+const REV = "v2 rev21-hud3d";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -921,6 +921,171 @@ function init3D(){
   renderer.setAnimationLoop(renderLoop);
 }
 const scene = new THREE.Scene();
+
+/* ---- XR内QRスキャン状況HUD(CanvasTextureの3D板) ---- */
+const hudCanvas = document.createElement('canvas');
+hudCanvas.width = 1024;
+hudCanvas.height = 384;
+const hudContext = hudCanvas.getContext('2d');
+
+const hudTexture = new THREE.CanvasTexture(hudCanvas);
+hudTexture.colorSpace = THREE.SRGBColorSpace;
+hudTexture.minFilter = THREE.LinearFilter;
+hudTexture.magFilter = THREE.LinearFilter;
+hudTexture.generateMipmaps = false;
+
+const hudMaterial = new THREE.MeshBasicMaterial({
+  map: hudTexture,
+  transparent: true,
+  depthTest: false,
+  depthWrite: false,
+  toneMapped: false
+});
+
+const hudMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.6, 0.225),
+  hudMaterial
+);
+hudMesh.visible = false;
+hudMesh.renderOrder = 9999;
+hudMesh.frustumCulled = false;
+scene.add(hudMesh);
+
+const hudCameraPosition = new THREE.Vector3();
+const hudCameraQuaternion = new THREE.Quaternion();
+const hudForward = new THREE.Vector3();
+
+function roundedRectPath(context, x, y, width, height, radius) {
+  const r = Math.min(radius, width * 0.5, height * 0.5);
+
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.lineTo(x + width - r, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + r);
+  context.lineTo(x + width, y + height - r);
+  context.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - r,
+    y + height
+  );
+  context.lineTo(x + r, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - r);
+  context.lineTo(x, y + r);
+  context.quadraticCurveTo(x, y, x + r, y);
+  context.closePath();
+}
+
+function wrapScanHudLine(context, text, maxWidth) {
+  if (!text) return [''];
+
+  const lines = [];
+  let line = '';
+
+  // 日本語も単語境界なしで折り返せるようUnicode文字単位で処理する。
+  for (const character of Array.from(text)) {
+    const candidate = line + character;
+
+    if (line && context.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = character;
+    } else {
+      line = candidate;
+    }
+  }
+
+  if (line || !lines.length) lines.push(line);
+  return lines;
+}
+
+function drawScanHud3D(text) {
+  if (!hudContext) return;
+
+  const context = hudContext;
+  const width = hudCanvas.width;
+  const height = hudCanvas.height;
+  const horizontalPadding = 54;
+  const maxTextWidth = width - horizontalPadding * 2;
+  const lineHeight = 58;
+  const maxLines = 5;
+
+  context.clearRect(0, 0, width, height);
+
+  roundedRectPath(context, 12, 12, width - 24, height - 24, 42);
+  context.fillStyle = 'rgba(0,0,0,0.78)';
+  context.fill();
+
+  context.font = '700 46px system-ui, sans-serif';
+  context.fillStyle = '#ffffff';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+
+  let lines = [];
+  for (const explicitLine of String(text || '').split('\n')) {
+    lines.push(...wrapScanHudLine(context, explicitLine, maxTextWidth));
+  }
+
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    let last = lines[maxLines - 1];
+
+    while (
+      last &&
+      context.measureText(last + '…').width > maxTextWidth
+    ) {
+      last = Array.from(last).slice(0, -1).join('');
+    }
+
+    lines[maxLines - 1] = last + '…';
+  }
+
+  const blockHeight = Math.max(1, lines.length) * lineHeight;
+  const firstY = height * 0.5 - blockHeight * 0.5 + lineHeight * 0.5;
+
+  lines.forEach((line, index) => {
+    context.fillText(line, width * 0.5, firstY + index * lineHeight);
+  });
+
+  hudTexture.needsUpdate = true;
+}
+
+/*
+ * XRカメラのワールド姿勢へ毎フレーム追従させる。
+ * PlaneGeometryの表面法線は+Zなので、カメラと同じQuaternionにすると、
+ * カメラ前方(-Z側)へ置いた板の表面がカメラを向く。
+ */
+function updateScanHud3DPosition() {
+  if (
+    !hudMesh.visible ||
+    !renderer ||
+    !renderer.xr.isPresenting
+  ) return;
+
+  const xrCamera = renderer.xr.getCamera(camera);
+  if (!xrCamera) return;
+
+  /*
+   * WebXRManagerのArrayCamera自体が両眼中心のXR姿勢を持つ。
+   * そのワールド姿勢を使い、片眼cameraの視差へ寄せない。
+   */
+  xrCamera.getWorldPosition(hudCameraPosition);
+  xrCamera.getWorldQuaternion(hudCameraQuaternion);
+
+  hudForward
+    .set(0, 0, -1)
+    .applyQuaternion(hudCameraQuaternion)
+    .normalize();
+
+  hudMesh.position
+    .copy(hudCameraPosition)
+    .addScaledVector(hudForward, 0.6);
+
+  // カメラのローカル下方向ではなく、実空間の縦方向へ少し下げる。
+  hudMesh.position.y -= 0.12;
+  hudMesh.quaternion.copy(hudCameraQuaternion);
+  hudMesh.updateMatrixWorld();
+}
+
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 100);   // レリーフ用
 const ortho  = new THREE.OrthographicCamera(-1,1,1,-1,0,10); ortho.position.z = 1;   // 疑似3D用
 const persp  = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 50); persp.position.set(0,0,3); // 多層用
@@ -2706,19 +2871,41 @@ let scanPixelWidth = 0;
 let scanPixelHeight = 0;
 
 function setScanHud(message) {
+  const text = String(message || '');
   const hud = $('xrhud');
-  if (!hud) return;
 
-  hud.textContent = String(message || '');
-  hud.style.display =
-    xrMode === 'ar' && scanArmed && message ? 'block' : 'none';
+  // dom-overlay対応環境向け。非対応でも3D HUDには影響しない。
+  if (hud) {
+    hud.textContent = text;
+    hud.style.display =
+      xrMode === 'ar' && scanArmed && text ? 'block' : 'none';
+  }
+
+  if (text) drawScanHud3D(text);
+
+  hudMesh.visible = !!(
+    renderer &&
+    renderer.xr.isPresenting &&
+    xrMode === 'ar' &&
+    scanArmed &&
+    text
+  );
 }
 
 function clearScanHud() {
   const hud = $('xrhud');
-  if (!hud) return;
-  hud.textContent = '';
-  hud.style.display = 'none';
+
+  if (hud) {
+    hud.textContent = '';
+    hud.style.display = 'none';
+  }
+
+  hudMesh.visible = false;
+
+  if (hudContext) {
+    hudContext.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+    hudTexture.needsUpdate = true;
+  }
 }
 
 function updateScanButton() {
@@ -3118,7 +3305,7 @@ async function startAR(){
     if (scanArmed) {
       scanCameraWaitSince = 0;
       scanCount = 0;
-      setScanHud('QRスキャン準備中…');
+      setScanHud('QRを探しています…');
     } else {
       clearScanHud();
     }
@@ -3237,6 +3424,9 @@ function renderLoop(t, frame){
   const dt = Math.min((nowMs - lastFrameMs)/1000, 0.05); lastFrameMs = nowMs;   // 上限0.05秒(フレーム落ちで一気に回るのを防ぐ)
   const sec = (nowMs-t0)/1000;
   if(frame && renderer.xr.isPresenting && xrSession){
+    // QR解析の約6fps間引きとは独立して、3D HUDは頭の動きへ毎フレーム追従。
+    updateScanHud3DPosition();
+
     if(pendingPlace){ pendingPlace = false; placeInFront(); }
     pollInput(dt);      // 呼び戻し + グリップ回転 + スティックでモード切替
     updateHands(dt);    // トリガーで指を曲げる
