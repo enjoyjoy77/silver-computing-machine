@@ -11,6 +11,8 @@ export const EXPIRES_MS = 24 * 60 * 60 * 1000;
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CODE_RE = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{10}$/;
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
+const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export class HandoffError extends Error {
   constructor(status, error, message) {
@@ -164,13 +166,33 @@ function validatePuffs(puffs) {
   }
 }
 
-function readPngInfo(bytes, absoluteOffset, length) {
-  if (length < 24 || !sameBytes(bytes, absoluteOffset, PNG_SIGNATURE)) {
+function detectImageType(bytes, absoluteOffset, length) {
+  if (length >= 24 && sameBytes(bytes, absoluteOffset, PNG_SIGNATURE)) return "image/png";
+  if (length >= 3 && sameBytes(bytes, absoluteOffset, JPEG_SIGNATURE)) return "image/jpeg";
+  if (
+    length >= 12 &&
+    bytes[absoluteOffset] === 0x52 && bytes[absoluteOffset + 1] === 0x49 &&
+    bytes[absoluteOffset + 2] === 0x46 && bytes[absoluteOffset + 3] === 0x46 &&
+    bytes[absoluteOffset + 8] === 0x57 && bytes[absoluteOffset + 9] === 0x45 &&
+    bytes[absoluteOffset + 10] === 0x42 && bytes[absoluteOffset + 11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+// PNG/JPEG/WebPを受け付ける。寸法チェックはPNGのみ(JPEG/WebPは30MBのバイト上限で担保)。
+function readImageInfo(bytes, absoluteOffset, length) {
+  const type = detectImageType(bytes, absoluteOffset, length);
+  if (!type) {
     throw new HandoffError(
       400,
-      "INVALID_PNG",
-      "PNG画像ではないデータが含まれています。",
+      "INVALID_IMAGE",
+      "対応していない画像形式です（PNG / JPEG / WebP のみ）。",
     );
+  }
+  if (type !== "image/png") {
+    return { type };
   }
 
   // PNG signature直後は13-byte IHDRでなければならない。
@@ -211,7 +233,7 @@ function readPngInfo(bytes, absoluteOffset, length) {
     );
   }
 
-  return { width, height };
+  return { type, width, height };
 }
 
 function validateBlobDescriptor(
@@ -240,15 +262,15 @@ function validateBlobDescriptor(
     );
   }
 
-  if (type !== "image/png") {
+  if (!ALLOWED_IMAGE_TYPES.includes(type)) {
     throw new HandoffError(
       400,
       "INVALID_IMAGE_TYPE",
-      "送れる画像形式はPNGのみです。",
+      "送れる画像形式は PNG / JPEG / WebP のみです。",
     );
   }
 
-  readPngInfo(bytes, payloadAbsoluteOffset + offset, length);
+  readImageInfo(bytes, payloadAbsoluteOffset + offset, length);
   return offset + length;
 }
 

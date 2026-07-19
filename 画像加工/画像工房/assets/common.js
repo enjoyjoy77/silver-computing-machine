@@ -512,6 +512,8 @@ const HANDOFF_MAX_FIGURES = 20;
 const HANDOFF_MAX_PUFFS = 32;
 const HANDOFF_MAX_IMAGE_SIDE = 4096;
 const HANDOFF_PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+const HANDOFF_JPEG_SIGNATURE = [0xFF, 0xD8, 0xFF];
+const HANDOFF_ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 function finiteNumber(value, fallback) {
   const number = Number(value);
@@ -540,28 +542,43 @@ function hasBytes(bytes, offset, expected) {
   if (offset + expected.length > bytes.length) return false;
   return expected.every((value, index) => bytes[offset + index] === value);
 }
-function validatePngAt(bytes, offset, length) {
-  if (length < 24 || !hasBytes(bytes, offset, HANDOFF_PNG_SIGNATURE)) {
-    throw handoffError("PNG画像ではないデータが含まれています。", "INVALID_PNG");
+function detectImageTypeAt(bytes, offset, length) {
+  if (length >= 24 && hasBytes(bytes, offset, HANDOFF_PNG_SIGNATURE)) return "image/png";
+  if (length >= 3 && hasBytes(bytes, offset, HANDOFF_JPEG_SIGNATURE)) return "image/jpeg";
+  if (length >= 12 &&
+      bytes[offset] === 0x52 && bytes[offset + 1] === 0x49 && bytes[offset + 2] === 0x46 && bytes[offset + 3] === 0x46 &&
+      bytes[offset + 8] === 0x57 && bytes[offset + 9] === 0x45 && bytes[offset + 10] === 0x42 && bytes[offset + 11] === 0x50) {
+    return "image/webp";
   }
-  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, Math.min(length, 33));
-  const ihdrLength = view.getUint32(8, false);
-  const ihdrType = String.fromCharCode(bytes[offset + 12], bytes[offset + 13], bytes[offset + 14], bytes[offset + 15]);
-  if (ihdrLength !== 13 || ihdrType !== "IHDR") {
-    throw handoffError("PNG画像のヘッダーが正しくありません。", "INVALID_PNG");
-  }
-  const width = view.getUint32(16, false);
-  const height = view.getUint32(20, false);
-  if (width < 1 || height < 1 || width > HANDOFF_MAX_IMAGE_SIDE || height > HANDOFF_MAX_IMAGE_SIDE) {
-    throw handoffError(`画像の縦横は${HANDOFF_MAX_IMAGE_SIDE}px以内にしてください。`, "IMAGE_DIMENSIONS");
-  }
+  return null;
 }
-async function assertPngBlob(blob) {
+// PNG/JPEG/WebPを受け付ける。寸法チェックはPNGのみ(JPEG/WebPは30MBのバイト上限で担保)。検出した実タイプを返す
+function validateImageAt(bytes, offset, length) {
+  const type = detectImageTypeAt(bytes, offset, length);
+  if (!type) {
+    throw handoffError("対応していない画像形式です（PNG / JPEG / WebP のみ送れます）。", "INVALID_IMAGE");
+  }
+  if (type === "image/png") {
+    const view = new DataView(bytes.buffer, bytes.byteOffset + offset, Math.min(length, 33));
+    const ihdrLength = view.getUint32(8, false);
+    const ihdrType = String.fromCharCode(bytes[offset + 12], bytes[offset + 13], bytes[offset + 14], bytes[offset + 15]);
+    if (ihdrLength !== 13 || ihdrType !== "IHDR") {
+      throw handoffError("PNG画像のヘッダーが正しくありません。", "INVALID_PNG");
+    }
+    const width = view.getUint32(16, false);
+    const height = view.getUint32(20, false);
+    if (width < 1 || height < 1 || width > HANDOFF_MAX_IMAGE_SIDE || height > HANDOFF_MAX_IMAGE_SIDE) {
+      throw handoffError(`画像の縦横は${HANDOFF_MAX_IMAGE_SIDE}px以内にしてください。`, "IMAGE_DIMENSIONS");
+    }
+  }
+  return type;
+}
+async function assertImageBlob(blob) {
   if (!(blob instanceof Blob) || blob.size < 24) {
-    throw handoffError("画像データを読み込めません。", "INVALID_PNG");
+    throw handoffError("画像データを読み込めません。", "INVALID_IMAGE");
   }
   const header = new Uint8Array(await blob.slice(0, 33).arrayBuffer());
-  validatePngAt(header, 0, header.length);
+  return validateImageAt(header, 0, header.length);
 }
 export async function buildHandoffBundle(figures) {
   if (!Array.isArray(figures) || figures.length < 1 || figures.length > HANDOFF_MAX_FIGURES) {
@@ -573,11 +590,11 @@ export async function buildHandoffBundle(figures) {
   for (const figure of figures) {
     // 名前は写真ファイル名由来で長くなりがち。エラーで弾かず自動で100字以内に詰める(送れないより短く送る)
     const name = [...String(figure?.name || "")].slice(0, 100).join("");
-    await assertPngBlob(figure.image);
-    await assertPngBlob(figure.depth);
-    const image = { offset, length: figure.image.size, type: "image/png" };
+    const imageType = await assertImageBlob(figure.image);
+    const depthType = await assertImageBlob(figure.depth);
+    const image = { offset, length: figure.image.size, type: imageType };
     offset += figure.image.size;
-    const depth = { offset, length: figure.depth.size, type: "image/png" };
+    const depth = { offset, length: figure.depth.size, type: depthType };
     offset += figure.depth.size;
     manifest.figures.push({ name, image, depth, puffs: sanitizePuffs(figure.puffs) });
     blobParts.push(figure.image, figure.depth);
@@ -646,7 +663,7 @@ export function parseHandoffBundle(arrayBuffer) {
     for (const descriptor of descriptors) {
       if (
         !descriptor ||
-        descriptor.type !== "image/png" ||
+        !HANDOFF_ALLOWED_IMAGE_TYPES.includes(descriptor.type) ||
         !Number.isSafeInteger(descriptor.offset) ||
         !Number.isSafeInteger(descriptor.length) ||
         descriptor.offset !== expectedOffset ||
@@ -656,8 +673,8 @@ export function parseHandoffBundle(arrayBuffer) {
         throw handoffError("受け取った画像データが壊れています。", "INVALID_OFFSETS");
       }
       const absoluteOffset = payloadStart + descriptor.offset;
-      validatePngAt(bytes, absoluteOffset, descriptor.length);
-      blobs.push(new Blob([arrayBuffer.slice(absoluteOffset, absoluteOffset + descriptor.length)], { type: "image/png" }));
+      const detectedType = validateImageAt(bytes, absoluteOffset, descriptor.length);
+      blobs.push(new Blob([arrayBuffer.slice(absoluteOffset, absoluteOffset + descriptor.length)], { type: detectedType }));
       expectedOffset += descriptor.length;
     }
     const rawPuffs = figure.puffs;
