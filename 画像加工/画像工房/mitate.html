@@ -295,9 +295,9 @@
       <span class="val" id="puniRadiusVal">18%</span>
     </div>
     <div class="card">
-      <label class="k">高さ</label>
-      <input type="range" id="puniHeightRange" min="2" max="25" value="10">
-      <span class="val" id="puniHeightVal">10%</span>
+      <label class="k">追加の盛り上がり</label>
+      <input type="range" id="puniHeightRange" min="0" max="25" value="3">
+      <span class="val" id="puniHeightVal">3%</span>
     </div>
     <button class="btn" id="puniDeleteBtn">🗑 消す</button>
   </div>
@@ -420,7 +420,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev24-puni4a";
+const REV = "v2 rev25-puni-embed";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1303,6 +1303,39 @@ async function makeItem(figure){
    ============================================================ */
 const PUNI_FIXED = 1 / 60;
 const PUNI_SKIRT_DEPTH = 0.0015;   // 付け根を各頂点直下のレリーフ表面より1.5mm沈めて継ぎ目を隠す(板高さ1m基準)
+const PUNI_SINK_RADIUS_RATIO = 0.30;
+const PUNI_SINK_SKIRT_MULT = 4;
+
+// 埋め込み膜の下で固いレリーフが突き抜けないための空間。
+// h=0でも操作できる厚みを確保し、複数puffの重なりは加算せず最大凹みを採用する。
+function puniSinkDepth(puff){
+  return Math.max(
+    Math.max(Number(puff?.r) || 0, 0) * PUNI_SINK_RADIUS_RATIO,
+    PUNI_SKIRT_DEPTH * PUNI_SINK_SKIRT_MULT
+  );
+}
+
+function puniReliefSinkAt(item, u, v){
+  if(!item?.puffs?.length) return 0;
+  const w = item.w || 1;
+  const hBoard = item.h || 1;
+  const x = (u - 0.5) * w;
+  const y = v * hBoard;
+  let sink = 0;
+
+  for(const puff of item.puffs){
+    const r = Math.max(Number(puff.r) || 0, 1e-6);
+    const cx = (puff.u - 0.5) * w;
+    const cy = puff.v * hBoard;
+    const q2 = ((x-cx)*(x-cx) + (y-cy)*(y-cy)) / (r*r);
+    if(q2 >= 1) continue;
+
+    // 中心で1、半径端で値と傾きが0になるドーム状フェード。
+    const fade = (1-q2) * (1-q2);
+    sink = Math.max(sink, puniSinkDepth(puff) * fade);
+  }
+  return sink;
+}
 const PUNI_TUNE = {
   rings: 7, segments: 24, substeps: 7,
   soft: 0.5, keep: 0.55,
@@ -1462,20 +1495,29 @@ function puniBuildTopology(puff){
   const item = puff.item;
   const w = item.w || 1; const hBoard = item.h || 1;
   const cx = (puff.u - 0.5) * w; const cy = puff.v * hBoard;
-  const baseZ = puniSurfaceZ(item, puff.u, puff.v); puff.baseZ = baseZ;   // レリーフ表面の高さに載せる
-  rest[0] = cx; rest[1] = cy; rest[2] = baseZ + puff.h; invMass[0] = 1;
+  const baseZ = puniSurfaceZ(item, puff.u, puff.v);
+  puff.baseZ = baseZ;
+
+  // 埋め込み型: restは全粒子で各頂点直下の写真レリーフをサンプルする。
+  // hは写真表面に追加する盛り上がりで、h=0なら写真の凹凸そのもの(そこがぷるぷるになる)。
+  rest[0] = cx;
+  rest[1] = cy;
+  rest[2] = baseZ + Math.max(Number(puff.h) || 0, 0);
+  invMass[0] = 1;
   uv[0] = rest[0]/w + 0.5; uv[1] = rest[1]/hBoard;   // reliefと同じUV規則
   for(let ir=1; ir<=rings; ir++){
     const q = ir / rings; const rr = puff.r * q;
-    const domeZ = puff.h * Math.pow(1 - q*q, 2);
+    const domeProfile = Math.pow(1 - q*q, 2);
     for(let j=0; j<seg; j++){
       const i = 1 + (ir-1)*seg + j; const a = j/seg * Math.PI * 2;
       const x = cx + Math.cos(a)*rr, y = cy + Math.sin(a)*rr;
       const tu = x/w + 0.5, tv = y/hBoard;
       rest[i*3] = x; rest[i*3+1] = y;
-      // 付け根リングは中心baseZでなく各頂点直下のレリーフ表面へ追従＋1.5mm沈めて継ぎ目を隠す
-      if(ir === rings){ rest[i*3+2] = puniSurfaceZ(item, clamp(tu,0,1), clamp(tv,0,1)) - PUNI_SKIRT_DEPTH; }
-      else { rest[i*3+2] = baseZ + domeZ; }
+      // 各頂点直下のレリーフ表面＋追加盛り上がり。付け根リングは1.5mm沈めて継ぎ目を隠す
+      const surfaceZ = puniSurfaceZ(item, clamp(tu,0,1), clamp(tv,0,1));
+      rest[i*3+2] = surfaceZ
+        + domeProfile * Math.max(Number(puff.h) || 0, 0)
+        - (ir === rings ? PUNI_SKIRT_DEPTH : 0);
       invMass[i] = ir === rings ? 0 : 1;
       uv[i*2] = tu; uv[i*2+1] = tv;
     }
@@ -1505,7 +1547,12 @@ function puniBuildTopology(puff){
     const dx = rest[a*3]-rest[b*3], dy = rest[a*3+1]-rest[b*3+1], dz = rest[a*3+2]-rest[b*3+2];
     edgeLen[e] = Math.hypot(dx, dy, dz);
   }
-  const anchor = new Float32Array([cx, cy, baseZ]);
+  // h=0でも中心粒とanchorが一致してcoreLenが退化しないよう、埋め込み空間の底をanchorにする
+  const anchor = new Float32Array([
+    rest[0],
+    rest[1],
+    rest[2] - puniSinkDepth(puff)
+  ]);
   const coreLen = new Float32Array(N);
   for(let i=0; i<N; i++){
     const dx = rest[i*3]-anchor[0], dy = rest[i*3+1]-anchor[1], dz = rest[i*3+2]-anchor[2];
@@ -1580,13 +1627,15 @@ function puniSpawn(opts = {}){
     item: activeItem,
     u: clamp(opts.u ?? 0.5, 0, 1), v: clamp(opts.v ?? 0.52, 0, 1),
     r: clamp(opts.r ?? shortSide*0.18, 0.025, shortSide*0.42),
-    h: clamp(opts.h ?? shortSide*0.095, 0.012, shortSide*0.25),
+    h: clamp(opts.h ?? shortSide*0.03, 0, shortSide*0.25),
     soft: clamp(opts.soft ?? PUNI_TUNE.soft, 0, 1), keep: clamp(opts.keep ?? PUNI_TUNE.keep, 0, 1),
     baseZ:0, mesh:null, geo:null, phys:null,
   };
   PUNI_TUNE.soft = puff.soft; PUNI_TUNE.keep = puff.keep; puniApplyFeel();
-  puff.phys = puniBuildTopology(puff); puniMakeMesh(puff);
+  // puffを先に登録し、レリーフへ埋め込みの凹みを作ってからrestを生成する
   activeItem.puffs.push(puff);
+  displace();
+  puff.phys = puniBuildTopology(puff); puniMakeMesh(puff);
   PUNI.selected = puff; PUNI.enabled = true; PUNI.lastItem = activeItem; PUNI.acc = 0;
   puniResetItemMotion(activeItem);
   puniRenderPuff(puff); puniSyncUI();
@@ -1617,6 +1666,11 @@ function puniRemovePuff(puff){
   puniDisposePuff(puff);
   list.splice(index, 1);
   PUNI.selected = list[index] || list[index-1] || null;
+  // 削除したpuffの凹みを消し、重なっていた残存puffも現在の表面から再生成する
+  if(item === activeItem){
+    displace();
+    puniRebuildActivePuffs();
+  }
   PUNI.enabled = items.some(it => it.puffs && it.puffs.length);
   puniSyncUI();
   schedulePuffsSave(item);
@@ -2102,7 +2156,7 @@ function puniSyncUI(){
     const rp = Math.round(puff.r / shortSide * 100);
     const hp = Math.round(puff.h / shortSide * 100);
     $('puniRadiusRange').value = clamp(rp, 3, 42);
-    $('puniHeightRange').value = clamp(hp, 2, 25);
+    $('puniHeightRange').value = clamp(hp, 0, 25);
     $('puniRadiusVal').textContent = rp + '%';
     $('puniHeightVal').textContent = hp + '%';
   }
@@ -2143,12 +2197,14 @@ $('puniRadiusRange').addEventListener('input', ()=>{
   const pct = Number($('puniRadiusRange').value); $('puniRadiusVal').textContent = pct + '%';
   const puff = PUNI.selected; if(!puff) return;
   puff.r = clamp(pct/100 * puniShortSide(puff.item), 0.025, puniShortSide(puff.item)*0.42);
-  puniRebuild(puff);
+  // 半径はレリーフ凹み範囲にも影響するため凹みを更新して全puffを再生成
+  displace();
+  puniRebuildActivePuffs();
 });
 $('puniHeightRange').addEventListener('input', ()=>{
   const pct = Number($('puniHeightRange').value); $('puniHeightVal').textContent = pct + '%';
   const puff = PUNI.selected; if(!puff) return;
-  puff.h = clamp(pct/100 * puniShortSide(puff.item), 0.012, puniShortSide(puff.item)*0.25);
+  puff.h = clamp(pct/100 * puniShortSide(puff.item), 0, puniShortSide(puff.item)*0.25);
   puniRebuild(puff);
 });
 $('puniDeleteBtn').onclick = ()=>{ if(!PUNI.selected) return; puniRemovePuff(PUNI.selected); toast('ぷるぷるを消しました'); };
@@ -2222,6 +2278,7 @@ window.__puni = {
   },
   remove(){
     for(const it of items){ if(!it.puffs) continue; for(const puff of it.puffs) puniDisposePuff(puff); it.puffs.length = 0; }
+    displace();   // 凹みを消す
     PUNI.pointer.active = false; PUNI.enabled = false; return true;
   },
   setSoft(v){ PUNI_TUNE.soft = clamp(Number(v), 0, 1); puniApplyFeel(); return { soft: PUNI_TUNE.soft, hariK: PUNI_TUNE.hariK, edgeCompliance: PUNI_TUNE.edgeCompliance }; },
@@ -2269,7 +2326,8 @@ function displace(){
     let d = 0;
     if(S.depthMap){ d = sampleBilinear(S.depthMap,u,v,0)/255; if(S.invert) d = 1-d; }
     if(S.alphaMap && sampleBilinear(S.alphaMap,u,v,3) < 20) d = 0;   // 透明部は奥へ
-    pos.setZ(i, d*scaleM);
+    // ぷるぷるスポットの下は凹ませて、膜が沈む空間を作る(固いレリーフの突き抜け防止)
+    pos.setZ(i, d*scaleM - puniReliefSinkAt(activeItem, u, v));
   }
   pos.needsUpdate = true;
   reliefGeo.computeVertexNormals();
