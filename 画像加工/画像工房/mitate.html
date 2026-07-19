@@ -410,7 +410,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev21-hud3d";
+const REV = "v2 rev22-camreq";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -3044,20 +3044,8 @@ function scanArQrFrame(frame, referenceSpace, session, nowMs) {
   if (nowMs - scanLastMs < 160) return;
   scanLastMs = nowMs;
 
-  /*
-   * enabledFeaturesが配列として公開され、そこにcamera-accessが
-   * 明示的に無い場合だけ、本当に未許可としてスキャンを停止する。
-   */
-  if (
-    Array.isArray(session.enabledFeatures) &&
-    !session.enabledFeatures.includes('camera-access')
-  ) {
-    disableUnsupportedArQr(
-      'camera-access未許可\nQuest v76以降・カメラ権限を許可してください'
-    );
-    return;
-  }
-
+  // camera-accessはスキャン時に必須要求で取得済み(セッションが開始できている=許可済み)。
+  // ここでは実際のカメラ画像の有無だけで進める。
   const pose = frame.getViewerPose(referenceSpace);
   if (!pose) {
     setScanHud('位置合わせ中…');
@@ -3281,14 +3269,13 @@ $('handoffScanBtn').onclick = startArScanFromShelf;
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   try{
+    // QRスキャンで入るときは camera-access を必須にして、Questに許可ダイアログを出させ確実に取得する
+    const wantScan = scanArmed;
     const s = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: [
-        'local-floor',
-        'hand-tracking',
-        'camera-access',
-        'dom-overlay'
-      ],
+      requiredFeatures: wantScan ? ['hit-test', 'camera-access'] : ['hit-test'],
+      optionalFeatures: wantScan
+        ? ['local-floor', 'hand-tracking', 'dom-overlay']
+        : ['local-floor', 'hand-tracking', 'camera-access', 'dom-overlay'],
       domOverlay: {
         root: document.getElementById('xrhud')
       }
