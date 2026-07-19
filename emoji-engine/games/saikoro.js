@@ -78,6 +78,33 @@ function updateEffects(dt){
   S.flash = Math.max(0, S.flash - dt);
   S.rollVisual = Math.max(0, S.rollVisual - dt);
   S.landPop = Math.max(0, S.landPop - dt);
+
+  // 土地ごとの「今もらった!」ハイライト(選択中の土地とは別に、当たった土地そのものを光らせる)
+  for (const land of S.lands){
+    land.hitFlash = Math.max(
+      0,
+      (land.hitFlash || 0) - dt
+    );
+  }
+}
+
+// 土地タイルの画面上の位置を計算(landHitの浮遊テキストや、当たった土地の光らせ表示で使う)
+function landLayout(g, index){
+  const count = S.lands.length;
+  const width = 148;
+  const gap = 14;
+  const total =
+    count * width +
+    (count - 1) * gap;
+  const left = (g.W - total) / 2;
+  const x = left + index * (width + gap);
+
+  return {
+    x: x,
+    centerX: x + width / 2,
+    y: 390,
+    width: width,
+  };
 }
 
 function randomResource(g){
@@ -376,14 +403,20 @@ function landHit(g, land){
       ? 2
       : 1;
 
+  // 浮遊テキストは「当たった土地の真上」に出す(固定位置だとどの土地が反応したか分からず、
+  // 別の資源が出たように見えてしまう=ユーザー報告のバグ)
+  const index = S.lands.indexOf(land);
+  const layout = landLayout(g, index);
+
   addResource(
     land.resource,
     amount,
-    480,
-    330
+    layout.centerX,
+    layout.y - 14
   );
 
-  S.landPop = 0.35;
+  // 選択中かどうかに関わらず、当たった土地そのものを光らせる
+  land.hitFlash = 0.45;
 
   if (
     VERY_RARE_NUMBERS.indexOf(
@@ -672,6 +705,7 @@ function selectInitialLand(g, index){
         number: land.number,
         resource: land.resource,
         building: "house",
+        hitFlash: 0,
       };
     }
   );
@@ -709,6 +743,7 @@ function selectNewLand(g, index){
     number: offered.number,
     resource: offered.resource,
     building: "none",
+    hitFlash: 0,
   });
 
   S.offer = [];
@@ -1718,17 +1753,31 @@ function drawLands(g){
     count * width +
     (count - 1) * gap;
   const left = (g.W - total) / 2;
+
+  if (S.scene === "play" && S.elapsed < 14){
+    g.text(
+      "↓ 数字の下の絵文字が「その土地でもらえる資源」。数字が出ると光ります",
+      g.W / 2,
+      373,
+      15,
+      "#ffe6a1"
+    );
+  }
   const y = 390;
 
   for (let i = 0; i < count; i++){
     const land = S.lands[i];
     const selected =
       i === S.selectedLand;
+    const justHit = (land.hitFlash || 0) > 0;
     const pop =
-      selected && S.landPop > 0
+      (selected && S.landPop > 0) || justHit
         ? Math.sin(
-          (0.42 - S.landPop) * 16
-        ) * 5
+          (0.42 - Math.max(
+            S.landPop,
+            land.hitFlash || 0
+          )) * 16
+        ) * 6
         : 0;
     const x = left + i * (width + gap);
 
@@ -1738,13 +1787,27 @@ function drawLands(g){
       y - pop,
       width,
       132,
-      selected
-        ? "#314c55"
-        : "#243841",
-      selected
+      justHit
+        ? "#3f5a2c"
+        : selected
+          ? "#314c55"
+          : "#243841",
+      justHit
         ? "#ffe66d"
-        : "#ffffff33"
+        : selected
+          ? "#ffe66d"
+          : "#ffffff33"
     );
+
+    if (justHit){
+      g.rect(
+        x - 4,
+        y - pop - 4,
+        width + 8,
+        140,
+        "#ffe66d22"
+      );
+    }
 
     g.text(
       String(i + 1),
@@ -2274,30 +2337,49 @@ function drawTitle(g){
 
   drawProbabilityMountain(
     g,
-    218,
-    false
+    180,
+    true
   );
 
   g.text(
-    "2個のサイコロを振り、土地の資源で島を育てよう",
+    "①最初に土地を3枚えらぶ(下の絵文字がもらえる資源)",
     g.W / 2,
-    390,
-    20,
-    "#c4d5e8"
+    338,
+    18,
+    "#dbe8f5",
+    "center"
   );
 
   g.text(
-    "🔮 出目補正　 🦹 盗賊　 🏠 建設　 🏰 発展　 🚢 交換",
+    "②サイコロが自動で振られ、自分の土地の数字が出たら資源GET",
     g.W / 2,
-    429,
-    21,
-    "#fff"
+    366,
+    18,
+    "#dbe8f5",
+    "center"
+  );
+
+  g.text(
+    "③資源で🏠→🏰や🚢を建てて得点を稼ぐ(90秒)",
+    g.W / 2,
+    394,
+    18,
+    "#dbe8f5",
+    "center"
+  );
+
+  g.text(
+    "🔮出目補正　🦹盗賊(7)　⚠数字が多く出る土地ほど安定",
+    g.W / 2,
+    425,
+    17,
+    "#ffe6a1"
   );
 
   g.text(
     "クリック / タップ またはスペースで開始",
     g.W / 2,
-    485,
+    478,
     22,
     "#ffe66d"
   );
@@ -2555,7 +2637,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev1",
+      "rev2",
       g.W - 8,
       14,
       12,

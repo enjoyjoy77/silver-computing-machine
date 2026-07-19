@@ -451,12 +451,17 @@ function cardLevel(id){
   return S.cards[id] || 0;
 }
 
+function evolutionTier(id){
+  return Math.floor(cardLevel(id) / 3);
+}
+
 function isEvolved(id){
-  return cardLevel(id) >= 3;
+  return evolutionTier(id) >= 1;
 }
 
 function evolutionPower(id){
-  return isEvolved(id) ? 1.8 : 1;
+  const tier = evolutionTier(id);
+  return tier > 0 ? 1 + tier * 0.8 : 1;
 }
 
 function addEffect(effect){
@@ -2319,8 +2324,8 @@ function updateOrbit(g, dt){
   const radius =
     52 + level * 7;
   const satelliteCount = Math.min(
-    4,
-    1 + Math.floor(level / 3)
+    8,
+    1 + Math.floor(level / 2)
   );
   const power =
     evolutionPower("orbit");
@@ -3252,28 +3257,34 @@ function grantCardLevel(g, card){
     g.se("click");
   }
 
-  const evolved =
-    S.cards[card.id] === 3;
+  const level = S.cards[card.id];
+  const tierJustReached =
+    level >= 3 && level % 3 === 0;
 
-  if (evolved){
-    S.freeze = 0.25;
-    S.flash = 0.3;
-    S.goldFlash = 0.35;
-    S.shake = 0.22;
+  if (tierJustReached){
+    const tier = level / 3;
+
+    S.freeze = Math.min(0.4, 0.2 + tier * 0.05);
+    S.flash = Math.min(0.5, 0.25 + tier * 0.05);
+    S.goldFlash = Math.min(0.55, 0.3 + tier * 0.05);
+    S.shake = Math.min(0.35, 0.18 + tier * 0.04);
 
     addBurst(
       g,
       S.player.x,
       S.player.y,
       "✨",
-      12,
+      12 + tier * 2,
       30
     );
 
     addFloater(
       S.player.x,
       S.player.y - 58,
-      card.emoji + " 進化!",
+      card.emoji +
+        (tier === 1
+          ? " 進化!"
+          : " 進化×" + tier + "!"),
       "#ffe66d",
       38,
       1.2
@@ -4099,8 +4110,8 @@ function drawOrbit(g, ox, oy){
   const radius =
     52 + level * 7;
   const count = Math.min(
-    4,
-    1 + Math.floor(level / 3)
+    8,
+    1 + Math.floor(level / 2)
   );
 
   for (let i = 0; i < count; i++){
@@ -5131,7 +5142,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev24",
+      "rev25",
       g.W - 8,
       14,
       12,

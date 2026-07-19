@@ -3,11 +3,13 @@
    採掘 → 警告 → 防衛を3サイクル繰り返す
    rev5: 掘削=穴が空くだけ(移動は歩き)、防衛バランス調整
    rev6: 135秒に拡張(採掘1.5倍)、溜め撃ち+装甲敵🦏で防衛を深化
+   rev7: 防衛を全画面2D戦闘に(矢印=照準専用、X=採掘切替)、
+         180秒に拡張、掘りの整列(コーナリング)修正
 ===================================================== */
 (function(){
 "use strict";
 
-const TOTAL_TIME = 135;
+const TOTAL_TIME = 180;
 const MINE_WIDTH = 720;
 const CELL = 48;
 const COLS = 14;
@@ -17,20 +19,7 @@ const MIN_UP_RATE = 0.4;
 
 const CYCLES = [
   {
-    mining: 30,
-    warning: 3,
-    defend: 12,
-    enemies: [
-      "normal",
-      "normal",
-      "normal",
-      "normal",
-      "normal",
-      "normal",
-    ],
-  },
-  {
-    mining: 28,
+    mining: 45,
     warning: 3,
     defend: 14,
     enemies: [
@@ -40,6 +29,19 @@ const CYCLES = [
       "normal",
       "normal",
       "normal",
+    ],
+  },
+  {
+    mining: 40,
+    warning: 3,
+    defend: 16,
+    enemies: [
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
+      "normal",
       "normal",
       "normal",
       "fast",
@@ -48,9 +50,9 @@ const CYCLES = [
     ],
   },
   {
-    mining: 26,
+    mining: 36,
     warning: 3,
-    defend: 16,
+    defend: 20,
     enemies: [
       "normal",
       "normal",
@@ -307,8 +309,10 @@ function reset(g){
     spawnTimer: 0,
     autoTimer: 0,
     manualTimer: 0,
-    aimX: 850,
+    aimX: 620,
+    aimY: 280,
     charge: 0,
+    moveMode: false,
 
     emergencyUsed: false,
     emergencyReadyShown: false,
@@ -401,8 +405,8 @@ function showWave(g, text){
 
 function checkEmergencyReady(g, before, after){
   if (
-    before < 45 &&
-    after >= 45 &&
+    before < 100 &&
+    after >= 100 &&
     !S.emergencyUsed
   ){
     S.emergencyReadyShown = true;
@@ -641,7 +645,7 @@ function returnToBase(g){
 function useEmergency(g){
   if (
     S.emergencyUsed ||
-    S.elapsed < 45 ||
+    S.elapsed < 100 ||
     isAtSurface() ||
     S.scene !== "play"
   ){
@@ -826,7 +830,7 @@ function updateMining(g, dt){
   const player = S.player;
 
   if (
-    S.elapsed >= 45 &&
+    S.elapsed >= 100 &&
     !S.emergencyUsed &&
     !isAtSurface()
   ){
@@ -862,6 +866,87 @@ function updateMining(g, dt){
     S.digTarget = null;
     S.digProgress = 0;
     return;
+  }
+
+  // 曲がる前に最寄りのマスへ整列する(マスの途中からズレた位置を
+  // 基準に掘ってしまう「当たり判定ずれ」の防止)
+  if (dc !== 0){
+    const nearRow = Math.round(
+      player.y / CELL
+    );
+    const alignY = nearRow * CELL;
+    const gapY = alignY - player.y;
+
+    if (Math.abs(gapY) > 1){
+      const step = Math.min(
+        moveSpeed() * dt,
+        Math.abs(gapY)
+      );
+      const oldY = player.y;
+
+      player.y +=
+        (gapY > 0 ? 1 : -1) * step;
+
+      if (
+        Math.abs(player.y - alignY) <= 0.5
+      ){
+        player.y = alignY;
+        player.row = nearRow;
+        collectResource(
+          g,
+          player.col,
+          player.row
+        );
+
+        if (
+          nearRow === 0 &&
+          oldY > 0
+        ){
+          returnToBase(g);
+        }
+      }
+
+      return;
+    }
+
+    player.y = alignY;
+    player.row = nearRow;
+  }
+
+  if (dr !== 0){
+    const nearCol = Math.round(
+      (player.x - CELL / 2) / CELL
+    );
+    const alignX =
+      nearCol * CELL + CELL / 2;
+    const gapX = alignX - player.x;
+
+    if (Math.abs(gapX) > 1){
+      const step = Math.min(
+        moveSpeed() * dt,
+        Math.abs(gapX)
+      );
+
+      player.x +=
+        (gapX > 0 ? 1 : -1) * step;
+
+      if (
+        Math.abs(player.x - alignX) <= 0.5
+      ){
+        player.x = alignX;
+        player.col = nearCol;
+        collectResource(
+          g,
+          player.col,
+          player.row
+        );
+      }
+
+      return;
+    }
+
+    player.x = alignX;
+    player.col = nearCol;
   }
 
   const targetCol = player.col + dc;
@@ -998,11 +1083,16 @@ function prepareDefense(){
 function spawnEnemy(g, type){
   const stats = enemyStats(type);
 
+  const sy = g.rand(90, 460);
+
   S.enemies.push({
     id: ++S.enemyId,
     type: type,
     emoji: stats.emoji,
-    x: 938,
+    x: 920,
+    y: sy,
+    sy: sy,
+    ratio: 1,
     r: stats.size,
     hp: stats.hp,
     maxHp: stats.hp,
@@ -1030,7 +1120,9 @@ function killEnemy(g, enemy){
 
   addFloater(
     enemy.x,
-    330,
+    enemy.y === undefined
+      ? 330
+      : enemy.y,
     "💥 撃破",
     "#ffe66d",
     22,
@@ -1057,8 +1149,9 @@ function fireManual(g, charged){
       continue;
     }
 
-    const distance = Math.abs(
-      enemy.x - S.aimX
+    const distance = Math.hypot(
+      enemy.x - S.aimX,
+      enemy.y - S.aimY
     );
 
     if (distance < best){
@@ -1067,7 +1160,18 @@ function fireManual(g, charged){
     }
   }
 
-  if (!target || best > 45){
+  if (
+    !target ||
+    best > (charged ? 62 : 46)
+  ){
+    addFloater(
+      S.aimX,
+      S.aimY,
+      "・",
+      "#8fa1b7",
+      18,
+      0.25
+    );
     g.se("click");
     return;
   }
@@ -1077,7 +1181,7 @@ function fireManual(g, charged){
 
     addFloater(
       target.x,
-      322,
+      target.y - 10,
       "💥",
       "#fff",
       24,
@@ -1093,15 +1197,16 @@ function fireManual(g, charged){
     return;
   }
 
-  // 溜め撃ち: 本命に2.5倍+周囲70px内の敵にも半分ダメージ
+  // 溜め撃ち: 本命に2.5倍+周囲90px内の敵にも半分ダメージ
   const mainX = target.x;
+  const mainY = target.y;
 
   S.shake = Math.max(S.shake, 0.2);
   S.freeze = Math.max(S.freeze, 3 / 60);
 
   addFloater(
     mainX,
-    310,
+    mainY - 20,
     "💥💥",
     "#ffcf6e",
     34,
@@ -1115,20 +1220,21 @@ function fireManual(g, charged){
       continue;
     }
 
-    const distance = Math.abs(
-      enemy.x - mainX
+    const distance = Math.hypot(
+      enemy.x - mainX,
+      enemy.y - mainY
     );
 
     if (enemy === target){
       enemy.hp -=
         turretDamage() * 2.5;
-    } else if (distance <= 70){
+    } else if (distance <= 90){
       enemy.hp -=
         turretDamage() * 1.25;
 
       addFloater(
         enemy.x,
-        322,
+        enemy.y - 10,
         "💥",
         "#ffb36a",
         20,
@@ -1225,16 +1331,31 @@ function updateDefense(g, dt){
     }
   }
 
-  if (isAtSurface()){
+  if (
+    isAtSurface() &&
+    !S.moveMode
+  ){
+    // 矢印4方向は照準専用(プレイヤーは動かない)
     S.aimX +=
       g.stickX() *
-      145 *
+      300 *
+      dt;
+
+    S.aimY +=
+      g.stickY() *
+      300 *
       dt;
 
     S.aimX = g.clamp(
       S.aimX,
-      780,
-      930
+      150,
+      940
+    );
+
+    S.aimY = g.clamp(
+      S.aimY,
+      70,
+      500
     );
 
     // 溜め撃ち: actionを押しっぱなしで溜め、離すと発射
@@ -1272,9 +1393,16 @@ function updateDefense(g, dt){
       1
     );
 
+    enemy.ratio = ratio;
+
+    // 全画面バトルの座標(基地=左、出現位置=右端の色々な高さ)
     enemy.x =
-      770 +
-      168 * ratio;
+      110 +
+      (920 - 110) * ratio;
+
+    enemy.y =
+      300 +
+      (enemy.sy - 300) * ratio;
 
     if (
       !enemy.warned &&
@@ -1402,6 +1530,7 @@ function enterPhase(g, phase){
 
   S.phaseDuration =
     CYCLES[S.cycle].defend;
+  S.moveMode = false;
   prepareDefense();
   S.shake = Math.max(S.shake, 0.25);
   S.redFlash = Math.max(S.redFlash, 0.18);
@@ -1480,6 +1609,12 @@ function updatePlay(g, dt){
   updateTimeline(g, dt);
 
   if (S.phase === "defend"){
+    // Xキーで「照準モード⇔採掘モード」を切り替え
+    if (g.pressed("KeyX")){
+      S.moveMode = !S.moveMode;
+      g.se("click");
+    }
+
     updateDefense(g, dt);
 
     if (S.scene === "over"){
@@ -1487,7 +1622,15 @@ function updatePlay(g, dt){
     }
   }
 
-  updateMining(g, dt);
+  const aimOnly =
+    S.phase === "defend" &&
+    isAtSurface() &&
+    !S.moveMode;
+
+  // 照準モード中は矢印をプレイヤー移動に流さない
+  if (!aimOnly){
+    updateMining(g, dt);
+  }
 
   if (
     S.scene === "play" &&
@@ -1944,6 +2087,16 @@ function drawDefenseBand(g, ox, oy){
       enemy.remaining
     );
 
+    // 帯表示はミニマップ的な縮尺(全画面バトルとは別座標)
+    const bandX =
+      770 +
+      168 *
+      (
+        enemy.ratio === undefined
+          ? 1
+          : enemy.ratio
+      );
+
     const urgency = g.clamp(
       1 - enemy.remaining / 6,
       0,
@@ -1963,7 +2116,7 @@ function drawDefenseBand(g, ox, oy){
 
     g.emoji(
       enemy.emoji,
-      enemy.x + ox,
+      bandX + ox,
       255 + oy,
       size * pulse
     );
@@ -1971,7 +2124,7 @@ function drawDefenseBand(g, ox, oy){
     if (enemy.remaining <= 5){
       g.text(
         "⚠",
-        enemy.x + ox,
+        bandX + ox,
         218 + oy,
         20,
         enemy.remaining <= 3
@@ -1983,7 +2136,7 @@ function drawDefenseBand(g, ox, oy){
     if (enemy.autoResist < 1){
       g.text(
         "🛡",
-        enemy.x + 20 + ox,
+        bandX + 20 + ox,
         246 + oy,
         16,
         "#c9d8e6"
@@ -1991,7 +2144,7 @@ function drawDefenseBand(g, ox, oy){
     }
 
     g.rect(
-      enemy.x - 17 + ox,
+      bandX - 17 + ox,
       230 + oy,
       34,
       5,
@@ -1999,7 +2152,7 @@ function drawDefenseBand(g, ox, oy){
     );
 
     g.rect(
-      enemy.x - 17 + ox,
+      bandX - 17 + ox,
       230 + oy,
       34 * hpRatioEnemy,
       5,
@@ -2033,59 +2186,14 @@ function drawDefenseBand(g, ox, oy){
     S.phase === "defend" &&
     isAtSurface()
   ){
+    // 帯が見えるのは採掘モード中のみ(照準モードは全画面バトル)
     g.text(
-      "左右:照準  action長押し:溜め撃ち",
+      "X:防衛画面へ",
       840,
       305,
-      14,
+      15,
       "#ffe39b"
     );
-
-    g.text(
-      "⌄",
-      S.aimX,
-      220,
-      24,
-      S.charge >= 0.6
-        ? "#ffcf6e"
-        : "#80eaff"
-    );
-
-    if (S.charge > 0){
-      const ratio = g.clamp(
-        S.charge / 0.6,
-        0,
-        1
-      );
-
-      g.rect(
-        S.aimX - 22,
-        196,
-        44,
-        6,
-        "#101c28"
-      );
-
-      g.rect(
-        S.aimX - 22,
-        196,
-        44 * ratio,
-        6,
-        ratio >= 1
-          ? "#ffcf6e"
-          : "#80eaff"
-      );
-
-      if (ratio >= 1){
-        g.text(
-          "MAX!",
-          S.aimX,
-          184,
-          14,
-          "#ffcf6e"
-        );
-      }
-    }
   } else if (S.phase === "defend"){
     g.text(
       "地下: 自動砲台が弱めに応戦",
@@ -2181,6 +2289,250 @@ function drawDefenseBand(g, ox, oy){
   );
 }
 
+function drawBattle(g, ox, oy){
+  // 全画面バトル(防衛フェーズ・地上・照準モード)
+  g.rect(0, 0, g.W, g.H, "#0c1524");
+  g.rect(0, 470, g.W, 70, "#16283a");
+  g.rect(0, 468, g.W, 3, "#87bde055");
+
+  g.emoji(
+    baseEmoji(),
+    110 + ox,
+    320 + oy,
+    84
+  );
+
+  if (S.upgrades.power > 0){
+    g.emoji("🔫", 148 + ox, 282 + oy, 30);
+  }
+
+  if (S.upgrades.armor > 0){
+    g.emoji("🛡️", 78 + ox, 284 + oy, 30);
+  }
+
+  const condition = baseCondition();
+
+  if (condition){
+    g.text(
+      condition,
+      110 + ox,
+      372 + oy,
+      26,
+      "#fff"
+    );
+  }
+
+  g.rect(30, 26, 300, 18, "#07101a");
+
+  const hpRatio = g.clamp(
+    S.baseHp / S.baseMaxHp,
+    0,
+    1
+  );
+
+  g.rect(
+    30,
+    26,
+    300 * hpRatio,
+    18,
+    hpRatio <= 0.25
+      ? "#ff4c58"
+      : hpRatio <= 0.5
+        ? "#ffac55"
+        : "#68dc93"
+  );
+
+  g.text(
+    "基地耐久 " +
+      Math.ceil(S.baseHp) +
+      " / " +
+      Math.ceil(S.baseMaxHp),
+    40,
+    64,
+    16,
+    "#dcecf7",
+    "left"
+  );
+
+  g.text(
+    "第" + cycleNumber() +
+      "波 防衛中  あと " +
+      phaseRemaining().toFixed(1) +
+      "秒",
+    g.W / 2,
+    30,
+    20,
+    "#ff867f"
+  );
+
+  g.text(
+    "強化ポイント " + S.upgradePoints,
+    g.W - 30,
+    64,
+    16,
+    "#ffe66d",
+    "right"
+  );
+
+  g.text(
+    "矢印:照準  action長押し:溜め撃ち  X:採掘に戻る",
+    g.W / 2,
+    522,
+    16,
+    "#ffe39b"
+  );
+
+  let minRemaining = 999;
+
+  for (const enemy of S.enemies){
+    if (enemy.dead){
+      continue;
+    }
+
+    minRemaining = Math.min(
+      minRemaining,
+      enemy.remaining
+    );
+
+    const urgency = g.clamp(
+      1 - enemy.remaining / 6,
+      0,
+      1
+    );
+
+    const size =
+      (
+        enemy.type === "large"
+          ? 52
+          : 36
+      ) + urgency * 18;
+
+    const pulse =
+      enemy.remaining <= 3
+        ? 1 +
+          Math.sin(g.time * 14) * 0.12
+        : 1;
+
+    g.emoji(
+      enemy.emoji,
+      enemy.x + ox,
+      enemy.y + oy,
+      size * pulse
+    );
+
+    if (enemy.autoResist < 1){
+      g.text(
+        "🛡",
+        enemy.x + 26 + ox,
+        enemy.y - 18 + oy,
+        17,
+        "#c9d8e6"
+      );
+    }
+
+    if (enemy.remaining <= 5){
+      g.text(
+        "⚠",
+        enemy.x + ox,
+        enemy.y - 36 + oy,
+        20,
+        enemy.remaining <= 3
+          ? "#ff5c63"
+          : "#ffb36a"
+      );
+    }
+
+    g.rect(
+      enemy.x - 20 + ox,
+      enemy.y + 26 + oy,
+      40,
+      5,
+      "#30141a"
+    );
+
+    g.rect(
+      enemy.x - 20 + ox,
+      enemy.y + 26 + oy,
+      40 * g.clamp(
+        enemy.hp / enemy.maxHp,
+        0,
+        1
+      ),
+      5,
+      "#ff7b82"
+    );
+  }
+
+  if (
+    S.enemies.length > 0 &&
+    minRemaining <= 6
+  ){
+    const dangerAlpha =
+      0.1 +
+      (1 - minRemaining / 6) * 0.18;
+
+    g.rect(
+      0,
+      0,
+      g.W,
+      g.H,
+      "#ff2d2d" +
+        Math.floor(dangerAlpha * 255)
+          .toString(16)
+          .padStart(2, "0")
+    );
+  }
+
+  const aimColor =
+    S.charge >= 0.6
+      ? "#ffcf6e"
+      : "#80eaff";
+
+  g.text(
+    "✛",
+    S.aimX,
+    S.aimY,
+    34,
+    aimColor
+  );
+
+  if (S.charge > 0){
+    const ratio = g.clamp(
+      S.charge / 0.6,
+      0,
+      1
+    );
+
+    g.rect(
+      S.aimX - 24,
+      S.aimY - 36,
+      48,
+      6,
+      "#101c28"
+    );
+
+    g.rect(
+      S.aimX - 24,
+      S.aimY - 36,
+      48 * ratio,
+      6,
+      ratio >= 1
+        ? "#ffcf6e"
+        : "#80eaff"
+    );
+
+    if (ratio >= 1){
+      g.text(
+        "MAX!",
+        S.aimX,
+        S.aimY - 48,
+        14,
+        "#ffcf6e"
+      );
+    }
+  }
+}
+
 function drawMineHud(g){
   const layer =
     depthLayer(S.player.y);
@@ -2240,7 +2592,7 @@ function drawMineHud(g){
       ? "時間終了で帰還警告"
       : S.phase === "warning"
         ? "まもなく敵が来る!"
-        : "地上で手動射撃が有効",
+        : "地上のバトル画面で手動射撃",
     28,
     112,
     15,
@@ -2249,7 +2601,7 @@ function drawMineHud(g){
   );
 
   if (
-    S.elapsed >= 45 &&
+    S.elapsed >= 100 &&
     !S.emergencyUsed &&
     !isAtSurface()
   ){
@@ -2282,7 +2634,7 @@ function drawMineHud(g){
   if (isAtSurface()){
     g.text(
       S.phase === "defend"
-        ? "左右で照準・action長押しで溜め撃ち"
+        ? "X:防衛画面へ  矢印:移動・採掘"
         : "↓で採掘開始",
       355,
       148,
@@ -2617,7 +2969,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "地上防衛: 左右で照準・action長押しで溜め撃ち",
+    "地上防衛: 全画面バトル。矢印で照準・action長押しで溜め撃ち",
     360,
     291,
     18,
@@ -2641,7 +2993,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "← ↑ ↓ → で掘る(穴が空く)・空いた道を歩く",
+    "採掘: 矢印で掘って歩く / 防衛中はXで画面切替",
     360,
     402,
     18,
@@ -2872,6 +3224,18 @@ EmojiEngine.register({
       drawTitle(g);
     } else if (S.scene === "over"){
       drawResult(g);
+    } else if (
+      S.phase === "defend" &&
+      isAtSurface() &&
+      !S.moveMode
+    ){
+      drawBattle(g, ox, oy);
+      drawFloaters(g, ox, oy);
+      drawWaveBanner(g);
+
+      if (S.scene === "upgrade"){
+        drawUpgrade(g);
+      }
     } else {
       drawMineBackground(
         g,
@@ -2946,7 +3310,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev6",
+      "rev7",
       g.W - 8,
       14,
       12,
