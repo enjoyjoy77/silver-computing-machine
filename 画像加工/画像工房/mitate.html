@@ -430,7 +430,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev26-puni4b";
+const REV = "v2 rev27-puni4c";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1389,6 +1389,8 @@ const PUNI = {
   selected: null, placeArmed: false, xrPrevWorld: new Map(), tmpScale: new THREE.Vector3(),
   pointer: { active:false, pointerId:-1, puff:null, anchor:new THREE.Vector3(), normal:new THREE.Vector3(0,0,1), depth:0, heldSec:0, prevCenter:new THREE.Vector3(), havePrev:false },
   xrColliders: [],
+  // 段階4-3: XRフレーム内で使い回す。通常フレーム中のVector3生成を避ける。
+  xrWorldPool: [], xrWorldCount: 0, xrSeen: new Set(),
   raycaster: new THREE.Raycaster(), ndc: new THREE.Vector2(),
   tmpV0: new THREE.Vector3(), tmpV1: new THREE.Vector3(),
 };
@@ -1836,6 +1838,8 @@ function puniSolveOneCollider(puff, center, radius){
 }
 function puniSolveColliders(puff, subAlpha){
   const p = puff.phys; const c = p.collider;
+  // 段階4-3: 遠方カリング済みでポインタもなければサブステップ処理を即終了。
+  if(!c.active && p.xrColliders.length === 0) return;
   if(c.active){
     const center = PUNI.tmpV0;
     if(c.havePrev){ center.lerpVectors(c.prevCenter, c.center, subAlpha); }
@@ -2268,17 +2272,32 @@ puniSyncUI();
 /* ---- XR: 素手の純正25関節＋コントローラ先端をコライダに（各puffのtiltGroupローカルへ） ---- */
 const PUNI_HAND_MIN_R = 0.012;
 const PUNI_CONTROLLER_R = 0.014;
+// ローカル単位。カリング境界の出入りを十分外側に置く安全マージン。
+const PUNI_XR_CULL_MARGIN = 0.030;
 const _puniJointWorld = new THREE.Vector3();
 const _puniTipWorld = new THREE.Vector3();
 const _puniPrevLocal = new THREE.Vector3();
 const _puniTipLocal = new THREE.Vector3(0,0,-0.11);
+const _puniPuffWorldCenter = new THREE.Vector3();
+
+function puniXRWorldSlot(key, center, radius){
+  const i = PUNI.xrWorldCount++;
+  let wc = PUNI.xrWorldPool[i];
+  if(!wc){
+    wc = PUNI.xrWorldPool[i] = { key: "", center: new THREE.Vector3(), radius: 0 };
+  }
+  wc.key = key;
+  wc.center.copy(center);
+  wc.radius = radius;
+  return wc;
+}
 function puniWorldRadiusToLocal(item, radius){
   item.tiltGroup.getWorldScale(PUNI.tmpScale);
   const s = Math.max(Math.abs(PUNI.tmpScale.x), Math.abs(PUNI.tmpScale.y), Math.abs(PUNI.tmpScale.z), 1e-6);
   return radius / s;
 }
 function puniCollectXRWorldColliders(){
-  const out = [];
+  PUNI.xrWorldCount = 0;
   for(let handIndex=0; handIndex<handTrackers.length; handIndex++){
     const hand = handTrackers[handIndex];
     if(!hand || !hand.visible || !hand.joints) continue;
@@ -2286,7 +2305,11 @@ function puniCollectXRWorldColliders(){
       if(!joint || joint.visible === false) continue;
       joint.getWorldPosition(_puniJointWorld);
       const nativeRadius = Number(joint.jointRadius) || Number(joint.userData?.jointRadius) || PUNI_HAND_MIN_R;
-      out.push({ key:`hand${handIndex}:${jointName}`, center:_puniJointWorld.clone(), radius:Math.max(nativeRadius, PUNI_HAND_MIN_R) });
+      puniXRWorldSlot(
+        `hand${handIndex}:${jointName}`,
+        _puniJointWorld,
+        Math.max(nativeRadius, PUNI_HAND_MIN_R)
+      );
     }
   }
   for(let i=0; i<controllers.length; i++){
@@ -2295,29 +2318,108 @@ function puniCollectXRWorldColliders(){
     if(!controller || !controller.visible || src?.hand) continue;
     _puniTipWorld.copy(_puniTipLocal);
     controller.localToWorld(_puniTipWorld);
-    out.push({ key:`controller${i}:tip`, center:_puniTipWorld.clone(), radius:PUNI_CONTROLLER_R });
+    puniXRWorldSlot(`controller${i}:tip`, _puniTipWorld, PUNI_CONTROLLER_R);
   }
-  return out;
+
+  // PC検証用注入(setXRColliders)。XR実機のコライダと同じワールド座標として扱う。
+  for(let i=0; i<PUNI.xrColliders.length; i++){
+    const xc = PUNI.xrColliders[i];
+    if(!xc || xc.active === false) continue;
+    puniXRWorldSlot(`debug:${i}`, xc.center, xc.radius);
+  }
+
+  // pool後半は保持するが、当該フレームの有効範囲(xrWorldCount)だけを使う。
+  return PUNI.xrWorldPool;
 }
+
+function puniPuffWorldCenter(puff, out){
+  const rest = puff.phys.rest;
+  out.set(rest[0], rest[1], rest[2]);
+  return puff.item.tiltGroup.localToWorld(out);
+}
+
 function puniUpdateXRColliders(puffs){
   const world = puniCollectXRWorldColliders();
-  const seen = new Set();
+  const worldCount = PUNI.xrWorldCount;
+  const seen = PUNI.xrSeen;
+  seen.clear();
+
+  for(let i=0; i<worldCount; i++) seen.add(world[i].key);
+
   for(const puff of puffs){
     const item = puff.item;
-    const list = puff.phys.xrColliders;
+    const p = puff.phys;
+    const list = p.xrColliders;
     list.length = 0;
-    for(const wc of world){
-      seen.add(wc.key);
-      const center = wc.center.clone();
-      item.tiltGroup.worldToLocal(center);
+
+    // 同一puffではワールドスケールと中心を1回だけ取得する。
+    item.tiltGroup.getWorldScale(PUNI.tmpScale);
+    const worldScale = Math.max(
+      Math.abs(PUNI.tmpScale.x),
+      Math.abs(PUNI.tmpScale.y),
+      Math.abs(PUNI.tmpScale.z),
+      1e-6
+    );
+    puniPuffWorldCenter(puff, _puniPuffWorldCenter);
+
+    // list.lengthを0にしても再利用できるよう、物理状態に専用poolを保持。
+    const pool = p.xrColliderPool || (p.xrColliderPool = []);
+    let used = 0;
+
+    for(let i=0; i<worldCount; i++){
+      const wc = world[i];
+      const localColliderR = wc.radius / worldScale;
+      // 広域カリング: puffの届く範囲(半径+盛り上がり+コライダ+マージン)の外は登録しない
+      const broadR = (
+        Math.max(Number(puff.r) || 0, 0) +
+        Math.max(Number(puff.h) || 0, 0) +
+        localColliderR +
+        PUNI_XR_CULL_MARGIN
+      ) * worldScale;
+
+      if(_puniPuffWorldCenter.distanceToSquared(wc.center) > broadR*broadR) continue;
+
+      let xc = pool[used++];
+      if(!xc){
+        xc = pool[pool.length] = {
+          active: true,
+          center: new THREE.Vector3(),
+          prevCenter: new THREE.Vector3(),
+          havePrev: false,
+          radius: 0,
+        };
+      }
+
+      xc.active = true;
+      xc.center.copy(wc.center);
+      item.tiltGroup.worldToLocal(xc.center);
+
       const prevWorld = PUNI.xrPrevWorld.get(wc.key);
-      let havePrev = false;
-      if(prevWorld){ _puniPrevLocal.copy(prevWorld); item.tiltGroup.worldToLocal(_puniPrevLocal); havePrev = true; }
-      list.push({ active:true, center, prevCenter:havePrev ? _puniPrevLocal.clone() : center.clone(), havePrev, radius:puniWorldRadiusToLocal(item, wc.radius) });
+      xc.havePrev = !!prevWorld;
+      if(prevWorld){
+        xc.prevCenter.copy(prevWorld);
+        item.tiltGroup.worldToLocal(xc.prevCenter);
+      }else{
+        xc.prevCenter.copy(xc.center);
+      }
+      xc.radius = localColliderR;
+      list.push(xc);
     }
   }
-  for(const wc of world){ PUNI.xrPrevWorld.set(wc.key, wc.center.clone()); }
-  for(const key of [...PUNI.xrPrevWorld.keys()]){ if(!seen.has(key)) PUNI.xrPrevWorld.delete(key); }
+
+  // 遠方カリング中も全コライダのprevを更新(再進入時に巨大CCD軌跡を再生しないため)
+  for(let i=0; i<worldCount; i++){
+    const wc = world[i];
+    let prevWorld = PUNI.xrPrevWorld.get(wc.key);
+    if(!prevWorld){
+      prevWorld = new THREE.Vector3();
+      PUNI.xrPrevWorld.set(wc.key, prevWorld);
+    }
+    prevWorld.copy(wc.center);
+  }
+  for(const key of PUNI.xrPrevWorld.keys()){
+    if(!seen.has(key)) PUNI.xrPrevWorld.delete(key);
+  }
 }
 
 window.__puni = {
@@ -2375,6 +2477,24 @@ window.__puni = {
     return PUNI.xrColliders.length;
   },
   clearXRColliders(){ PUNI.xrColliders.length = 0; },
+  _updateXRColliders(){
+    const puffs = puniActivePuffs();
+    puniUpdateXRColliders(puffs);
+    return puffs.map((puff, index) => ({
+      index,
+      selected: puff === PUNI.selected,
+      count: puff.phys.xrColliders.length,
+    }));
+  },
+  xrCullInfo(puff = PUNI.selected){
+    if(!puff?.phys) throw new Error("puni: select a puff first");
+    const center = puniPuffWorldCenter(puff, new THREE.Vector3());
+    return {
+      center: { x:center.x, y:center.y, z:center.z },
+      count: puff.phys.xrColliders.length,
+      margin: PUNI_XR_CULL_MARGIN,
+    };
+  },
   tune: PUNI_TUNE,
   selected(){ return PUNI.selected; },
   select(puff){ puniSelect(puff); return puniState(puff); },
