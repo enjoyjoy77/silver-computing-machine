@@ -75,7 +75,22 @@
     <div id="overlay">
       <h2 id="overlayTitle">テトリス完全再現</h2>
       <p id="overlayText">標準ルール(ガイドライン)準拠<br>SRS回転・7種先読み・ホールド対応</p>
-      <button id="startBtn">はじめる</button>
+      <div id="modeButtons" style="display:flex;gap:10px;">
+        <button id="startBtn">ひとりで</button>
+        <button id="vsBtn">🤖 CPU対戦</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col" id="cpuCol" style="display:none;">
+    <div class="panel">
+      <h3>CPU</h3>
+      <div class="val" id="cpuScoreVal">0</div>
+      <div style="font-size:11px;color:var(--sub);margin-top:2px">ライン <span id="cpuLinesVal">0</span></div>
+    </div>
+    <canvas id="cpuBoardCanvas" width="180" height="360" style="border:2px solid var(--line);border-radius:6px;background:#05070c;"></canvas>
+    <div class="panel" style="font-size:12px;color:var(--sub);text-align:center;">
+      おじゃま <span id="cpuGarbageVal">0</span> 段
     </div>
   </div>
 
@@ -112,7 +127,7 @@
   </div>
 </div>
 <button id="mute">🔊 音ON</button>
-<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev6 (2026-07-19) AI評価関数を「9-1積み+我慢/緊急回避」方式に刷新</div>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev7 (2026-07-19) CPU対戦モードを追加</div>
 
 <script>
 (function(){
@@ -139,6 +154,7 @@ const CELL = 30;
 const COLORS = {
   I: "#00f0f0", O: "#f0f000", T: "#a000f0",
   S: "#00f000", Z: "#f00000", J: "#0000f0", L: "#f0a000",
+  G: "#5a6070", // おじゃまブロック
   GHOST: "rgba(255,255,255,0.18)"
 };
 
@@ -584,6 +600,211 @@ function renderAdvicePanel(){
   box.innerHTML = html || '<span class="empty">この手で問題ありません。</span>';
 }
 
+/* ============================================================
+   CPU対戦モード
+   AIアドバイザーと同じ盤面評価関数(aiBestMove等)を使い、
+   CPU自身に最適な手を選ばせて自動プレイさせる。
+   2ライン以上の消去でおじゃま行を相手へ送り合い、先に窒息した
+   側の負けとする。
+   ============================================================ */
+const CPU_MOVE_DURATION = 550; // CPUが1手を打つのにかける時間(ms)
+let vsMode = false;
+let pendingGarbageForPlayer = 0;
+let pendingGarbageForCpu = 0;
+
+function updateGarbageDisplay(){
+  const el = document.getElementById("cpuGarbageVal");
+  if(el) el.textContent = pendingGarbageForCpu;
+}
+
+// 消去ライン数(+Tスピン種別)からおじゃま行の攻撃力を求める(簡易版)
+function calcAttack(n, tspin){
+  if(tspin === "full") return [0,2,4,6][n] || 0;
+  if(tspin === "mini") return n > 0 ? 1 : 0;
+  if(n === 4) return 4;
+  if(n === 3) return 2;
+  if(n === 2) return 1;
+  return 0;
+}
+
+// 盤面の下に「おじゃま行」を積み増す(上からcount行を捨てて下に足す)
+function applyGarbage(board, count){
+  if(count <= 0) return board;
+  const gapCol = Math.floor(Math.random()*COLS);
+  const rows = [];
+  for(let i=0;i<count;i++){
+    const row = new Array(COLS).fill("G");
+    row[gapCol] = null;
+    rows.push(row);
+  }
+  return board.slice(count).concat(rows);
+}
+
+const cpuState = {
+  board: null, bag: null, queue: [], hold: null, holdUsed: false,
+  current: null, score: 0, lines: 0, status: "idle"
+};
+
+function cpuResetGame(){
+  cpuState.board = emptyBoard();
+  cpuState.bag = new SevenBag();
+  cpuState.queue = [];
+  cpuState.hold = null;
+  cpuState.holdUsed = false;
+  cpuState.current = null;
+  cpuState.score = 0;
+  cpuState.lines = 0;
+  cpuState.status = "playing";
+  pendingGarbageForPlayer = 0;
+  pendingGarbageForCpu = 0;
+  updateGarbageDisplay();
+  cpuUpdateHUD();
+}
+
+function cpuRefillQueue(){
+  while(cpuState.queue.length < 3) cpuState.queue.push(cpuState.bag.next());
+}
+
+// 現在の持ちミノ+ホールド候補から、CPUにとって最良の一手を選ぶ
+function cpuChooseMove(){
+  cpuRefillQueue();
+  const curType = cpuState.queue[0];
+  const nextType = cpuState.queue[1];
+  const hasIMino = [curType, nextType, cpuState.queue[2], cpuState.hold].includes("I");
+  const board = cpuState.board;
+
+  const withoutHold = aiBestMove(board, curType, nextType, hasIMino);
+  let best = withoutHold ? { ...withoutHold, usedType: curType, useHold:false } : null;
+
+  if(!cpuState.holdUsed){
+    const holdWasEmpty = cpuState.hold === null;
+    let holdCandidateType, lookaheadNextType;
+    if(holdWasEmpty){ holdCandidateType = nextType; lookaheadNextType = cpuState.queue[2]; }
+    else { holdCandidateType = cpuState.hold; lookaheadNextType = nextType; }
+    if(holdCandidateType){
+      const withHold = aiBestMove(board, holdCandidateType, lookaheadNextType, hasIMino);
+      if(withHold && (!best || withHold.total > best.total)){
+        best = { ...withHold, usedType: holdCandidateType, useHold:true, holdWasEmpty, benchedType: curType };
+      }
+    }
+  }
+  return best;
+}
+
+function cpuSpawnNext(){
+  const move = cpuChooseMove();
+  if(!move){ cpuGameOver(); return; }
+
+  if(move.useHold){
+    if(move.holdWasEmpty) cpuState.hold = cpuState.queue.shift();
+    else { cpuState.hold = cpuState.queue.shift(); }
+  } else {
+    cpuState.queue.shift();
+  }
+  cpuRefillQueue();
+  cpuState.holdUsed = true;
+
+  const box = BOX[move.usedType];
+  const spawnCol = Math.floor((COLS - box)/2);
+  const spawnRow = HIDDEN_ROWS - 2;
+  if(aiCollides(cpuState.board, move.usedType, 0, spawnCol, spawnRow)){
+    cpuGameOver();
+    return;
+  }
+  cpuState.current = {
+    type: move.usedType, rot: move.placement.rot,
+    fromCol: spawnCol, fromRow: spawnRow,
+    toCol: move.placement.col, toRow: move.placement.row,
+    t0: 0, duration: CPU_MOVE_DURATION
+  };
+}
+
+function cpuLockCurrent(){
+  const c = cpuState.current;
+  if(!c) return;
+  const b = aiApplyPlacement(cpuState.board, c.type, c.rot, c.toCol, c.toRow);
+  cpuState.board = b.board;
+  if(b.cleared > 0){
+    cpuState.lines += b.cleared;
+    cpuState.score += [0, SCORE.single, SCORE.double, SCORE.triple, SCORE.tetris][b.cleared] || 0;
+    const attack = calcAttack(b.cleared, null);
+    if(attack > 0) pendingGarbageForPlayer += attack;
+  }
+  if(pendingGarbageForCpu > 0){
+    cpuState.board = applyGarbage(cpuState.board, pendingGarbageForCpu);
+    pendingGarbageForCpu = 0;
+    updateGarbageDisplay();
+  }
+  cpuState.current = null;
+  cpuState.holdUsed = false;
+  cpuUpdateHUD();
+
+  for(let c2=0;c2<COLS;c2++){
+    if(cpuState.board[HIDDEN_ROWS-1][c2] || (cpuState.board[HIDDEN_ROWS-2] && cpuState.board[HIDDEN_ROWS-2][c2])){
+      cpuGameOver();
+      return;
+    }
+  }
+}
+
+function cpuGameOver(){
+  if(cpuState.status !== "playing") return;
+  cpuState.status = "gameover";
+  if(vsMode && state.status === "playing") endVsMatch(true); // プレイヤーの勝ち
+}
+
+function cpuSimulate(dtMs){
+  if(!vsMode || state.status !== "playing" || cpuState.status !== "playing") return;
+  if(!cpuState.current){ cpuSpawnNext(); return; }
+  cpuState.current.t0 += dtMs;
+  if(cpuState.current.t0 >= cpuState.current.duration) cpuLockCurrent();
+}
+
+function cpuCurrentVisual(){
+  const c = cpuState.current;
+  if(!c) return null;
+  const t = Math.min(1, c.t0 / c.duration);
+  return { row: c.fromRow + (c.toRow-c.fromRow)*t, col: c.fromCol + (c.toCol-c.fromCol)*t };
+}
+
+const cpuCanvas = document.getElementById("cpuBoardCanvas");
+const cctx = cpuCanvas.getContext("2d");
+const CPU_CELL = 18;
+
+function cpuRender(){
+  if(!vsMode) return;
+  cctx.clearRect(0,0,cpuCanvas.width, cpuCanvas.height);
+  for(let r=HIDDEN_ROWS; r<ROWS; r++){
+    for(let c=0;c<COLS;c++){
+      const v = cpuState.board[r][c];
+      if(v) drawCell(cctx, c*CPU_CELL, (r-HIDDEN_ROWS)*CPU_CELL, CPU_CELL, v==="G" ? "#5a6070" : COLORS[v]);
+    }
+  }
+  const vis = cpuCurrentVisual();
+  if(vis && cpuState.current){
+    const shape = SHAPES[cpuState.current.type][cpuState.current.rot];
+    for(const [dc,dr] of shape){
+      const row = Math.round(vis.row)+dr, col = Math.round(vis.col)+dc;
+      if(row >= HIDDEN_ROWS && row < ROWS && col >= 0 && col < COLS){
+        drawCell(cctx, col*CPU_CELL, (row-HIDDEN_ROWS)*CPU_CELL, CPU_CELL, COLORS[cpuState.current.type]);
+      }
+    }
+  }
+}
+
+function cpuUpdateHUD(){
+  document.getElementById("cpuScoreVal").textContent = cpuState.score;
+  document.getElementById("cpuLinesVal").textContent = cpuState.lines;
+}
+
+function endVsMatch(playerWon){
+  state.status = "gameover";
+  cpuState.status = "gameover";
+  if(playerWon) SFX.levelup(); else SFX.gameover();
+  showOverlay(playerWon ? "🎉 あなたの勝ち!" : "😢 CPUの勝ち…",
+    `あなた: ${state.score}点 / CPU: ${cpuState.score}点`, "もう一度", true);
+}
+
 // ---------- 音(WebAudio、ファイル不要の合成音) ----------
 let audioCtx = null;
 let muted = false;
@@ -910,6 +1131,16 @@ function lockPiece(){
     return;
   }
 
+  if(vsMode){
+    const attack = calcAttack(n, tspin) + (n>0 && state.combo>=1 ? Math.floor(state.combo/2) : 0);
+    if(attack > 0) pendingGarbageForCpu += attack;
+    updateGarbageDisplay();
+    if(pendingGarbageForPlayer > 0){
+      state.board = applyGarbage(state.board, pendingGarbageForPlayer);
+      pendingGarbageForPlayer = 0;
+    }
+  }
+
   state.current = null;
   nextFromQueue();
 }
@@ -980,8 +1211,12 @@ function flashMsg(text){
 
 function gameOver(){
   state.status = "gameover";
+  if(vsMode && cpuState.status === "playing"){
+    endVsMatch(false); // CPUの勝ち
+    return;
+  }
   SFX.gameover();
-  showOverlay("ゲームオーバー", `スコア: ${state.score}<br>ライン: ${state.lines}`, "もう一度");
+  showOverlay("ゲームオーバー", `スコア: ${state.score}<br>ライン: ${state.lines}`, "もう一度", true);
 }
 
 // ---------- ホールド ----------
@@ -1130,6 +1365,7 @@ function loop(ts){
   if(dt > 100) dt = 100; // タブ非アクティブ復帰時の暴走防止
   simulate(dt);
   render();
+  if(vsMode){ cpuSimulate(dt); cpuRender(); }
   rafId = requestAnimationFrame(loop);
 }
 
@@ -1258,11 +1494,13 @@ const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlayText = document.getElementById("overlayText");
 const startBtn = document.getElementById("startBtn");
+const vsBtn = document.getElementById("vsBtn");
 
-function showOverlay(title, text, btnLabel){
+function showOverlay(title, text, btnLabel, showVsBtn){
   overlayTitle.textContent = title;
   overlayText.innerHTML = text;
   startBtn.textContent = btnLabel;
+  vsBtn.style.display = showVsBtn ? "" : "none";
   overlay.style.display = "flex";
 }
 function hideOverlay(){ overlay.style.display = "none"; }
@@ -1285,9 +1523,14 @@ function resetGame(){
   updateHUD();
 }
 
-function startGame(){
+const cpuCol = document.getElementById("cpuCol");
+
+function startGame(mode){
   ensureAudio();
+  vsMode = (mode === "vs");
+  cpuCol.style.display = vsMode ? "flex" : "none";
   resetGame();
+  if(vsMode) cpuResetGame();
   state.status = "playing";
   hideOverlay();
   lastTime = null;
@@ -1306,8 +1549,9 @@ function togglePause(){
 
 startBtn.addEventListener("click", ()=>{
   if(state.status === "paused"){ togglePause(); }
-  else { startGame(); }
+  else { startGame(vsMode ? "vs" : "solo"); }
 });
+vsBtn.addEventListener("click", ()=> startGame("vs"));
 
 // ミュートボタン
 const muteBtn = document.getElementById("mute");
@@ -1337,11 +1581,21 @@ window.__dbg = {
       combo: state.combo, backToBack: state.backToBack
     };
   },
-  tick(ms){ simulate(ms); render(); },
+  tick(ms){ simulate(ms); render(); if(vsMode){ cpuSimulate(ms); cpuRender(); } },
   board(){ return state.board.map(r=>r.map(c=>c||null)); },
   raw(){ return state; },
   advice(){ return computeAdvice(); },
-  toggleAdvice(){ toggleAdvice(); return state.showAdvice; }
+  toggleAdvice(){ toggleAdvice(); return state.showAdvice; },
+  startVs(){ startGame("vs"); },
+  cpuRaw(){ return cpuState; },
+  cpuState(){
+    return {
+      status: cpuState.status, score: cpuState.score, lines: cpuState.lines,
+      current: cpuState.current ? {...cpuState.current} : null,
+      hold: cpuState.hold, queue: [...cpuState.queue]
+    };
+  },
+  garbage(){ return { toPlayer: pendingGarbageForPlayer, toCpu: pendingGarbageForCpu }; }
 };
 
 // 初期表示(タイトル画面の「はじめる」を最初から見せる)

@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 5 (2026-07-19)</div>
+<div id="rev">rev 6 (2026-07-19)</div>
 <button id="mute">🔊 音あり</button>
 <div id="app">
   <div class="col">
@@ -70,12 +70,22 @@
   </div>
 
   <div id="board-wrap">
+    <div id="pGarbageBar" style="height:26px;display:none;align-items:center;gap:4px"><canvas id="pGarbageCanvas" width="288" height="26" style="border:none;background:transparent"></canvas></div>
     <canvas id="boardCanvas" width="288" height="576"></canvas>
     <div id="overlay">
       <h2 id="overlayTitle">ぷよぷよ完全再現</h2>
       <p id="overlayText">「ぷよぷよ通」ルール準拠<br>はじめての人は「れんしゅう」からどうぞ</p>
       <button id="tutorialBtn" style="background:#ffd23e">れんしゅう(初心者向け)</button>
       <button id="startBtn">とことん(ふつうに遊ぶ)</button>
+      <button id="battleBtn" style="background:#ff8a65">たいせん(CPUと勝負)</button>
+    </div>
+  </div>
+
+  <div class="col" id="enemyCol" style="display:none">
+    <div class="panel">
+      <h3>CPU <span id="enemyState" style="color:var(--sub)"></span></h3>
+      <canvas id="eGarbageCanvas" width="168" height="22" style="border:none;background:transparent;display:block;margin:0 auto 4px"></canvas>
+      <canvas id="enemyCanvas" width="168" height="336"></canvas>
     </div>
   </div>
 
@@ -147,8 +157,12 @@ const COLOR_BONUS = [0,0,3,6,12,24];
 const FALL_SPEED = [60,48,38,30,24,18,14,10,7,5,3,2];
 const LEVEL_STEP = 40;       // 消去数この単位でレベルUP
 
-const COLORS = ["","#ff5d5d","#57d357","#5aa2ff","#ffd23e"]; // 1赤 2緑 3青 4黄
-const COLOR_DARK = ["","#a02f2f","#2f8a2f","#31619e","#a8862a"];
+const COLORS = ["","#ff5d5d","#57d357","#5aa2ff","#ffd23e","#aab2c0"]; // 1赤 2緑 3青 4黄 5おじゃま(灰)
+const COLOR_DARK = ["","#a02f2f","#2f8a2f","#31619e","#a8862a","#6b7280"];
+const OJAMA = 5;
+// おじゃまレート(マージンタイム): [経過秒, 1個に必要な得点]
+const MARGIN_TABLE = [[0,70],[96,52],[112,34],[128,25],[144,16],[160,12],[176,8],[192,6],[208,4],[224,3],[240,2],[256,1]];
+const GARBAGE_DROP_MAX = 30; // 1回に降る上限(岩1個=5段)
 
 // ================= 盤面・状態 =================
 let grid, pair, queue, queueIndex;
@@ -226,6 +240,7 @@ function spawnPair(){
   pair = {x:2, y:HIDDEN, rot:0, colors:colors}; // 軸=可視最上段, 子=13段目
   fallCounter = 0; lockTimer = 0; grounded = false; lockResets = 0;
   lastRotFail = -999;
+  pGarbageDropped = false;
   if(grid[DEATH.y][DEATH.x] !== 0){ gameOver(); return; }
   // 先行入力: 押しっぱなしの回転はここでは扱わず、移動DASは維持される
   phase = "play";
@@ -358,7 +373,7 @@ function findGroups(){
   for(let y=1;y<H;y++){
     for(let x=0;x<W;x++){
       const c = grid[y][x];
-      if(c===0 || seen[y][x]) continue;
+      if(c===0 || c===OJAMA || seen[y][x]) continue;
       const stack=[[x,y]], cells=[];
       seen[y][x]=true;
       while(stack.length){
@@ -381,14 +396,36 @@ function checkClear(){
     // 連鎖終了
     if(chainCount>0){
       score += pendingScore;
+      if(battle && enemy){ // 攻撃と相殺(得点→おじゃま換算。端数は持ち越し)
+        const rate=garbageRate();
+        const total=pendingScore+pCarry;
+        const n=Math.floor(total/rate); pCarry=total%rate;
+        if(n>0){
+          if(n>=pPool){
+            const ex=n-pPool;
+            if(pPool>0) showMsg("そうさい!");
+            pPool=0;
+            if(ex>0){ enemy.pool+=ex; showMsg("こうげき! "+ex+"こ"); }
+          }else{ pPool-=n; showMsg("そうさい!"); }
+        }
+      }
       if(isAllClear()){
         allClearFlag = true;
         showMsg("ぜんけし!");
         sfx("allclear");
       }
+      if(battle){ chainCount=0; pendingScore=0; }
     }
     updateHud();
     if(tut && tutOnSettle(chainCount)) return;
+    if(battle && pPool>0 && !pGarbageDropped){ // 予告おじゃまが自分に降る
+      pGarbageDropped=true;
+      const n=Math.min(pPool,GARBAGE_DROP_MAX); pPool-=n;
+      fallingCells=makeGarbageFall(grid,n);
+      phase="dropping"; popTimer=0;
+      sfx("lock");
+      return;
+    }
     spawnPair();
     return;
   }
@@ -413,6 +450,21 @@ function checkClear(){
   if(allClearFlag){ gain += ALLCLEAR_BONUS; allClearFlag=false; }
   pendingScore += gain;
   clearedTotal += clearedCount;
+  // おじゃまの巻き込み消去(色ぷよの消去に上下左右で隣接。得点・個数には数えない)
+  const inPop = new Set(popCells.map(p=>p.x+","+p.y));
+  for(const g of groups){
+    for(const [x,y] of g.cells){
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=x+dx, ny=y+dy;
+        if(nx<0||nx>=W||ny<1||ny>=H) continue;
+        if(grid[ny][nx]===OJAMA && !inPop.has(nx+","+ny)){
+          inPop.add(nx+","+ny);
+          popCells.push({x:nx,y:ny,color:OJAMA});
+          grid[ny][nx]=0;
+        }
+      }
+    }
+  }
   level = Math.min(FALL_SPEED.length, Math.floor(clearedTotal/LEVEL_STEP)+1);
   if(chainCount>=2) showMsg(chainCount+"れんさ!");
   sfx("pop", chainCount);
@@ -441,6 +493,7 @@ function gameOver(){
     spawnPair();
     return;
   }
+  if(battle){ battleEnd(false); return; }
   phase="gameover";
   running=false;
   sfx("gameover");
@@ -456,6 +509,7 @@ let frame=0;
 function simulate(){
   frame++;
   if(msgTimer>0){ msgTimer--; if(msgTimer===0) document.getElementById("msgLine").textContent=""; }
+  if(battle && !battleOver && enemy){ battleTime+=1/60; enemyStep(); }
   if(phase==="popping"){ stepPop(); return; }
   if(phase==="dropping"){ stepDrop(); return; }
   if(phase!=="play" || !pair) return;
@@ -500,14 +554,23 @@ function simulate(){
 // ================= 描画 =================
 const cv = document.getElementById("boardCanvas");
 const ctx = cv.getContext("2d");
-function drawPuyo(c, x, y, color, r){
-  const px = x*CELL+CELL/2, py = y*CELL+CELL/2;
+function drawPuyo(c, x, y, color, r, cs){
+  cs = cs || CELL;
+  const px = x*cs+cs/2, py = y*cs+cs/2;
   c.fillStyle = COLORS[color];
   c.beginPath(); c.arc(px,py,r,0,Math.PI*2); c.fill();
   c.fillStyle = COLOR_DARK[color];
   c.beginPath(); c.arc(px,py+r*0.25,r*0.72,0,Math.PI*2); c.fill();
   c.fillStyle = COLORS[color];
   c.beginPath(); c.arc(px,py-r*0.08,r*0.78,0,Math.PI*2); c.fill();
+  if(color===OJAMA){ // おじゃまは目なし・バツ口
+    c.strokeStyle="#5d6470"; c.lineWidth=Math.max(1.5,r*0.12);
+    c.beginPath();
+    c.moveTo(px-r*0.3,py-r*0.1); c.lineTo(px+r*0.3,py+r*0.3);
+    c.moveTo(px+r*0.3,py-r*0.1); c.lineTo(px-r*0.3,py+r*0.3);
+    c.stroke();
+    return;
+  }
   // 目
   c.fillStyle="#fff";
   c.beginPath(); c.arc(px-r*0.32,py-r*0.15,r*0.26,0,Math.PI*2); c.fill();
@@ -676,10 +739,12 @@ document.addEventListener("keyup",(e)=>{
 
 // ================= 開始・ループ =================
 function startGame(){
-  tut=null;
+  tut=null; battle=false; enemy=null;
   document.getElementById("lessonPanel").style.display="none";
   document.getElementById("lessonNav").style.display="none";
   document.getElementById("help").style.display="";
+  document.getElementById("enemyCol").style.display="none";
+  document.getElementById("pGarbageBar").style.display="none";
   grid=makeGrid();
   queue=buildQueue(); queueIndex=0;
   score=0; chainMax=0; clearedTotal=0; level=1; pairsPlaced=0;
@@ -703,12 +768,251 @@ function loop(ts){
   last=ts;
   while(acc>=STEP){ simulate(); acc-=STEP; }
   draw();
+  if(battle && enemy) drawEnemy();
 }
 requestAnimationFrame(loop);
 phase="title";
 grid=makeGrid(); queue=buildQueue(); queueIndex=0;
 score=0; chainMax=0; clearedTotal=0; level=1;
 updateHud();
+
+// ================= CPU対戦とおじゃまぷよ(仕様書_ぷよぷよ通.md 5章 準拠) =================
+let battle=false, battleOver=false, battleTime=0;
+let pPool=0, pCarry=0, pGarbageDropped=false; // 自分への予告おじゃま・端数得点・このターン落下済みか
+let enemy=null;
+const ECELL=28, ETHINK=30;
+
+function garbageRate(){ // マージンタイム: 経過秒でおじゃま1個の必要点が下がる
+  let r=70;
+  for(const [t,v] of MARGIN_TABLE){ if(battleTime>=t) r=v; }
+  return r;
+}
+function gLand(g,x){ for(let y=1;y<H;y++){ if(g[y][x]!==0) return y-1; } return H-1; }
+function makeGarbageFall(g,n){ // n個の落下スプライト(6個=1段ずつ、端数はランダム列)
+  const falls=[];
+  const colCount=new Array(W).fill(Math.floor(n/6));
+  const rest=n%6, cols=[0,1,2,3,4,5];
+  for(let i=cols.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [cols[i],cols[j]]=[cols[j],cols[i]]; }
+  for(let i=0;i<rest;i++) colCount[cols[i]]++;
+  for(let x=0;x<W;x++){
+    const land=gLand(g,x);
+    for(let i=0;i<colCount[x];i++){
+      const toY=land-i;
+      if(toY<0) break; // 14段目より上はあふれて消滅
+      falls.push({x, fromY:0, toY, curY:Math.min(0,toY)-i*2, color:OJAMA, t:0});
+    }
+  }
+  return falls;
+}
+function collectFrom(g){ // 浮いたぷよを落下スプライトに(14段目は番兵で落ちない)
+  const out=[];
+  for(let x=0;x<W;x++){
+    let wy=H-1;
+    for(let y=H-1;y>=1;y--){
+      if(g[y][x]!==0){
+        if(y!==wy){ out.push({x, fromY:y, toY:wy, curY:y, color:g[y][x], t:0}); g[y][x]=0; }
+        wy--;
+      }
+    }
+  }
+  return out;
+}
+function garbageIcons(n){ // 予告表示の内訳(王冠720/月360/星180/岩30/大6/小1)
+  const icons=[]; const units=[[720,"crown"],[360,"moon"],[180,"star"],[30,"rock"],[6,"large"],[1,"small"]];
+  for(const [u,k] of units){ while(n>=u && icons.length<9){ icons.push(k); n-=u; } }
+  return icons;
+}
+function drawGarbageBar(canvasEl, pool){
+  const c=canvasEl.getContext("2d");
+  c.clearRect(0,0,canvasEl.width,canvasEl.height);
+  const cy=canvasEl.height/2;
+  let x=4;
+  for(const k of garbageIcons(pool)){
+    if(k==="small"){ c.fillStyle="#aab2c0"; c.beginPath(); c.arc(x+5,cy,4.5,0,7); c.fill(); x+=14; }
+    else if(k==="large"){ c.fillStyle="#aab2c0"; c.beginPath(); c.arc(x+8,cy,8,0,7); c.fill(); x+=20; }
+    else if(k==="rock"){ c.fillStyle="#7d8593"; c.beginPath(); c.arc(x+10,cy,10,0,7); c.fill();
+      c.strokeStyle="#5d6470"; c.lineWidth=2; c.stroke(); x+=24; }
+    else{ c.font="18px sans-serif"; c.textBaseline="middle";
+      c.fillStyle = k==="star"?"#ffd23e" : k==="moon"?"#cdd6ff" : "#ffb74d";
+      c.fillText(k==="star"?"★":k==="moon"?"☾":"♛", x, cy+1); x+=20; }
+  }
+}
+
+// ---- CPU本体: pickBest(アドバイザーと同じ頭脳)で決め、見た目つきで置く ----
+function makeEnemy(){
+  return {grid:makeGrid(), qi:0, pair:null, target:null, phase:"think", timer:ETHINK,
+          pool:0, carry:0, garbageDropped:false, chainCount:0, pendingScore:0, allClear:false,
+          popCells:[], falling:[], popT:0};
+}
+function enemyNewPair(){
+  if(enemy.qi+1>=queue.length) enemy.qi=0;
+  const colors=[queue[enemy.qi], queue[enemy.qi+1]];
+  enemy.qi+=2;
+  enemy.garbageDropped=false;
+  if(enemy.grid[HIDDEN][DEATH.x]!==0){ battleEnd(true); return; }
+  const best=pickBest(enemy.grid, colors);
+  if(!best || best.score<=-100000){ battleEnd(true); return; }
+  let axis, trot;
+  if(best.vert){
+    if(colors[0]===colors[1] || best.cells[0][2]===colors[0]){ axis=best.cells[0]; trot=0; }
+    else { axis=best.cells[1]; trot=2; }
+  }else{
+    if(colors[0]===colors[1] || best.cells[0][2]===colors[0]){ axis=best.cells[0]; trot=1; }
+    else { axis=best.cells[1]; trot=3; }
+  }
+  enemy.pair={x:2, y:HIDDEN, rot:0, colors:colors};
+  enemy.target={tx:axis[0], ty:axis[1], trot:trot, cells:best.cells};
+  enemy.phase="move"; enemy.timer=0;
+}
+function enemyPlace(){
+  for(const [x,y,col] of enemy.target.cells){ if(y>=0) enemy.grid[y][x]=col; }
+  enemy.pair=null; enemy.chainCount=0; enemy.pendingScore=0;
+  enemyStartDrop();
+}
+function enemyStartDrop(){
+  enemy.falling=collectFrom(enemy.grid);
+  if(enemy.falling.length===0){ enemyCheck(); return; }
+  enemy.phase="edrop"; enemy.popT=0;
+}
+function enemyCheck(){
+  const groups=simGroups(enemy.grid).filter(c=>c.length>=4);
+  if(groups.length===0){ // 連鎖おわり
+    if(enemy.chainCount>0){
+      let empty=true;
+      for(let y=0;y<H;y++) for(let x=0;x<W;x++) if(enemy.grid[y][x]!==0) empty=false;
+      if(empty) enemy.allClear=true;
+      const rate=garbageRate();
+      const total=enemy.pendingScore+enemy.carry;
+      const n=Math.floor(total/rate); enemy.carry=total%rate;
+      if(n>0){
+        if(n>=enemy.pool){ const ex=n-enemy.pool; enemy.pool=0; if(ex>0){ pPool+=ex; showMsg("CPUのこうげき! "+ex+"こ"); } }
+        else enemy.pool-=n;
+      }
+      enemy.chainCount=0; enemy.pendingScore=0;
+    }
+    if(enemy.pool>0 && !enemy.garbageDropped){
+      enemy.garbageDropped=true;
+      const n=Math.min(enemy.pool,GARBAGE_DROP_MAX); enemy.pool-=n;
+      enemy.falling=makeGarbageFall(enemy.grid,n);
+      enemy.phase="edrop"; enemy.popT=0;
+      return;
+    }
+    enemy.phase="think"; enemy.timer=ETHINK;
+    return;
+  }
+  enemy.chainCount++;
+  let cleared=0, gb=0; const colorSet=new Set();
+  enemy.popCells=[];
+  const inPop=new Set();
+  for(const cells of groups){
+    const col=enemy.grid[cells[0][1]][cells[0][0]];
+    cleared+=cells.length; colorSet.add(col);
+    gb += cells.length>=11?10:GROUP_BONUS[cells.length]||0;
+    for(const [x,y] of cells){
+      enemy.popCells.push({x,y,color:col}); inPop.add(x+","+y); enemy.grid[y][x]=0;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=x+dx, ny=y+dy;
+        if(nx<0||nx>=W||ny<1||ny>=H) continue;
+        if(enemy.grid[ny][nx]===OJAMA && !inPop.has(nx+","+ny)){
+          inPop.add(nx+","+ny); enemy.popCells.push({x:nx,y:ny,color:OJAMA}); enemy.grid[ny][nx]=0;
+        }
+      }
+    }
+  }
+  const cb=enemy.chainCount<=CHAIN_BONUS.length?CHAIN_BONUS[enemy.chainCount-1]:CHAIN_BONUS[18]+(enemy.chainCount-19)*32;
+  let bonus=cb+gb+COLOR_BONUS[colorSet.size]; if(bonus<1) bonus=1;
+  let gain=cleared*10*bonus;
+  if(enemy.allClear){ gain+=ALLCLEAR_BONUS; enemy.allClear=false; }
+  enemy.pendingScore+=gain;
+  enemy.phase="epop"; enemy.popT=0;
+  sfx("pop", enemy.chainCount);
+}
+function enemyStep(){
+  const e=enemy;
+  if(e.phase==="think"){ e.timer--; if(e.timer<=0) enemyNewPair(); return; }
+  if(e.phase==="move"){
+    e.timer++;
+    if(e.timer%6!==0) return;
+    const t=e.target;
+    if(e.pair.rot!==t.trot) e.pair.rot=(e.pair.rot+1)%4;
+    else if(e.pair.x<t.tx) e.pair.x++;
+    else if(e.pair.x>t.tx) e.pair.x--;
+    else e.phase="fall";
+    return;
+  }
+  if(e.phase==="fall"){
+    e.timer++;
+    if(e.timer%2!==0) return;
+    if(e.pair.y < e.target.ty) e.pair.y++;
+    else enemyPlace();
+    return;
+  }
+  if(e.phase==="edrop"){
+    e.popT++;
+    if(e.popT%FALL_FRAMES!==0) return;
+    let done=true;
+    for(const f of e.falling){ if(f.curY<f.toY){ f.curY++; done=false; } }
+    if(done){
+      for(const f of e.falling){ if(f.toY>=0) e.grid[f.toY][f.x]=f.color; }
+      e.falling=[];
+      enemyCheck();
+    }
+    return;
+  }
+  if(e.phase==="epop"){
+    e.popT++;
+    if(e.popT>=POP_FRAMES){ e.popCells=[]; enemyStartDrop(); }
+    return;
+  }
+}
+const eCv=document.getElementById("enemyCanvas");
+const eCtx=eCv.getContext("2d");
+function drawEnemy(){
+  eCtx.clearRect(0,0,eCv.width,eCv.height);
+  const r=ECELL*0.44;
+  for(let y=HIDDEN;y<H;y++) for(let x=0;x<W;x++){
+    if(enemy.grid[y][x]!==0) drawPuyo(eCtx,x,y-HIDDEN,enemy.grid[y][x],r,ECELL);
+  }
+  for(const f of enemy.falling){ if(f.curY>=HIDDEN) drawPuyo(eCtx,f.x,f.curY-HIDDEN,f.color,r,ECELL); }
+  if(enemy.popCells.length && Math.floor(enemy.popT/4)%2===0){
+    for(const p of enemy.popCells){ if(p.y>=HIDDEN) drawPuyo(eCtx,p.x,p.y-HIDDEN,p.color,r*(1-enemy.popT/POP_FRAMES*0.5),ECELL); }
+  }
+  if(enemy.pair && (enemy.phase==="move"||enemy.phase==="fall")){
+    const c={x:enemy.pair.x+ROT_OFF[enemy.pair.rot][0], y:enemy.pair.y+ROT_OFF[enemy.pair.rot][1]};
+    if(enemy.pair.y>=HIDDEN) drawPuyo(eCtx,enemy.pair.x,enemy.pair.y-HIDDEN,enemy.pair.colors[0],r,ECELL);
+    if(c.y>=HIDDEN) drawPuyo(eCtx,c.x,c.y-HIDDEN,enemy.pair.colors[1],r,ECELL);
+  }
+  drawGarbageBar(document.getElementById("eGarbageCanvas"), enemy.pool);
+  drawGarbageBar(document.getElementById("pGarbageCanvas"), pPool);
+}
+function battleEnd(won){
+  battleOver=true; running=false; phase="gameover";
+  sfx(won?"allclear":"gameover");
+  document.getElementById("overlayTitle").textContent = won ? "かち!" : "ばたんきゅ〜(まけ)";
+  document.getElementById("overlayText").innerHTML =
+    "スコア: <b>"+score.toLocaleString()+"</b> / さいだい連鎖: <b>"+chainMax+"</b><br>もういちど遊ぶモードをえらんでね";
+  document.getElementById("overlay").style.display="flex";
+}
+function startBattle(){
+  tut=null; battle=true; battleOver=false; battleTime=0;
+  pPool=0; pCarry=0; pGarbageDropped=false;
+  document.getElementById("lessonPanel").style.display="none";
+  document.getElementById("lessonNav").style.display="none";
+  document.getElementById("help").style.display="";
+  document.getElementById("enemyCol").style.display="";
+  document.getElementById("pGarbageBar").style.display="flex";
+  document.getElementById("overlay").style.display="none";
+  document.getElementById("msgLine").textContent="";
+  grid=makeGrid(); queue=buildQueue(); queueIndex=0;
+  score=0; chainMax=0; clearedTotal=0; level=1; pairsPlaced=0;
+  chainCount=0; pendingScore=0; allClearFlag=false;
+  popCells=[]; fallingCells=[]; msgTimer=0;
+  enemy=makeEnemy();
+  running=true;
+  spawnPair();
+  updateHud();
+}
+document.getElementById("battleBtn").addEventListener("click",startBattle);
 
 // ================= AIアドバイザー(仕様書_AIアドバイザー.md 準拠) =================
 // プロの評価基準: 発火可能な最大連鎖(非線形加点)・2/3連結の種・U字地形・段差/3列目/ちぎり/暴発ペナルティ
@@ -729,7 +1033,7 @@ function simGroups(g){
   const out=[];
   for(let y=1;y<H;y++) for(let x=0;x<W;x++){
     const c=g[y][x];
-    if(c===0||seen[y][x]) continue;
+    if(c===0||c===OJAMA||seen[y][x]) continue;
     const st=[[x,y]], cells=[]; seen[y][x]=true;
     while(st.length){
       const [ax,ay]=st.pop(); cells.push([ax,ay]);
@@ -750,7 +1054,13 @@ function simResolve(g){ // 連鎖を最後まで解決して連鎖数を返す(g
     const gs=simGroups(g).filter(c=>c.length>=4);
     if(!gs.length) break;
     chains++;
-    for(const cells of gs) for(const [x,y] of cells) g[y][x]=0;
+    for(const cells of gs) for(const [x,y] of cells){
+      g[y][x]=0;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ // 隣のおじゃまも巻き込む
+        const nx=x+dx, ny=y+dy;
+        if(nx>=0&&nx<W&&ny>=1&&ny<H&&g[ny][nx]===OJAMA) g[ny][nx]=0;
+      }
+    }
     simFall(g);
   }
   return chains;
@@ -804,32 +1114,31 @@ function evalBoard(g){ // 置いた後の盤面のよさ(仕様書の重みを�
   sc -= Math.max(0, Math.max(...h)-10)*150;
   return {sc, pot};
 }
-function advisorThink(){ // 今の組ぷよの全置き場所を試して最良手を選ぶ
-  if(!pair) { advice=null; return; }
-  const [ca,cb]=pair.colors;
+function pickBest(g, colors){ // 全置き場所を試して最良手を返す(アドバイザーとCPUで共用)
+  const [ca,cb]=colors;
   const cands=[];
   // タテ(下=first, 上=second)
   for(let x=0;x<W;x++){
-    const ly=simLanding(grid,x);
+    const ly=simLanding(g,x);
     if(ly<2) continue;
     const orders = ca===cb ? [[ca,cb]] : [[ca,cb],[cb,ca]];
     for(const [dn,up] of orders){
-      cands.push({cells:[[x,ly,dn],[x,ly-1,up]], chigiri:false, label:(x+1)+"列目にタテ"});
+      cands.push({cells:[[x,ly,dn],[x,ly-1,up]], chigiri:false, vert:true, label:(x+1)+"列目にタテ"});
     }
   }
   // ヨコ
   for(let x=0;x<W-1;x++){
-    const l1=simLanding(grid,x), l2=simLanding(grid,x+1);
+    const l1=simLanding(g,x), l2=simLanding(g,x+1);
     if(l1<1||l2<1) continue;
     const orders = ca===cb ? [[ca,cb]] : [[ca,cb],[cb,ca]];
     for(const [le,ri] of orders){
-      cands.push({cells:[[x,l1,le],[x+1,l2,ri]], chigiri:l1!==l2, label:(x+1)+"〜"+(x+2)+"列目にヨコ"});
+      cands.push({cells:[[x,l1,le],[x+1,l2,ri]], chigiri:l1!==l2, vert:false, label:(x+1)+"〜"+(x+2)+"列目にヨコ"});
     }
   }
   let best=null;
-  const danger = colHeight(grid,2)>=8; // 3列目が高い=発火して逃げる局面
+  const danger = colHeight(g,2)>=8; // 3列目が高い=発火して逃げる局面
   for(const c of cands){
-    const t=simClone(grid);
+    const t=simClone(g);
     for(const [x,y,col] of c.cells) t[y][x]=col;
     const imm=simResolve(t); // 置いた直後に起きる連鎖
     if(t[HIDDEN][DEATH.x]!==0){ c.score=-100000; continue; } // 窒息は問答無用で除外
@@ -844,7 +1153,14 @@ function advisorThink(){ // 今の組ぷよの全置き場所を試して最良�
     c.score=sc; c.imm=imm; c.pot=ev.pot;
     if(!best || sc>best.score) best=c;
   }
+  if(best) best.danger=danger;
+  return best;
+}
+function advisorThink(){
+  if(!pair) { advice=null; return; }
+  const best=pickBest(grid, pair.colors);
   if(!best){ advice=null; return; }
+  const danger = best.danger;
   // 理由の日本語化
   let reason;
   if(best.imm>0 && (danger||best.imm>=3)) reason="今が発火どき! "+best.imm+"連鎖で盤面をリセットしよう";
@@ -1008,6 +1324,9 @@ function tutResetBoard(){
   tutApplyLesson();
 }
 function startTutorial(idx){
+  battle=false; enemy=null;
+  document.getElementById("enemyCol").style.display="none";
+  document.getElementById("pGarbageBar").style.display="none";
   tut = {idx:idx, attempts:0, locks:0, flags:{}};
   score=0; chainMax=0; clearedTotal=0; level=1; pairsPlaced=0; msgTimer=0;
   document.getElementById("overlay").style.display="none";
@@ -1087,7 +1406,9 @@ document.getElementById("lessonRetryBtn").addEventListener("click",()=>{
   if(tut){ tutResetBoard(); spawnPair(); }
 });
 document.getElementById("backToTitleBtn").addEventListener("click",()=>{
-  tut=null; running=false; phase="title";
+  tut=null; battle=false; enemy=null; running=false; phase="title";
+  document.getElementById("enemyCol").style.display="none";
+  document.getElementById("pGarbageBar").style.display="none";
   document.getElementById("lessonPanel").style.display="none";
   document.getElementById("lessonNav").style.display="none";
   document.getElementById("help").style.display="";
@@ -1124,7 +1445,11 @@ window.__dbg = {
     set allClearFlag(v){allClearFlag=v;}, get allClearFlag(){return allClearFlag;},
     get tut(){return tut;}, startTutorial,
     advisorThink, advisorToggle,
-    get advice(){return advice;}, get advisorOn(){return advisorOn;}
+    get advice(){return advice;}, get advisorOn(){return advisorOn;},
+    startBattle, get battle(){return battle;}, get battleOver(){return battleOver;},
+    get enemy(){return enemy;}, get pPool(){return pPool;}, set pPool(v){pPool=v;},
+    get battleTime(){return battleTime;}, set battleTime(v){battleTime=v;},
+    garbageRate, makeGarbageFall, pickBest
   };},
   press(k){
     if(k==="left"){keys.left=true; pressedOnce.push("left");}
