@@ -229,6 +229,7 @@
   <div class="handoff-actions">
     <button class="handoff-btn" id="handoffSendBtn" disabled>📤 Questへ送る</button>
     <button class="handoff-btn" id="handoffReceiveBtn">🔑 コードで受け取る</button>
+    <button class="handoff-btn" id="handoffScanBtn">🔎 QRで受け取る</button>
   </div>
   <p>棚に貯めた複数のフィギュアを、AR/VRで<b>実寸サイズ</b>で並べて比べられます。各体を別々に掴んで動かせます。すべて端末内で処理します。</p>
   <input type="file" id="imgIn" accept="image/*" style="display:none">
@@ -409,7 +410,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev19-arqr-hud";
+const REV = "v2 rev20-shelf-scan";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -2693,6 +2694,7 @@ let scanLastMs = 0;
 let scanLastSuccessCode = '';
 let scanCount = 0;
 let scanCameraWaitSince = 0;
+let scanFromShelf = false;   // 棚の「🔎 QRで受け取る」から入ったか(終了時にスキャンを自動OFFに戻す)
 
 let scanGlBinding = null;
 let scanFramebuffer = null;
@@ -3074,6 +3076,21 @@ function scanArQrFrame(frame, referenceSpace, session, nowMs) {
   }
 }
 
+/* 棚から直接: フィギュアが空でもARに入ってQRスキャンだけ行う。読めたら棚に追加し、AR終了後は棚画面に戻る */
+async function startArScanFromShelf(){
+  if(!requireCloudflare()) return;
+  if($('arBtn').disabled){ showErr('この端末はARに対応していないため、QRスキャンは使えません。「🔑 コードで受け取る」で手入力してください。'); return; }
+  if(typeof jsQR !== 'function'){ showErr('QR読み取りの準備ができていません。通信環境を確認して、ページを再読み込みしてください。'); return; }
+  init3D();
+  detachPanels();
+  for(const it of items){ scene.remove(it.group); disposeItem(it); }   // スキャン専用: 空のパススルーで入る
+  items = []; setActive(null);
+  scanArmed = true; scanFromShelf = true; updateScanButton();
+  toast('ARでPC画面のQRを映すと受け取ります');
+  startAR();
+}
+$('handoffScanBtn').onclick = startArScanFromShelf;
+
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   try{
@@ -3110,6 +3127,7 @@ async function startAR(){
     s.addEventListener('end', ()=>{
       releaseArQrCameraResources();
       clearScanHud();
+      if(scanFromShelf){ scanArmed=false; updateScanButton(); scanFromShelf=false; }
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
