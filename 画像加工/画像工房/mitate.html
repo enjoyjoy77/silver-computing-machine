@@ -233,6 +233,7 @@
     </div>
     <button class="btn" id="arBtn" disabled>🥽 AR</button>
     <button class="btn" id="vrBtn" disabled>🌐 VR</button>
+    <button class="btn" id="scanBtn">🔎 QRスキャン</button>
   </div>
   <!-- 体えらび(複数体のとき。立体の強さ等はこの選んだ体に効く) -->
   <div class="row" id="figPickerRow" style="display:none">
@@ -367,6 +368,8 @@
 
 <!-- QR生成(MIT・自己完結の小ライブラリ。オフライン時はtypeofガードでコード手入力にフォールバック) -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<!-- ARパススルーカメラのQR認識。未ロード時はARスキャンだけ静かに無効 -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script type="module">
 import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
@@ -382,7 +385,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev15b-qr";
+const REV = "v2 rev16-arqr";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -756,14 +759,16 @@ $('handoffReceiveBtn').onclick = () => {
 $('handoffCodeInput').addEventListener('input', event => {
   event.target.value = formatHandoffCode(event.target.value);
 });
-$('handoffReceiveStartBtn').onclick = async () => {
-  const code = normalizeHandoffCode($('handoffCodeInput').value);
-  if (!code) { showErr('コードは英数字10桁で入力してください。'); return; }
+async function receiveByCode(code) {
+  code = normalizeHandoffCode(code);
+  if (!code) throw new Error('コードは英数字10桁で入力してください。');
+
   $('handoffReceiveStartBtn').disabled = true;
   $('handoffReceiveCloseBtn').disabled = true;
   $('handoffReceiveProgressBox').style.display = 'block';
   $('handoffReceiveProgress').style.width = '0%';
   $('handoffReceiveProgressText').textContent = '受け取っています…';
+
   try {
     const arrayBuffer = await downloadHandoff(code, (loaded, total) => {
       if (total > 0) {
@@ -772,23 +777,46 @@ $('handoffReceiveStartBtn').onclick = async () => {
         $('handoffReceiveProgressText').textContent =
           `受け取っています… ${formatBytes(loaded)} / ${formatBytes(total)} ${Math.round(ratio * 100)}%`;
       } else {
-        $('handoffReceiveProgressText').textContent = `受け取っています… ${formatBytes(loaded)}`;
+        $('handoffReceiveProgressText').textContent =
+          `受け取っています… ${formatBytes(loaded)}`;
       }
     });
+
     $('handoffReceiveProgressText').textContent = '棚へ保存しています…';
     const parsed = parseHandoffBundle(arrayBuffer);
     await figuresAddMany(parsed.figures, currentShelfId());
     await renderShelf();
     closeModal('handoffReceiveModal');
-    toast(`${parsed.figures.length}体を棚に追加しました。`);
-  } catch (error) {
-    const isQuota = error?.name === 'QuotaExceededError' || /quota|保存領域|容量/i.test(error?.message || '');
-    showErr(isQuota
-      ? 'この端末の保存容量が足りません。棚の体を減らしてから、もう一度お試しください。'
-      : (error?.message || '受け取ったデータを読み込めませんでした。もう一度送り直してください。'));
+    return parsed.figures.length;
   } finally {
     $('handoffReceiveStartBtn').disabled = false;
     $('handoffReceiveCloseBtn').disabled = false;
+  }
+}
+
+function handoffReceiveErrorMessage(error) {
+  const isQuota =
+    error?.name === 'QuotaExceededError' ||
+    /quota|保存領域|容量/i.test(error?.message || '');
+
+  return isQuota
+    ? 'この端末の保存容量が足りません。棚の体を減らしてから、もう一度お試しください。'
+    : (error?.message ||
+       '受け取ったデータを読み込めませんでした。もう一度送り直してください。');
+}
+
+$('handoffReceiveStartBtn').onclick = async () => {
+  const code = normalizeHandoffCode($('handoffCodeInput').value);
+  if (!code) {
+    showErr('コードは英数字10桁で入力してください。');
+    return;
+  }
+
+  try {
+    const count = await receiveByCode(code);
+    toast(`${count}体を棚に追加しました。`);
+  } catch (error) {
+    showErr(handoffReceiveErrorMessage(error));
   }
 };
 $('handoffReceiveCloseBtn').onclick = () => { closeModal('handoffReceiveModal'); };
@@ -2634,10 +2662,246 @@ function updateHands(dt){
   }
 }
 
+/* ============ ARパススルーカメラ QR受け取り ============ */
+let scanArmed = false;
+let scanBusy = false;
+let scanUnsupportedShown = false;
+let scanLastMs = 0;
+let scanLastSuccessCode = '';
+
+let scanGlBinding = null;
+let scanFramebuffer = null;
+let scanFramebufferGl = null;
+let scanPixels = null;
+let scanFlipped = null;
+let scanPixelWidth = 0;
+let scanPixelHeight = 0;
+
+function updateScanButton() {
+  $('scanBtn').classList.toggle('on', scanArmed);
+}
+
+$('scanBtn').onclick = () => {
+  // jsQRが取得できなかった環境では既存動作を変えず、静かに無効。
+  if (typeof jsQR !== 'function') {
+    scanArmed = false;
+    updateScanButton();
+    return;
+  }
+
+  scanArmed = !scanArmed;
+  updateScanButton();
+  toast(scanArmed
+    ? 'ARに入ってPC画面のQRを映すと自動で受け取ります'
+    : 'QRスキャンを解除しました');
+};
+
+function releaseArQrCameraResources() {
+  if (scanFramebuffer && scanFramebufferGl) {
+    try {
+      scanFramebufferGl.deleteFramebuffer(scanFramebuffer);
+    } catch {
+      /* セッション終了後など、既に無効なら無視 */
+    }
+  }
+
+  scanGlBinding = null;
+  scanFramebuffer = null;
+  scanFramebufferGl = null;
+  scanPixels = null;
+  scanFlipped = null;
+  scanPixelWidth = 0;
+  scanPixelHeight = 0;
+  scanLastMs = 0;
+  scanBusy = false;
+}
+
+function disableUnsupportedArQr() {
+  scanArmed = false;
+  updateScanButton();
+
+  if (!scanUnsupportedShown) {
+    scanUnsupportedShown = true;
+    showErr('この端末/ブラウザはAR中のQR読み取りに未対応です(Quest v76以降が必要)');
+  }
+}
+
+function extractHandoffCodeFromQr(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+
+  let candidate = raw;
+  try {
+    const url = new URL(raw);
+    candidate = url.searchParams.get('recv') || '';
+  } catch {
+    // URLでなければQR内容そのものを送信コード候補にする。
+  }
+
+  return normalizeHandoffCode(candidate);
+}
+
+function pulseQrHaptics(session) {
+  try {
+    for (const source of session.inputSources || []) {
+      source.gamepad?.hapticActuators?.[0]?.pulse?.(0.6, 120);
+    }
+  } catch {
+    /* ハプティクス無し、または実装差は無視 */
+  }
+}
+
+async function receiveScannedQr(code, session) {
+  scanBusy = true;
+  pulseQrHaptics(session);
+
+  try {
+    const count = await receiveByCode(code);
+    scanLastSuccessCode = code;
+
+    // endイベントの2D復帰処理が完了してから棚と通知を更新する。
+    if (session && session.visibilityState !== 'hidden') {
+      try {
+        await session.end();
+      } catch {
+        /* 既に終了中なら無視 */
+      }
+    }
+
+    await renderShelf();
+    toast(`QRから${count}体受け取りました`);
+  } catch (error) {
+    showErr(handoffReceiveErrorMessage(error));
+    scanBusy = false;
+  }
+}
+
+function scanArQrFrame(frame, referenceSpace, session, nowMs) {
+  if (!scanArmed || scanBusy || typeof jsQR !== 'function') return;
+  if (nowMs - scanLastMs < 160) return;
+  scanLastMs = nowMs;
+
+  const gl = renderer.getContext();
+  let previousFramebuffer = null;
+
+  try {
+    const pose = frame.getViewerPose(referenceSpace);
+    const view = pose && pose.views.find(candidate => candidate.camera);
+
+    if (
+      !view ||
+      !view.camera ||
+      typeof XRWebGLBinding !== 'function' ||
+      !view.camera.width ||
+      !view.camera.height
+    ) {
+      disableUnsupportedArQr();
+      return;
+    }
+
+    if (!scanGlBinding) {
+      scanGlBinding = new XRWebGLBinding(session, gl);
+    }
+    if (typeof scanGlBinding.getCameraImage !== 'function') {
+      disableUnsupportedArQr();
+      return;
+    }
+
+    const cameraTexture = scanGlBinding.getCameraImage(view.camera);
+    if (!cameraTexture) {
+      disableUnsupportedArQr();
+      return;
+    }
+
+    const width = view.camera.width;
+    const height = view.camera.height;
+    const byteLength = width * height * 4;
+
+    if (
+      width !== scanPixelWidth ||
+      height !== scanPixelHeight ||
+      !scanPixels ||
+      scanPixels.length !== byteLength
+    ) {
+      scanPixelWidth = width;
+      scanPixelHeight = height;
+      scanPixels = new Uint8Array(byteLength);
+      scanFlipped = new Uint8ClampedArray(byteLength);
+    }
+
+    if (!scanFramebuffer || scanFramebufferGl !== gl) {
+      scanFramebuffer = gl.createFramebuffer();
+      scanFramebufferGl = gl;
+      if (!scanFramebuffer) throw new Error('QR読み取り用FBOを作成できませんでした。');
+    }
+
+    previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scanFramebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      cameraTexture,
+      0
+    );
+
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      disableUnsupportedArQr();
+      return;
+    }
+
+    gl.readPixels(
+      0,
+      0,
+      width,
+      height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      scanPixels
+    );
+
+    // WebGL readPixelsは左下原点。jsQRへ渡す前に上下反転する。
+    const rowBytes = width * 4;
+    for (let sourceY = 0; sourceY < height; sourceY++) {
+      const targetY = height - 1 - sourceY;
+      scanFlipped.set(
+        scanPixels.subarray(sourceY * rowBytes, (sourceY + 1) * rowBytes),
+        targetY * rowBytes
+      );
+    }
+
+    const imageData = new ImageData(scanFlipped, width, height);
+    const result = jsQR(imageData.data, width, height, {
+      inversionAttempts: 'attemptBoth'
+    });
+    const code = result ? extractHandoffCodeFromQr(result.data) : '';
+
+    if (code && code !== scanLastSuccessCode) {
+      void receiveScannedQr(code, session);
+    }
+  } catch (error) {
+    console.error('AR QR scan failed', error);
+    disableUnsupportedArQr();
+  } finally {
+    // camera textureのFBOをthree.jsへ持ち越さない。
+    try {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+    } catch {
+      /* コンテキスト喪失時は無視 */
+    }
+
+    // 生GL操作後、three.js内部のGL状態キャッシュを必ず同期し直す。
+    renderer.resetState();
+  }
+}
+
 async function startAR(){
   if(xrSession){ xrSession.end(); return; }
   try{
-    const s = await navigator.xr.requestSession('immersive-ar', { requiredFeatures:['hit-test'], optionalFeatures:['local-floor','hand-tracking'] });
+    const s = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor', 'hand-tracking', 'camera-access']
+    });
     xrSession = s; xrMode = 'ar';
     renderer.xr.setReferenceSpaceType('local');
     await renderer.xr.setSession(s);
@@ -2648,6 +2912,7 @@ async function startAR(){
     setupControllers();
     toast('目の前に並べます。床のリング+トリガーで床置き / A・Bボタンでいつでも呼び戻し');
     s.addEventListener('end', ()=>{
+      releaseArQrCameraResources();
       xrSession=null; xrMode=null; hitSource=null; hitReq=false;
       $('arBtn').textContent='🥽 AR'; scene.background=bgTex; reticle.visible=false;
       handMeshes.forEach(c=>{ if(c && c.userData.wrap) c.userData.wrap.visible = false; });   // 手を残さない
@@ -2666,6 +2931,7 @@ async function startAR(){
   }catch(e){
     showErr('AR開始失敗: ' + e.message);
     try{ xrSession?.end(); }catch{ /* 無視 */ }
+    releaseArQrCameraResources();
     xrSession=null; xrMode=null;
   }
 }
@@ -2778,6 +3044,9 @@ function renderLoop(t, frame){
         } else reticle.visible = false;
       }
       if(placed && controllers.length) updatePinch();
+
+      // 約6fpsでパススルーカメラを読む。内部の生GL操作後は必ずresetStateされる。
+      scanArQrFrame(frame, ref, sess, nowMs);
     }
     puniFrame(dt, true);   // ぷるぷるドーム(段階1)の物理更新
     renderer.render(scene, camera);
