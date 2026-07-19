@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 4 (2026-07-19)</div>
+<div id="rev">rev 5 (2026-07-19)</div>
 <button id="mute">🔊 音あり</button>
 <div id="app">
   <div class="col">
@@ -554,12 +554,18 @@ function draw(){
     }
     ctx.restore();
   }
-  // AIアドバイザーのおすすめ位置(金色ワク)
+  // AIアドバイザーのおすすめ位置(半透明のゴーストぷよ+金色ワク。どの色をどこに置くか分かるように)
   if(advisorOn && !tut && advice && phase==="play"){
     ctx.save();
-    ctx.strokeStyle="#ffb74d"; ctx.setLineDash([]); ctx.lineWidth=3;
-    for(const [gx,gy] of advice.cells){
-      if(gy>=HIDDEN) ctx.strokeRect(gx*CELL+2,(gy-HIDDEN)*CELL+2,CELL-4,CELL-4);
+    for(const [gx,gy,gcol] of advice.cells){
+      if(gy<HIDDEN) continue;
+      if(gcol){
+        ctx.globalAlpha=0.45;
+        drawPuyo(ctx,gx,gy-HIDDEN,gcol,CELL*0.44);
+        ctx.globalAlpha=1;
+      }
+      ctx.strokeStyle="#ffb74d"; ctx.setLineDash([]); ctx.lineWidth=3;
+      ctx.strokeRect(gx*CELL+2,(gy-HIDDEN)*CELL+2,CELL-4,CELL-4);
     }
     ctx.restore();
   }
@@ -848,7 +854,7 @@ function advisorThink(){ // 今の組ぷよの全置き場所を試して最良�
   if(!best.chigiri) notes.push("ちぎりなし");
   const h2=colHeight(grid,2);
   if(h2>=7) notes.push("3列目が高いので注意!");
-  advice={cells:best.cells.map(c=>[c[0],c[1]]), reason:reason+(notes.length?"("+notes.join("・")+")":""),
+  advice={cells:best.cells.slice(), reason:reason+(notes.length?"("+notes.join("・")+")":""),
           label:best.label, fire: danger&&best.imm>0};
   const modeEl=document.getElementById("advisorMode");
   modeEl.textContent = danger ? "【発火どき】" : "【伸ばしどき】";

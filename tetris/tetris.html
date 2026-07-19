@@ -112,7 +112,7 @@
   </div>
 </div>
 <button id="mute">🔊 音ON</button>
-<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev4 (2026-07-19) ホールド未使用時のアドバイス文言を修正</div>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev5 (2026-07-19) ホールド暗転表示の更新漏れ+使用済み時の案内を修正</div>
 
 <script>
 (function(){
@@ -594,6 +594,7 @@ function spawnPiece(type){
     gameOver();
     return;
   }
+  drawHold(); // ホールド使用済み(暗転)の表示を、新しいミノに合わせて必ず更新する
   refreshAdvice();
 }
 
@@ -898,7 +899,11 @@ function gameOver(){
 
 // ---------- ホールド ----------
 function doHold(){
-  if(!state.current || state.holdUsed) return;
+  if(!state.current) return;
+  if(state.holdUsed){
+    flashMsg("ホールドは1つのブロックにつき1回までです");
+    return;
+  }
   SFX.hold();
   const curType = state.current.type;
   if(state.hold === null){
