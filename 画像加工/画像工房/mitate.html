@@ -67,6 +67,9 @@
     background:linear-gradient(0deg,rgba(16,22,19,.96),transparent);}
   .row{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;}
   .seg{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow-x:auto;max-width:96vw;}
+  /* モード切替バーは画面上部(#topの下)に固定して常に見える。左右の余白はクリックを透過させ、下のキャンバス操作を邪魔しない */
+  #modeRow{position:fixed;top:54px;left:0;right:0;z-index:21;margin:0;pointer-events:none;}
+  #modeRow .seg{pointer-events:auto;background:rgba(18,24,20,.92);backdrop-filter:blur(4px);box-shadow:0 3px 14px rgba(0,0,0,.35);}
   .seg button{border:none;background:transparent;color:var(--dim);padding:10px 13px;white-space:nowrap;
     font:inherit;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;}
   .seg button.on{background:var(--panel2);color:var(--accent);}
@@ -201,7 +204,7 @@
 </div>
 
 <div id="ui">
-  <div class="row">
+  <div class="row" id="modeRow">
     <div class="seg" id="modeSeg">
       <button data-m="relief" class="on">🧊 3Dレリーフ</button>
       <button data-m="parallax">傾け</button>
@@ -244,12 +247,14 @@
     </div>
   </div>
   <div class="row" id="reliefRow2">
+    <button class="btn" id="moveBtn" title="上下左右に動かす（回転・拡大はしない）">⬌⬍ 動かす</button>
     <button class="btn" id="glbBtn">📦 GLB保存</button>
     <button class="btn" id="resetBtn">↩ 視点</button>
   </div>
   <!-- ぷるぷる配置用(写真をクリックで置く) -->
   <div class="row" id="puniRow" style="display:none">
     <button class="btn on" id="puniPlaceBtn">📍 置く</button>
+    <button class="btn" id="moveBtn2" title="上下左右に動かす（回転・拡大はしない）">⬌⬍ 動かす</button>
     <div class="card">
       <label class="k">大きさ</label>
       <input type="range" id="puniRadiusRange" min="3" max="42" value="18">
@@ -353,7 +358,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev13-shelves-pcdepth";
+const REV = "v2 rev14-topbar-move";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1723,20 +1728,33 @@ function applyCam(){
   camera.position.set(ctl.tx + ctl.r*s*Math.sin(ctl.th), ctl.ty + ctl.r*Math.cos(ctl.ph), ctl.tz + ctl.r*s*Math.cos(ctl.th));
   camera.lookAt(ctl.tx, ctl.ty, ctl.tz);
 }
-function frameCamera(){ ctl.r=1.6; ctl.th=0; ctl.ph=Math.PI/2; ctl.ty=0.5; ctl.vth=0; ctl.vph=0; applyCam(); }
+function frameCamera(){ ctl.r=1.6; ctl.th=0; ctl.ph=Math.PI/2; ctl.tx=0; ctl.ty=0.5; ctl.tz=0; ctl.vth=0; ctl.vph=0; applyCam(); }
 $('resetBtn').onclick = frameCamera;
+
+/* ---- 動かす(パン)モード: ONの間はドラッグで上下左右に移動だけ。回転・拡大はしない ---- */
+let moveArmed=false;
+function syncMoveBtns(){ ['moveBtn','moveBtn2'].forEach(id=>{ const b=$(id); if(b) b.classList.toggle('on', moveArmed); }); }
+function toggleMove(){ moveArmed=!moveArmed; syncMoveBtns(); toast(moveArmed?'動かすモード：ドラッグで上下左右に移動（回転・拡大なし）':'動かすモード解除'); }
+['moveBtn','moveBtn2'].forEach(id=>{ const b=$(id); if(b) b.onclick=toggleMove; });
 
 let dragging=false; const ptrs=new Map(); let pinchD=0;
 canvas.addEventListener('pointerdown', e=>{
-  if(window.__puni && window.__puni._pointerDown(e)) return;
+  if(!moveArmed && window.__puni && window.__puni._pointerDown(e)) return;
   ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); dragging=true;
   if(mode==='relief' || mode==='puni'){ ctl.vth=ctl.vph=0; }
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', e=>{
-  if(window.__puni && window.__puni._pointerMove(e)) return;
+  if(!moveArmed && window.__puni && window.__puni._pointerMove(e)) return;
   if(!ptrs.has(e.pointerId)) return;
   const p=ptrs.get(e.pointerId); const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+  if(moveArmed){
+    if((mode==='relief' || mode==='puni') && ptrs.size===1){
+      ctl.tx = clamp(ctl.tx - dx/innerWidth * ctl.r * 1.6, -3, 3);
+      ctl.ty = clamp(ctl.ty + dy/innerHeight * ctl.r * 1.6, -3, 3);
+    }
+    return;   // 回転・ズームはしない
+  }
   if(mode==='relief' || mode==='puni'){
     if(ptrs.size===1){ ctl.th-=dx*.006; ctl.ph=clamp(ctl.ph-dy*.006,.05,Math.PI-.05); ctl.vth=-dx*.0015; ctl.vph=-dy*.0015; }
     else if(ptrs.size===2){ const a=[...ptrs.values()]; const nd=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
