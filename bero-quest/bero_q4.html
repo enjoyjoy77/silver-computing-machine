@@ -1335,6 +1335,10 @@ document.getElementById("b_reset").addEventListener("click",()=>{
   updateVisualMesh();
 });
 
+document.getElementById("b_attach").addEventListener("click",()=>{
+  setTongueMounted(!tongueMounted);
+});
+
 document.getElementById("b_roku").addEventListener("click",()=>{
   toggleRokutaiRecord();
 });
@@ -1750,6 +1754,8 @@ function triggerXRButton(action,controllerIndex){
     saveRokutai();
   }else if(action===7){
     toggleRokutaiPlayback();
+  }else if(action===8){
+    setTongueMounted(!tongueMounted);
   }
 
   if(controllerIndex>=0){
@@ -1938,6 +1944,54 @@ const tempWorld=new THREE.Vector3();
 const tempLocal=new THREE.Vector3();
 const tempQuaternion=new THREE.Quaternion();
 const tempScale=new THREE.Vector3();
+
+// ===== 装着モード(舌を口元に付けて頭に追従させる) =====
+// ※ xrCameraPosition/xrCameraQuaternion/xrForward/yawFlip は既存の宣言(上)を流用する
+let tongueMounted=false;
+
+function syncTongueMountButton(){
+  const button=document.getElementById("b_attach");
+  button.classList.toggle("on",tongueMounted);
+  button.textContent=tongueMounted?"引き抜く":"装着モード";
+}
+
+function applyTongueMountPose(distance=.075,verticalDrop=.105){
+  if(!xrActive)return;
+
+  const xrCamera=renderer.xr.getCamera(camera);
+  xrCamera.getWorldPosition(xrCameraPosition);
+  xrCamera.getWorldQuaternion(xrCameraQuaternion);
+  xrForward.set(0,0,-1).applyQuaternion(xrCameraQuaternion);
+
+  tongueRoot.position.copy(xrCameraPosition)
+    .addScaledVector(xrForward,distance);
+  tongueRoot.position.y-=verticalDrop;
+  tongueRoot.quaternion.copy(xrCameraQuaternion).multiply(yawFlip);
+  tongueRoot.updateMatrixWorld(true);
+}
+
+function setTongueMounted(enable){
+  if(!xrActive){
+    logJapanese("装着モードはQuestのAR中だけ使えます。");
+    return;
+  }
+  tongueMounted=Boolean(enable);
+  grabbedParticle=-1;
+  grabbedOwner=-1;
+  syncTongueMountButton();
+
+  if(tongueMounted){
+    applyTongueMountPose();
+  }else{
+    applyTongueMountPose(.42,.12); // 引き抜いたら目の前の空中へ
+  }
+
+  logJapanese(
+    tongueMounted
+      ?"装着モードON：舌を自分の口元に装着しました。頭と一緒に動きます。"
+      :"装着モードOFF：舌を口元から引き抜きました。"
+  );
+}
 
 function placeXRContent(){
   const xrCamera=renderer.xr.getCamera(camera);
@@ -2175,6 +2229,8 @@ async function startAR(){
 
 function onSessionEnded(){
   xrActive=false;
+  tongueMounted=false;
+  syncTongueMountButton();
   xrPlaced=false;
   xrSession=null;
   xrReferenceSpace=null;
@@ -2246,6 +2302,7 @@ renderer.setAnimationLoop((time,frame)=>{
 
   if(xrActive&&frame){
     if(!xrPlaced)placeXRContent();
+    if(tongueMounted)applyTongueMountPose();
     updateXRInputs(frame);
     handGestures.update(frame,xrReferenceSpace,inputSources,time);
     updateXRButtons(time);
@@ -2381,6 +2438,7 @@ window.__dbg={
       finite:Array.from(pos).every(Number.isFinite),
       gesture:handGestures.enabled,
       gestureActive:handGestures.active,
+      attached:tongueMounted,
       rokutai:{mode:rokutai.mode,hasTake:rokutai.hasTake,duration:rokutai.duration,frames:rokutai.frameCount}
     };
   },

@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>なでシンク</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --cream:#fff4dd;
+    --brown:#5c4435;
+    --dim:#cbbba9;
+    --accent:#79aee8;
+    --panel:rgba(35,27,23,.88);
+  }
+  *{box-sizing:border-box}
+  html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#211b18;color:var(--cream);
+    font-family:"Yu Gothic UI","Meiryo",sans-serif}
+  canvas#world{display:block;width:100%;height:100%;touch-action:none}
+  #ui{position:fixed;inset:0;z-index:10;pointer-events:none}
+  #card{position:absolute;left:50%;top:50%;width:min(90vw,560px);transform:translate(-50%,-50%);
+    padding:24px 26px;border:1px solid rgba(255,236,205,.25);border-radius:18px;
+    background:rgba(43,33,28,.92);box-shadow:0 18px 60px rgba(0,0,0,.4);
+    text-align:center;pointer-events:auto}
+  h1{margin:0 0 10px;font-size:clamp(25px,5vw,40px);letter-spacing:.08em}
+  p{margin:10px 0;line-height:1.8}
+  #guide{color:var(--dim);font-size:14px}
+  #goBtn{min-width:220px;margin-top:14px;padding:13px 20px;border:0;border-radius:999px;
+    background:#6f9fd3;color:#071828;font:700 17px inherit;cursor:pointer}
+  #goBtn:disabled{opacity:.5;cursor:wait}
+  #status{margin-top:12px;min-height:1.6em;color:#f2d8b3;font-size:13px}
+  #pcHelp{display:none;position:absolute;left:14px;bottom:14px;max-width:min(620px,calc(100vw - 28px));
+    padding:9px 12px;border-radius:10px;background:rgba(30,23,20,.8);color:#eadbc8;
+    font-size:13px;line-height:1.55}
+  #rev{position:absolute;right:12px;top:9px;color:#d9c9b8;font:11px Consolas,monospace;
+    letter-spacing:.12em;text-shadow:0 1px 3px #000}
+  #domLog{position:absolute;left:10px;top:10px;width:min(520px,calc(100vw - 20px));max-height:28vh;
+    overflow:auto;padding:8px 10px;border-radius:8px;background:rgba(10,8,7,.67);
+    color:#bfe4bb;font:11px/1.45 Consolas,"Yu Gothic UI",monospace;white-space:pre-wrap;
+    pointer-events:auto}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+<div id="ui">
+  <div id="rev">rev1</div>
+  <div id="domLog"></div>
+  <section id="card">
+    <h1>なでシンク</h1>
+    <p>温かい治療室で、右手を左前腕に沿ってゆっくり動かします。</p>
+    <p id="guide">Quest 3ではコントローラーを置き、両手が認識されてから始めてください。</p>
+    <button id="goBtn" disabled>対応状況を確認中…</button>
+    <div id="status">準備しています。</div>
+  </section>
+  <div id="pcHelp">
+    <b>PC確認モード</b>　ドラッグ：視点回転 ／ ホイール：寄る・引く<br>
+    青い手袋と左前腕は自動で動きます。判定確認は開発者コンソールで
+    <code>__dbg.strokeSim(5)</code> を実行できます。
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import { setupHands } from "./lib/hands.js";
+
+const REV = "rev1";
+const GOOD_MIN_CM_S = 3;
+const GOOD_MAX_CM_S = 7;
+const ARM_LENGTH = 0.25;
+const ARM_RADIUS = 0.037;
+const CONTACT_RADIUS = 0.095;
+const GLOW_RISE = 3.2;
+const GLOW_FALL = 1.35;
+
+const $ = id => document.getElementById(id);
+const canvas = $("world");
+const card = $("card");
+const goBtn = $("goBtn");
+const statusEl = $("status");
+const pcHelp = $("pcHelp");
+const guide = $("guide");
+const domLog = $("domLog");
+$("rev").textContent = REV;
+
+const logLines = [];
+let panelDirty = true;
+
+function log(message){
+  const text = String(message);
+  const stamp = new Date().toLocaleTimeString("ja-JP",{hour12:false});
+  logLines.push(stamp + " " + text);
+  if(logLines.length > 12) logLines.shift();
+  domLog.textContent = logLines.join("\n");
+  domLog.scrollTop = domLog.scrollHeight;
+  panelDirty = true;
+  console.log("[nade]", text);
+}
+
+function errorText(value){
+  if(value && value.stack) return value.stack;
+  if(value && value.message) return value.message;
+  return String(value);
+}
+
+addEventListener("error", event => {
+  log("window.error: " + errorText(event.error || event.message));
+});
+addEventListener("unhandledrejection", event => {
+  log("unhandledrejection: " + errorText(event.reason));
+});
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2d2420);
+scene.fog = new THREE.Fog(0x2d2420, 5.5, 12);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.03, 30);
+camera.position.set(0, 1.42, 0.58);
+
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias:true,
+  alpha:false,
+  powerPreference:"high-performance"
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType("local-floor");
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const roomLight = new THREE.HemisphereLight(0xffd9ad, 0x42372f, 1.25);
+scene.add(roomLight);
+
+const warmLight = new THREE.PointLight(0xffb86b, 2.2, 6.5, 2);
+warmLight.position.set(-0.25, 2.15, -1.3);
+warmLight.castShadow = true;
+warmLight.shadow.mapSize.set(512,512);
+scene.add(warmLight);
+
+const fillLight = new THREE.PointLight(0xffe0bb, 0.75, 4, 2);
+fillLight.position.set(1.7, 1.5, 0.3);
+scene.add(fillLight);
+
+const floorMat = new THREE.MeshStandardMaterial({color:0x6b4d38,roughness:.88});
+const wallMat = new THREE.MeshStandardMaterial({color:0xb99772,roughness:.95,side:THREE.DoubleSide});
+const woodMat = new THREE.MeshStandardMaterial({color:0x76533b,roughness:.75});
+const bedMat = new THREE.MeshStandardMaterial({color:0xc9b9a5,roughness:.92});
+const sheetMat = new THREE.MeshStandardMaterial({color:0xe4d6c4,roughness:.96});
+const skinMat = new THREE.MeshStandardMaterial({color:0xd99f7c,roughness:.78});
+const skinEndMat = new THREE.MeshStandardMaterial({color:0xc98969,roughness:.8});
+const gloveMat = new THREE.MeshStandardMaterial({
+  color:0x176fc1,
+  roughness:.42,
+  metalness:0,
+  emissive:0x56baff,
+  emissiveIntensity:0
+});
+
+function mesh(geometry, material, x, y, z){
+  const object = new THREE.Mesh(geometry, material);
+  object.position.set(x,y,z);
+  object.receiveShadow = true;
+  object.castShadow = true;
+  scene.add(object);
+  return object;
+}
+
+mesh(new THREE.PlaneGeometry(10,10), floorMat, 0,0,0).rotation.x = -Math.PI/2;
+
+const backWall = mesh(new THREE.PlaneGeometry(10,4), wallMat, 0,2,-4);
+const leftWall = mesh(new THREE.PlaneGeometry(8,4), wallMat, -5,2,0);
+leftWall.rotation.y = Math.PI/2;
+const rightWall = mesh(new THREE.PlaneGeometry(8,4), wallMat, 5,2,0);
+rightWall.rotation.y = -Math.PI/2;
+
+const rug = mesh(
+  new THREE.CylinderGeometry(1.15,1.15,.018,48),
+  new THREE.MeshStandardMaterial({color:0x805f50,roughness:1}),
+  0,.012,-1.05
+);
+
+const bedBase = mesh(new THREE.BoxGeometry(.86,.18,1.65), woodMat, 0,.56,-1.25);
+bedBase.rotation.x = -.08;
+const bed = mesh(new THREE.BoxGeometry(.8,.14,1.5), bedMat, 0,.72,-1.25);
+bed.rotation.x = -.08;
+const backRest = mesh(new THREE.BoxGeometry(.8,.14,.82), sheetMat, 0,1.01,-1.78);
+backRest.rotation.x = -.62;
+const pillow = mesh(new THREE.CapsuleGeometry(.2,.34,5,12), sheetMat, 0,1.25,-1.98);
+pillow.rotation.z = Math.PI/2;
+
+const sideTable = mesh(new THREE.CylinderGeometry(.28,.31,.48,24), woodMat, -1.1,.25,-1.35);
+const lampShade = mesh(
+  new THREE.CylinderGeometry(.16,.27,.31,24,1,true),
+  new THREE.MeshStandardMaterial({color:0xffd4a1,roughness:.9,side:THREE.DoubleSide}),
+  -1.1,1.12,-1.35
+);
+const lampGlow = new THREE.PointLight(0xffa95d,1.15,2.3,2);
+lampGlow.position.set(-1.1,1.08,-1.35);
+scene.add(lampGlow);
+
+const leftForearm = new THREE.Group();
+leftForearm.visible = false;
+scene.add(leftForearm);
+
+const armCapsule = new THREE.Mesh(
+  new THREE.CapsuleGeometry(ARM_RADIUS, ARM_LENGTH - ARM_RADIUS * 2, 7, 16),
+  skinMat
+);
+armCapsule.rotation.x = Math.PI/2;
+armCapsule.position.z = ARM_LENGTH * .5;
+armCapsule.castShadow = true;
+leftForearm.add(armCapsule);
+
+const wristCuff = new THREE.Mesh(
+  new THREE.TorusGeometry(ARM_RADIUS * .92,.006,8,24),
+  skinEndMat
+);
+wristCuff.position.z = .015;
+leftForearm.add(wristCuff);
+
+const glove = new THREE.Group();
+glove.visible = false;
+scene.add(glove);
+
+const palm = new THREE.Mesh(new THREE.CapsuleGeometry(.036,.075,6,12),gloveMat);
+palm.rotation.z = Math.PI/2;
+palm.scale.set(1,.7,1.08);
+palm.castShadow = true;
+glove.add(palm);
+
+const fingerGeometry = new THREE.CapsuleGeometry(.009,.047,4,8);
+const thumbGeometry = new THREE.CapsuleGeometry(.011,.04,4,8);
+for(let i=0;i<4;i++){
+  const finger = new THREE.Mesh(fingerGeometry,gloveMat);
+  finger.position.set(-.025 + i*.017,-.064,-.002 + Math.abs(1.5-i)*.002);
+  finger.rotation.z = .08 * (i-1.5);
+  finger.castShadow = true;
+  glove.add(finger);
+}
+const thumb = new THREE.Mesh(thumbGeometry,gloveMat);
+thumb.position.set(-.047,-.017,.006);
+thumb.rotation.z = -.85;
+thumb.castShadow = true;
+glove.add(thumb);
+
+const cuff = new THREE.Mesh(new THREE.CylinderGeometry(.043,.048,.055,16),gloveMat);
+cuff.position.y = .069;
+cuff.castShadow = true;
+glove.add(cuff);
+
+const panelCanvas = document.createElement("canvas");
+panelCanvas.width = 768;
+panelCanvas.height = 384;
+const panelCtx = panelCanvas.getContext("2d");
+const panelTex = new THREE.CanvasTexture(panelCanvas);
+panelTex.colorSpace = THREE.SRGBColorSpace;
+panelTex.minFilter = THREE.LinearFilter;
+
+const panel = new THREE.Mesh(
+  new THREE.PlaneGeometry(.76,.38),
+  new THREE.MeshBasicMaterial({map:panelTex,transparent:true,depthTest:false})
+);
+panel.renderOrder = 1000;
+panel.visible = false;
+scene.add(panel);
+
+function drawPanel(){
+  const ctx = panelCtx;
+  ctx.clearRect(0,0,panelCanvas.width,panelCanvas.height);
+  ctx.fillStyle = "rgba(24,20,18,.9)";
+  ctx.fillRect(0,0,panelCanvas.width,panelCanvas.height);
+  ctx.strokeStyle = "#d6b88e";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(3,3,panelCanvas.width-6,panelCanvas.height-6);
+
+  ctx.fillStyle = "#fff0d4";
+  ctx.font = "bold 34px sans-serif";
+  ctx.fillText("なでシンク  " + REV,28,48);
+
+  ctx.fillStyle = state.goodSpeed ? "#8edbff" : "#d9c8b6";
+  ctx.font = "bold 28px sans-serif";
+  ctx.fillText(
+    "速度 " + state.speedCmS.toFixed(1) + " cm/s  " +
+    (state.goodSpeed ? "やさしい速さ" : "3〜7 cm/sで光ります"),
+    28,92
+  );
+
+  ctx.fillStyle = "#bfe4bb";
+  ctx.font = "19px monospace";
+  const first = Math.max(0,logLines.length-9);
+  let y = 132;
+  for(let i=first;i<logLines.length;i++){
+    const line = logLines[i].length > 64 ? logLines[i].slice(0,64)+"…" : logLines[i];
+    ctx.fillText(line,25,y);
+    y += 27;
+  }
+  panelTex.needsUpdate = true;
+  panelDirty = false;
+}
+
+const state = {
+  mode:"loading",
+  xrSupported:false,
+  xrPresenting:false,
+  handsReady:false,
+  leftTracked:false,
+  rightTracked:false,
+  contact:false,
+  speedCmS:0,
+  goodSpeed:false,
+  glow:0,
+  simulated:false,
+  elapsed:0
+};
+
+let session = null;
+let xrHands = null;
+let pendingPanel = false;
+let lastFrameMs = performance.now();
+let rightHistoryValid = false;
+let pcRunning = false;
+let pcYaw = 0;
+let pcPitch = -.08;
+let pcDistance = 2.65;
+let dragging = false;
+let pointerMoved = 0;
+let lastPointerX = 0;
+let lastPointerY = 0;
+let pcStrokePhase = 0;
+let simulationHold = 0;
+let loggedLeft = false;
+let loggedRight = false;
+
+const tmpLeftPos = new THREE.Vector3();
+const tmpRightPos = new THREE.Vector3();
+const tmpPrevRightPos = new THREE.Vector3();
+const tmpDelta = new THREE.Vector3();
+const tmpAxis = new THREE.Vector3();
+const tmpSegment = new THREE.Vector3();
+const tmpClosest = new THREE.Vector3();
+const tmpHeadPos = new THREE.Vector3();
+const tmpForward = new THREE.Vector3();
+const tmpQuat = new THREE.Quaternion();
+const tmpMatrix = new THREE.Matrix4();
+const zAxis = new THREE.Vector3(0,0,1);
+const target = new THREE.Vector3(0,1.16,-1.25);
+
+function inputForHand(handedness){
+  if(!session) return null;
+  for(const source of session.inputSources){
+    if(source.hand && source.handedness === handedness) return source;
+  }
+  return null;
+}
+
+function updateTrackedHands(frame){
+  const ref = renderer.xr.getReferenceSpace();
+  if(!frame || !ref) return;
+
+  const leftSource = inputForHand("left");
+  const rightSource = inputForHand("right");
+  let leftPose = null;
+  let rightPose = null;
+
+  if(leftSource && leftSource.hand){
+    const joint = leftSource.hand.get("wrist");
+    if(joint) leftPose = frame.getJointPose(joint,ref);
+  }
+  if(rightSource && rightSource.hand){
+    const joint = rightSource.hand.get("wrist");
+    if(joint) rightPose = frame.getJointPose(joint,ref);
+  }
+
+  state.leftTracked = !!leftPose;
+  state.rightTracked = !!rightPose;
+  leftForearm.visible = !!leftPose;
+  glove.visible = !!rightPose;
+
+  if(leftPose){
+    tmpLeftPos.set(
+      leftPose.transform.position.x,
+      leftPose.transform.position.y,
+      leftPose.transform.position.z
+    );
+    tmpQuat.set(
+      leftPose.transform.orientation.x,
+      leftPose.transform.orientation.y,
+      leftPose.transform.orientation.z,
+      leftPose.transform.orientation.w
+    );
+    leftForearm.position.copy(tmpLeftPos);
+    leftForearm.quaternion.copy(tmpQuat);
+
+    tmpAxis.copy(zAxis).applyQuaternion(tmpQuat).normalize();
+
+    if(!loggedLeft){
+      loggedLeft = true;
+      log("左手首を認識しました。仮想前腕を固定します");
+    }
+  }
+
+  if(rightPose){
+    tmpRightPos.set(
+      rightPose.transform.position.x,
+      rightPose.transform.position.y,
+      rightPose.transform.position.z
+    );
+    tmpQuat.set(
+      rightPose.transform.orientation.x,
+      rightPose.transform.orientation.y,
+      rightPose.transform.orientation.z,
+      rightPose.transform.orientation.w
+    );
+    glove.position.copy(tmpRightPos);
+    glove.quaternion.copy(tmpQuat);
+
+    if(!loggedRight){
+      loggedRight = true;
+      log("右手を認識しました。青い手袋に置き換えます");
+    }
+  }
+
+  if(!leftPose || !rightPose){
+    rightHistoryValid = false;
+    if(simulationHold <= 0){
+      state.contact = false;
+      state.speedCmS = 0;
+      state.goodSpeed = false;
+      state.simulated = false;
+    }
+    return;
+  }
+
+  if(rightHistoryValid && simulationHold <= 0){
+    const dt = Math.max(state.lastDt || 0,1/120);
+    tmpDelta.copy(tmpRightPos).sub(tmpPrevRightPos);
+    state.speedCmS = Math.abs(tmpDelta.dot(tmpAxis)) / dt * 100;
+
+    tmpSegment.copy(tmpAxis).multiplyScalar(ARM_LENGTH);
+    tmpDelta.copy(tmpRightPos).sub(tmpLeftPos);
+    const denom = ARM_LENGTH * ARM_LENGTH;
+    const t = THREE.MathUtils.clamp(tmpDelta.dot(tmpSegment)/denom,0,1);
+    tmpClosest.copy(tmpSegment).multiplyScalar(t).add(tmpLeftPos);
+    state.contact = tmpClosest.distanceToSquared(tmpRightPos) <= CONTACT_RADIUS * CONTACT_RADIUS;
+    state.goodSpeed =
+      state.contact &&
+      state.speedCmS >= GOOD_MIN_CM_S &&
+      state.speedCmS <= GOOD_MAX_CM_S;
+    state.simulated = false;
+  }
+
+  tmpPrevRightPos.copy(tmpRightPos);
+  rightHistoryValid = true;
+}
+
+function simulate(dt){
+  const safeDt = THREE.MathUtils.clamp(Number.isFinite(dt) ? dt : 0,0,0.1);
+  state.lastDt = safeDt;
+  state.elapsed += safeDt;
+
+  if(simulationHold > 0){
+    simulationHold = Math.max(0,simulationHold-safeDt);
+  }
+
+  const targetGlow = state.goodSpeed ? 1 : 0;
+  const rate = state.goodSpeed ? GLOW_RISE : GLOW_FALL;
+  state.glow += (targetGlow-state.glow) * Math.min(1,safeDt*rate);
+  if(!state.goodSpeed && state.glow < .001) state.glow = 0;
+
+  gloveMat.emissiveIntensity = state.glow * 1.65;
+  warmLight.intensity = 2.2 + state.glow * .85;
+  lampGlow.intensity = 1.15 + state.glow * .38;
+  roomLight.intensity = 1.25 + state.glow * .18;
+
+  if(panel.visible && panelDirty) drawPanel();
+}
+
+function placePanelInFront(){
+  camera.updateMatrixWorld(true);
+  camera.getWorldPosition(tmpHeadPos);
+  camera.getWorldDirection(tmpForward);
+  tmpForward.y = 0;
+  if(tmpForward.lengthSq() < .0001) tmpForward.set(0,0,-1);
+  tmpForward.normalize();
+
+  panel.position.copy(tmpHeadPos).addScaledVector(tmpForward,.95);
+  panel.position.y -= .02;
+  tmpMatrix.lookAt(panel.position,tmpHeadPos,camera.up);
+  panel.quaternion.setFromRotationMatrix(tmpMatrix);
+  panel.visible = true;
+  panelDirty = true;
+  drawPanel();
+  log("3Dログを最初の視点前方に固定しました");
+}
+
+function updatePCCamera(){
+  const cp = Math.cos(pcPitch);
+  camera.position.set(
+    target.x + Math.sin(pcYaw)*cp*pcDistance,
+    target.y + Math.sin(pcPitch)*pcDistance,
+    target.z + Math.cos(pcYaw)*cp*pcDistance
+  );
+  camera.lookAt(target);
+}
+
+function setupPCInput(){
+  canvas.addEventListener("pointerdown",event=>{
+    dragging = true;
+    pointerMoved = 0;
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove",event=>{
+    if(!dragging) return;
+    const dx = event.clientX-lastPointerX;
+    const dy = event.clientY-lastPointerY;
+    pointerMoved += Math.abs(dx)+Math.abs(dy);
+    lastPointerX = event.clientX;
+    lastPointerY = event.clientY;
+    pcYaw -= dx*.006;
+    pcPitch = THREE.MathUtils.clamp(pcPitch+dy*.004,-.55,.5);
+    updatePCCamera();
+  });
+  canvas.addEventListener("pointerup",event=>{
+    dragging = false;
+    if(canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("wheel",event=>{
+    event.preventDefault();
+    pcDistance = THREE.MathUtils.clamp(pcDistance+event.deltaY*.002,1.25,5);
+    updatePCCamera();
+  },{passive:false});
+}
+
+function startPC(){
+  state.mode = "pc";
+  state.xrPresenting = false;
+  pcRunning = true;
+  card.classList.add("hidden");
+  pcHelp.style.display = "block";
+
+  leftForearm.visible = true;
+  leftForearm.position.set(-.19,1.08,-1.05);
+  leftForearm.quaternion.identity();
+  leftForearm.rotation.x = -.08;
+
+  glove.visible = true;
+  pcStrokePhase = 0;
+  updatePCCamera();
+  log("PC確認モードを開始しました");
+}
+
+async function startVR(){
+  try{
+    statusEl.textContent = "VRセッションを開始しています…";
+    session = await navigator.xr.requestSession("immersive-vr",{
+      requiredFeatures:["local-floor"],
+      optionalFeatures:["hand-tracking"]
+    });
+
+    renderer.xr.setReferenceSpaceType("local-floor");
+    await renderer.xr.setSession(session);
+
+    xrHands = setupHands(renderer,scene);
+    for(const h of xrHands){
+      h.addEventListener("connected",e=>{
+        if(e.data && e.data.handedness === "right"){
+          for(const c of h.children) c.visible = false;
+        }
+      });
+    }
+
+    state.mode = "vr";
+    state.xrPresenting = true;
+    state.handsReady = true;
+    pendingPanel = true;
+    card.classList.add("hidden");
+    pcHelp.style.display = "none";
+    log("immersive-vrを開始しました");
+    log("手を左前腕の近くに出してください");
+
+    session.addEventListener("end",()=>{
+      state.xrPresenting = false;
+      state.mode = "ended";
+      session = null;
+      rightHistoryValid = false;
+      panel.visible = false;
+      card.classList.remove("hidden");
+      statusEl.textContent = "VRを終了しました。もう一度開始できます。";
+      goBtn.disabled = false;
+      goBtn.textContent = "VRをもう一度開始";
+      log("VRセッションを終了しました");
+    },{once:true});
+  }catch(error){
+    const text = errorText(error);
+    statusEl.textContent = "VRを開始できませんでした：" + text;
+    log("VR開始エラー: " + text);
+  }
+}
+
+function updatePCDemo(dt){
+  pcStrokePhase += dt;
+  const speedM = .05;
+  const range = .18;
+  const travel = (pcStrokePhase*speedM)%(.36);
+  const z = travel <= range ? travel : .36-travel;
+
+  tmpAxis.copy(zAxis).applyQuaternion(leftForearm.quaternion).normalize();
+  glove.position.copy(leftForearm.position)
+    .addScaledVector(tmpAxis,.035+z)
+    .add(new THREE.Vector3(.055,.012,0));
+  glove.rotation.set(-.2,0,.12);
+
+  if(simulationHold <= 0){
+    state.speedCmS = 5;
+    state.contact = true;
+    state.goodSpeed = true;
+    state.simulated = false;
+  }
+}
+
+function renderLoop(time,frame){
+  try{
+    const dt = Math.min(Math.max((time-lastFrameMs)/1000,0),.05);
+    lastFrameMs = time;
+
+    if(frame && renderer.xr.isPresenting){
+      if(pendingPanel){
+        pendingPanel = false;
+        placePanelInFront();
+      }
+      updateTrackedHands(frame);
+    }else if(pcRunning){
+      updatePCDemo(dt);
+    }
+
+    simulate(dt);
+    renderer.render(scene,camera);
+  }catch(error){
+    log("描画エラー: " + errorText(error));
+  }
+}
+
+renderer.setAnimationLoop(renderLoop);
+
+goBtn.addEventListener("click",()=>{
+  if(state.xrSupported) startVR();
+  else startPC();
+});
+
+async function detectXR(){
+  if(!navigator.xr || !navigator.xr.isSessionSupported){
+    state.xrSupported = false;
+    state.mode = "pc-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "PCで部屋を確認";
+    guide.textContent = "このブラウザはimmersive-vr非対応です。マウスで部屋を確認できます。";
+    statusEl.textContent = "PC確認モードを利用できます。";
+    log("WebXR非対応。PC確認モードを案内します");
+    return;
+  }
+
+  try{
+    state.xrSupported = await navigator.xr.isSessionSupported("immersive-vr");
+  }catch(error){
+    state.xrSupported = false;
+    log("対応状況の確認エラー: " + errorText(error));
+  }
+
+  if(state.xrSupported){
+    state.mode = "vr-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "VRで始める";
+    statusEl.textContent = "immersive-vrに対応しています。";
+    log("immersive-vr対応を確認しました");
+  }else{
+    state.mode = "pc-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "PCで部屋を確認";
+    guide.textContent = "この環境はimmersive-vr非対応です。マウスで治療室を確認できます。";
+    statusEl.textContent = "PC確認モードを利用できます。";
+    log("immersive-vr非対応。PC確認モードを案内します");
+  }
+}
+
+window.__dbg = {
+  state(){
+    return {
+      rev:REV,
+      mode:state.mode,
+      xrSupported:state.xrSupported,
+      xrPresenting:state.xrPresenting,
+      handsReady:state.handsReady,
+      leftTracked:state.leftTracked,
+      rightTracked:state.rightTracked,
+      contact:state.contact,
+      speedCmS:+state.speedCmS.toFixed(3),
+      goodSpeed:state.goodSpeed,
+      glow:+state.glow.toFixed(3),
+      simulated:state.simulated,
+      elapsed:+state.elapsed.toFixed(3),
+      thresholdsCmS:[GOOD_MIN_CM_S,GOOD_MAX_CM_S]
+    };
+  },
+  tick(seconds){
+    const total = Math.max(0,Number(seconds)||0);
+    const step = 1/90;
+    const whole = Math.floor(total/step);
+    for(let i=0;i<whole;i++) simulate(step);
+    const rest = total-whole*step;
+    if(rest>0) simulate(rest);
+    renderer.render(scene,camera);
+    return this.state();
+  },
+  strokeSim(speedCmPerSecond){
+    const speed = Math.max(0,Number(speedCmPerSecond)||0);
+    state.speedCmS = speed;
+    state.contact = true;
+    state.goodSpeed = speed >= GOOD_MIN_CM_S && speed <= GOOD_MAX_CM_S;
+    state.simulated = true;
+    simulationHold = .75;
+    panelDirty = true;
+    return this.state();
+  }
+};
+
+addEventListener("resize",()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+drawPanel();
+setupPCInput();
+detectXR();
+log("読み込みOK（" + REV + "）");
+</script>
+</body>
+</html>
