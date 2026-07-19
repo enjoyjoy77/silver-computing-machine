@@ -20,8 +20,10 @@ const COLORS = {
   panel: "#202943",
   panelLight: "#2b3858",
   card: "#fff8e7",
-  cardSense: "#fff0b8",
-  cardLogic: "#ffe4ef",
+  cardGood: "#fff0b8",
+  cardFocus: "#dceeff",
+  cardImpression: "#ffe4ef",
+  cardMotivation: "#ffe0d6",
   cardCommon: "#e5f4ff",
   text: "#ffffff",
   darkText: "#283047",
@@ -56,9 +58,60 @@ const PARAMS = [
 ];
 
 /*
-  初期デッキは9枚必要なので、共通3枚と型カード5種に加え、
-  選んだ型の代表カードをもう1枚入れる。
+  好調/集中/好印象/やる気を、それぞれ単独で育てる4タイプ。
+  初期デッキは9枚: 共通3枚+自分の型のカード5枚+代表カードもう1枚(重複)。
 */
+const STYLES = [
+  {
+    key: "good",
+    icon: "😊🌟",
+    name: "好調型",
+    color: COLORS.gold,
+    blurb1: "好調だけを育てる",
+    blurb2: "決め時に大きく伸ばす",
+    representative: "rideWave",
+    cardColor: COLORS.cardGood,
+    borderColor: "#e4bd36",
+  },
+  {
+    key: "focus",
+    icon: "🎯🔹",
+    name: "集中型",
+    color: COLORS.blue,
+    blurb1: "集中だけを育てる",
+    blurb2: "溜めてから一気に使う",
+    representative: "focusBuild",
+    cardColor: COLORS.cardFocus,
+    borderColor: "#4fa8e0",
+  },
+  {
+    key: "impression",
+    icon: "💕",
+    name: "好印象型",
+    color: COLORS.pink,
+    blurb1: "好印象だけを育てる",
+    blurb2: "低い力を毎ターン底上げ",
+    representative: "friendlyTalk",
+    cardColor: COLORS.cardImpression,
+    borderColor: "#ef85b2",
+  },
+  {
+    key: "motivation",
+    icon: "🔥",
+    name: "やる気型",
+    color: COLORS.red,
+    blurb1: "やる気だけを育てる",
+    blurb2: "元気をたっぷり稼いで押し切る",
+    representative: "spirit",
+    cardColor: COLORS.cardMotivation,
+    borderColor: "#e0654f",
+  },
+];
+
+function styleInfo(key){
+  return STYLES.find(style => style.key === key);
+}
+
 const CARDS = {
   voice: {
     id: "voice",
@@ -85,86 +138,172 @@ const CARDS = {
     text: "🎨ひょうげん +8",
   },
 
+  /* ---- 好調型 ---- */
   rideWave: {
     id: "rideWave",
-    type: "sense",
+    type: "good",
     icon: "😊🌟",
     name: "波に乗る",
     cost: 4,
-    text: "最高の力+5 / 好調2",
+    text: "最高の力+5 / 好調+2",
   },
-  focus: {
-    id: "focus",
-    type: "sense",
+  warmUp: {
+    id: "warmUp",
+    type: "good",
+    icon: "😊🔥",
+    name: "ノリを作る",
+    cost: 2,
+    text: "好調+1",
+  },
+  pushIt: {
+    id: "pushIt",
+    type: "good",
+    icon: "😊🚀",
+    name: "勢いで押す",
+    cost: 5,
+    text: "🎤+5・🕺+5",
+  },
+  extendGood: {
+    id: "extendGood",
+    type: "good",
+    icon: "😊🎯",
+    name: "好調キープ",
+    cost: 4,
+    text: "好調+1 / 🎨+3",
+  },
+  climax: {
+    id: "climax",
+    type: "good",
+    icon: "🌈💥",
+    name: "クライマックス",
+    cost: 8,
+    text: "最高+15(好調中は約1.5倍) / 好調を全消費",
+  },
+
+  /* ---- 集中型 ---- */
+  focusBuild: {
+    id: "focusBuild",
+    type: "focus",
     icon: "🎯🧘",
     name: "集中する",
     cost: 3,
     text: "集中+4",
   },
+  steadyForm: {
+    id: "steadyForm",
+    type: "focus",
+    icon: "🎯🕺",
+    name: "型を固める",
+    cost: 3,
+    text: "🕺+4 / 集中加算",
+  },
+  quietPrep: {
+    id: "quietPrep",
+    type: "focus",
+    icon: "🎯💧",
+    name: "静かに整える",
+    cost: 2,
+    text: "集中+2 / 元気+2",
+  },
   fullAppeal: {
     id: "fullAppeal",
-    type: "sense",
+    type: "focus",
     icon: "🚀",
     name: "全力アピール",
     cost: 7,
-    text: "🎤+7・🕺+7 / 集中加算",
+    text: "🎤+6・🎨+6 / 集中加算",
   },
-  climax: {
-    id: "climax",
-    type: "sense",
-    icon: "🌈💥",
-    name: "クライマックス",
-    cost: 8,
-    text: "最高+15 / 好調と集中を消費",
-  },
-  keepMomentum: {
-    id: "keepMomentum",
-    type: "sense",
-    icon: "😊🎯",
-    name: "勢いに乗る",
-    cost: 5,
-    text: "好調中なら集中+3",
+  burstFocus: {
+    id: "burstFocus",
+    type: "focus",
+    icon: "⚡🎯",
+    name: "全集中解放",
+    cost: 7,
+    text: "最高+5+集中×2 / 集中を全消費",
   },
 
+  /* ---- 好印象型 ---- */
   friendlyTalk: {
     id: "friendlyTalk",
-    type: "logic",
+    type: "impression",
     icon: "💕👋",
     name: "親しみトーク",
     cost: 3,
     text: "🎨+4 / 好印象+3",
   },
-  spirit: {
-    id: "spirit",
-    type: "logic",
-    icon: "🔥📣",
-    name: "気合い注入",
-    cost: 2,
-    text: "やる気+3 / 元気回復",
-  },
-  circle: {
-    id: "circle",
-    type: "logic",
-    icon: "🛡️🤝",
-    name: "仲間と円陣",
-    cost: 2,
-    text: "元気+5+やる気 / 好印象+1",
+  smile: {
+    id: "smile",
+    type: "impression",
+    icon: "💕✨",
+    name: "みんなに笑顔を",
+    cost: 4,
+    text: "3つの力+2 / 好印象+2",
   },
   fanService: {
     id: "fanService",
-    type: "logic",
+    type: "impression",
     icon: "💌🎁",
     name: "ファンサービス",
     cost: 5,
     text: "最低+6+好印象",
   },
-  smile: {
-    id: "smile",
-    type: "logic",
-    icon: "💕✨",
-    name: "みんなに笑顔を",
-    cost: 4,
-    text: "3つの力+2 / 好印象+2",
+  warmSupport: {
+    id: "warmSupport",
+    type: "impression",
+    icon: "💕🌷",
+    name: "気づかい",
+    cost: 3,
+    text: "最低+3 / 好印象+1",
+  },
+  burstImpression: {
+    id: "burstImpression",
+    type: "impression",
+    icon: "💐💕",
+    name: "特大の感謝",
+    cost: 6,
+    text: "最低+4+好印象×2 / 好印象を全消費",
+  },
+
+  /* ---- やる気型 ---- */
+  spirit: {
+    id: "spirit",
+    type: "motivation",
+    icon: "🔥📣",
+    name: "気合い注入",
+    cost: 2,
+    text: "やる気+3 / 元気+3+やる気",
+  },
+  circle: {
+    id: "circle",
+    type: "motivation",
+    icon: "🛡️🤝",
+    name: "仲間と円陣",
+    cost: 2,
+    text: "元気+5+やる気 / やる気+1",
+  },
+  pushHard: {
+    id: "pushHard",
+    type: "motivation",
+    icon: "🔥🎤",
+    name: "気迫のアピール",
+    cost: 6,
+    text: "🎤+4・🕺+4 / やる気加算",
+  },
+  rally: {
+    id: "rally",
+    type: "motivation",
+    icon: "🔥🔥",
+    name: "鼓舞する",
+    cost: 3,
+    text: "やる気+2 / 元気+2+やる気",
+  },
+  burstMotivation: {
+    id: "burstMotivation",
+    type: "motivation",
+    icon: "🔥🚀",
+    name: "渾身の全力",
+    cost: 8,
+    text: "最高+5+やる気×2 / やる気を全消費",
   },
 };
 
@@ -174,21 +313,12 @@ const COMMON_IDS = [
   "face",
 ];
 
-const SENSE_IDS = [
-  "rideWave",
-  "focus",
-  "fullAppeal",
-  "climax",
-  "keepMomentum",
-];
-
-const LOGIC_IDS = [
-  "friendlyTalk",
-  "spirit",
-  "circle",
-  "fanService",
-  "smile",
-];
+const TYPE_IDS = {
+  good: ["rideWave", "warmUp", "pushIt", "extendGood", "climax"],
+  focus: ["focusBuild", "steadyForm", "quietPrep", "fullAppeal", "burstFocus"],
+  impression: ["friendlyTalk", "smile", "fanService", "warmSupport", "burstImpression"],
+  motivation: ["spirit", "circle", "pushHard", "rally", "burstMotivation"],
+};
 
 let S;
 
@@ -367,15 +497,19 @@ function paramInfo(key){
 }
 
 function cardColor(card){
-  if (card.type === "sense"){
-    return COLORS.cardSense;
+  if (card.type === "common"){
+    return COLORS.cardCommon;
   }
 
-  if (card.type === "logic"){
-    return COLORS.cardLogic;
+  return styleInfo(card.type).cardColor;
+}
+
+function cardBorderColor(card){
+  if (card.type === "common"){
+    return "#6fb8e5";
   }
 
-  return COLORS.cardCommon;
+  return styleInfo(card.type).borderColor;
 }
 
 /* ---------- ゲームの準備 ---------- */
@@ -427,19 +561,11 @@ function reset(){
 }
 
 function initialDeck(style){
-  const typeCards =
-    style === "sense"
-      ? SENSE_IDS
-      : LOGIC_IDS;
-
-  const representative =
-    style === "sense"
-      ? "rideWave"
-      : "friendlyTalk";
+  const info = styleInfo(style);
 
   return COMMON_IDS
-    .concat(typeCards)
-    .concat([representative]);
+    .concat(TYPE_IDS[style])
+    .concat([info.representative]);
 }
 
 function chooseStyle(g, style){
@@ -506,10 +632,7 @@ function drawHand(g){
   }
 
   if (S.firstHand){
-    const representative =
-      S.style === "sense"
-        ? "rideWave"
-        : "friendlyTalk";
+    const representative = styleInfo(S.style).representative;
 
     if (hand.indexOf(representative) < 0){
       const deckIndex =
@@ -593,11 +716,14 @@ function canPay(cost){
   return S.energy + S.hp >= cost;
 }
 
+/*
+  bonusStat: null(無し) / "focus"(集中を加算) / "motivation"(やる気を加算)
+*/
 function addParameter(
   g,
   key,
   baseAmount,
-  useFocus
+  bonusStat
 ){
   let amount = baseAmount;
 
@@ -605,8 +731,10 @@ function addParameter(
     amount = Math.round(amount * 1.5);
   }
 
-  if (useFocus && S.focus > 0){
+  if (bonusStat === "focus" && S.focus > 0){
     amount += S.focus;
+  } else if (bonusStat === "motivation" && S.motivation > 0){
+    amount += S.motivation;
   }
 
   S.params[key] += amount;
@@ -653,37 +781,26 @@ function addRawParameter(
 
 function useCardEffect(g, cardId){
   if (cardId === "voice"){
-    addParameter(g, "vocal", 8, false);
+    addParameter(g, "vocal", 8, null);
   } else if (cardId === "dance"){
-    addParameter(g, "rhythm", 8, false);
+    addParameter(g, "rhythm", 8, null);
   } else if (cardId === "face"){
-    addParameter(
-      g,
-      "expression",
-      8,
-      false
-    );
+    addParameter(g, "expression", 8, null);
+
+  /* ---- 好調型 ---- */
   } else if (cardId === "rideWave"){
-    addParameter(
-      g,
-      highestParamKey(),
-      5,
-      false
-    );
+    addParameter(g, highestParamKey(), 5, null);
     S.good = Math.max(S.good, 2);
-  } else if (cardId === "focus"){
-    S.focus += 4;
-    addFloater(
-      480,
-      172,
-      "🎯 集中+4",
-      COLORS.blue,
-      29,
-      1
-    );
-  } else if (cardId === "fullAppeal"){
-    addParameter(g, "vocal", 7, true);
-    addParameter(g, "rhythm", 7, true);
+  } else if (cardId === "warmUp"){
+    S.good += 1;
+    addFloater(480, 172, "😊 好調+1", COLORS.gold, 28, 1);
+  } else if (cardId === "pushIt"){
+    addParameter(g, "vocal", 5, null);
+    addParameter(g, "rhythm", 5, null);
+  } else if (cardId === "extendGood"){
+    S.good += 1;
+    addParameter(g, "expression", 3, null);
+    addFloater(480, 172, "😊 好調+1", COLORS.gold, 26, 0.9);
   } else if (cardId === "climax"){
     const hadGood = S.good > 0;
     let amount = hadGood ? 15 : 8;
@@ -691,8 +808,6 @@ function useCardEffect(g, cardId){
     if (hadGood){
       amount = Math.round(amount * 1.5);
     }
-
-    amount += S.focus;
 
     addRawParameter(
       highestParamKey(),
@@ -702,7 +817,6 @@ function useCardEffect(g, cardId){
     );
 
     S.good = 0;
-    S.focus = 0;
 
     addFloater(
       480,
@@ -717,83 +831,129 @@ function useCardEffect(g, cardId){
 
     S.shake = 0.33;
     S.flash = 0.16;
-  } else if (cardId === "keepMomentum"){
-    if (S.good > 0){
-      S.focus += 3;
-      addFloater(
-        480,
-        172,
-        "🎯 集中+3",
-        COLORS.blue,
-        28,
-        1
-      );
-    } else {
-      addFloater(
-        480,
-        172,
-        "好調が必要",
-        COLORS.dim,
-        22,
-        0.8
-      );
-    }
-  } else if (cardId === "friendlyTalk"){
-    addParameter(
-      g,
-      "expression",
-      4,
-      false
+
+  /* ---- 集中型 ---- */
+  } else if (cardId === "focusBuild"){
+    S.focus += 4;
+    addFloater(480, 172, "🎯 集中+4", COLORS.blue, 29, 1);
+  } else if (cardId === "steadyForm"){
+    addParameter(g, "rhythm", 4, "focus");
+  } else if (cardId === "quietPrep"){
+    S.focus += 2;
+    S.energy += 2;
+    addFloater(480, 172, "🎯 集中+2 / 元気+2", COLORS.blue, 25, 1);
+  } else if (cardId === "fullAppeal"){
+    addParameter(g, "vocal", 6, "focus");
+    addParameter(g, "expression", 6, "focus");
+  } else if (cardId === "burstFocus"){
+    const amount = 5 + S.focus * 2;
+
+    addRawParameter(
+      highestParamKey(),
+      amount,
+      480,
+      150
     );
+
+    addFloater(
+      480,
+      205,
+      S.focus > 0 ? "⚡ 全集中解放!" : "集中切れ・最小効果",
+      S.focus > 0 ? COLORS.blue : COLORS.dim,
+      S.focus > 0 ? 34 : 25,
+      1.2
+    );
+
+    S.focus = 0;
+    S.shake = 0.3;
+    S.flash = 0.14;
+
+  /* ---- 好印象型 ---- */
+  } else if (cardId === "friendlyTalk"){
+    addParameter(g, "expression", 4, null);
     S.impression += 3;
+  } else if (cardId === "smile"){
+    addParameter(g, "vocal", 2, null);
+    addParameter(g, "rhythm", 2, null);
+    addParameter(g, "expression", 2, null);
+    S.impression += 2;
+  } else if (cardId === "fanService"){
+    addParameter(g, lowestParamKey(), 6 + S.impression, null);
+  } else if (cardId === "warmSupport"){
+    addParameter(g, lowestParamKey(), 3, null);
+    S.impression += 1;
+  } else if (cardId === "burstImpression"){
+    const amount = 4 + S.impression * 2;
+
+    addRawParameter(
+      lowestParamKey(),
+      amount,
+      480,
+      150
+    );
+
+    addFloater(
+      480,
+      205,
+      S.impression > 0 ? "💐 特大の感謝!" : "好印象切れ・最小効果",
+      S.impression > 0 ? COLORS.pink : COLORS.dim,
+      S.impression > 0 ? 34 : 25,
+      1.2
+    );
+
+    S.impression = 0;
+    S.shake = 0.3;
+    S.flash = 0.14;
+
+  /* ---- やる気型 ---- */
   } else if (cardId === "spirit"){
     S.motivation += 3;
 
-    const gained =
-      3 + S.motivation;
+    const gained = 3 + S.motivation;
 
     S.energy += gained;
 
-    addFloater(
-      480,
-      176,
-      "🔥元気+" + gained,
-      COLORS.red,
-      29,
-      1
-    );
+    addFloater(480, 176, "🔥元気+" + gained, COLORS.red, 29, 1);
   } else if (cardId === "circle"){
-    const gained =
-      5 + S.motivation;
+    const gained = 5 + S.motivation;
 
     S.energy += gained;
-    S.impression += 1;
+    S.motivation += 1;
+
+    addFloater(480, 176, "🛡️元気+" + gained, COLORS.green, 29, 1);
+  } else if (cardId === "pushHard"){
+    addParameter(g, "vocal", 4, "motivation");
+    addParameter(g, "rhythm", 4, "motivation");
+  } else if (cardId === "rally"){
+    S.motivation += 2;
+
+    const gained = 2 + S.motivation;
+
+    S.energy += gained;
+
+    addFloater(480, 176, "🔥やる気+2 元気+" + gained, COLORS.red, 25, 1);
+  } else if (cardId === "burstMotivation"){
+    const amount = 5 + S.motivation * 2;
+
+    addRawParameter(
+      highestParamKey(),
+      amount,
+      480,
+      150
+    );
 
     addFloater(
       480,
-      176,
-      "🛡️元気+" + gained,
-      COLORS.green,
-      29,
-      1
+      205,
+      S.motivation > 0 ? "🔥 渾身の全力!" : "やる気切れ・最小効果",
+      S.motivation > 0 ? COLORS.red : COLORS.dim,
+      S.motivation > 0 ? 34 : 25,
+      1.2
     );
-  } else if (cardId === "fanService"){
-    addParameter(
-      g,
-      lowestParamKey(),
-      6 + S.impression,
-      false
-    );
-  } else if (cardId === "smile"){
-    addParameter(g, "vocal", 2, false);
-    addParameter(g, "rhythm", 2, false);
-    addParameter(
-      g,
-      "expression",
-      2,
-      false
-    );
-    S.impression += 2;
+
+    S.motivation = 0;
+    S.shake = 0.3;
+    S.flash = 0.14;
   }
 }
 
@@ -975,36 +1135,36 @@ function finishTurn(g){
 /* ---------- 節目のカード追加 ---------- */
 
 function randomTypeCard(g){
-  const selectedPool =
-    S.style === "sense"
-      ? SENSE_IDS
-      : LOGIC_IDS;
+  const roll = g.rand(0, 1);
+  let pool;
 
-  const oppositePool =
-    S.style === "sense"
-      ? LOGIC_IDS
-      : SENSE_IDS;
+  if (roll < 0.7){
+    pool = TYPE_IDS[S.style];
+  } else {
+    const others = STYLES
+      .map(style => style.key)
+      .filter(key => key !== S.style);
+    const otherIndex = Math.min(
+      others.length - 1,
+      Math.floor((roll - 0.7) / 0.1)
+    );
 
-  const useSelected =
-    g.rand(0, 1) < 0.7;
-
-  let pool =
-    useSelected
-      ? selectedPool
-      : oppositePool;
+    pool = TYPE_IDS[others[otherIndex]];
+  }
 
   if (
     S.turn === 4 &&
+    roll < 0.7 &&
     g.rand(0, 1) < 0.45
   ){
-    const finishers =
-      S.style === "sense"
-        ? ["climax", "fullAppeal"]
-        : ["fanService", "smile"];
+    const finisherIds = {
+      good: "climax",
+      focus: "burstFocus",
+      impression: "burstImpression",
+      motivation: "burstMotivation",
+    };
 
-    if (useSelected){
-      pool = finishers;
-    }
+    return finisherIds[S.style];
   }
 
   return g.pick(pool);
@@ -1113,11 +1273,14 @@ function cardRect(index){
 }
 
 function styleRect(index){
+  const col = index % 2;
+  const row = Math.floor(index / 2);
+
   return {
-    x: index === 0 ? 165 : 505,
-    y: 214,
-    w: 290,
-    h: 205,
+    x: col === 0 ? 87 : 497,
+    y: row === 0 ? 168 : 348,
+    w: 376,
+    h: 164,
   };
 }
 
@@ -1131,21 +1294,21 @@ function redrawRect(){
 }
 
 function updateStyleSelect(g){
-  if (g.pressed("left")){
-    chooseStyle(g, "sense");
-    return;
-  }
-
-  if (g.pressed("right")){
-    chooseStyle(g, "logic");
-    return;
+  for (let i = 0; i < STYLES.length; i++){
+    if (
+      g.pressed(String(i + 1)) ||
+      g.pressed("Digit" + (i + 1))
+    ){
+      chooseStyle(g, STYLES[i].key);
+      return;
+    }
   }
 
   if (!g.pointer.justDown){
     return;
   }
 
-  for (let i = 0; i < 2; i++){
+  for (let i = 0; i < STYLES.length; i++){
     const rect = styleRect(i);
 
     if (pointInRect(
@@ -1155,10 +1318,7 @@ function updateStyleSelect(g){
       rect.w,
       rect.h
     )){
-      chooseStyle(
-        g,
-        i === 0 ? "sense" : "logic"
-      );
+      chooseStyle(g, STYLES[i].key);
       return;
     }
   }
@@ -1279,9 +1439,9 @@ function drawTopBar(g){
 
   g.text(
     phase + " " + S.turn + " / " + TOTAL_TURNS,
-    260,
+    240,
     24,
-    20,
+    19,
     S.turn <= PRACTICE_TURNS
       ? COLORS.green
       : COLORS.gold
@@ -1289,30 +1449,28 @@ function drawTopBar(g){
 
   g.text(
     "❤️体力 " + S.hp,
-    510,
+    460,
     23,
-    20,
+    19,
     S.hp <= 15 ? COLORS.red : COLORS.text
   );
 
   g.text(
     "🛡️元気 " + S.energy,
-    655,
+    600,
     23,
-    20,
+    19,
     COLORS.blue
   );
 
+  const style = styleInfo(S.style);
+
   g.text(
-    S.style === "sense"
-      ? "😊センス型"
-      : "💕ロジック型",
+    style.icon + style.name,
     824,
     23,
-    19,
-    S.style === "sense"
-      ? COLORS.gold
-      : COLORS.pink
+    18,
+    style.color
   );
 
   g.text(
@@ -1633,11 +1791,7 @@ function drawCard(
     rect.h,
     cardColor(card),
     affordable || !selectable
-      ? card.type === "sense"
-        ? "#e4bd36"
-        : card.type === "logic"
-          ? "#ef85b2"
-          : "#6fb8e5"
+      ? cardBorderColor(card)
       : "#888"
   );
 
@@ -1687,11 +1841,9 @@ function drawCard(
   );
 
   g.text(
-    card.type === "sense"
-      ? "😊 センス"
-      : card.type === "logic"
-        ? "💕 ロジック"
-        : "📘 共通",
+    card.type === "common"
+      ? "📘 共通"
+      : styleInfo(card.type).icon + " " + styleInfo(card.type).name,
     rect.x + rect.w / 2,
     y + 184,
     14,
@@ -1812,7 +1964,7 @@ function drawTitle(g){
   );
 
   g.text(
-    "先に溜めるか、着実に積むか",
+    "4つの力、どれか1つを育て切る",
     480,
     190,
     21,
@@ -1840,111 +1992,76 @@ function drawStyleSelect(g){
   g.text(
     "育て方を選ぼう",
     480,
-    86,
-    38,
+    76,
+    34,
     COLORS.text
   );
 
   g.text(
-    "選んだ型を中心にしたデッキで8ターン挑戦",
+    "選んだ型を中心にしたデッキで8ターン挑戦(1〜4キーでも選べます)",
     480,
-    132,
-    20,
-    COLORS.dim
-  );
-
-  const sense = styleRect(0);
-  const logic = styleRect(1);
-
-  drawPanel(
-    g,
-    sense.x,
-    sense.y,
-    sense.w,
-    sense.h,
-    "#514820",
-    COLORS.gold
-  );
-
-  g.emoji(
-    "😊🌟",
-    sense.x + sense.w / 2,
-    sense.y + 51,
-    51
-  );
-
-  g.text(
-    "センス型",
-    sense.x + sense.w / 2,
-    sense.y + 101,
-    28,
-    COLORS.gold
-  );
-
-  g.text(
-    "好調と集中を溜める",
-    sense.x + sense.w / 2,
-    sense.y + 139,
+    116,
     18,
-    COLORS.text
-  );
-
-  g.text(
-    "決め時を選んで一気に伸ばす",
-    sense.x + sense.w / 2,
-    sense.y + 170,
-    16,
     COLORS.dim
   );
 
-  drawPanel(
-    g,
-    logic.x,
-    logic.y,
-    logic.w,
-    logic.h,
-    "#512b42",
-    COLORS.pink
-  );
+  for (let i = 0; i < STYLES.length; i++){
+    const style = STYLES[i];
+    const rect = styleRect(i);
 
-  g.emoji(
-    "💕🔥",
-    logic.x + logic.w / 2,
-    logic.y + 51,
-    51
-  );
+    drawPanel(
+      g,
+      rect.x,
+      rect.y,
+      rect.w,
+      rect.h,
+      "#20263a",
+      style.color
+    );
 
-  g.text(
-    "ロジック型",
-    logic.x + logic.w / 2,
-    logic.y + 101,
-    28,
-    COLORS.pink
-  );
+    g.emoji(
+      style.icon,
+      rect.x + 60,
+      rect.y + rect.h / 2,
+      44
+    );
 
-  g.text(
-    "好印象とやる気を育てる",
-    logic.x + logic.w / 2,
-    logic.y + 139,
-    18,
-    COLORS.text
-  );
+    g.text(
+      style.name,
+      rect.x + rect.w / 2 + 30,
+      rect.y + 44,
+      24,
+      style.color,
+      "left"
+    );
 
-  g.text(
-    "低い力を補いながら着実に伸ばす",
-    logic.x + logic.w / 2,
-    logic.y + 170,
-    16,
-    COLORS.dim
-  );
+    g.text(
+      style.blurb1,
+      rect.x + rect.w / 2 + 30,
+      rect.y + 76,
+      16,
+      COLORS.text,
+      "left"
+    );
 
-  g.text(
-    "← センス型　　クリック / タップ　　ロジック型 →",
-    480,
-    463,
-    19,
-    COLORS.text
-  );
+    g.text(
+      style.blurb2,
+      rect.x + rect.w / 2 + 30,
+      rect.y + 100,
+      14,
+      COLORS.dim,
+      "left"
+    );
+
+    g.text(
+      String(i + 1),
+      rect.x + 20,
+      rect.y + 20,
+      16,
+      COLORS.dim,
+      "left"
+    );
+  }
 }
 
 function drawResult(g){
@@ -2110,7 +2227,7 @@ EmojiEngine.register({
   id: "gakuen",
   name: "学園絵文字マスター",
   icon: "🎓",
-  desc: "8ターンで選び切る、二択の育成デッキビルド",
+  desc: "4つの力、どれか1つを育て切る8ターンのデッキビルド",
 
   init(){
     reset();
@@ -2250,7 +2367,7 @@ EmojiEngine.register({
     }
 
     g.text(
-      "rev1",
+      "rev2",
       g.W - 8,
       14,
       12,

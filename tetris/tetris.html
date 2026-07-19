@@ -112,7 +112,7 @@
   </div>
 </div>
 <button id="mute">🔊 音ON</button>
-<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev5 (2026-07-19) ホールド暗転表示の更新漏れ+使用済み時の案内を修正</div>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev6 (2026-07-19) AI評価関数を「9-1積み+我慢/緊急回避」方式に刷新</div>
 
 <script>
 (function(){
@@ -239,18 +239,11 @@ const SOFT_DROP_FACTOR = 20;
 
 /* ============================================================
    AIアドバイザー(最適手の提案)
-   Dellacherie/El-Tetris方式の盤面評価関数(6特徴量)を使用。
-   現在ミノ+ネクスト1個(2手先読み)+ホールド候補まで探索し、
-   最も評価値が高い置き方を提案する。
+   「9-1積み」の定石(右端を1列あけてIミノでテトリスを狙う)と、
+   盤面の高さに応じた我慢/緊急回避の切り替えをGeminiのリサーチを
+   もとに数値化。現在ミノ+ネクスト1個(2手先読み)+ホールド候補
+   まで探索し、最も評価値が高い置き方を提案する。
    ============================================================ */
-const AI_WEIGHTS = {
-  landingHeight:  -4.500158,
-  erodedCells:     3.418126,
-  rowTransitions: -3.217888,
-  colTransitions: -9.348695,
-  holes:          -7.899265,
-  wellSums:       -3.385597
-};
 
 function aiCloneBoard(board){
   return board.map(row => row.slice());
@@ -323,6 +316,7 @@ function aiApplyPlacement(board, type, rot, col, row){
   return { board: newBoard, cleared: n, eroded, landingHeight };
 }
 
+// 診断用(理由コメント生成でのbefore/after比較にのみ使う単純な穴カウント等)
 function aiEvaluateStatic(board){
   let holes = 0, rowTransitions = 0, colTransitions = 0, wellSums = 0;
   for(let c=0;c<COLS;c++){
@@ -363,13 +357,97 @@ function aiEvaluateStatic(board){
   return { holes, rowTransitions, colTransitions, wellSums };
 }
 
-function aiStaticScore(f){
-  return f.holes*AI_WEIGHTS.holes + f.rowTransitions*AI_WEIGHTS.rowTransitions +
-         f.colTransitions*AI_WEIGHTS.colTransitions + f.wellSums*AI_WEIGHTS.wellSums;
+/* ------------------------------------------------------------
+   「プロの思考」評価関数(9-1積み対応版)
+   トッププレイヤーの定石(右端を1列あけて積み、Iミノで一気に
+   テトリスを狙う/盤面が高くなったら我慢をやめて即消しに切替える)
+   をGeminiのリサーチをもとに数値化したもの。
+   ------------------------------------------------------------ */
+const WELL_COL = COLS - 1; // 右端を「意図的な井戸」の対象列とする
+
+function aiHeightsOf(board){
+  const heights = new Array(COLS).fill(0);
+  let maxHeight = 0;
+  for(let c=0;c<COLS;c++){
+    let y = 0;
+    while(y < ROWS && !board[y][c]) y++;
+    heights[c] = ROWS - y;
+    if(heights[c] > maxHeight) maxHeight = heights[c];
+  }
+  return { heights, maxHeight };
 }
 
-function aiPieceScore(landingHeight, eroded){
-  return landingHeight*AI_WEIGHTS.landingHeight + eroded*AI_WEIGHTS.erodedCells;
+function aiRightWellDepth(board){
+  let depth = 0;
+  for(let r=ROWS-1;r>=0;r--){
+    if(!board[r][WELL_COL]){
+      if(board[r][WELL_COL-1] || depth > 0) depth++;
+      else break;
+    } else break;
+  }
+  return depth;
+}
+
+// 盤面+今回の消去ライン数+Iミノが控えているかを踏まえた「プロ思考」評価値
+function aiEvaluateBoardPro(board, linesCleared, hasIMino){
+  const { heights, maxHeight } = aiHeightsOf(board);
+
+  let mode = "normal";
+  if(maxHeight >= 15) mode = "panic";
+  else if(maxHeight >= 12) mode = "alert";
+
+  let holes = 0, blockingBlocks = 0;
+  for(let c=0;c<COLS;c++){
+    let found = false, above = 0;
+    for(let r=0;r<ROWS;r++){
+      if(board[r][c]){ found = true; above++; }
+      else if(found){ holes++; blockingBlocks += above; above = 0; }
+    }
+  }
+
+  // でこぼこ度: 右端(井戸)との境界は除外(意図的な段差はペナルティにしない)
+  let bumpiness = 0;
+  for(let c=0;c<WELL_COL-1;c++) bumpiness += Math.abs(heights[c]-heights[c+1]);
+
+  // 悪い谷: 右端以外で、両隣より2段以上凹んでいる列
+  let badValleySums = 0;
+  for(let c=0;c<WELL_COL;c++){
+    const leftH = (c===0) ? ROWS : heights[c-1];
+    const rightH = heights[c+1];
+    const depth = Math.min(leftH, rightH) - heights[c];
+    if(depth >= 2) badValleySums += depth;
+  }
+
+  const rightWellDepth = aiRightWellDepth(board);
+  let rightWellScore = 0;
+  if(mode !== "panic"){
+    const table = hasIMino
+      ? {0:-100, 1:50, 2:200, 3:500, 4:600}
+      : {0:0,    1:150,2:300, 3:100, 4:-100};
+    rightWellScore = (rightWellDepth in table) ? table[rightWellDepth]
+      : (hasIMino ? -300 - (rightWellDepth-5)*150 : -400 - (rightWellDepth-5)*200);
+  } else {
+    rightWellScore = -rightWellDepth * 200;
+  }
+
+  let lineClearScore = 0;
+  const TABLE = {
+    normal: {0:0,    1:-150, 2:-50,  3:50,  4:1000},
+    alert:  {0:0,    1:50,   2:150,  3:300, 4:800},
+    panic:  {0:-600, 1:400,  2:600,  3:800, 4:1200}
+  };
+  lineClearScore = TABLE[mode][linesCleared] || 0;
+
+  const W = { maxHeight:-15, holes:-450, blockingBlocks:-40, bumpiness:-12, badValleys:-40 };
+  let score = 0;
+  score += maxHeight * W.maxHeight;
+  score += holes * W.holes;
+  score += blockingBlocks * W.blockingBlocks;
+  score += bumpiness * W.bumpiness;
+  score += badValleySums * W.badValleys;
+  score += rightWellScore;
+  score += lineClearScore;
+  return { score, mode, maxHeight, holes, rightWellDepth };
 }
 
 // 指定ボード上で、指定ミノを置ける全パターン(回転x列)を列挙
@@ -388,41 +466,46 @@ function aiEnumerate(board, type){
 }
 
 // 1手先(次のミノのみ)の最良評価値を返す(2手先読みの2手目)
-function aiBestSingleScore(board, type){
+function aiBestSingleScore(board, type, hasIMino){
   if(!type) return 0;
   let best = -Infinity;
   for(const pl of aiEnumerate(board, type)){
     const r = aiApplyPlacement(board, type, pl.rot, pl.col, pl.row);
-    const score = aiStaticScore(aiEvaluateStatic(r.board)) + aiPieceScore(r.landingHeight, r.eroded);
+    const { score } = aiEvaluateBoardPro(r.board, r.cleared, hasIMino);
     if(score > best) best = score;
   }
   return best === -Infinity ? -99999 : best;
 }
 
 // 現在ミノ(または任意の候補ミノ)を置く最良手を、ネクスト1個先まで見て探す
-function aiBestMove(board, type, nextType){
+function aiBestMove(board, type, nextType, hasIMino){
   let best = null;
   for(const pl of aiEnumerate(board, type)){
     const r = aiApplyPlacement(board, type, pl.rot, pl.col, pl.row);
-    const staticScore = aiStaticScore(aiEvaluateStatic(r.board));
-    const pieceScore = aiPieceScore(r.landingHeight, r.eroded);
-    const lookahead = aiBestSingleScore(r.board, nextType);
-    const total = staticScore + pieceScore + lookahead;
+    const evalNow = aiEvaluateBoardPro(r.board, r.cleared, hasIMino);
+    const lookahead = aiBestSingleScore(r.board, nextType, hasIMino);
+    const total = evalNow.score + lookahead;
     if(!best || total > best.total){
-      best = { placement: pl, total, cleared: r.cleared, eroded: r.eroded, resultBoard: r.board };
+      best = { placement: pl, total, cleared: r.cleared, resultBoard: r.board, mode: evalNow.mode, rightWellDepth: evalNow.rightWellDepth };
     }
   }
   return best;
 }
 
 // 日本語の理由コメントを組み立てる
-function aiExplain(move, type, boardBefore){
+function aiExplain(move, type, boardBefore, hasIMino){
   const lines = [];
   const CLEAR_NAME = {1:"シングル", 2:"ダブル", 3:"トリプル", 4:"テトリス"};
   if(move.cleared === 4){
-    lines.push("🔥 テトリス(4段消し)のチャンスです!");
+    lines.push("🔥🔥🔥 テトリス(4段消し)! 我慢して溜めた分、いちばん大きな得点が入ります。");
+  } else if(move.cleared === 3){
+    lines.push(`✨✨ ${CLEAR_NAME[move.cleared]}でライン消去できます。`);
   } else if(move.cleared > 0){
-    lines.push(`✨ ${CLEAR_NAME[move.cleared]}でライン消去できます。`);
+    if(move.mode === "normal"){
+      lines.push(`✨ ${CLEAR_NAME[move.cleared]}は消えますが、今はまだ我慢して右端を育てても良い場面です。`);
+    } else {
+      lines.push(`✨ ${CLEAR_NAME[move.cleared]}でライン消去できます。`);
+    }
   }
   const before = aiEvaluateStatic(boardBefore);
   const after = aiEvaluateStatic(move.resultBoard);
@@ -431,13 +514,15 @@ function aiExplain(move, type, boardBefore){
   } else {
     lines.push("⚠️ 今の形だとどこに置いても多少の穴は避けられません。被害が一番少ない手です。");
   }
-  if(after.rowTransitions + after.colTransitions <= before.rowTransitions + before.colTransitions){
-    lines.push("📐 地面が平らになるように置けます。次のブロックが置きやすくなります。");
+  if(move.rightWellDepth >= 3){
+    lines.push(hasIMino
+      ? "🏆 右端を1列あけて高く積めています。長い棒(Iミノ)が来たら一気にテトリスのチャンスです。"
+      : "🕳️ 右端を1列あけて積んでいます。長い棒(Iミノ)が来るまでの辛抱です。");
   }
-  // 右端(または左端)が深い井戸として残っているか
-  const col9depth = (()=>{ let d=0,max=0; for(let r=0;r<ROWS;r++){ if(!move.resultBoard[r][COLS-1] && move.resultBoard[r][COLS-2]){d++; max=Math.max(max,d);} else d=0;} return max; })();
-  if(col9depth >= 4){
-    lines.push("🏆 右端を1列あけて高く積めています。長い棒(Iミノ)が来たら一気にテトリスのチャンスです。");
+  if(move.mode === "alert"){
+    lines.push("⚠️ 積み上がってきました。無理に我慢せず、消せるときは消していきましょう。");
+  } else if(move.mode === "panic"){
+    lines.push("🚨 かなり高くなっています! 井戸は諦めて、とにかく消せる手を優先します。");
   }
   return lines;
 }
@@ -448,8 +533,10 @@ function computeAdvice(){
   const board = aiCloneBoard(state.board);
   const curType = state.current.type;
   const nextType = state.queue[0];
+  // 2手先読みの範囲(現在+ネクスト2個+ホールド)にIミノが控えているか
+  const hasIMino = [curType, nextType, state.queue[1], state.hold].includes("I");
 
-  const withoutHold = aiBestMove(board, curType, nextType);
+  const withoutHold = aiBestMove(board, curType, nextType, hasIMino);
   let best = withoutHold ? { ...withoutHold, source:"current", usedType: curType } : null;
 
   if(!state.holdUsed){
@@ -463,14 +550,14 @@ function computeAdvice(){
       lookaheadNextType = nextType;
     }
     if(holdCandidateType){
-      const withHold = aiBestMove(board, holdCandidateType, lookaheadNextType);
+      const withHold = aiBestMove(board, holdCandidateType, lookaheadNextType, hasIMino);
       if(withHold && (!best || withHold.total > best.total)){
         best = { ...withHold, source:"hold", usedType: holdCandidateType, holdWasEmpty, benchedType: curType };
       }
     }
   }
   if(!best) return null;
-  const reasons = aiExplain(best, best.usedType, board);
+  const reasons = aiExplain(best, best.usedType, board, hasIMino);
   return { ...best, reasons };
 }
 
