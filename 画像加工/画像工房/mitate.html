@@ -226,10 +226,11 @@
     </div>
   </div>
   <button id="goBtn">🧊 立体で見る →</button>
+  <!-- 導線: Questでは受け取りが主役なのでQRを先頭に。送るのはPC側の操作 -->
   <div class="handoff-actions">
-    <button class="handoff-btn" id="handoffSendBtn" disabled>📤 Questへ送る</button>
+    <button class="handoff-btn" id="handoffScanBtn" style="border-color:var(--accent);font-size:13.5px">🔎 QRで受け取る</button>
     <button class="handoff-btn" id="handoffReceiveBtn">🔑 コードで受け取る</button>
-    <button class="handoff-btn" id="handoffScanBtn">🔎 QRで受け取る</button>
+    <button class="handoff-btn" id="handoffSendBtn" disabled>📤 Questへ送る</button>
   </div>
   <p>棚に貯めた複数のフィギュアを、AR/VRで<b>実寸サイズ</b>で並べて比べられます。各体を別々に掴んで動かせます。すべて端末内で処理します。</p>
   <input type="file" id="imgIn" accept="image/*" style="display:none">
@@ -430,7 +431,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev28-xrplace";
+const REV = "v2 rev29-flow";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -756,6 +757,8 @@ $('handoffSendBtn').onclick = async () => {
     $('handoffCopyBtn').style.display = 'inline-block';
     $('handoffCopyBtn').dataset.code = result.code;
     renderHandoffQR(result.code);
+    // 手間削減: コード発行と同時に全画面QRを自動表示(タップで閉じるとコード画面に戻る)
+    if($('handoffQRBigBtn').style.display !== 'none') $('handoffQRBigBtn').click();
   } catch (error) {
     closeModal('handoffSendModal');
     showErr(error?.message || '倉庫へ送れませんでした。少し待ってから、もう一度お試しください。');
