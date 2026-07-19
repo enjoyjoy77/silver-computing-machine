@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 1 (2026-07-19)</div>
+<div id="rev">rev 2 (2026-07-19)</div>
 <button id="mute">🔊 音あり</button>
 <div id="app">
   <div class="col">
@@ -73,8 +73,9 @@
     <canvas id="boardCanvas" width="288" height="576"></canvas>
     <div id="overlay">
       <h2 id="overlayTitle">ぷよぷよ完全再現</h2>
-      <p id="overlayText">「ぷよぷよ通」ルール準拠のとことんモード<br>連鎖ボーナス・壁蹴り・クイックターン・まわし対応</p>
-      <button id="startBtn">はじめる</button>
+      <p id="overlayText">「ぷよぷよ通」ルール準拠<br>はじめての人は「れんしゅう」からどうぞ</p>
+      <button id="tutorialBtn" style="background:#ffd23e">れんしゅう(初心者向け)</button>
+      <button id="startBtn">とことん(ふつうに遊ぶ)</button>
     </div>
   </div>
 
@@ -85,6 +86,18 @@
         <canvas class="mini-canvas" id="next1" width="60" height="100"></canvas>
         <canvas class="mini-canvas" id="next2" width="48" height="80"></canvas>
       </div>
+    </div>
+    <div class="panel" id="lessonPanel" style="display:none;max-width:250px">
+      <h3 id="lessonTitle" style="color:var(--accent);font-size:15px;font-weight:bold"></h3>
+      <div id="lessonText" style="font-size:13px;color:var(--text);line-height:1.9;text-align:left"></div>
+      <div class="msg-line" id="lessonHint" style="color:#ffd23e;font-size:13px;margin-top:6px"></div>
+      <button id="lessonNextBtn" style="display:none;margin-top:8px">つぎのレッスンへ</button>
+      <button id="lessonRetryBtn" style="font-size:12px;padding:6px 12px;margin-top:8px">やりなおす</button>
+    </div>
+    <div class="panel" id="lessonNav" style="display:none">
+      <h3>レッスンをえらぶ</h3>
+      <div id="lessonNavBtns" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center"></div>
+      <button id="backToTitleBtn" style="font-size:12px;padding:6px 12px;margin-top:8px">さいしょの画面へ</button>
     </div>
     <div class="panel" id="help">
       <b>そうさ</b><br>
@@ -142,6 +155,7 @@ let softHeld, dasDir, dasTimer, lastRotFail;
 let popCells, popTimer, fallingCells, msgTimer;
 let pairsPlaced;
 let running = false;
+let tut = null; // れんしゅうモードの状態(null=とことん)
 
 const keys = {left:false,right:false,down:false};
 const pressedOnce = [];  // 1フレーム内で処理する押下イベント
@@ -209,6 +223,10 @@ function spawnPair(){
   if(grid[DEATH.y][DEATH.x] !== 0){ gameOver(); return; }
   // 先行入力: 押しっぱなしの回転はここでは扱わず、移動DASは維持される
   phase = "play";
+  if(tut){
+    const L = TUT_LESSONS[tut.idx];
+    if(L.hints && L.hints.length) setLessonHint(L.hints[Math.min(tut.locks, L.hints.length-1)]);
+  }
 }
 
 function tryMove(dx){
@@ -216,6 +234,7 @@ function tryMove(dx){
     pair.x += dx;
     if(grounded && lockResets < LOCK_RESET_MAX){ lockTimer = 0; lockResets++; }
     sfx("move");
+    if(tut){ tut.flags.move=true; tutL1Hint(); }
     return true;
   }
   return false;
@@ -258,6 +277,7 @@ function tryRotate(dir, frame){ // dir: +1右回転 -1左回転
 function rotOk(){
   if(grounded && lockResets < LOCK_RESET_MAX){ lockTimer = 0; lockResets++; }
   sfx("rotate");
+  if(tut){ tut.flags.rot=true; tutL1Hint(); }
 }
 
 function lockPair(){
@@ -266,6 +286,7 @@ function lockPair(){
   if(c.y>=0 && c.y<H && c.x>=0 && c.x<W) grid[c.y][c.x] = pair.colors[1];
   pair = null;
   pairsPlaced++;
+  if(tut) tut.locks++;
   sfx("lock");
   chainCount = 0;
   pendingScore = 0;
@@ -352,6 +373,7 @@ function checkClear(){
       }
     }
     updateHud();
+    if(tut && tutOnSettle(chainCount)) return;
     spawnPair();
     return;
   }
@@ -397,6 +419,12 @@ function stepPop(){
 }
 
 function gameOver(){
+  if(tut){ // れんしゅう中は積み上がったらそのレッスンをやりなおし
+    showMsg("つみあがった! さいしょから");
+    tutResetBoard();
+    spawnPair();
+    return;
+  }
   phase="gameover";
   running=false;
   sfx("gameover");
@@ -442,7 +470,7 @@ function simulate(){
     if(fallCounter>=spd){
       fallCounter=0;
       pair.y++;
-      if(keys.down) score++; // 落下ボーナス1点/段
+      if(keys.down){ score++; if(tut){ tut.flags.down=true; tutL1Hint(); } } // 落下ボーナス1点/段
     }
   }else{
     // 接地
@@ -607,6 +635,10 @@ document.addEventListener("keyup",(e)=>{
 
 // ================= 開始・ループ =================
 function startGame(){
+  tut=null;
+  document.getElementById("lessonPanel").style.display="none";
+  document.getElementById("lessonNav").style.display="none";
+  document.getElementById("help").style.display="";
   grid=makeGrid();
   queue=buildQueue(); queueIndex=0;
   score=0; chainMax=0; clearedTotal=0; level=1; pairsPlaced=0;
@@ -637,6 +669,163 @@ grid=makeGrid(); queue=buildQueue(); queueIndex=0;
 score=0; chainMax=0; clearedTotal=0; level=1;
 updateHud();
 
+// ================= れんしゅうモード(初心者チュートリアル) =================
+// 各レッスン: setup=最初の盤面, queue=配られるぷよ(2個1組の繰り返し), goal, tries=何組で判定リセットか
+const TUT_LESSONS = [
+  {
+    title:"レッスン1: そうさをおぼえる",
+    text:"まずはうごかしてみよう。<br><b>← →</b> よこにうごく<br><b>Z / X</b> くるっとまわる<br><b>↓</b> はやく落ちる<br><br>ぜんぶ1回ずつためして、ぷよを<b>2組</b>ゆかに置けたらクリア!",
+    setup:(g)=>{},
+    queue:[1,3,2,4],
+    goal:"basic", tries:Infinity, hints:[]
+  },
+  {
+    title:"レッスン2: 4つつなげて消す",
+    text:"おなじ色のぷよが<b>タテかヨコに4つ</b>つながると消えます。<br>ゆかに赤が2つあるよ。くばられる<b>赤2つ</b>をとなりにくっつけて、4つにして消そう!",
+    setup:(g)=>{ g[13][0]=1; g[13][1]=1; },
+    queue:[1,1],
+    goal:"chain", goalChain:1, tries:1,
+    hints:["回転でヨコ向きにして、左はしの赤のとなりに置こう"]
+  },
+  {
+    title:"レッスン3: 連鎖を見てみよう",
+    text:"「<b>連鎖</b>」は、消えたあとに上から落ちてきたぷよが<b>つづけて消える</b>こと。<br>いま、青の上に赤が2つのっているね。<br><b>青を4つにして消すと</b>…なにが起きるかな?",
+    setup:(g)=>{
+      g[13][0]=1; g[12][0]=1;          // 左はしに赤2(残留)
+      g[13][1]=3; g[12][1]=3; g[13][2]=3; // 青3
+      g[11][1]=1; g[10][1]=1;          // 青の上に赤2(落ちてくる係)
+    },
+    queue:[3,3],
+    goal:"chain", goalChain:2, tries:1,
+    hints:["青をヨコ向きにして、3〜4列目に置いてみよう"]
+  },
+  {
+    title:"レッスン4: 連鎖を組んでみよう",
+    text:"こんどは<b>じぶんで</b>さっきの形を作るよ。<br>じゅんばん:<br>1. 赤を<b>タテのまま2列目</b>(青の上)へ<br>2. 青を<b>ヨコ向きで3〜4列目</b>へ<br>これで2連鎖!",
+    setup:(g)=>{
+      g[13][0]=1; g[12][0]=1;
+      g[13][1]=3; g[12][1]=3; g[13][2]=3;
+    },
+    queue:[1,1,3,3],
+    goal:"chain", goalChain:2, tries:2,
+    hints:["赤をタテのまま、2列目(青の上)にそっと置こう","青をヨコ向きにして、3〜4列目へ。2連鎖だ!"]
+  },
+  {
+    title:"レッスン5: じぶんで2連鎖",
+    text:"そつぎょう試験!<br>なにもない場所から<b>2連鎖</b>を作ろう。<br>くばられるのは 赤2組 → 青2組 のくりかえし。<br>おてほん: 左はしに赤をタテ2組(でも1つはヨコにずらす)…レッスン4の形を思い出して、すきに組んでOK!",
+    setup:(g)=>{},
+    queue:[1,1,1,1,3,3,3,3],
+    goal:"chain", goalChain:2, tries:Infinity,
+    hints:["こまったら「やりなおす」でさいしょから。れい: 赤を左はしにタテ→赤を2列目にタテ→青で赤の下をつくる…じゆうに!"]
+  }
+];
+
+function setLessonHint(t){ document.getElementById("lessonHint").textContent = t||""; }
+function tutL1Hint(){
+  if(!tut || tut.idx!==0) return;
+  const need=[];
+  if(!tut.flags.move) need.push("←→");
+  if(!tut.flags.rot) need.push("Z/X");
+  if(!tut.flags.down) need.push("↓");
+  if(need.length) setLessonHint("まだためしてない: "+need.join(" と "));
+  else setLessonHint("ぜんぶできた! あと"+Math.max(0,2-tut.locks)+"組置こう");
+}
+
+function tutApplyLesson(){
+  const L = TUT_LESSONS[tut.idx];
+  grid = makeGrid();
+  L.setup(grid);
+  queue = L.queue.slice();
+  queueIndex = 0;
+  chainCount=0; pendingScore=0; allClearFlag=false;
+  popCells=[]; fallingCells=[];
+  document.getElementById("lessonTitle").textContent = L.title;
+  document.getElementById("lessonText").innerHTML = L.text;
+  document.getElementById("lessonNextBtn").style.display="none";
+  setLessonHint(L.hints && L.hints[0] || "");
+  if(tut.idx===0) tutL1Hint();
+  updateHud();
+}
+function tutResetBoard(){
+  tut.attempts=0;
+  const keepFlags = tut.idx===0 ? tut.flags : {};
+  tut.flags = keepFlags;
+  tutApplyLesson();
+}
+function startTutorial(idx){
+  tut = {idx:idx, attempts:0, locks:0, flags:{}};
+  score=0; chainMax=0; clearedTotal=0; level=1; pairsPlaced=0; msgTimer=0;
+  document.getElementById("overlay").style.display="none";
+  document.getElementById("lessonPanel").style.display="";
+  document.getElementById("lessonNav").style.display="";
+  document.getElementById("help").style.display="none";
+  document.getElementById("msgLine").textContent="";
+  tutApplyLesson();
+  running=true;
+  spawnPair();
+  tutNavRefresh();
+}
+// 連鎖がおさまった時に呼ばれる。trueを返すと通常のspawnPairを止める
+function tutOnSettle(chain){
+  const L = TUT_LESSONS[tut.idx];
+  if(L.goal==="basic"){
+    tutL1Hint();
+    if(tut.flags.move && tut.flags.rot && tut.flags.down && tut.locks>=2){ tutClear(); return true; }
+    return false; // まだ続ける(ツモはループするので詰まらない)
+  }
+  if(chain >= L.goalChain){ tutClear(); return true; }
+  tut.attempts++;
+  if(tut.attempts >= L.tries){
+    showMsg("おしい! もういちど");
+    sfx("lock");
+    tutResetBoard();
+    spawnPair();
+    return true;
+  }
+  return false;
+}
+function tutClear(){
+  phase = "lessonclear";
+  sfx("allclear");
+  const last = tut.idx >= TUT_LESSONS.length-1;
+  setLessonHint(last ? "そつぎょう! れんしゅうはぜんぶクリア!" : "できた! すごい!");
+  const btn = document.getElementById("lessonNextBtn");
+  btn.textContent = last ? "とことんであそぶ" : "つぎのレッスンへ";
+  btn.style.display="";
+  if(!last){
+    try{ localStorage.setItem("puyo_lesson_done", String(Math.max(tut.idx+1, Number(localStorage.getItem("puyo_lesson_done")||0)))); }catch(e){}
+  }
+  tutNavRefresh();
+}
+function tutNavRefresh(){
+  const wrap = document.getElementById("lessonNavBtns");
+  wrap.innerHTML="";
+  for(let i=0;i<TUT_LESSONS.length;i++){
+    const b=document.createElement("button");
+    b.textContent=(i+1);
+    b.style.cssText="font-size:13px;padding:6px 10px;"+(tut&&tut.idx===i?"":"background:#2a3040;color:#e8ecf4;");
+    b.addEventListener("click",()=>startTutorial(i));
+    wrap.appendChild(b);
+  }
+}
+document.getElementById("tutorialBtn").addEventListener("click",()=>startTutorial(0));
+document.getElementById("lessonNextBtn").addEventListener("click",()=>{
+  if(tut.idx >= TUT_LESSONS.length-1){ startGame(); }
+  else startTutorial(tut.idx+1);
+});
+document.getElementById("lessonRetryBtn").addEventListener("click",()=>{
+  if(tut){ tutResetBoard(); spawnPair(); }
+});
+document.getElementById("backToTitleBtn").addEventListener("click",()=>{
+  tut=null; running=false; phase="title";
+  document.getElementById("lessonPanel").style.display="none";
+  document.getElementById("lessonNav").style.display="none";
+  document.getElementById("help").style.display="";
+  document.getElementById("overlayTitle").textContent="ぷよぷよ完全再現";
+  document.getElementById("overlayText").innerHTML="「ぷよぷよ通」ルール準拠<br>はじめての人は「れんしゅう」からどうぞ";
+  document.getElementById("overlay").style.display="flex";
+});
+
 // ================= ヘッドレス検証窓口(__dbg) =================
 window.__dbg = {
   tick(n){ for(let i=0;i<(n||1);i++) simulate(); draw(); },
@@ -662,7 +851,8 @@ window.__dbg = {
     set running(v){running=v;}, get running(){return running;},
     get chainCount(){return chainCount;}, set chainCount(v){chainCount=v;},
     get pendingScore(){return pendingScore;}, set pendingScore(v){pendingScore=v;},
-    set allClearFlag(v){allClearFlag=v;}, get allClearFlag(){return allClearFlag;}
+    set allClearFlag(v){allClearFlag=v;}, get allClearFlag(){return allClearFlag;},
+    get tut(){return tut;}, startTutorial
   };},
   press(k){
     if(k==="left"){keys.left=true; pressedOnce.push("left");}

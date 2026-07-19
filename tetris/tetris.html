@@ -38,6 +38,13 @@
   .mini-canvas{background:#05070c;border-radius:4px}
   #help{font-size:12px;color:var(--sub);line-height:1.9;text-align:left;max-width:230px}
   #help b{color:var(--text)}
+  #advicePanel{max-width:230px;text-align:left}
+  #advicePanel h3{text-align:center}
+  #adviceToggle{width:100%;margin-bottom:8px;font-size:13px;padding:8px}
+  #adviceToggle.on{background:#ffd35f}
+  #adviceText{font-size:13px;line-height:1.7;color:var(--text);min-height:60px}
+  #adviceText .hold-tip{color:#ffd35f;font-weight:bold;display:block;margin-top:6px}
+  #adviceText .empty{color:var(--sub)}
   .msg-line{font-size:13px;color:var(--accent);min-height:18px}
   #mute{position:fixed;top:10px;right:10px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:13px}
 </style>
@@ -86,6 +93,10 @@
     <div class="panel">
       <div class="msg-line" id="msgLine"></div>
     </div>
+    <div class="panel" id="advicePanel">
+      <button id="adviceToggle">🧠 AIアドバイザー OFF</button>
+      <div id="adviceText"><span class="empty">ONにすると最適な置き方を提案します</span></div>
+    </div>
     <div class="panel" id="help">
       <b>操作方法</b><br>
       ← → : 移動<br>
@@ -95,12 +106,13 @@
       Z / Ctrl : 左回転<br>
       A : 180度回転<br>
       C / Shift : ホールド<br>
-      P : 一時停止
+      P : 一時停止<br>
+      H : AIアドバイザー切替
     </div>
   </div>
 </div>
 <button id="mute">🔊 音ON</button>
-<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev1 (2026-07-19)</div>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev2 (2026-07-19) AIアドバイザー追加</div>
 
 <script>
 (function(){
@@ -225,6 +237,261 @@ const DAS_MS = 167;   // Delayed Auto Shift
 const ARR_MS = 33;    // Auto Repeat Rate
 const SOFT_DROP_FACTOR = 20;
 
+/* ============================================================
+   AIアドバイザー(最適手の提案)
+   Dellacherie/El-Tetris方式の盤面評価関数(6特徴量)を使用。
+   現在ミノ+ネクスト1個(2手先読み)+ホールド候補まで探索し、
+   最も評価値が高い置き方を提案する。
+   ============================================================ */
+const AI_WEIGHTS = {
+  landingHeight:  -4.500158,
+  erodedCells:     3.418126,
+  rowTransitions: -3.217888,
+  colTransitions: -9.348695,
+  holes:          -7.899265,
+  wellSums:       -3.385597
+};
+
+function aiCloneBoard(board){
+  return board.map(row => row.slice());
+}
+
+function aiRotationCount(type){
+  // O:回転しても形が変わらないので1、I/S/Zは180度で同形なので2、それ以外は4
+  if(type === "O") return 1;
+  if(type === "I" || type === "S" || type === "Z") return 2;
+  return 4;
+}
+
+function aiCollides(board, type, rot, col, row){
+  const shape = SHAPES[type][rot];
+  for(const [c,r] of shape){
+    const cc = col + c, rr = row + r;
+    if(cc < 0 || cc >= COLS || rr >= ROWS) return true;
+    if(rr < 0) continue;
+    if(board[rr][cc]) return true;
+  }
+  return false;
+}
+
+function aiColRange(type, rot){
+  const shape = SHAPES[type][rot];
+  const cs = shape.map(([c])=>c);
+  const minC = Math.min(...cs), maxC = Math.max(...cs);
+  return { from: -minC, to: COLS - 1 - maxC };
+}
+
+// 指定の列・回転で、そのまま真下に落としたときの最終行を求める(壁蹴りは考慮しない単純ドロップ)
+function aiDropRow(board, type, rot, col){
+  let row = -4;
+  if(aiCollides(board, type, rot, col, row)) return null;
+  while(!aiCollides(board, type, rot, col, row+1)) row++;
+  return row;
+}
+
+// 盤面にミノを固定し、ライン消去まで行った結果を返す
+function aiApplyPlacement(board, type, rot, col, row){
+  const b = aiCloneBoard(board);
+  const shape = SHAPES[type][rot];
+  const rowsUsed = new Set();
+  for(const [c,r] of shape){
+    const rr = row + r, cc = col + c;
+    if(rr >= 0){ b[rr][cc] = type; rowsUsed.add(rr); }
+  }
+  const clearedRows = [];
+  for(let r=0;r<ROWS;r++){
+    if(b[r].every(cell => cell !== null)) clearedRows.push(r);
+  }
+  let eroded = 0;
+  for(const r of clearedRows){
+    if(rowsUsed.has(r)){
+      for(const [c,pr] of shape){ if(row+pr === r) eroded++; }
+    }
+  }
+  const n = clearedRows.length;
+  let newBoard = b;
+  if(n > 0){
+    const remain = b.filter((_,idx)=>!clearedRows.includes(idx));
+    const empties = [];
+    for(let i=0;i<n;i++) empties.push(new Array(COLS).fill(null));
+    newBoard = empties.concat(remain);
+  }
+  const rs = shape.map(([,r])=>r);
+  const bottomRow = row + Math.max(...rs);
+  const pieceSpan = Math.max(...rs) - Math.min(...rs) + 1;
+  const landingHeight = (ROWS - 1 - bottomRow) + (pieceSpan - 1) / 2;
+  return { board: newBoard, cleared: n, eroded, landingHeight };
+}
+
+function aiEvaluateStatic(board){
+  let holes = 0, rowTransitions = 0, colTransitions = 0, wellSums = 0;
+  for(let c=0;c<COLS;c++){
+    let found = false;
+    for(let r=0;r<ROWS;r++){
+      if(board[r][c]) found = true;
+      else if(found) holes++;
+    }
+  }
+  for(let r=0;r<ROWS;r++){
+    let last = 1;
+    for(let c=0;c<COLS;c++){
+      const cur = board[r][c] ? 1 : 0;
+      if(cur !== last) rowTransitions++;
+      last = cur;
+    }
+    if(last === 0) rowTransitions++;
+  }
+  for(let c=0;c<COLS;c++){
+    let last = 0;
+    for(let r=0;r<ROWS;r++){
+      const cur = board[r][c] ? 1 : 0;
+      if(cur !== last) colTransitions++;
+      last = cur;
+    }
+    if(last === 0) colTransitions++;
+  }
+  for(let c=0;c<COLS;c++){
+    let depth = 0;
+    for(let r=0;r<ROWS;r++){
+      const leftBlocked = (c===0) || !!board[r][c-1];
+      const rightBlocked = (c===COLS-1) || !!board[r][c+1];
+      const isEmpty = !board[r][c];
+      if(isEmpty && leftBlocked && rightBlocked){ depth++; wellSums += depth; }
+      else depth = 0;
+    }
+  }
+  return { holes, rowTransitions, colTransitions, wellSums };
+}
+
+function aiStaticScore(f){
+  return f.holes*AI_WEIGHTS.holes + f.rowTransitions*AI_WEIGHTS.rowTransitions +
+         f.colTransitions*AI_WEIGHTS.colTransitions + f.wellSums*AI_WEIGHTS.wellSums;
+}
+
+function aiPieceScore(landingHeight, eroded){
+  return landingHeight*AI_WEIGHTS.landingHeight + eroded*AI_WEIGHTS.erodedCells;
+}
+
+// 指定ボード上で、指定ミノを置ける全パターン(回転x列)を列挙
+function aiEnumerate(board, type){
+  const out = [];
+  const rotN = aiRotationCount(type);
+  for(let rot=0; rot<rotN; rot++){
+    const range = aiColRange(type, rot);
+    for(let col=range.from; col<=range.to; col++){
+      const row = aiDropRow(board, type, rot, col);
+      if(row === null) continue;
+      out.push({ rot, col, row });
+    }
+  }
+  return out;
+}
+
+// 1手先(次のミノのみ)の最良評価値を返す(2手先読みの2手目)
+function aiBestSingleScore(board, type){
+  if(!type) return 0;
+  let best = -Infinity;
+  for(const pl of aiEnumerate(board, type)){
+    const r = aiApplyPlacement(board, type, pl.rot, pl.col, pl.row);
+    const score = aiStaticScore(aiEvaluateStatic(r.board)) + aiPieceScore(r.landingHeight, r.eroded);
+    if(score > best) best = score;
+  }
+  return best === -Infinity ? -99999 : best;
+}
+
+// 現在ミノ(または任意の候補ミノ)を置く最良手を、ネクスト1個先まで見て探す
+function aiBestMove(board, type, nextType){
+  let best = null;
+  for(const pl of aiEnumerate(board, type)){
+    const r = aiApplyPlacement(board, type, pl.rot, pl.col, pl.row);
+    const staticScore = aiStaticScore(aiEvaluateStatic(r.board));
+    const pieceScore = aiPieceScore(r.landingHeight, r.eroded);
+    const lookahead = aiBestSingleScore(r.board, nextType);
+    const total = staticScore + pieceScore + lookahead;
+    if(!best || total > best.total){
+      best = { placement: pl, total, cleared: r.cleared, eroded: r.eroded, resultBoard: r.board };
+    }
+  }
+  return best;
+}
+
+// 日本語の理由コメントを組み立てる
+function aiExplain(move, type, boardBefore){
+  const lines = [];
+  const CLEAR_NAME = {1:"シングル", 2:"ダブル", 3:"トリプル", 4:"テトリス"};
+  if(move.cleared === 4){
+    lines.push("🔥 テトリス(4段消し)のチャンスです!");
+  } else if(move.cleared > 0){
+    lines.push(`✨ ${CLEAR_NAME[move.cleared]}でライン消去できます。`);
+  }
+  const before = aiEvaluateStatic(boardBefore);
+  const after = aiEvaluateStatic(move.resultBoard);
+  if(after.holes <= before.holes){
+    lines.push("💡 下にスキマ(穴)を作らない置き方です。後で消しやすくなります。");
+  } else {
+    lines.push("⚠️ 今の形だとどこに置いても多少の穴は避けられません。被害が一番少ない手です。");
+  }
+  if(after.rowTransitions + after.colTransitions <= before.rowTransitions + before.colTransitions){
+    lines.push("📐 地面が平らになるように置けます。次のブロックが置きやすくなります。");
+  }
+  // 右端(または左端)が深い井戸として残っているか
+  const col9depth = (()=>{ let d=0,max=0; for(let r=0;r<ROWS;r++){ if(!move.resultBoard[r][COLS-1] && move.resultBoard[r][COLS-2]){d++; max=Math.max(max,d);} else d=0;} return max; })();
+  if(col9depth >= 4){
+    lines.push("🏆 右端を1列あけて高く積めています。長い棒(Iミノ)が来たら一気にテトリスのチャンスです。");
+  }
+  return lines;
+}
+
+function computeAdvice(){
+  if(!state.current) return null;
+  refillQueue();
+  const board = aiCloneBoard(state.board);
+  const curType = state.current.type;
+  const nextType = state.queue[0];
+
+  const withoutHold = aiBestMove(board, curType, nextType);
+  let best = withoutHold ? { ...withoutHold, source:"current", usedType: curType } : null;
+
+  if(!state.holdUsed){
+    let holdCandidateType, lookaheadNextType;
+    if(state.hold === null){
+      holdCandidateType = nextType;
+      lookaheadNextType = state.queue[1];
+    } else {
+      holdCandidateType = state.hold;
+      lookaheadNextType = nextType;
+    }
+    if(holdCandidateType){
+      const withHold = aiBestMove(board, holdCandidateType, lookaheadNextType);
+      if(withHold && (!best || withHold.total > best.total)){
+        best = { ...withHold, source:"hold", usedType: holdCandidateType };
+      }
+    }
+  }
+  if(!best) return null;
+  const reasons = aiExplain(best, best.usedType, board);
+  return { ...best, reasons };
+}
+
+function renderAdvicePanel(){
+  const box = document.getElementById("adviceText");
+  if(!state.showAdvice){
+    box.innerHTML = '<span class="empty">ONにすると最適な置き方を提案します</span>';
+    return;
+  }
+  const adv = state.advice;
+  if(!adv){
+    box.innerHTML = '<span class="empty">考え中...</span>';
+    return;
+  }
+  let html = "";
+  if(adv.source === "hold"){
+    html += `<span class="hold-tip">🔄 ホールドの「${adv.usedType}」に交代するのがおすすめ!</span>`;
+  }
+  html += adv.reasons.map(t=>`<div>${t}</div>`).join("");
+  box.innerHTML = html || '<span class="empty">この手で問題ありません。</span>';
+}
+
 // ---------- 音(WebAudio、ファイル不要の合成音) ----------
 let audioCtx = null;
 let muted = false;
@@ -297,7 +564,9 @@ const state = {
   lockTimer: 0,     // ms
   isGrounded: false,
   gravityAcc: 0,     // マス単位の蓄積落下量
-  msg: ""
+  msg: "",
+  showAdvice: false,
+  advice: null
 };
 
 function refillQueue(){
@@ -318,7 +587,14 @@ function spawnPiece(type){
   state.gravityAcc = 0;
   if(checkCollision(state.current, 0, 0, state.current.rot)){
     gameOver();
+    return;
   }
+  refreshAdvice();
+}
+
+function refreshAdvice(){
+  state.advice = state.showAdvice ? computeAdvice() : null;
+  renderAdvicePanel();
 }
 
 function nextFromQueue(){
@@ -647,7 +923,8 @@ const KEYMAP = {
   KeyZ: "ccw", ControlLeft: "ccw", ControlRight: "ccw",
   KeyA: "r180",
   KeyC: "hold", ShiftLeft: "hold", ShiftRight: "hold",
-  KeyP: "pause"
+  KeyP: "pause",
+  KeyH: "hint"
 };
 
 window.addEventListener("keydown", (e)=>{
@@ -660,6 +937,10 @@ window.addEventListener("keydown", (e)=>{
 
   if(action === "pause"){
     togglePause();
+    return;
+  }
+  if(action === "hint"){
+    toggleAdvice();
     return;
   }
   if(state.status !== "playing") return;
@@ -822,6 +1103,20 @@ function render(){
     }
   }
 
+  // AIアドバイザーの提案位置(金色の枠)
+  if(state.showAdvice && state.advice && state.status === "playing"){
+    const adv = state.advice;
+    const advShape = SHAPES[adv.usedType][adv.placement.rot];
+    bctx.strokeStyle = "rgba(255,211,95,0.95)";
+    bctx.lineWidth = 3;
+    for(const [c,r] of advShape){
+      const row = adv.placement.row + r, col = adv.placement.col + c;
+      if(row >= HIDDEN_ROWS){
+        bctx.strokeRect(col*CELL+2, (row-HIDDEN_ROWS)*CELL+2, CELL-4, CELL-4);
+      }
+    }
+  }
+
   document.getElementById("msgLine").textContent = state.msg;
 }
 
@@ -924,6 +1219,17 @@ muteBtn.addEventListener("click", ()=>{
   muteBtn.textContent = muted ? "🔇 音OFF" : "🔊 音ON";
 });
 
+// AIアドバイザー
+const adviceToggleBtn = document.getElementById("adviceToggle");
+function toggleAdvice(){
+  state.showAdvice = !state.showAdvice;
+  adviceToggleBtn.textContent = state.showAdvice ? "🧠 AIアドバイザー ON" : "🧠 AIアドバイザー OFF";
+  adviceToggleBtn.classList.toggle("on", state.showAdvice);
+  refreshAdvice();
+  renderAdvicePanel();
+}
+adviceToggleBtn.addEventListener("click", toggleAdvice);
+
 // ---------- デバッグ窓口(検証用) ----------
 window.__dbg = {
   state(){
@@ -936,7 +1242,9 @@ window.__dbg = {
   },
   tick(ms){ simulate(ms); render(); },
   board(){ return state.board.map(r=>r.map(c=>c||null)); },
-  raw(){ return state; }
+  raw(){ return state; },
+  advice(){ return computeAdvice(); },
+  toggleAdvice(){ toggleAdvice(); return state.showAdvice; }
 };
 
 // 初期表示
