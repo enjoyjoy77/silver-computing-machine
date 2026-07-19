@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 3 (2026-07-19)</div>
+<div id="rev">rev 4 (2026-07-19)</div>
 <button id="mute">🔊 音あり</button>
 <div id="app">
   <div class="col">
@@ -87,6 +87,10 @@
         <canvas class="mini-canvas" id="next2" width="48" height="80"></canvas>
       </div>
     </div>
+    <div class="panel" id="advisorPanel" style="display:none;max-width:240px">
+      <h3 style="color:#ffb74d">AIアドバイザー <span id="advisorMode"></span></h3>
+      <div id="advisorText" style="font-size:12px;color:var(--text);line-height:1.8;text-align:left"></div>
+    </div>
     <div class="panel" id="lessonPanel" style="display:none;max-width:250px">
       <h3 id="lessonTitle" style="color:var(--accent);font-size:15px;font-weight:bold"></h3>
       <div id="lessonText" style="font-size:13px;color:var(--text);line-height:1.9;text-align:left"></div>
@@ -105,6 +109,7 @@
       ↓ : はやおち(1だん+1点)<br>
       Z : ひだり回転<br>
       X か ↑ : みぎ回転<br>
+      H : AIアドバイザー(とことん)<br>
       はさまれたら回転2連打で<br>
       クイックターン<br>
       <b>ルール</b><br>
@@ -228,6 +233,8 @@ function spawnPair(){
     const L = TUT_LESSONS[tut.idx];
     if(L.hints && L.hints.length) setLessonHint(L.hints[Math.min(tut.locks, L.hints.length-1)]);
     tutGuide = L.guides ? L.guides[Math.min(tut.locks, L.guides.length-1)] : null;
+  }else if(advisorOn){
+    advisorThink(); // とことんモードのみ: 新しいツモが出るたび最良手を計算
   }
 }
 
@@ -547,6 +554,15 @@ function draw(){
     }
     ctx.restore();
   }
+  // AIアドバイザーのおすすめ位置(金色ワク)
+  if(advisorOn && !tut && advice && phase==="play"){
+    ctx.save();
+    ctx.strokeStyle="#ffb74d"; ctx.setLineDash([]); ctx.lineWidth=3;
+    for(const [gx,gy] of advice.cells){
+      if(gy>=HIDDEN) ctx.strokeRect(gx*CELL+2,(gy-HIDDEN)*CELL+2,CELL-4,CELL-4);
+    }
+    ctx.restore();
+  }
   // 落下中ぷよ(ちぎり)
   if(fallingCells) for(const f of fallingCells){
     if(f.curY>=HIDDEN) drawPuyo(ctx,f.x,f.curY-HIDDEN,f.color,r);
@@ -644,6 +660,7 @@ document.addEventListener("keydown",(e)=>{
   else if(e.key==="ArrowDown"){ keys.down=true; }
   else if(e.key==="z"||e.key==="Z"){ pressedOnce.push("rotL"); }
   else if(e.key==="x"||e.key==="X"||e.key==="ArrowUp"){ pressedOnce.push("rotR"); }
+  else if(e.key==="h"||e.key==="H"){ advisorToggle(); }
 });
 document.addEventListener("keyup",(e)=>{
   if(e.key==="ArrowLeft") keys.left=false;
@@ -686,6 +703,164 @@ phase="title";
 grid=makeGrid(); queue=buildQueue(); queueIndex=0;
 score=0; chainMax=0; clearedTotal=0; level=1;
 updateHud();
+
+// ================= AIアドバイザー(仕様書_AIアドバイザー.md 準拠) =================
+// プロの評価基準: 発火可能な最大連鎖(非線形加点)・2/3連結の種・U字地形・段差/3列目/ちぎり/暴発ペナルティ
+let advisorOn = false;
+let advice = null; // {cells:[[x,y],[x,y]], reason, fire}
+
+function simClone(g){ return g.map(r=>r.slice()); }
+function simFall(g){
+  for(let x=0;x<W;x++){
+    let wy=H-1;
+    for(let y=H-1;y>=1;y--){
+      if(g[y][x]!==0){ const c=g[y][x]; g[y][x]=0; g[wy][x]=c; wy--; }
+    }
+  }
+}
+function simGroups(g){
+  const seen=Array.from({length:H},()=>new Array(W).fill(false));
+  const out=[];
+  for(let y=1;y<H;y++) for(let x=0;x<W;x++){
+    const c=g[y][x];
+    if(c===0||seen[y][x]) continue;
+    const st=[[x,y]], cells=[]; seen[y][x]=true;
+    while(st.length){
+      const [ax,ay]=st.pop(); cells.push([ax,ay]);
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nx=ax+dx, ny=ay+dy;
+        if(nx<0||nx>=W||ny<1||ny>=H) continue;
+        if(!seen[ny][nx]&&g[ny][nx]===c){ seen[ny][nx]=true; st.push([nx,ny]); }
+      }
+    }
+    out.push(cells);
+  }
+  return out;
+}
+function simResolve(g){ // 連鎖を最後まで解決して連鎖数を返す(gは書き換わる)
+  let chains=0;
+  simFall(g);
+  for(;;){
+    const gs=simGroups(g).filter(c=>c.length>=4);
+    if(!gs.length) break;
+    chains++;
+    for(const cells of gs) for(const [x,y] of cells) g[y][x]=0;
+    simFall(g);
+  }
+  return chains;
+}
+function simLanding(g,x){ // その列に落としたときの着地y(置けないなら-1)
+  for(let y=1;y<H;y++){ if(g[y][x]!==0) return y-1>=1 ? y-1 : -1; }
+  return H-1;
+}
+function colHeight(g,x){ // 積み上がり段数(可視基準: 13が床)
+  for(let y=1;y<H;y++){ if(g[y][x]!==0) return H-y; }
+  return 0;
+}
+function potentialChain(g){ // 各列に各色1個を試し置きして最大連鎖を測る(発火可能連鎖)
+  let best=0;
+  for(let x=0;x<W;x++){
+    const ly=simLanding(g,x);
+    if(ly<1) continue;
+    for(let c=1;c<=4;c++){
+      const t=simClone(g);
+      t[ly][x]=c;
+      const ch=simResolve(t);
+      if(ch>best) best=ch;
+    }
+  }
+  return best;
+}
+function evalBoard(g){ // 置いた後の盤面のよさ(仕様書の重みを軽めに調整)
+  let sc=0;
+  const pot=potentialChain(g);
+  sc += pot<=3 ? pot*100 : pot*pot*200;
+  // 連結の種(2連結+50 / 3連結+150)。上が全部ふさがった種は埋没ペナルティ(暴発・死に種)
+  for(const cells of simGroups(g)){
+    const n=cells.length;
+    if(n!==2 && n!==3) continue;
+    sc += n===2 ? 50 : 150;
+    let alive=false;
+    for(const [x,y] of cells){
+      if(y-1>=1 && g[y-1][x]===0){ alive=true; break; } // 真上が空いていれば生きた種
+    }
+    if(!alive) sc -= n*130;
+  }
+  const h=[]; for(let x=0;x<W;x++) h.push(colHeight(g,x));
+  // U字地形(両はし高く・3,4列目低く)
+  if(h[0]>=h[1]) sc+=40; if(h[1]>=h[2]) sc+=40;
+  if(h[5]>=h[4]) sc+=40; if(h[4]>=h[3]) sc+=40;
+  // 段差ペナルティ(2以上の段差)
+  for(let x=0;x<W-1;x++){ const d=Math.abs(h[x]-h[x+1]); if(d>=2) sc-=(d-1)*60; }
+  // 3列目(窒息列)の高さ
+  if(h[2]>=10) sc-=1000; else if(h[2]>=7) sc-=200;
+  // 全体が高すぎる警戒
+  sc -= Math.max(0, Math.max(...h)-10)*150;
+  return {sc, pot};
+}
+function advisorThink(){ // 今の組ぷよの全置き場所を試して最良手を選ぶ
+  if(!pair) { advice=null; return; }
+  const [ca,cb]=pair.colors;
+  const cands=[];
+  // タテ(下=first, 上=second)
+  for(let x=0;x<W;x++){
+    const ly=simLanding(grid,x);
+    if(ly<2) continue;
+    const orders = ca===cb ? [[ca,cb]] : [[ca,cb],[cb,ca]];
+    for(const [dn,up] of orders){
+      cands.push({cells:[[x,ly,dn],[x,ly-1,up]], chigiri:false, label:(x+1)+"列目にタテ"});
+    }
+  }
+  // ヨコ
+  for(let x=0;x<W-1;x++){
+    const l1=simLanding(grid,x), l2=simLanding(grid,x+1);
+    if(l1<1||l2<1) continue;
+    const orders = ca===cb ? [[ca,cb]] : [[ca,cb],[cb,ca]];
+    for(const [le,ri] of orders){
+      cands.push({cells:[[x,l1,le],[x+1,l2,ri]], chigiri:l1!==l2, label:(x+1)+"〜"+(x+2)+"列目にヨコ"});
+    }
+  }
+  let best=null;
+  const danger = colHeight(grid,2)>=8; // 3列目が高い=発火して逃げる局面
+  for(const c of cands){
+    const t=simClone(grid);
+    for(const [x,y,col] of c.cells) t[y][x]=col;
+    const imm=simResolve(t); // 置いた直後に起きる連鎖
+    if(t[HIDDEN][DEATH.x]!==0){ c.score=-100000; continue; } // 窒息は問答無用で除外
+    const ev=evalBoard(t);
+    let sc=ev.sc;
+    if(imm>0){
+      // 即消し: ふだんは我慢(暴発ペナルティ)、追い詰められ時や大連鎖なら加点
+      if(danger || imm>=3) sc += imm*imm*300;
+      else sc -= 500;
+    }
+    if(c.chigiri) sc-=150;
+    c.score=sc; c.imm=imm; c.pot=ev.pot;
+    if(!best || sc>best.score) best=c;
+  }
+  if(!best){ advice=null; return; }
+  // 理由の日本語化
+  let reason;
+  if(best.imm>0 && (danger||best.imm>=3)) reason="今が発火どき! "+best.imm+"連鎖で盤面をリセットしよう";
+  else if(best.pot>=2) reason="この形なら最大"+best.pot+"連鎖の種をキープできる";
+  else reason="連鎖の種(2〜3個のつながり)を増やす一手";
+  const notes=[];
+  if(!best.chigiri) notes.push("ちぎりなし");
+  const h2=colHeight(grid,2);
+  if(h2>=7) notes.push("3列目が高いので注意!");
+  advice={cells:best.cells.map(c=>[c[0],c[1]]), reason:reason+(notes.length?"("+notes.join("・")+")":""),
+          label:best.label, fire: danger&&best.imm>0};
+  const modeEl=document.getElementById("advisorMode");
+  modeEl.textContent = danger ? "【発火どき】" : "【伸ばしどき】";
+  modeEl.style.color = danger ? "#ff5d5d" : "#7ee787";
+  document.getElementById("advisorText").innerHTML = "<b>おすすめ: "+best.label+"</b><br>"+advice.reason;
+}
+function advisorToggle(){
+  if(tut) return; // れんしゅう中はレッスンのガイドに集中してもらう
+  advisorOn=!advisorOn;
+  document.getElementById("advisorPanel").style.display = advisorOn ? "" : "none";
+  if(advisorOn && !tut && phase==="play") advisorThink(); else advice=null;
+}
 
 // ================= れんしゅうモード(初心者チュートリアル) =================
 // 各レッスン: setup=最初の盤面, queue=配られるぷよ(2個1組の繰り返し), goal, tries=何組で判定リセットか
@@ -833,6 +1008,8 @@ function startTutorial(idx){
   document.getElementById("lessonPanel").style.display="";
   document.getElementById("lessonNav").style.display="";
   document.getElementById("help").style.display="none";
+  document.getElementById("advisorPanel").style.display="none";
+  advice=null;
   document.getElementById("msgLine").textContent="";
   tutApplyLesson();
   running=true;
@@ -939,7 +1116,9 @@ window.__dbg = {
     get chainCount(){return chainCount;}, set chainCount(v){chainCount=v;},
     get pendingScore(){return pendingScore;}, set pendingScore(v){pendingScore=v;},
     set allClearFlag(v){allClearFlag=v;}, get allClearFlag(){return allClearFlag;},
-    get tut(){return tut;}, startTutorial
+    get tut(){return tut;}, startTutorial,
+    advisorThink, advisorToggle,
+    get advice(){return advice;}, get advisorOn(){return advisorOn;}
   };},
   press(k){
     if(k==="left"){keys.left=true; pressedOnce.push("left");}

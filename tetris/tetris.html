@@ -112,7 +112,7 @@
   </div>
 </div>
 <button id="mute">🔊 音ON</button>
-<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev3 (2026-07-19) 起動時「はじめる」画面が出ないバグ修正</div>
+<div id="rev" style="position:fixed;left:10px;bottom:8px;font-size:11px;color:#5b6270;">rev4 (2026-07-19) ホールド未使用時のアドバイス文言を修正</div>
 
 <script>
 (function(){
@@ -453,8 +453,9 @@ function computeAdvice(){
   let best = withoutHold ? { ...withoutHold, source:"current", usedType: curType } : null;
 
   if(!state.holdUsed){
+    const holdWasEmpty = state.hold === null;
     let holdCandidateType, lookaheadNextType;
-    if(state.hold === null){
+    if(holdWasEmpty){
       holdCandidateType = nextType;
       lookaheadNextType = state.queue[1];
     } else {
@@ -464,7 +465,7 @@ function computeAdvice(){
     if(holdCandidateType){
       const withHold = aiBestMove(board, holdCandidateType, lookaheadNextType);
       if(withHold && (!best || withHold.total > best.total)){
-        best = { ...withHold, source:"hold", usedType: holdCandidateType };
+        best = { ...withHold, source:"hold", usedType: holdCandidateType, holdWasEmpty, benchedType: curType };
       }
     }
   }
@@ -486,7 +487,11 @@ function renderAdvicePanel(){
   }
   let html = "";
   if(adv.source === "hold"){
-    html += `<span class="hold-tip">🔄 ホールドの「${adv.usedType}」に交代するのがおすすめ!</span>`;
+    if(adv.holdWasEmpty){
+      html += `<span class="hold-tip">🔄 今の「${adv.benchedType}」はホールドに預けて、代わりに次に来る「${adv.usedType}」を先に置くのがおすすめ!</span>`;
+    } else {
+      html += `<span class="hold-tip">🔄 ホールドしてある「${adv.usedType}」に交代するのがおすすめ!</span>`;
+    }
   }
   html += adv.reasons.map(t=>`<div>${t}</div>`).join("");
   box.innerHTML = html || '<span class="empty">この手で問題ありません。</span>';
