@@ -571,10 +571,8 @@ export async function buildHandoffBundle(figures) {
   const blobParts = [];
   let offset = 0;
   for (const figure of figures) {
-    const name = String(figure?.name || "");
-    if ([...name].length > 100) {
-      throw handoffError("フィギュアの名前は100文字以内にしてください。", "INVALID_NAME");
-    }
+    // 名前は写真ファイル名由来で長くなりがち。エラーで弾かず自動で100字以内に詰める(送れないより短く送る)
+    const name = [...String(figure?.name || "")].slice(0, 100).join("");
     await assertPngBlob(figure.image);
     await assertPngBlob(figure.depth);
     const image = { offset, length: figure.image.size, type: "image/png" };
