@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ベロ — 物理試作 P2</title>
+<style>
+:root{
+  color-scheme:dark;
+  --panel:rgba(20,20,28,.9);
+  --accent:#ee7189;
+  --accent2:#ffb3c0;
+}
+*{box-sizing:border-box}
+html,body{
+  width:100%;
+  height:100%;
+  margin:0;
+  overflow:hidden;
+  background:#18181e;
+  color:#eee;
+  font-family:"Meiryo","Yu Gothic",sans-serif;
+}
+canvas{display:block;touch-action:none}
+#rev{
+  position:fixed;
+  right:12px;
+  top:9px;
+  z-index:20;
+  color:#92929d;
+  font-size:12px;
+  pointer-events:none;
+}
+#panel{
+  position:fixed;
+  left:12px;
+  top:12px;
+  z-index:20;
+  width:270px;
+  max-height:calc(100vh - 24px);
+  overflow:auto;
+  padding:12px 14px 14px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:13px;
+  background:var(--panel);
+  box-shadow:0 8px 32px rgba(0,0,0,.28);
+  backdrop-filter:blur(7px);
+}
+#panel h1{
+  margin:0 0 4px;
+  color:var(--accent2);
+  font-size:16px;
+}
+#panel .sub{
+  margin:0 0 10px;
+  color:#9d9daa;
+  font-size:11px;
+  line-height:1.45;
+}
+.row{margin:8px 0}
+.row label{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:2px;
+  font-size:12px;
+}
+.val{
+  color:var(--accent2);
+  font-variant-numeric:tabular-nums;
+}
+input[type=range]{
+  width:100%;
+  accent-color:var(--accent);
+}
+.caption{
+  margin:10px 0 5px;
+  color:#c9c9d2;
+  font-size:11px;
+}
+.size-buttons{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:4px;
+}
+.buttons{
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  margin-top:10px;
+}
+button{
+  min-height:30px;
+  padding:5px 9px;
+  border:0;
+  border-radius:8px;
+  background:#3b3b48;
+  color:#eee;
+  font:12px inherit;
+  cursor:pointer;
+}
+button:hover{background:#4b4b5b}
+button.on{
+  background:#bf4e67;
+  color:#fff;
+}
+.size-buttons button{
+  min-height:26px;
+  padding:3px;
+  font-size:11px;
+}
+.check{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-top:9px;
+  color:#ccc;
+  font-size:12px;
+}
+.check input{accent-color:var(--accent)}
+#stats{
+  margin-top:10px;
+  padding-top:8px;
+  border-top:1px solid rgba(255,255,255,.09);
+  color:#aaa;
+  font:11px/1.55 Consolas,monospace;
+}
+.good{color:#8ed9a3}
+.bad{color:#ff929d}
+#hint{
+  position:fixed;
+  left:12px;
+  bottom:9px;
+  z-index:10;
+  color:#858590;
+  font-size:12px;
+  pointer-events:none;
+}
+@media(max-width:620px){
+  #panel{width:225px;padding:10px}
+  #panel .sub{display:none}
+  #hint{display:none}
+}
+</style>
+</head>
+<body>
+<div id="rev">物理試作 P2 rev1</div>
+
+<section id="panel">
+  <h1>ベロ物理シミュレータ</h1>
+  <p class="sub">PBD物理、筋肉目標、10段階サイズ、滑らかな外皮を組み合わせた段階2試作です。</p>
+
+  <div class="row">
+    <label for="s_ext">のび〜ちぢみ <span class="val" id="v_ext">0.00</span></label>
+    <input id="s_ext" type="range" min="-100" max="100" value="0">
+  </div>
+  <div class="row">
+    <label for="s_ud">上下にまげる <span class="val" id="v_ud">0.00</span></label>
+    <input id="s_ud" type="range" min="-100" max="100" value="0">
+  </div>
+  <div class="row">
+    <label for="s_lr">左右にまげる <span class="val" id="v_lr">0.00</span></label>
+    <input id="s_lr" type="range" min="-100" max="100" value="0">
+  </div>
+  <div class="row">
+    <label for="s_tw">ねじる <span class="val" id="v_tw">0.00</span></label>
+    <input id="s_tw" type="range" min="-100" max="100" value="0">
+  </div>
+  <div class="row">
+    <label for="s_cl">舌先カール <span class="val" id="v_cl">0.00</span></label>
+    <input id="s_cl" type="range" min="-100" max="100" value="0">
+  </div>
+
+  <div class="caption">サイズ <span class="val" id="size_label">7：標準 12.5cm</span></div>
+  <div class="size-buttons" id="size_buttons">
+    <button data-size="1">1</button>
+    <button data-size="2">2</button>
+    <button data-size="3">3</button>
+    <button data-size="4">4</button>
+    <button data-size="5">5</button>
+    <button data-size="6">6</button>
+    <button data-size="7" class="on">7</button>
+    <button data-size="8">8</button>
+    <button data-size="9">9</button>
+    <button data-size="10">10</button>
+  </div>
+
+  <div class="buttons">
+    <button id="b_pero">ぺろぺろ</button>
+    <button id="b_maki">巻き舌</button>
+    <button id="b_wiggle">ぷるぷる</button>
+    <button id="b_reset">もどす</button>
+  </div>
+
+  <label class="check">
+    <input id="gravity" type="checkbox" checked>
+    重力をかける
+  </label>
+  <label class="check">
+    <input id="wire" type="checkbox">
+    骨格を表示
+  </label>
+
+  <div id="stats">
+    <div>粒子: <span id="st_particles">0</span></div>
+    <div>拘束: <span id="st_constraints">0</span></div>
+    <div>物理: <span>144 Hz</span></div>
+    <div>最大ひずみ: <span id="st_strain" class="good">0.0%</span></div>
+    <div>最大体積誤差: <span id="st_volume" class="good">0.0%</span></div>
+    <div>状態: <span id="st_state" class="good">安定</span></div>
+  </div>
+</section>
+
+<div id="hint">ドラッグ＝見る向き / ホイール＝寄る・引く / 舌先をドラッグ＝引っぱる</div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+
+const renderer=new THREE.WebGLRenderer({
+  antialias:true,
+  powerPreference:"high-performance",
+  preserveDrawingBuffer:true
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x18181e);
+
+const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.001,10);
+let camYaw=.55;
+let camPitch=.28;
+let camDist=.275;
+const lookAt=new THREE.Vector3();
+
+scene.add(new THREE.HemisphereLight(0xfff7f8,0x503d50,1.85));
+
+const keyLight=new THREE.DirectionalLight(0xffffff,3.4);
+keyLight.position.set(.35,.65,.35);
+scene.add(keyLight);
+
+const fillLight=new THREE.DirectionalLight(0xffccd7,1.35);
+fillLight.position.set(-.5,.1,-.15);
+scene.add(fillLight);
+
+const rimLight=new THREE.DirectionalLight(0xff7e99,1.25);
+rimLight.position.set(.15,-.5,-.45);
+scene.add(rimLight);
+
+const floor=new THREE.Mesh(
+  new THREE.CircleGeometry(1,64),
+  new THREE.MeshStandardMaterial({
+    color:0x24242c,
+    roughness:.88,
+    transparent:true,
+    opacity:.52
+  })
+);
+floor.rotation.x=-Math.PI/2;
+scene.add(floor);
+
+function seededRandom(seed){
+  let n=seed|0;
+  return ()=>{
+    n=(n*1664525+1013904223)|0;
+    return (n>>>0)/4294967296;
+  };
+}
+
+function makeTongueTexture(){
+  const random=seededRandom(271828);
+  const canvas=document.createElement("canvas");
+  canvas.width=1024;
+  canvas.height=1024;
+  const g=canvas.getContext("2d");
+
+  const base=g.createLinearGradient(0,0,canvas.width,0);
+  base.addColorStop(0,"#d55d72");
+  base.addColorStop(.12,"#ee8797");
+  base.addColorStop(.25,"#f4a0ab");
+  base.addColorStop(.38,"#ed8998");
+  base.addColorStop(.5,"#d45c72");
+  base.addColorStop(.63,"#bd4c65");
+  base.addColorStop(.75,"#ad435d");
+  base.addColorStop(.87,"#bd4c65");
+  base.addColorStop(1,"#d55d72");
+  g.fillStyle=base;
+  g.fillRect(0,0,canvas.width,canvas.height);
+
+  const lengthShade=g.createLinearGradient(0,0,0,canvas.height);
+  lengthShade.addColorStop(0,"rgba(70,10,25,.24)");
+  lengthShade.addColorStop(.16,"rgba(0,0,0,0)");
+  lengthShade.addColorStop(.78,"rgba(255,125,140,.06)");
+  lengthShade.addColorStop(1,"rgba(255,68,90,.20)");
+  g.fillStyle=lengthShade;
+  g.fillRect(0,0,canvas.width,canvas.height);
+
+  g.strokeStyle="rgba(105,20,40,.62)";
+  g.lineWidth=13;
+  g.lineCap="round";
+  g.beginPath();
+  g.moveTo(canvas.width*.25,canvas.height*.08);
+  for(let y=.08;y<.95;y+=.022){
+    g.lineTo(
+      canvas.width*(.25+(random()-.5)*.006),
+      canvas.height*y
+    );
+  }
+  g.stroke();
+
+  g.strokeStyle="rgba(255,155,169,.22)";
+  g.lineWidth=3;
+  g.beginPath();
+  g.moveTo(canvas.width*.242,canvas.height*.09);
+  g.lineTo(canvas.width*.242,canvas.height*.92);
+  g.stroke();
+
+  for(let i=0;i<9800;i++){
+    const u=random()*.5;
+    const v=random();
+    const center=Math.exp(-Math.pow((u-.25)/.19,2));
+    const radius=1.0+random()*2.8;
+    const bright=random()<.62;
+    g.fillStyle=bright
+      ? `rgba(255,${190+(random()*42|0)},${198+(random()*39|0)},${.14+.38*center})`
+      : `rgba(${120+(random()*47|0)},${28+(random()*23|0)},${48+(random()*24|0)},${.11+.27*center})`;
+    g.beginPath();
+    g.arc(u*canvas.width,v*canvas.height,radius,0,Math.PI*2);
+    g.fill();
+
+    if(bright&&radius>2.4){
+      g.fillStyle=`rgba(255,235,237,${.08+.13*center})`;
+      g.beginPath();
+      g.arc(
+        u*canvas.width-radius*.25,
+        v*canvas.height-radius*.25,
+        radius*.36,
+        0,
+        Math.PI*2
+      );
+      g.fill();
+    }
+  }
+
+  for(let i=0;i<42;i++){
+    const y=canvas.height*(.12+i*.019+random()*.008);
+    g.strokeStyle=`rgba(115,30,49,${.035+random()*.055})`;
+    g.lineWidth=1+random()*2;
+    g.beginPath();
+    g.moveTo(canvas.width*.04,y);
+    g.bezierCurveTo(
+      canvas.width*.14,y+(random()-.5)*18,
+      canvas.width*.35,y+(random()-.5)*18,
+      canvas.width*.47,y+(random()-.5)*8
+    );
+    g.stroke();
+  }
+
+  for(let i=0;i<10;i++){
+    const x=canvas.width*(.59+random()*.32);
+    g.strokeStyle=`rgba(62,46,133,${.08+random()*.09})`;
+    g.lineWidth=3+random()*2;
+    g.beginPath();
+    g.moveTo(x,canvas.height*.08);
+    g.bezierCurveTo(
+      x+(random()-.5)*65,canvas.height*.34,
+      x+(random()-.5)*80,canvas.height*.68,
+      x+(random()-.5)*60,canvas.height*.95
+    );
+    g.stroke();
+  }
+
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.colorSpace=THREE.SRGBColorSpace;
+  texture.flipY=false;
+  texture.wrapS=THREE.RepeatWrapping;
+  texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
+
+function makeRoughnessMap(){
+  const random=seededRandom(314159);
+  const canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  const g=canvas.getContext("2d");
+
+  const gradient=g.createLinearGradient(0,0,canvas.width,0);
+  gradient.addColorStop(0,"#777");
+  gradient.addColorStop(.25,"#a0a0a0");
+  gradient.addColorStop(.5,"#707070");
+  gradient.addColorStop(.75,"#303030");
+  gradient.addColorStop(1,"#777");
+  g.fillStyle=gradient;
+  g.fillRect(0,0,canvas.width,canvas.height);
+
+  for(let i=0;i<4200;i++){
+    const value=random()<.56?180:38;
+    g.fillStyle=`rgba(${value},${value},${value},.28)`;
+    g.beginPath();
+    g.arc(
+      random()*.5*canvas.width,
+      random()*canvas.height,
+      .6+random()*2.2,
+      0,
+      Math.PI*2
+    );
+    g.fill();
+  }
+
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.flipY=false;
+  texture.wrapS=THREE.RepeatWrapping;
+  return texture;
+}
+
+const SIZES=[
+  null,
+  {name:"ミニ",length:.023,width:.0060,height:.0037,tip:.67},
+  {name:"ちび",length:.031,width:.0074,height:.0045,tip:.69},
+  {name:"小粒",length:.041,width:.0090,height:.0054,tip:.71},
+  {name:"小型",length:.054,width:.0110,height:.0066,tip:.73},
+  {name:"かわいい",length:.070,width:.0135,height:.0080,tip:.75},
+  {name:"短め",length:.095,width:.0180,height:.0108,tip:.77},
+  {name:"標準",length:.125,width:.0230,height:.0140,tip:.79},
+  {name:"大きめ",length:.145,width:.0250,height:.0150,tip:.80},
+  {name:"大型",length:.162,width:.0265,height:.0158,tip:.81},
+  {name:"エイリアン",length:.180,width:.0280,height:.0165,tip:.82}
+];
+
+let sizeLevel=7;
+let L0=SIZES[sizeLevel].length;
+let W0=SIZES[sizeLevel].width;
+let H0=SIZES[sizeLevel].height;
+let tipRound=SIZES[sizeLevel].tip;
+let SEG_LEN=L0/12;
+
+const SECTIONS=13;
+const RING=8;
+const PER_SECTION=RING+1;
+const PARTICLES=SECTIONS*PER_SECTION;
+const FIXED_SECTIONS=2;
+
+const pos=new Float32Array(PARTICLES*3);
+const prev=new Float32Array(PARTICLES*3);
+const predicted=new Float32Array(PARTICLES*3);
+const restPos=new Float32Array(PARTICLES*3);
+const target=new Float32Array(PARTICLES*3);
+const invMass=new Float32Array(PARTICLES);
+
+const centerIndex=s=>s*PER_SECTION;
+const ringIndex=(s,r)=>s*PER_SECTION+1+r;
+
+function profile(t){
+  let width=1-.25*t*t;
+  let height=1-.22*t;
+
+  if(t>tipRound){
+    const k=(t-tipRound)/(1-tipRound);
+    const rounded=Math.sqrt(Math.max(.018,1-k*k));
+    width*=rounded;
+    height*=rounded*(1-.15*k);
+  }
+
+  const organic=
+    1+
+    .018*Math.sin(t*Math.PI*3.1)+
+    .010*Math.sin(t*Math.PI*7.3+.8);
+
+  width*=organic*(1+.075*Math.sin(Math.PI*t));
+  height*=1+.025*Math.sin(t*Math.PI*4.2+.4);
+  return {width,height};
+}
+
+function initializeParticles(){
+  const grooveDepth=W0*.10;
+
+  for(let s=0;s<SECTIONS;s++){
+    const t=s/(SECTIONS-1);
+    const z=t*L0;
+    const ci=centerIndex(s)*3;
+
+    restPos[ci]=0;
+    restPos[ci+1]=0;
+    restPos[ci+2]=z;
+
+    const shape=profile(t);
+
+    for(let r=0;r<RING;r++){
+      const theta=r/RING*Math.PI*2;
+      let x=Math.cos(theta)*W0*shape.width;
+      let y=Math.sin(theta)*H0*shape.height;
+
+      if(Math.sin(theta)>0){
+        const groove=Math.exp(-Math.pow(Math.cos(theta)/.34,2));
+        y-=groove*grooveDepth*Math.sin(theta)*
+          (.22+.78*Math.sin(Math.PI*Math.min(1,t*1.15)));
+      }
+      if(y<0)y*=.84;
+
+      const i=ringIndex(s,r)*3;
+      restPos[i]=x;
+      restPos[i+1]=y;
+      restPos[i+2]=z;
+    }
+  }
+
+  for(let i=0;i<PARTICLES;i++){
+    const i3=i*3;
+    pos[i3]=prev[i3]=predicted[i3]=restPos[i3];
+    pos[i3+1]=prev[i3+1]=predicted[i3+1]=restPos[i3+1];
+    pos[i3+2]=prev[i3+2]=predicted[i3+2]=restPos[i3+2];
+
+    const section=Math.floor(i/PER_SECTION);
+    invMass[i]=section<FIXED_SECTIONS?0:1;
+  }
+}
+
+const constraints=[];
+
+function distanceBetween(a,b,array=restPos){
+  const a3=a*3;
+  const b3=b*3;
+  return Math.hypot(
+    array[a3]-array[b3],
+    array[a3+1]-array[b3+1],
+    array[a3+2]-array[b3+2]
+  );
+}
+
+function addConstraint(a,b,stiffness,type){
+  constraints.push({
+    a,b,stiffness,type,
+    rest:distanceBetween(a,b),
+    baseRest:distanceBetween(a,b)
+  });
+}
+
+initializeParticles();
+
+for(let s=0;s<SECTIONS;s++){
+  for(let r=0;r<RING;r++){
+    addConstraint(ringIndex(s,r),ringIndex(s,(r+1)%RING),.78,"ring");
+    addConstraint(centerIndex(s),ringIndex(s,r),.86,"spoke");
+    addConstraint(ringIndex(s,r),ringIndex(s,(r+2)%RING),.38,"diameter");
+  }
+}
+
+for(let s=0;s<SECTIONS-1;s++){
+  addConstraint(centerIndex(s),centerIndex(s+1),.93,"axis");
+
+  for(let r=0;r<RING;r++){
+    addConstraint(ringIndex(s,r),ringIndex(s+1,r),.82,"long");
+    addConstraint(ringIndex(s,r),ringIndex(s+1,(r+1)%RING),.34,"shear");
+    addConstraint(ringIndex(s,r),ringIndex(s+1,(r+RING-1)%RING),.34,"shear");
+  }
+}
+
+for(let s=0;s<SECTIONS-2;s++){
+  addConstraint(centerIndex(s),centerIndex(s+2),.48,"bend");
+
+  for(let r=0;r<RING;r++){
+    addConstraint(ringIndex(s,r),ringIndex(s+2,r),.22,"bend");
+  }
+}
+
+function refreshConstraintBases(){
+  for(const c of constraints){
+    c.baseRest=distanceBetween(c.a,c.b,restPos);
+    c.rest=c.baseRest;
+  }
+}
+
+function solveDistance(c){
+  const a3=c.a*3;
+  const b3=c.b*3;
+  let dx=predicted[b3]-predicted[a3];
+  let dy=predicted[b3+1]-predicted[a3+1];
+  let dz=predicted[b3+2]-predicted[a3+2];
+  const length=Math.hypot(dx,dy,dz);
+
+  if(length<1e-9)return;
+
+  const wa=invMass[c.a];
+  const wb=invMass[c.b];
+  const mass=wa+wb;
+  if(mass===0)return;
+
+  const correction=(length-c.rest)/length*c.stiffness;
+  dx*=correction;
+  dy*=correction;
+  dz*=correction;
+
+  const ra=wa/mass;
+  const rb=wb/mass;
+
+  predicted[a3]+=dx*ra;
+  predicted[a3+1]+=dy*ra;
+  predicted[a3+2]+=dz*ra;
+  predicted[b3]-=dx*rb;
+  predicted[b3+1]-=dy*rb;
+  predicted[b3+2]-=dz*rb;
+}
+
+const command={ext:0,ud:0,lr:0,tw:0,cl:0};
+const activation={ext:0,ud:0,lr:0,tw:0,cl:0};
+
+const frameQ=new THREE.Quaternion();
+const deltaQ=new THREE.Quaternion();
+const euler=new THREE.Euler();
+const framePos=new THREE.Vector3();
+const right=new THREE.Vector3();
+const up=new THREE.Vector3();
+const forward=new THREE.Vector3();
+const local=new THREE.Vector3();
+
+function updateActivation(dt){
+  for(const name of Object.keys(command)){
+    const rising=Math.abs(command[name])>Math.abs(activation[name]);
+    const tau=rising?.080:.150;
+    const gain=1-Math.exp(-dt/tau);
+    activation[name]+=(command[name]-activation[name])*gain;
+  }
+}
+
+function currentStretch(){
+  return .75+(activation.ext+1)*.2;
+}
+
+function updateConstraintRestLengths(){
+  const stretch=currentStretch();
+  const radiusScale=1/Math.sqrt(stretch);
+
+  for(const c of constraints){
+    if(c.type==="axis"||c.type==="long"||c.type==="bend"){
+      c.rest=c.baseRest*stretch;
+    }else if(
+      c.type==="ring"||
+      c.type==="spoke"||
+      c.type==="diameter"
+    ){
+      c.rest=c.baseRest*radiusScale;
+    }else{
+      c.rest=c.baseRest*
+        Math.sqrt((stretch*stretch+radiusScale*radiusScale)*.5);
+    }
+  }
+}
+
+function buildMuscleTargets(){
+  const stretch=currentStretch();
+  const radiusScale=1/Math.sqrt(stretch);
+
+  frameQ.identity();
+  framePos.set(0,0,0);
+
+  for(let s=0;s<SECTIONS;s++){
+    const t=s/(SECTIONS-1);
+    const env=.15+.85*t;
+    const tip=t<.55?0:Math.pow((t-.55)/.45,2);
+
+    if(s>0){
+      const pitch=-(activation.ud*.095*env+activation.cl*.29*tip);
+      const yaw=activation.lr*.095*env;
+      const roll=activation.tw*.13*(.1+.9*t);
+
+      euler.set(pitch,yaw,roll,"XYZ");
+      deltaQ.setFromEuler(euler);
+      frameQ.multiply(deltaQ).normalize();
+
+      forward.set(0,0,1).applyQuaternion(frameQ);
+      framePos.addScaledVector(forward,SEG_LEN*stretch);
+    }
+
+    right.set(1,0,0).applyQuaternion(frameQ);
+    up.set(0,1,0).applyQuaternion(frameQ);
+
+    const ci=centerIndex(s)*3;
+    target[ci]=framePos.x;
+    target[ci+1]=framePos.y;
+    target[ci+2]=framePos.z;
+
+    for(let r=0;r<RING;r++){
+      const ri=ringIndex(s,r)*3;
+      local.set(
+        restPos[ri]*radiusScale,
+        restPos[ri+1]*radiusScale,
+        0
+      );
+
+      target[ri]=framePos.x+right.x*local.x+up.x*local.y;
+      target[ri+1]=framePos.y+right.y*local.x+up.y*local.y;
+      target[ri+2]=framePos.z+right.z*local.x+up.z*local.y;
+    }
+  }
+}
+
+function solveMuscles(strength){
+  for(let i=0;i<PARTICLES;i++){
+    if(invMass[i]===0)continue;
+
+    const i3=i*3;
+    const section=Math.floor(i/PER_SECTION);
+    const t=section/(SECTIONS-1);
+    const gain=strength*(.25+.75*t);
+
+    predicted[i3]+=(target[i3]-predicted[i3])*gain;
+    predicted[i3+1]+=(target[i3+1]-predicted[i3+1])*gain;
+    predicted[i3+2]+=(target[i3+2]-predicted[i3+2])*gain;
+  }
+}
+
+function solveRootAttachment(){
+  for(let s=0;s<FIXED_SECTIONS;s++){
+    for(let k=0;k<PER_SECTION;k++){
+      const i=(s*PER_SECTION+k)*3;
+      predicted[i]=target[i];
+      predicted[i+1]=target[i+1];
+      predicted[i+2]=target[i+2];
+    }
+  }
+}
+
+const FIXED_DT=1/144;
+const ITERATIONS=10;
+let accumulator=0;
+let gravityEnabled=true;
+let impulseTimer=0;
+let grabbedParticle=-1;
+const grabTarget=new THREE.Vector3();
+
+function physicsStep(dt){
+  updateActivation(dt);
+  updateConstraintRestLengths();
+  buildMuscleTargets();
+
+  const damping=.993;
+  const maxSpeed=Math.max(L0*.064,.0012);
+
+  for(let i=0;i<PARTICLES;i++){
+    const i3=i*3;
+
+    if(invMass[i]===0){
+      predicted[i3]=pos[i3];
+      predicted[i3+1]=pos[i3+1];
+      predicted[i3+2]=pos[i3+2];
+      continue;
+    }
+
+    let vx=(pos[i3]-prev[i3])*damping;
+    let vy=(pos[i3+1]-prev[i3+1])*damping;
+    let vz=(pos[i3+2]-prev[i3+2])*damping;
+
+    const speed=Math.hypot(vx,vy,vz);
+    if(speed>maxSpeed){
+      const scale=maxSpeed/speed;
+      vx*=scale;
+      vy*=scale;
+      vz*=scale;
+    }
+
+    predicted[i3]=pos[i3]+vx;
+    predicted[i3+1]=pos[i3+1]+vy-(gravityEnabled?2.1:0)*dt*dt;
+    predicted[i3+2]=pos[i3+2]+vz;
+  }
+
+  if(impulseTimer>0){
+    impulseTimer-=dt;
+    const amplitude=L0*.00096;
+
+    for(let s=5;s<SECTIONS;s++){
+      const t=s/(SECTIONS-1);
+
+      for(let k=0;k<PER_SECTION;k++){
+        const i=(s*PER_SECTION+k)*3;
+        predicted[i]+=
+          amplitude*Math.sin(performance.now()*.045+s*1.8)*t;
+        predicted[i+1]+=
+          amplitude*.75*Math.cos(performance.now()*.052+s*1.3)*t;
+      }
+    }
+  }
+
+  for(let iteration=0;iteration<ITERATIONS;iteration++){
+    solveRootAttachment();
+    solveMuscles(iteration<3?.035:.012);
+
+    for(const c of constraints)solveDistance(c);
+
+    if(grabbedParticle>=0){
+      const i=grabbedParticle*3;
+      predicted[i]=grabTarget.x;
+      predicted[i+1]=grabTarget.y;
+      predicted[i+2]=grabTarget.z;
+    }
+  }
+
+  const floorY=-H0*3.08;
+
+  for(let i=0;i<PARTICLES;i++){
+    const i3=i*3;
+
+    if(predicted[i3+1]<floorY){
+      predicted[i3+1]=floorY;
+      predicted[i3]+=(pos[i3]-predicted[i3])*.08;
+      predicted[i3+2]+=(pos[i3+2]-predicted[i3+2])*.08;
+    }
+
+    prev[i3]=pos[i3];
+    prev[i3+1]=pos[i3+1];
+    prev[i3+2]=pos[i3+2];
+
+    pos[i3]=predicted[i3];
+    pos[i3+1]=predicted[i3+1];
+    pos[i3+2]=predicted[i3+2];
+  }
+}
+
+const VISUAL_SEGMENTS=64;
+const VISUAL_RING=28;
+const ROOT_BACK_ROWS=4;
+const visualRows=VISUAL_SEGMENTS+1;
+const surfaceCount=visualRows*VISUAL_RING;
+const backStart=surfaceCount;
+const TIP_VERTEX=backStart+ROOT_BACK_ROWS*VISUAL_RING;
+const visualCount=TIP_VERTEX+1;
+
+const visualPositions=new Float32Array(visualCount*3);
+const visualUVs=new Float32Array(visualCount*2);
+const visualIndices=[];
+
+for(let s=0;s<VISUAL_SEGMENTS;s++){
+  for(let r=0;r<VISUAL_RING;r++){
+    const a=s*VISUAL_RING+r;
+    const b=s*VISUAL_RING+(r+1)%VISUAL_RING;
+    const c=(s+1)*VISUAL_RING+r;
+    const d=(s+1)*VISUAL_RING+(r+1)%VISUAL_RING;
+    visualIndices.push(a,c,b,b,c,d);
+  }
+}
+
+for(let r=0;r<VISUAL_RING;r++){
+  visualIndices.push(
+    VISUAL_SEGMENTS*VISUAL_RING+r,
+    TIP_VERTEX,
+    VISUAL_SEGMENTS*VISUAL_RING+(r+1)%VISUAL_RING
+  );
+}
+
+for(let row=0;row<ROOT_BACK_ROWS;row++){
+  for(let r=0;r<VISUAL_RING;r++){
+    const outer=row===0?r:backStart+(row-1)*VISUAL_RING+r;
+    const outerNext=row===0?(r+1)%VISUAL_RING:
+      backStart+(row-1)*VISUAL_RING+(r+1)%VISUAL_RING;
+    const inner=backStart+row*VISUAL_RING+r;
+    const innerNext=backStart+row*VISUAL_RING+(r+1)%VISUAL_RING;
+    visualIndices.push(outerNext,inner,outer,outerNext,innerNext,inner);
+  }
+}
+
+for(let r=1;r<VISUAL_RING-1;r++){
+  visualIndices.push(
+    backStart+(ROOT_BACK_ROWS-1)*VISUAL_RING,
+    backStart+(ROOT_BACK_ROWS-1)*VISUAL_RING+r+1,
+    backStart+(ROOT_BACK_ROWS-1)*VISUAL_RING+r
+  );
+}
+
+for(let s=0;s<visualRows;s++){
+  for(let r=0;r<VISUAL_RING;r++){
+    const i=s*VISUAL_RING+r;
+    visualUVs[i*2]=1-r/VISUAL_RING;
+    visualUVs[i*2+1]=s/VISUAL_SEGMENTS;
+  }
+}
+
+for(let row=0;row<ROOT_BACK_ROWS;row++){
+  for(let r=0;r<VISUAL_RING;r++){
+    const i=backStart+row*VISUAL_RING+r;
+    visualUVs[i*2]=1-r/VISUAL_RING;
+    visualUVs[i*2+1]=0;
+  }
+}
+
+visualUVs[TIP_VERTEX*2]=.25;
+visualUVs[TIP_VERTEX*2+1]=1;
+
+const geometry=new THREE.BufferGeometry();
+geometry.setIndex(visualIndices);
+geometry.setAttribute(
+  "position",
+  new THREE.BufferAttribute(visualPositions,3)
+);
+geometry.setAttribute(
+  "uv",
+  new THREE.BufferAttribute(visualUVs,2)
+);
+
+const material=new THREE.MeshPhysicalMaterial({
+  map:makeTongueTexture(),
+  roughnessMap:makeRoughnessMap(),
+  roughness:.92,
+  clearcoat:1,
+  clearcoatRoughness:.18,
+  sheen:.48,
+  sheenColor:new THREE.Color(0xff9cab),
+  side:THREE.DoubleSide
+});
+
+const tongue=new THREE.Mesh(geometry,material);
+tongue.frustumCulled=false;
+scene.add(tongue);
+
+function cubic(p0,p1,p2,p3,t){
+  const t2=t*t;
+  const t3=t2*t;
+  return .5*(
+    2*p1+
+    (-p0+p2)*t+
+    (2*p0-5*p1+4*p2-p3)*t2+
+    (-p0+3*p1-3*p2+p3)*t3
+  );
+}
+
+function particleComponent(section,ring,component){
+  const s=Math.max(0,Math.min(SECTIONS-1,section));
+  let r=ring%RING;
+  if(r<0)r+=RING;
+  return pos[ringIndex(s,r)*3+component];
+}
+
+function sampleSmoothRing(sectionFloat,ringFloat,out){
+  const s1=Math.floor(sectionFloat);
+  const st=sectionFloat-s1;
+  const r1=Math.floor(ringFloat);
+  const rt=ringFloat-r1;
+  const values=new Float32Array(4);
+
+  for(let component=0;component<3;component++){
+    for(let si=-1;si<=2;si++){
+      const section=s1+si;
+      values[si+1]=cubic(
+        particleComponent(section,r1-1,component),
+        particleComponent(section,r1,component),
+        particleComponent(section,r1+1,component),
+        particleComponent(section,r1+2,component),
+        rt
+      );
+    }
+
+    out.setComponent(
+      component,
+      cubic(values[0],values[1],values[2],values[3],st)
+    );
+  }
+}
+
+const sampled=new THREE.Vector3();
+
+function updateVisualMesh(){
+  for(let vs=0;vs<=VISUAL_SEGMENTS;vs++){
+    const sf=vs/VISUAL_SEGMENTS*(SECTIONS-1);
+
+    for(let vr=0;vr<VISUAL_RING;vr++){
+      const rf=vr/VISUAL_RING*RING;
+      sampleSmoothRing(sf,rf,sampled);
+
+      const i=(vs*VISUAL_RING+vr)*3;
+      visualPositions[i]=sampled.x;
+      visualPositions[i+1]=sampled.y;
+      visualPositions[i+2]=sampled.z;
+    }
+  }
+
+  for(let row=0;row<ROOT_BACK_ROWS;row++){
+    const t=(row+1)/ROOT_BACK_ROWS;
+    const radial=Math.cos(t*Math.PI*.5);
+    const backward=Math.sin(t*Math.PI*.5)*W0*.34;
+
+    for(let r=0;r<VISUAL_RING;r++){
+      const source=r*3;
+      const i=(backStart+row*VISUAL_RING+r)*3;
+
+      visualPositions[i]=visualPositions[source]*radial;
+      visualPositions[i+1]=visualPositions[source+1]*radial;
+      visualPositions[i+2]=visualPositions[source+2]-backward;
+    }
+  }
+
+  const lastCenter=centerIndex(SECTIONS-1)*3;
+  const previousCenter=centerIndex(SECTIONS-2)*3;
+
+  let dx=pos[lastCenter]-pos[previousCenter];
+  let dy=pos[lastCenter+1]-pos[previousCenter+1];
+  let dz=pos[lastCenter+2]-pos[previousCenter+2];
+  const length=Math.hypot(dx,dy,dz)||1;
+
+  dx/=length;
+  dy/=length;
+  dz/=length;
+
+  visualPositions[TIP_VERTEX*3]=pos[lastCenter]+dx*W0*.17;
+  visualPositions[TIP_VERTEX*3+1]=pos[lastCenter+1]+dy*W0*.17;
+  visualPositions[TIP_VERTEX*3+2]=pos[lastCenter+2]+dz*W0*.17;
+
+  geometry.attributes.position.needsUpdate=true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+}
+
+const skeletonPositions=new Float32Array(constraints.length*2*3);
+const skeletonGeometry=new THREE.BufferGeometry();
+skeletonGeometry.setAttribute(
+  "position",
+  new THREE.BufferAttribute(skeletonPositions,3)
+);
+
+const skeleton=new THREE.LineSegments(
+  skeletonGeometry,
+  new THREE.LineBasicMaterial({
+    color:0x8be5ff,
+    transparent:true,
+    opacity:.42,
+    depthTest:false
+  })
+);
+skeleton.visible=false;
+skeleton.renderOrder=4;
+scene.add(skeleton);
+
+const particleGeometry=new THREE.BufferGeometry();
+particleGeometry.setAttribute(
+  "position",
+  new THREE.BufferAttribute(pos,3)
+);
+
+const particleMaterial=new THREE.PointsMaterial({
+  color:0xffffff,
+  size:W0*.11,
+  transparent:true,
+  opacity:.7,
+  depthTest:false
+});
+
+const particlesView=new THREE.Points(particleGeometry,particleMaterial);
+particlesView.visible=false;
+particlesView.renderOrder=5;
+scene.add(particlesView);
+
+function updateSkeleton(){
+  if(!skeleton.visible)return;
+
+  let n=0;
+  for(const c of constraints){
+    const a=c.a*3;
+    const b=c.b*3;
+
+    skeletonPositions[n++]=pos[a];
+    skeletonPositions[n++]=pos[a+1];
+    skeletonPositions[n++]=pos[a+2];
+    skeletonPositions[n++]=pos[b];
+    skeletonPositions[n++]=pos[b+1];
+    skeletonPositions[n++]=pos[b+2];
+  }
+
+  skeletonGeometry.attributes.position.needsUpdate=true;
+  particleGeometry.attributes.position.needsUpdate=true;
+}
+
+function updateCamera(){
+  lookAt.set(0,0,L0*.52);
+  const cp=Math.cos(camPitch);
+
+  camera.position.set(
+    lookAt.x+camDist*Math.sin(camYaw)*cp,
+    lookAt.y+camDist*Math.sin(camPitch),
+    lookAt.z+camDist*Math.cos(camYaw)*cp
+  );
+  camera.lookAt(lookAt);
+
+  floor.position.set(0,-H0*3.08,L0*.55);
+  floor.scale.setScalar(Math.max(L0*2.2,.08));
+}
+
+function frameSize(){
+  camDist=Math.max(L0*2.2,W0*7.5,.075);
+  updateCamera();
+}
+
+const sliderIds={
+  ext:"s_ext",
+  ud:"s_ud",
+  lr:"s_lr",
+  tw:"s_tw",
+  cl:"s_cl"
+};
+
+const valueIds={
+  ext:"v_ext",
+  ud:"v_ud",
+  lr:"v_lr",
+  tw:"v_tw",
+  cl:"v_cl"
+};
+
+let automatic=null;
+
+function syncControls(){
+  for(const name of Object.keys(sliderIds)){
+    document.getElementById(sliderIds[name]).value=
+      Math.round(command[name]*100);
+    document.getElementById(valueIds[name]).textContent=
+      command[name].toFixed(2);
+  }
+}
+
+function stopAutomatic(){
+  automatic=null;
+  document.getElementById("b_pero").classList.remove("on");
+  document.getElementById("b_maki").classList.remove("on");
+}
+
+function resetCommands(){
+  stopAutomatic();
+
+  for(const name of Object.keys(command)){
+    command[name]=0;
+    activation[name]=0;
+  }
+
+  syncControls();
+}
+
+function updateSizeUI(){
+  const spec=SIZES[sizeLevel];
+  document.getElementById("size_label").textContent=
+    `${sizeLevel}：${spec.name} ${(spec.length*100).toFixed(1)}cm`;
+
+  for(const button of document.querySelectorAll("[data-size]")){
+    button.classList.toggle(
+      "on",
+      Number(button.dataset.size)===sizeLevel
+    );
+  }
+}
+
+function setSize(level){
+  const next=Math.max(1,Math.min(10,Math.round(Number(level)||7)));
+  sizeLevel=next;
+
+  const spec=SIZES[sizeLevel];
+  L0=spec.length;
+  W0=spec.width;
+  H0=spec.height;
+  tipRound=spec.tip;
+  SEG_LEN=L0/(SECTIONS-1);
+
+  grabbedParticle=-1;
+  accumulator=0;
+  resetCommands();
+  initializeParticles();
+  refreshConstraintBases();
+  buildMuscleTargets();
+
+  particleMaterial.size=W0*.11;
+  frameSize();
+  updateVisualMesh();
+  updateSkeleton();
+  updateSizeUI();
+  return sizeLevel;
+}
+
+for(const name of Object.keys(sliderIds)){
+  document.getElementById(sliderIds[name]).addEventListener(
+    "input",
+    event=>{
+      stopAutomatic();
+      command[name]=Number(event.target.value)/100;
+      document.getElementById(valueIds[name]).textContent=
+        command[name].toFixed(2);
+    }
+  );
+}
+
+document.getElementById("size_buttons").addEventListener("click",event=>{
+  const button=event.target.closest("[data-size]");
+  if(button)setSize(button.dataset.size);
+});
+
+document.getElementById("b_pero").addEventListener("click",event=>{
+  const enable=automatic!=="pero";
+  stopAutomatic();
+
+  if(enable){
+    automatic="pero";
+    event.currentTarget.classList.add("on");
+  }
+});
+
+document.getElementById("b_maki").addEventListener("click",event=>{
+  const enable=automatic!=="maki";
+  stopAutomatic();
+
+  if(enable){
+    automatic="maki";
+    event.currentTarget.classList.add("on");
+  }
+});
+
+document.getElementById("b_wiggle").addEventListener("click",()=>{
+  impulseTimer=.65;
+});
+
+document.getElementById("b_reset").addEventListener("click",()=>{
+  resetCommands();
+  initializeParticles();
+  buildMuscleTargets();
+  accumulator=0;
+  updateVisualMesh();
+});
+
+document.getElementById("gravity").addEventListener("change",event=>{
+  gravityEnabled=event.target.checked;
+});
+
+document.getElementById("wire").addEventListener("change",event=>{
+  skeleton.visible=event.target.checked;
+  particlesView.visible=event.target.checked;
+  updateSkeleton();
+});
+
+document.getElementById("st_particles").textContent=String(PARTICLES);
+document.getElementById("st_constraints").textContent=
+  String(constraints.length);
+
+const raycaster=new THREE.Raycaster();
+const pointer=new THREE.Vector2();
+const dragPlane=new THREE.Plane();
+const planeHit=new THREE.Vector3();
+
+let orbiting=false;
+let oldX=0;
+let oldY=0;
+
+function setPointer(event){
+  const rect=renderer.domElement.getBoundingClientRect();
+  pointer.x=(event.clientX-rect.left)/rect.width*2-1;
+  pointer.y=-(event.clientY-rect.top)/rect.height*2+1;
+}
+
+function findNearestTipParticle(point){
+  let best=-1;
+  let bestDistance=Math.max(W0*1.15,L0*.04);
+
+  for(let s=SECTIONS-4;s<SECTIONS;s++){
+    for(let k=0;k<PER_SECTION;k++){
+      const index=s*PER_SECTION+k;
+      const i=index*3;
+      const distance=Math.hypot(
+        pos[i]-point.x,
+        pos[i+1]-point.y,
+        pos[i+2]-point.z
+      );
+
+      if(distance<bestDistance){
+        best=index;
+        bestDistance=distance;
+      }
+    }
+  }
+
+  return best;
+}
+
+renderer.domElement.addEventListener("pointerdown",event=>{
+  renderer.domElement.setPointerCapture(event.pointerId);
+  setPointer(event);
+  raycaster.setFromCamera(pointer,camera);
+
+  const hits=raycaster.intersectObject(tongue,false);
+
+  if(hits.length){
+    const candidate=findNearestTipParticle(hits[0].point);
+
+    if(candidate>=0){
+      grabbedParticle=candidate;
+      grabTarget.copy(hits[0].point);
+      dragPlane.setFromNormalAndCoplanarPoint(
+        camera.getWorldDirection(new THREE.Vector3()),
+        hits[0].point
+      );
+      return;
+    }
+  }
+
+  orbiting=true;
+  oldX=event.clientX;
+  oldY=event.clientY;
+});
+
+renderer.domElement.addEventListener("pointermove",event=>{
+  if(grabbedParticle>=0){
+    setPointer(event);
+    raycaster.setFromCamera(pointer,camera);
+
+    if(raycaster.ray.intersectPlane(dragPlane,planeHit)){
+      grabTarget.copy(planeHit);
+    }
+    return;
+  }
+
+  if(!orbiting)return;
+
+  camYaw-=(event.clientX-oldX)*.006;
+  camPitch+=(event.clientY-oldY)*.006;
+  camPitch=Math.max(-1.15,Math.min(1.35,camPitch));
+  oldX=event.clientX;
+  oldY=event.clientY;
+  updateCamera();
+});
+
+function endPointer(){
+  orbiting=false;
+  grabbedParticle=-1;
+}
+
+renderer.domElement.addEventListener("pointerup",endPointer);
+renderer.domElement.addEventListener("pointercancel",endPointer);
+
+renderer.domElement.addEventListener("wheel",event=>{
+  event.preventDefault();
+  const minimum=Math.max(L0*.72,.025);
+  const maximum=Math.max(L0*5.2,.25);
+  camDist=Math.max(
+    minimum,
+    Math.min(maximum,camDist+event.deltaY*Math.max(L0*.0028,.00008))
+  );
+  updateCamera();
+},{passive:false});
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+function sectionArea(section,array){
+  const ci=centerIndex(section)*3;
+  const cx=array[ci];
+  const cy=array[ci+1];
+  const cz=array[ci+2];
+
+  let nx=0;
+  let ny=0;
+  let nz=0;
+
+  for(let r=0;r<RING;r++){
+    const a=ringIndex(section,r)*3;
+    const b=ringIndex(section,(r+1)%RING)*3;
+
+    const ax=array[a]-cx;
+    const ay=array[a+1]-cy;
+    const az=array[a+2]-cz;
+    const bx=array[b]-cx;
+    const by=array[b+1]-cy;
+    const bz=array[b+2]-cz;
+
+    nx+=ay*bz-az*by;
+    ny+=az*bx-ax*bz;
+    nz+=ax*by-ay*bx;
+  }
+
+  return .5*Math.hypot(nx,ny,nz);
+}
+
+function sectionVolume(section,array){
+  const c0=centerIndex(section)*3;
+  const c1=centerIndex(section+1)*3;
+
+  const distance=Math.hypot(
+    array[c1]-array[c0],
+    array[c1+1]-array[c0+1],
+    array[c1+2]-array[c0+2]
+  );
+
+  const area0=sectionArea(section,array);
+  const area1=sectionArea(section+1,array);
+  return distance*(area0+area1+Math.sqrt(area0*area1))/3;
+}
+
+function maxVolumeError(){
+  const stretch=currentStretch();
+  let maximum=0;
+
+  for(let s=0;s<SECTIONS-1;s++){
+    const base=sectionVolume(s,restPos);
+    if(base<1e-12)continue;
+
+    const desired=base;
+    const actual=sectionVolume(s,pos);
+    const error=Math.abs(actual-desired)/desired;
+
+    if(Number.isFinite(error)){
+      maximum=Math.max(maximum,error);
+    }else{
+      return Infinity;
+    }
+  }
+
+  if(!Number.isFinite(stretch))return Infinity;
+  return maximum;
+}
+
+const strainElement=document.getElementById("st_strain");
+const volumeElement=document.getElementById("st_volume");
+const stateElement=document.getElementById("st_state");
+let statsTimer=0;
+
+function updateStats(dt){
+  statsTimer+=dt;
+  if(statsTimer<.2)return;
+  statsTimer=0;
+
+  let maxStrain=0;
+  let finite=true;
+
+  for(const c of constraints){
+    const length=distanceBetween(c.a,c.b,pos);
+
+    if(!Number.isFinite(length)){
+      finite=false;
+      break;
+    }
+
+    maxStrain=Math.max(
+      maxStrain,
+      Math.abs(length-c.rest)/Math.max(c.rest,1e-9)
+    );
+  }
+
+  const strainPercent=maxStrain*100;
+  const volumePercent=maxVolumeError()*100;
+
+  strainElement.textContent=Number.isFinite(strainPercent)
+    ? `${strainPercent.toFixed(1)}%`
+    : "異常";
+
+  volumeElement.textContent=Number.isFinite(volumePercent)
+    ? `${volumePercent.toFixed(1)}%`
+    : "異常";
+
+  const strainHealthy=finite&&strainPercent<45;
+  const volumeHealthy=finite&&volumePercent<38;
+  const healthy=strainHealthy&&volumeHealthy;
+
+  strainElement.className=strainHealthy?"good":"bad";
+  volumeElement.className=volumeHealthy?"good":"bad";
+  stateElement.textContent=healthy?"安定":"高ひずみ";
+  stateElement.className=healthy?"good":"bad";
+}
+
+const clock=new THREE.Clock();
+
+function updateAutomatic(time){
+  if(automatic==="pero"){
+    command.ext=.28+Math.sin(time*3.1)*.23;
+    command.ud=Math.sin(time*3.1+1)*.56;
+    command.lr=Math.sin(time*1.15)*.17;
+    command.tw=Math.sin(time*1.7)*.06;
+    command.cl=Math.max(0,Math.sin(time*3.1+2.15))*.42;
+    syncControls();
+  }else if(automatic==="maki"){
+    command.ext=-.2;
+    command.ud=.12;
+    command.lr=Math.sin(time*4.5)*.11;
+    command.tw=Math.sin(time*2.2)*.15;
+    command.cl=.58+Math.sin(time*8.5)*.38;
+    syncControls();
+  }
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  const frameDt=Math.min(clock.getDelta(),1/30);
+  const time=clock.elapsedTime;
+
+  updateAutomatic(time);
+  accumulator=Math.min(accumulator+frameDt,FIXED_DT*6);
+
+  let substeps=0;
+  while(accumulator>=FIXED_DT&&substeps<6){
+    physicsStep(FIXED_DT);
+    accumulator-=FIXED_DT;
+    substeps++;
+  }
+
+  updateVisualMesh();
+  updateSkeleton();
+  updateStats(frameDt);
+  renderer.render(scene,camera);
+}
+
+buildMuscleTargets();
+frameSize();
+updateSizeUI();
+updateVisualMesh();
+animate();
+
+function createSnapshot(width=640){
+  updateVisualMesh();
+  renderer.render(scene,camera);
+
+  const source=renderer.domElement;
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(Number(width)||640));
+  canvas.height=Math.max(
+    1,
+    Math.round(canvas.width*source.height/source.width)
+  );
+
+  canvas.getContext("2d").drawImage(
+    source,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  return canvas.toDataURL("image/jpeg",.82);
+}
+
+window.__dbg={
+  command,
+  activation,
+  get size(){return sizeLevel},
+  particles:PARTICLES,
+  constraints:constraints.length,
+
+  set(name,value){
+    if(!(name in command))return false;
+    stopAutomatic();
+    command[name]=Math.max(-1,Math.min(1,Number(value)||0));
+    syncControls();
+    return true;
+  },
+
+  setSize(level){
+    return setSize(level);
+  },
+
+  reset(){
+    document.getElementById("b_reset").click();
+  },
+
+  impulse(){
+    impulseTimer=.65;
+  },
+
+  wire(value=true){
+    const enabled=Boolean(value);
+    document.getElementById("wire").checked=enabled;
+    skeleton.visible=enabled;
+    particlesView.visible=enabled;
+    updateSkeleton();
+  },
+
+  view(yaw,pitch,distance){
+    if(Number.isFinite(Number(yaw)))camYaw=Number(yaw);
+    if(Number.isFinite(Number(pitch)))camPitch=Number(pitch);
+    if(Number.isFinite(Number(distance)))camDist=Number(distance);
+    updateCamera();
+  },
+
+  step(count=1){
+    const steps=Math.max(0,Math.min(20000,Math.floor(Number(count)||1)));
+
+    for(let i=0;i<steps;i++){
+      physicsStep(FIXED_DT);
+    }
+
+    updateVisualMesh();
+    updateSkeleton();
+    updateStats(1);
+    renderer.render(scene,camera);
+  },
+
+  snapshot(width=640){
+    return createSnapshot(width);
+  },
+
+  snap(width=640){
+    return createSnapshot(width);
+  },
+
+  metrics(){
+    let maximumStrain=0;
+
+    for(const c of constraints){
+      const length=distanceBetween(c.a,c.b,pos);
+      maximumStrain=Math.max(
+        maximumStrain,
+        Math.abs(length-c.rest)/Math.max(c.rest,1e-9)
+      );
+    }
+
+    return {
+      size:sizeLevel,
+      lengthCm:Number((L0*100).toFixed(2)),
+      maximumStrainPercent:Number((maximumStrain*100).toFixed(3)),
+      maximumVolumeErrorPercent:Number((maxVolumeError()*100).toFixed(3)),
+      finite:Array.from(pos).every(Number.isFinite)
+    };
+  }
+};
+</script>
+</body>
+</html>

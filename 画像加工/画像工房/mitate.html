@@ -9,14 +9,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap" rel="stylesheet">
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
 <style>
   :root{
     --bg:#101613; --panel:#18211c; --panel2:#202b25; --line:#2d3a33;
@@ -417,11 +409,11 @@
 <!-- ARパススルーカメラのQR認識。未ロード時はARスキャンだけ静かに無効 -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script type="module">
-import * as THREE from "three";
-import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
-import { XRHandModelFactory } from "three/addons/webxr/XRHandModelFactory.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
+import * as THREE from "./lib/three.module.min.js";
+import { GLTFExporter } from "./lib/GLTFExporter.js";
+import { GLTFLoader } from "./lib/GLTFLoader.js";
+import { clone as skeletonClone } from "./lib/SkeletonUtils.js";
+import { setupHands as libSetupHands, isHandInput } from "./lib/hands.js";
 import {
   saveBlob, handoffTake, handoffClear,
   figuresAdd, figuresAll, figuresRemove,
@@ -431,7 +423,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev29-flow";
+const REV = "v2 rev30-lib";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -3373,7 +3365,7 @@ const HANDGLB_POS   = { x: 0, y: 0, z: 0 };
 const HANDGLB_SCALE = 1.0;
 (function loadHandGLBs(){
   for(const hd of ['left','right']){
-    gltfLoader.load('https://cdn.jsdelivr.net/npm/@webxr-input-profiles/assets@1.0/dist/profiles/generic-hand/'+hd+'.glb',
+    gltfLoader.load('./lib/profiles/generic-hand/'+hd+'.glb',
       g => { const s=g.scene; s.rotation.set(HANDGLB_EULER.x,HANDGLB_EULER.y,HANDGLB_EULER.z); s.position.set(HANDGLB_POS.x,HANDGLB_POS.y,HANDGLB_POS.z); s.scale.setScalar(HANDGLB_SCALE); handGLB[hd]=s; upgradeHandsToGLB(hd); },
       undefined, err => console.warn('手GLBの読込失敗（低ポリで代替）', hd, err));
   }
@@ -3420,7 +3412,7 @@ function setupHands(){
     c.addEventListener('connected', e=>{
       c.userData.src = e.data;
       c.userData.handedness = e.data && e.data.handedness;   // 回転対象を手ごとに選ぶのに使う
-      const isHand = !!(e.data && e.data.hand);
+      const isHand = isHandInput(e);
       const hd = (e.data && e.data.handedness === 'left') ? 'left' : 'right';
       const sign = hd === 'left' ? -1 : 1;
       if(!isHand){
@@ -3447,17 +3439,14 @@ function setupHands(){
 }
 
 // ハンドトラッキング(素手): Questが認識した本物の手に同期する手モデル。つまむ=つかむ(select)は既存のまま動く
-const handModelFactory = new XRHandModelFactory();
+// 共通部品(xr-hands/hands.js)のsetupHandsを使用。手GLBはlib/profiles同梱(ネット取得なし)
 let handTrackers = [null, null];
 function setupHandTracking(){
   if(handTrackers[0]) return;
+  const hs = libSetupHands(renderer, scene);
   for(let i=0;i<2;i++){
-    const h = renderer.xr.getHand(i);
-    h.visible = false;   // 素手が接続された時だけ表示(下のconnectedで切替)
-    scene.add(h);
-    // 'mesh'=実際の手の形にリグされたモデル(素手の関節に同期)
-    h.add(handModelFactory.createHandModel(h, 'mesh'));
-    handTrackers[i] = h;
+    hs[i].visible = false;   // 素手が接続された時だけ表示(下のconnectedで切替)
+    handTrackers[i] = hs[i];
   }
 }
 

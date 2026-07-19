@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ベロ(見た目版)</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#1a1a20;font-family:"Meiryo",sans-serif;}
+  #rev{position:fixed;top:8px;right:12px;color:#888;font-size:12px;z-index:10;}
+  #panel{position:fixed;left:12px;top:12px;background:rgba(20,20,28,.82);color:#eee;
+    padding:12px 16px;border-radius:12px;z-index:10;width:230px;font-size:13px;}
+  #panel h1{font-size:15px;margin:0 0 10px;color:#ffb3c0;}
+  .row{margin:8px 0;}
+  .row label{display:flex;justify-content:space-between;margin-bottom:2px;}
+  .row input[type=range]{width:100%;}
+  .val{color:#ffb3c0;}
+  button{margin:4px 4px 0 0;padding:6px 10px;border:0;border-radius:8px;background:#3a3a48;
+    color:#eee;font-size:13px;cursor:pointer;font-family:inherit;}
+  button.on{background:#c2506a;}
+  #hint{position:fixed;left:12px;bottom:10px;color:#777;font-size:12px;z-index:10;}
+</style>
+</head>
+<body>
+<div id="rev">見た目版 v0 rev3</div>
+<div id="panel">
+  <h1>ベロのうごき(見た目だけ)</h1>
+  <div class="row"><label>のび〜ちぢみ <span class="val" id="v_ext">0</span></label>
+    <input type="range" id="s_ext" min="-100" max="100" value="0"></div>
+  <div class="row"><label>上下にまげる <span class="val" id="v_ud">0</span></label>
+    <input type="range" id="s_ud" min="-100" max="100" value="0"></div>
+  <div class="row"><label>左右にまげる <span class="val" id="v_lr">0</span></label>
+    <input type="range" id="s_lr" min="-100" max="100" value="0"></div>
+  <div class="row"><label>ねじる <span class="val" id="v_tw">0</span></label>
+    <input type="range" id="s_tw" min="-100" max="100" value="0"></div>
+  <div class="row"><label>舌先カール <span class="val" id="v_cl">0</span></label>
+    <input type="range" id="s_cl" min="-100" max="100" value="0"></div>
+  <div class="row"><label>サイズ(1=ミニ 〜 10=エイリアン)</label>
+    <span id="sizeBtns"></span></div>
+  <div>
+    <button id="b_pero">ぺろぺろ</button>
+    <button id="b_maki">巻き舌</button>
+    <button id="b_reset">もどす</button>
+  </div>
+</div>
+<div id="hint">ドラッグ=見る向き / ホイール=寄る・引く</div>
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+
+/* ================= 基本セット ================= */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a20);
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 10);
+let camYaw=0.5, camPitch=0.25, camDist=0.26;
+function updateCam(){
+  const cy=Math.cos(camYaw), sy=Math.sin(camYaw), cp=Math.cos(camPitch), sp=Math.sin(camPitch);
+  camera.position.set(camDist*sy*cp, camDist*sp, camDist*cy*cp);
+  const mid=L0*0.5; // 舌の中ほどを見る(サイズ連動)
+  camera.position.z += mid;
+  camera.lookAt(0,0,mid);
+}
+// 初回のupdateCamはサイズ初期化(setSize)の中で呼ばれる(L0宣言前に呼ぶとTDZで死ぬ)
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x665560, 1.6));
+const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(0.4,0.8,0.5); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffd0da, 1.1); fill.position.set(-0.5,0.2,-0.3); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0xff8090, 1.2); rim.position.set(0,-0.6,-0.6); scene.add(rim);
+
+/* ================= 舌のテクスチャ(手描き生成) ================= */
+/* u=断面のまわり(0=右横→0.25=上→0.5=左横→0.75=裏), v=根元→舌先 */
+function makeTongueTexture(){
+  const c=document.createElement("canvas"); c.width=1024; c.height=1024;
+  const g=c.getContext("2d");
+  // 下地: 表(上面)は明るいピンク、裏はやや紫がかった赤
+  const base=g.createLinearGradient(0,0,c.width,0);
+  base.addColorStop(0.00,"#e26e7c");
+  base.addColorStop(0.13,"#f29aa4");
+  base.addColorStop(0.25,"#f7a6ae");  // 上面センター
+  base.addColorStop(0.37,"#f29aa4");
+  base.addColorStop(0.50,"#e26e7c");
+  base.addColorStop(0.63,"#cc5b70");  // 裏面
+  base.addColorStop(0.75,"#c4556c");
+  base.addColorStop(0.87,"#cc5b70");
+  base.addColorStop(1.00,"#e26e7c");
+  g.fillStyle=base; g.fillRect(0,0,c.width,c.height);
+  // 根元のふさぎ面(v=0の行)は無地にする(扇状に貼られて縞になるのを防ぐ)
+  g.fillStyle="#d97a86"; g.fillRect(0,0,c.width,5);
+  // 舌先へ向けてほんのり赤みを強く
+  const tipG=g.createLinearGradient(0,0,0,c.height);
+  tipG.addColorStop(0,"rgba(140,40,55,0.15)");   // 根元はうっすら暗く(口の奥)
+  tipG.addColorStop(0.25,"rgba(0,0,0,0)");
+  tipG.addColorStop(0.85,"rgba(255,90,100,0.10)");
+  tipG.addColorStop(1,"rgba(255,80,95,0.22)");
+  g.fillStyle=tipG; g.fillRect(0,0,c.width,c.height);
+  // 正中溝(上面まん中の縦すじ)
+  g.strokeStyle="rgba(130,30,48,0.65)"; g.lineWidth=11; g.lineCap="round";
+  g.beginPath();
+  g.moveTo(c.width*0.25, c.height*0.10);
+  for(let y=0.10;y<=0.94;y+=0.04){
+    g.lineTo(c.width*(0.25+(Math.random()-0.5)*0.006), c.height*y);
+  }
+  g.stroke();
+  // 上面の細かいすじ(横方向にうっすら)
+  g.strokeStyle="rgba(160,55,70,0.22)"; g.lineWidth=3;
+  for(let i=0;i<90;i++){
+    const y=(0.08+Math.random()*0.85)*c.height;
+    const cx=c.width*0.25, w=(0.04+Math.random()*0.09)*c.width;
+    g.beginPath();
+    g.moveTo(cx-w, y);
+    g.quadraticCurveTo(cx, y+(Math.random()-0.5)*24, cx+w, y);
+    g.stroke();
+  }
+  // 舌乳頭(ざらざらのつぶつぶ) 上面のみ
+  for(let i=0;i<9000;i++){
+    const u=Math.random()*0.5;           // 上半分
+    const v=Math.random();
+    const cx=u*c.width, cy=v*c.height;
+    const centerFade=Math.exp(-Math.pow((u-0.25)/0.17,2)); // 上面センターほど濃く
+    const r=1.2+Math.random()*2.6;
+    const bright=Math.random()<0.55;
+    g.fillStyle = bright
+      ? `rgba(255,${200+Math.random()*40|0},${205+Math.random()*40|0},${0.16+0.30*centerFade})`
+      : `rgba(${140+Math.random()*40|0},45,60,${0.10+0.22*centerFade})`;
+    g.beginPath(); g.arc(cx,cy,r,0,7); g.fill();
+    if(bright&&Math.random()<0.3){ // つぶの影(立体感)
+      g.fillStyle=`rgba(120,35,50,${0.12*centerFade})`;
+      g.beginPath(); g.arc(cx+r*0.7,cy+r*0.7,r*0.8,0,7); g.fill();
+    }
+  }
+  // 裏面の静脈っぽい青すじ(うっすら)
+  g.strokeStyle="rgba(90,60,160,0.12)"; g.lineWidth=5;
+  for(let i=0;i<8;i++){
+    const x=c.width*(0.62+Math.random()*0.26);
+    g.beginPath(); g.moveTo(x, c.height*0.1);
+    g.bezierCurveTo(x+30, c.height*0.4, x-30, c.height*0.6, x+(Math.random()-0.5)*60, c.height*0.92);
+    g.stroke();
+  }
+  const tex=new THREE.CanvasTexture(c);
+  tex.colorSpace=THREE.SRGBColorSpace;
+  tex.flipY=false;
+  tex.wrapS=THREE.RepeatWrapping;
+  tex.anisotropy=8;
+  return tex;
+}
+
+/* つや(ラフネス)マップ: 上面ざらつや・裏面つるつや */
+function makeRoughMap(){
+  const c=document.createElement("canvas"); c.width=512; c.height=512;
+  const g=c.getContext("2d");
+  const grad=g.createLinearGradient(0,0,c.width,0);
+  grad.addColorStop(0.0,"#6a6a6a");
+  grad.addColorStop(0.25,"#7a7a7a"); // 上面: ややざら
+  grad.addColorStop(0.5,"#606060");
+  grad.addColorStop(0.75,"#3a3a3a"); // 裏面: つるっ
+  grad.addColorStop(1.0,"#6a6a6a");
+  g.fillStyle=grad; g.fillRect(0,0,c.width,c.height);
+  for(let i=0;i<3000;i++){
+    const u=Math.random()*0.5;
+    g.fillStyle=`rgba(${Math.random()<0.5?140:60},${Math.random()<0.5?140:60},${Math.random()<0.5?140:60},0.25)`;
+    g.beginPath(); g.arc(u*c.width, Math.random()*c.height, 1+Math.random()*2, 0, 7); g.fill();
+  }
+  const rt=new THREE.CanvasTexture(c);
+  rt.flipY=false; rt.wrapS=THREE.RepeatWrapping;
+  return rt;
+}
+
+/* ================= 舌の形(毎フレーム生成) ================= */
+const SEG=64;      // 長手分割
+const RING=28;     // 断面まわり分割
+/* サイズ10段階: 10=エイリアン級(18cm)、6=旧1(7.5cm)、1=ミニ(約2.3cm) */
+const SIZES=[
+  null,
+  {len:0.023, w:0.0095, h:0.0082, taper:0.14, tipAt:0.50, name:"1"},  // ミニ
+  {len:0.031, w:0.0112, h:0.0095, taper:0.16, tipAt:0.52, name:"2"},
+  {len:0.040, w:0.0130, h:0.0105, taper:0.18, tipAt:0.55, name:"3"},
+  {len:0.050, w:0.0148, h:0.0115, taper:0.20, tipAt:0.58, name:"4"},
+  {len:0.062, w:0.0165, h:0.0125, taper:0.22, tipAt:0.62, name:"5"},
+  {len:0.075, w:0.0185, h:0.0135, taper:0.24, tipAt:0.66, name:"6"},  // 旧1
+  {len:0.100, w:0.0210, h:0.0140, taper:0.30, tipAt:0.72, name:"7"},
+  {len:0.125, w:0.0230, h:0.0140, taper:0.34, tipAt:0.76, name:"8"},  // 人間サイズ感
+  {len:0.150, w:0.0247, h:0.0140, taper:0.38, tipAt:0.78, name:"9"},
+  {len:0.180, w:0.026, h:0.0140, taper:0.42, tipAt:0.80, name:"10"},  // エイリアン級
+];
+let size=SIZES[10];
+let L0=size.len, W0=size.w, H0=size.h;
+
+const BACK=4;              // 根元を丸く閉じるための後ろ向きリング数
+const ROWS=BACK+SEG+1;     // 後ろリング+本体
+const geo=new THREE.BufferGeometry();
+const vtxCount=ROWS*RING+2;  // +舌先の一点+根元の一点
+const positions=new Float32Array(vtxCount*3);
+const uvs=new Float32Array(vtxCount*2);
+const TIPV=ROWS*RING, ROOTV=ROWS*RING+1;
+{ // index と uv は固定
+  const idx=[];
+  for(let s=0;s<ROWS-1;s++){
+    for(let r=0;r<RING;r++){
+      const a=s*RING+r, b=s*RING+(r+1)%RING, c2=(s+1)*RING+r, d=(s+1)*RING+(r+1)%RING;
+      idx.push(a,c2,b, b,c2,d);
+    }
+  }
+  for(let r=0;r<RING;r++){ // 舌先ふさぎ
+    idx.push((ROWS-1)*RING+r, TIPV, (ROWS-1)*RING+(r+1)%RING);
+  }
+  for(let r=0;r<RING;r++){ // 根元ふさぎ
+    idx.push((r+1)%RING, ROOTV, r);
+  }
+  geo.setIndex(idx);
+  for(let s=0;s<ROWS;s++){
+    const v = s<BACK ? 0.02*(s/BACK) : (s-BACK)/SEG;
+    for(let r=0;r<RING;r++){
+      const i=s*RING+r;
+      uvs[i*2]=1-r/RING; uvs[i*2+1]=v;
+    }
+  }
+  uvs[TIPV*2]=0.25; uvs[TIPV*2+1]=1;
+  uvs[ROOTV*2]=0.25; uvs[ROOTV*2+1]=0;
+}
+geo.setAttribute("position", new THREE.BufferAttribute(positions,3));
+geo.setAttribute("uv", new THREE.BufferAttribute(uvs,2));
+
+const mat=new THREE.MeshPhysicalMaterial({
+  map:makeTongueTexture(),
+  roughnessMap:makeRoughMap(),
+  roughness:1.0,
+  clearcoat:1.0,           // 唾液の濡れツヤ
+  clearcoatRoughness:0.22,
+  sheen:0.4, sheenColor:new THREE.Color(0xff9aa8),
+});
+const tongue=new THREE.Mesh(geo, mat);
+scene.add(tongue);
+
+/* 断面プロファイル: 舌は「平たい楕円+上面に正中のくぼみ」 */
+function crossSection(t, r, out){
+  // t:0根元→1舌先, r:リング番号
+  const th=(r/RING)*Math.PI*2;
+  // 幅と厚み: 根元→中間ゆるやか、先端1/4で丸く閉じる
+  let taperW=1-size.taper*t*t;
+  let taperH=1-0.30*t;
+  if(t>size.tipAt){
+    const k=(t-size.tipAt)/(1-size.tipAt);
+    const round=Math.sqrt(Math.max(0.0001,1-k*k));
+    taperW*=round; taperH*=round*(1-0.3*k);
+  }
+  // 横幅は中ほどが少し広い(本物の舌の輪郭)
+  const widen=1+0.10*Math.sin(Math.PI*Math.min(t*1.15,1));
+  // 表面の有機的な揺らぎ(完全な楕円にしない)
+  const lf=L0/0.18; // 小さい舌ほど揺らぎの波長・振幅を控えめに
+  const wob=1+(0.025*Math.sin(th*3.1+t*17*lf)+0.02*Math.sin(th*5.3+t*31*lf))*Math.min(1,lf*1.4);
+  let x=Math.cos(th)*W0*taperW*widen*wob;
+  let y=Math.sin(th)*H0*taperH*wob;
+  // 上面のくぼみ(正中溝)
+  if(Math.sin(th)>0){
+    const groove=Math.exp(-Math.pow(Math.cos(th)/0.30,2));
+    y-=groove*(0.0035*W0/0.026)*Math.sin(th)*(0.4+0.6*Math.sin(Math.PI*Math.min(t*1.2,1)));
+  }
+  // 下面はやや平らに
+  if(Math.sin(th)<0) y*=0.82;
+  out.x=x; out.y=y;
+}
+
+/* 5次元指令 → 背骨を積分して形を作る */
+const cmd={ext:0, ud:0, lr:0, tw:0, cl:0};
+const _q=new THREE.Quaternion(), _e=new THREE.Euler();
+const _pos=new THREE.Vector3(), _right=new THREE.Vector3(), _up=new THREE.Vector3(), _fwd=new THREE.Vector3();
+const _sec={x:0,y:0};
+
+function rebuild(){
+  const s=0.75+(cmd.ext+1)/2*(1.15-0.75);   // 長さ倍率 0.75〜1.15
+  const rScale=1/Math.sqrt(s);               // 縮むと太る・伸びると細る
+  const len=L0*s, step=len/SEG;
+  _q.identity(); _pos.set(0, 0, 0);
+  // 根元の丸いふさぎ(後ろ向きリング。曲げの影響を受けない根元フレームで)
+  const backD=W0*0.55*rScale;
+  for(let b=0;b<BACK;b++){
+    const k=(BACK-b)/(BACK+1);
+    const shrink=Math.sqrt(Math.max(0.0001,1-k*k));
+    for(let r=0;r<RING;r++){
+      crossSection(0, r, _sec);
+      const i=(b*RING+r)*3;
+      positions[i  ]=_sec.x*rScale*shrink;
+      positions[i+1]=_sec.y*rScale*shrink;
+      positions[i+2]=-backD*k;
+    }
+  }
+  positions[ROOTV*3]=0; positions[ROOTV*3+1]=0; positions[ROOTV*3+2]=-backD;
+  for(let sg=0; sg<=SEG; sg++){
+    const t=sg/SEG;
+    // 曲げエンベロープ: 根元は動かず先へいくほど曲がる
+    const envBend=0.25+0.75*t;
+    const envTip=t<0.55?0:Math.pow((t-0.55)/0.45,2);   // 舌先カールは先端だけ
+    const maxBend=1.6/SEG, maxCurl=5.0/SEG, maxTw=2.6/SEG;
+    _e.set(
+      -(cmd.ud*maxBend*envBend + cmd.cl*maxCurl*envTip)*Math.PI,
+      (cmd.lr*maxBend*envBend)*Math.PI,
+      (cmd.tw*maxTw*(0.1+0.9*t))*Math.PI, "XYZ");
+    _q.multiply(new THREE.Quaternion().setFromEuler(_e));
+    _right.set(1,0,0).applyQuaternion(_q);
+    _up.set(0,1,0).applyQuaternion(_q);
+    _fwd.set(0,0,1).applyQuaternion(_q);
+    for(let r=0;r<RING;r++){
+      crossSection(t, r, _sec);
+      const i=((BACK+sg)*RING+r)*3;
+      positions[i  ]=_pos.x+_right.x*_sec.x*rScale+_up.x*_sec.y*rScale;
+      positions[i+1]=_pos.y+_right.y*_sec.x*rScale+_up.y*_sec.y*rScale;
+      positions[i+2]=_pos.z+_right.z*_sec.x*rScale+_up.z*_sec.y*rScale;
+    }
+    if(sg===SEG){
+      positions[TIPV*3]=_pos.x+_fwd.x*step*1.2;
+      positions[TIPV*3+1]=_pos.y+_fwd.y*step*1.2;
+      positions[TIPV*3+2]=_pos.z+_fwd.z*step*1.2;
+    }
+    _pos.addScaledVector(_fwd, step);
+  }
+  geo.attributes.position.needsUpdate=true;
+  geo.computeVertexNormals();
+}
+
+/* ================= UI ================= */
+let dirty=true;
+const S={ext:"s_ext",ud:"s_ud",lr:"s_lr",tw:"s_tw",cl:"s_cl"};
+const V={ext:"v_ext",ud:"v_ud",lr:"v_lr",tw:"v_tw",cl:"v_cl"};
+let auto=null; // "pero" | "maki" | null
+for(const k in S){
+  document.getElementById(S[k]).addEventListener("input",e=>{
+    stopAuto();
+    cmd[k]=e.target.value/100; dirty=true;
+    document.getElementById(V[k]).textContent=cmd[k].toFixed(2);
+  });
+}
+function syncSliders(){
+  for(const k in S){
+    document.getElementById(S[k]).value=Math.round(cmd[k]*100);
+    document.getElementById(V[k]).textContent=cmd[k].toFixed(2);
+  }
+}
+function setSize(n){
+  size=SIZES[n]; L0=size.len; W0=size.w; H0=size.h; dirty=true;
+  camDist=Math.max(0.05, L0*1.7); // 小さい舌は寄って見る
+  updateCam();
+  document.querySelectorAll("#sizeBtns button").forEach((b,i)=>{
+    b.classList.toggle("on", i===n-1);
+  });
+}
+{
+  const holder=document.getElementById("sizeBtns");
+  for(let n=1;n<=10;n++){
+    const b=document.createElement("button");
+    b.textContent=n;
+    b.addEventListener("click",()=>setSize(n));
+    holder.appendChild(b);
+  }
+  setSize(3);
+}
+function stopAuto(){
+  auto=null;
+  document.getElementById("b_pero").classList.remove("on");
+  document.getElementById("b_maki").classList.remove("on");
+}
+document.getElementById("b_pero").addEventListener("click",e=>{
+  const on=auto!=="pero"; stopAuto(); if(on){auto="pero"; e.target.classList.add("on");}
+});
+document.getElementById("b_maki").addEventListener("click",e=>{
+  const on=auto!=="maki"; stopAuto(); if(on){auto="maki"; e.target.classList.add("on");}
+});
+document.getElementById("b_reset").addEventListener("click",()=>{
+  stopAuto(); cmd.ext=cmd.ud=cmd.lr=cmd.tw=cmd.cl=0; syncSliders();
+});
+
+/* マウスで見回す */
+let drag=false,px=0,py=0;
+addEventListener("mousedown",e=>{if(e.target.tagName==="CANVAS"){drag=true;px=e.clientX;py=e.clientY;}});
+addEventListener("mouseup",()=>drag=false);
+addEventListener("mousemove",e=>{
+  if(!drag)return;
+  camYaw-=(e.clientX-px)*0.006; camPitch+=(e.clientY-py)*0.006;
+  camPitch=Math.max(-1.2,Math.min(1.4,camPitch));
+  px=e.clientX; py=e.clientY; updateCam();
+});
+addEventListener("wheel",e=>{
+  camDist=Math.max(0.04,Math.min(0.8,camDist+e.deltaY*0.0004)); updateCam();
+});
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+/* ================= ループ ================= */
+const clock=new THREE.Clock();
+function tick(){
+  requestAnimationFrame(tick);
+  const t=clock.getElapsedTime();
+  if(auto==="pero"){
+    cmd.ext=0.35+Math.sin(t*3.2)*0.25;
+    cmd.ud=Math.sin(t*3.2+1.2)*0.55;
+    cmd.lr=Math.sin(t*1.1)*0.18;
+    cmd.cl=Math.max(0,Math.sin(t*3.2+2.2))*0.4;
+    cmd.tw=0;
+    syncSliders();
+  }else if(auto==="maki"){
+    cmd.ext=-0.2; cmd.ud=0.15;
+    cmd.cl=0.55+Math.sin(t*9)*0.45;
+    cmd.lr=Math.sin(t*4.5)*0.1; cmd.tw=0;
+    syncSliders();
+  }
+  if(auto||dirty){ rebuild(); dirty=false; }
+  renderer.render(scene,camera);
+}
+tick();
+
+/* デバッグ用 */
+window.__dbg={cmd, set:(k,v)=>{cmd[k]=v;dirty=true;syncSliders();},
+  view:(y,p,d)=>{camYaw=y;camPitch=p;camDist=d;updateCam();},
+  setSize,
+  snap:(w=640)=>{ // 検証用: 今の画面を小さなJPEG dataURLで返す
+    rebuild(); renderer.render(scene,camera);
+    const src=renderer.domElement;
+    const c=document.createElement("canvas");
+    c.width=w; c.height=Math.round(w*src.height/src.width);
+    c.getContext("2d").drawImage(src,0,0,c.width,c.height);
+    return c.toDataURL("image/jpeg",0.7);
+  }};
+</script>
+</body>
+</html>

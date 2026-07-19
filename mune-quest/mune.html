@@ -86,10 +86,11 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
+import { forEachHandBonePoint } from "./lib/hands.js";               // 素手の当たり判定=骨格コライダー共通部品(xr-hands)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v6 rev3";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / rev3=素体GLBをDraco圧縮(1.48MB→80KB)
+const REV = "v6 rev5";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -154,8 +155,9 @@ const TUNE = {
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
-  handMinR: 0.009,       // 手の関節コライダの下限半径(m)。位置は純正のまま。
+  handMinR: 0.006,       // 手の骨格コライダの下限半径(m)。位置は純正のまま。
                          // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
+                         // v6 rev4で0.009→0.006: 共通部品forEachHandBonePointへ一本化、自前の太らせ・中間点挿入を廃止(「でかすぎる」対策)。
                          // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
   // ===== v6 C0: 直接変形エンジン(原点回帰・設計書_v6構想_原点回帰.md) =====
   // 物理シミュを主役から降ろし「静止面基準のスカラー凹み場+一次遅れ」。崩壊・裏返り・自己振動が"表現できない"設計。
@@ -845,7 +847,7 @@ function arrangeBusts(){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PC押し込み） --- */
-const MAXCOL = 104;   // 純正ハンドの25関節＋中間球24(すき間埋め)＝49×両手＋コントローラ2＝最大100を収める
+const MAXCOL = 240;   // 骨格コライダー(骨沿い連続配置・約90〜110個/手)×両手＋コントローラ2を収める。超過はaddColが黙って捨てるので余裕を持たせる
 // 中間球の橋渡し表(WebXR仕様の関節順: 0=手首,1-4=親指,5-9=人差指,10-14=中指,15-19=薬指,20-24=小指)
 // 「同じ指の中の隣り合う関節」＋「手首→各指の付け根」。指またぎ(4→5等)は架けない。
 const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
@@ -855,6 +857,17 @@ const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
 let colN = 0;
 let contactDepth = 0;
+// ふくらみ2つの「今の位置+半径」(素手の骨格コライダーをxr-hands共通部品のnearに渡す軽量化用/v6 rev5)。
+// 毎フレームnewしない使い回し配列。中身はupdateNearBulges()で書き換えるだけ。
+const nearBulge = [[0,0,0,0],[0,0,0,0]];
+function updateNearBulges(){
+  for(let bi=0; bi<busts.length && bi<2; bi++){
+    const B = busts[bi], nb = nearBulge[bi];
+    const s = B.mesh && B.mesh.geometry && B.mesh.geometry.boundingSphere;
+    if(s){ nb[0]=s.center.x; nb[1]=s.center.y; nb[2]=s.center.z; nb[3]=s.radius + 0.05; }
+    else { nb[0]=B.mount.x; nb[1]=B.mount.y; nb[2]=0; nb[3]=R*2.5 + 0.05; }   // 起動直後・未描画時のフォールバック
+  }
+}
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
 // CCD(貫通防止): 手の位置は1フレームに1回しか取れないが、物理はサブステップで回る。
 // 前フレーム位置→今フレーム位置を補間した「通り道」で当てると、速い手が粒を飛び越えて中に入るのを防げる。
@@ -2289,29 +2302,12 @@ function collectXRColliders(frame, ref){
   const ctrlColN = colN;   // ここまで＝コントローラ由来。マーカー(見える印)はこれだけに出す
   const session = renderer.xr.getSession();
   if(session && frame && ref){
+    updateNearBulges();   // ふくらみ2つの今の位置+半径(v6 rev5: nearに渡して、遠い間は手まるごとスキップ=待機コスト軽減)
     for(const src of session.inputSources){
       if(!src.hand) continue;
-      // Quest純正ハンドトラッキングの全25関節を、位置も半径もそのまま当たり判定にする
-      // （自前の選別・足し算・上限・中点の自作が実手とのズレの元だったため全部やめた）
-      const jp = [];   // 25関節ぶんの[x,y,z,r]を順番に控える(中間球の計算用)
-      for(const joint of src.hand.values()){
-        const p = frame.getJointPose(joint, ref);
-        if(!p){ jp.push(null); continue; }
-        const r = Math.max((p.radius && p.radius>0) ? p.radius : 0.008, TUNE.handMinR); // 位置は純正のまま。半径だけ下限（粒すり抜け防止）
-        addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
-        jp.push([p.transform.position.x, p.transform.position.y, p.transform.position.z, r]);
-      }
-      // 中間球: 関節の球と球の"すき間"を埋める(すり抜け=「触ったら素通り」の主因)。
-      // 純正の関節位置は無加工のまま、隣り合う関節2つの中点に球を1個足すだけ(指を数珠→棒にする)。
-      // つなぐのは「同じ指の中」＋「手首→各指の付け根」(手のひらを埋める)。指またぎはつながない。
-      if(jp.length===25){
-        for(const [a,b] of HAND_BRIDGES){
-          const A=jp[a], B2=jp[b]; if(!A||!B2) continue;
-          const dx=B2[0]-A[0], dy=B2[1]-A[1], dz=B2[2]-A[2];
-          if(dx*dx+dy*dy+dz*dz > 0.0049) continue;   // 7cm超は追跡乱れとみなして橋を架けない
-          addCol((A[0]+B2[0])/2, (A[1]+B2[1])/2, (A[2]+B2[2])/2, Math.max((A[3]+B2[3])/2, TUNE.handMinR));
-        }
-      }
+      // 素手の当たり判定=共通部品(xr-hands/hands.js)の骨格コライダーに一本化(2026-07-20)。
+      // 骨リスト沿いに細い球を切れ目なく自動配置(旧: 25関節+自前中間点の手書き挿入は「でかすぎる」ため廃止)。
+      forEachHandBonePoint(src, frame, ref, (x,y,z,r)=>addCol(x,y,z,r), {minR: TUNE.handMinR, spacing: 1.4, near: nearBulge});
     }
   }
   // 素手にはマーカー(球)を描かない＝パススルーの本物の手をそのまま見る(自前の球はズレて見えて邪魔・実機③指摘)。

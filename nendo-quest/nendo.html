@@ -87,9 +87,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
-import { setupHands, isHandInput } from "./lib/hands.js";
+import { setupHands, isHandInput, forEachHandBonePoint } from "./lib/hands.js";
 
-const REV = "v5 rev2";
+const REV = "v5 rev4";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -178,6 +178,26 @@ let bA, bB, bLen, bLen0;            // ボンド: 粒a,粒b, 目標長(塑性で
 const anchor = new THREE.Vector3(0,0,0);
 let clayReady = false;
 
+// 手コライダー軽量化用：粘土全体を包む球[x,y,z,半径]（毎フレームnewしない・使い回し配列）
+const NEAR_UPDATE_EVERY = 20;  // 数十フレームに1回だけ包含球を作り直す（毎フレーム全粒子走査は重い）
+const NEAR_MARGIN = 0.10;      // 半径に余裕を足す＝伸ばした粘土の端に触れなくなる事故を防ぐ
+const nearArr = [[0,0,0,0]];
+let nearCounter = 0;
+// 粘土の中心と半径を求めてnearArrへ書き込む。force=trueなら間隔を待たず即更新（作り直し直後用）
+function updateNearSphere(force){
+  if(!clayReady){ nearArr[0][0]=0; nearArr[0][1]=0; nearArr[0][2]=0; nearArr[0][3]=0; nearCounter=0; return; }
+  nearCounter++;
+  if(!force && nearCounter < NEAR_UPDATE_EVERY) return;
+  nearCounter=0;
+  const [cx,cy,cz]=com();
+  let maxD2=0;
+  for(let i=0;i<N;i++){
+    const dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
+    const d2=dx*dx+dy*dy+dz*dz; if(d2>maxD2) maxD2=d2;
+  }
+  nearArr[0][0]=cx; nearArr[0][1]=cy; nearArr[0][2]=cz; nearArr[0][3]=Math.sqrt(maxD2)+NEAR_MARGIN;
+}
+
 // 皮(見た目メッシュ)
 let mesh=null, geoAttr=null, sVN=0, sIdx=null, sW=null;
 // 反発用の整数空間ハッシュ（毎ステップ再利用・文字列キーを使わない＝速い）
@@ -248,6 +268,7 @@ function spawnClay(cx,cy,cz){
   bLen.set(bLen0);
   clayReady=true; mesh.visible=true;
   updateSkin();
+  updateNearSphere(true);   // 作り直し直後は包含球も即更新（古い球で端が漏れないように）
   checkpoint("spawn","ねんどを出した（粒"+N+"・結び"+M+"）");
 }
 // 玉に戻す（丸める）：位置・速度・ボンド目標長をぜんぶ元へ
@@ -262,7 +283,7 @@ function respawnInFront(){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PCつつき） --- */
-const MAXCOL=24;
+const MAXCOL=200; // 骨格コライダー(spacing1.6で約60個/手)×両手+コントローラを収める。超過分はaddColが黙って捨てるので余裕を持たせる
 const colX=new Float32Array(MAXCOL),colY=new Float32Array(MAXCOL),colZ=new Float32Array(MAXCOL),colR=new Float32Array(MAXCOL);
 // 指の「動き」を追う（ねばりで材料を引きずるため）
 const colPX=new Float32Array(MAXCOL),colPY=new Float32Array(MAXCOL),colPZ=new Float32Array(MAXCOL);
@@ -427,7 +448,6 @@ function pulseAll(i,ms){ pulse(0,i,ms); pulse(1,i,ms); }
    6. AR：セッション・コントローラ・ハンド
    ============================================================ */
 const controllers=[]; const ctrlOn=[false,false]; const ctrlIsHand=[false,false];
-const TIP_JOINTS=["thumb-tip","index-finger-tip","middle-finger-tip","ring-finger-tip","pinky-finger-tip","wrist","index-finger-metacarpal","middle-finger-metacarpal","ring-finger-metacarpal"];
 const markerMat=new THREE.MeshBasicMaterial({color:0xf0c19a,transparent:true,opacity:0.5,depthWrite:false});
 const markerGeo=new THREE.SphereGeometry(1,10,8); const markers=[];
 for(let i=0;i<MAXCOL;i++){ const m=new THREE.Mesh(markerGeo,markerMat); m.visible=false; m.renderOrder=5; scene.add(m); markers.push(m); }
@@ -460,12 +480,12 @@ function setupControllers(){
 }
 function collectXRColliders(frame,ref){
   colN=0;
+  updateNearSphere(false);   // 粘土の包含球を数十フレームに1回更新（手が遠い間はコライダー判定ごと省く）
   for(let i=0;i<2;i++){ if(controllers[i]&&ctrlOn[i]&&!ctrlIsHand[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z,TUNE.ctrlR); } }
   const ctrlColN=colN;   // ここまで＝本物のコントローラ由来。マーカー(見える印)はこれだけに出す
   const session=renderer.xr.getSession();
   if(session&&frame&&ref){ for(const src of session.inputSources){ if(!src.hand) continue;
-    for(const jn of TIP_JOINTS){ const j=src.hand.get(jn); if(!j) continue; const p=frame.getJointPose(j,ref); if(!p) continue;
-      const r=(p.radius&&p.radius>0)?p.radius+0.004:TUNE.fingerR; addCol(p.transform.position.x,p.transform.position.y,p.transform.position.z,r); } } }
+    forEachHandBonePoint(src,frame,ref,(x,y,z,r)=>{ addCol(x,y,z,r); },{minR:0.006,spacing:1.6,near:nearArr}); } }
   // マーカー表示：素手には何も描かない＝本物の手メッシュをそのまま見る。コントローラ先端だけ印を出す
   for(let i=0;i<MAXCOL;i++){ if(i<ctrlColN){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); } else markers[i].visible=false; }
 }
