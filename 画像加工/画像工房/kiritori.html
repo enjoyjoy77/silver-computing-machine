@@ -163,13 +163,13 @@
 import { env, AutoModel, AutoProcessor, RawImage } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
 import { isIOS, saveBlob, canvasToBlob, makeZip, handoffSend, detectBackend } from "./assets/common.js";
 
-const REV = "v2 rev3";
+const REV = "v2 rev4";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
-// COEPなし環境ではSharedArrayBufferが使えないためWASMはシングルスレッド固定。
-// 高速パスはWebGPUが担う。
-env.backends.onnx.wasm.proxy = false;
+// COEPなし環境ではSharedArrayBufferが使えないためWASMはシングルスレッド固定(高速パスはWebGPUが担う)。
+// proxy=true: 遅いWASM経路の推論を別スレッド(Web Worker)で回し、切り抜き中もページが固まらないようにする(WebGPU非対応端末向け)。
+env.backends.onnx.wasm.proxy = true;
 env.backends.onnx.wasm.numThreads = 1;
 
 const $ = id => document.getElementById(id);

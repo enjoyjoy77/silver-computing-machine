@@ -44,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 2 (2026-07-19)</div>
+<div id="rev">rev 3 (2026-07-19)</div>
 <button id="mute">🔊 音あり</button>
 <div id="app">
   <div class="col">
@@ -537,6 +537,15 @@ function draw(){
       ctx.restore();
     }
   }
+  // れんしゅうモードの置き場所ガイド(点線ワク)
+  if(tut && tutGuide && phase==="play"){
+    ctx.save();
+    ctx.strokeStyle="#ffd23e"; ctx.setLineDash([6,4]); ctx.lineWidth=2.5;
+    for(const [gx,gy] of tutGuide){
+      if(gy>=HIDDEN) ctx.strokeRect(gx*CELL+4,(gy-HIDDEN)*CELL+4,CELL-8,CELL-8);
+    }
+    ctx.restore();
+  }
   // 落下中ぷよ(ちぎり)
   if(fallingCells) for(const f of fallingCells){
     if(f.curY>=HIDDEN) drawPuyo(ctx,f.x,f.curY-HIDDEN,f.color,r);
@@ -735,14 +744,14 @@ const TUT_LESSONS = [
     failText:"おしい…1手目は赤をタテで2列目、2手目は青をヨコで3〜4列目!"
   },
   {
-    title:"レッスン6: ベタづみ2連鎖",
-    text:"連鎖のべつの形。<br>下のだんに赤、上のだんに青が<b>3つずつヨコにならんでいる</b>ね。<br>赤と青をタテにした1組を右はしにたすと…<b>下の赤が消えて、上の青がぜんぶ落ちて</b>また消える!<br><br><b>もくひょう:</b> 2連鎖",
+    title:"レッスン6: 2色同時消し",
+    text:"べつのわざ。<br>下のだんに赤、上のだんに青が<b>3つずつ</b>ならんでいるね。<br>赤と青のタテ1組を右にたすと、<b>赤4つと青4つが同時に消える</b>!<br>同時消しはボーナス点が増えるよ。<br><br><b>もくひょう:</b> 2色を同時に消す",
     setup:(g)=>{
       g[13][0]=1; g[13][1]=1; g[13][2]=1;
       g[12][0]=3; g[12][1]=3; g[12][2]=3;
     },
     queue:[1,3],
-    goal:"chain", goalChain:2, tries:1,
+    goal:"twocolor", tries:1,
     hints:["回転せずタテのまま、点線のワク(4列目)へ"],
     guides:[[[3,13],[3,12]]],
     failText:"赤が下・青が上のまま、4列目に置こう!"
@@ -806,6 +815,7 @@ function tutApplyLesson(){
   document.getElementById("lessonText").innerHTML = L.text;
   document.getElementById("lessonNextBtn").style.display="none";
   setLessonHint(L.hints && L.hints[0] || "");
+  tutGuide = L.guides ? L.guides[0] : null;
   if(tut.idx===0) tutL1Hint();
   updateHud();
 }
@@ -836,10 +846,14 @@ function tutOnSettle(chain){
     if(tut.flags.move && tut.flags.rot && tut.flags.down && tut.locks>=2){ tutClear(); return true; }
     return false; // まだ続ける(ツモはループするので詰まらない)
   }
-  if(chain >= L.goalChain){ tutClear(); return true; }
+  let ok = false;
+  if(L.goal==="chain") ok = chain >= L.goalChain;
+  else if(L.goal==="chigiri") ok = !!tut.flags.chigiri;
+  else if(L.goal==="qt") ok = !!tut.flags.qt; // 通常はtutQtDoneで即クリア。保険
+  if(ok){ tutClear(); return true; }
   tut.attempts++;
   if(tut.attempts >= L.tries){
-    showMsg("おしい! もういちど");
+    showMsg(L.failText || "おしい! もういちど");
     sfx("lock");
     tutResetBoard();
     spawnPair();
@@ -847,26 +861,34 @@ function tutOnSettle(chain){
   }
   return false;
 }
+function tutDoneList(){
+  try{ return JSON.parse(localStorage.getItem("puyo_lessons_cleared")||"[]"); }catch(e){ return []; }
+}
 function tutClear(){
   phase = "lessonclear";
+  tutGuide = null;
   sfx("allclear");
   const last = tut.idx >= TUT_LESSONS.length-1;
   setLessonHint(last ? "そつぎょう! れんしゅうはぜんぶクリア!" : "できた! すごい!");
   const btn = document.getElementById("lessonNextBtn");
   btn.textContent = last ? "とことんであそぶ" : "つぎのレッスンへ";
   btn.style.display="";
-  if(!last){
-    try{ localStorage.setItem("puyo_lesson_done", String(Math.max(tut.idx+1, Number(localStorage.getItem("puyo_lesson_done")||0)))); }catch(e){}
-  }
+  try{
+    const done = tutDoneList();
+    if(!done.includes(tut.idx)){ done.push(tut.idx); localStorage.setItem("puyo_lessons_cleared", JSON.stringify(done)); }
+  }catch(e){}
   tutNavRefresh();
 }
 function tutNavRefresh(){
   const wrap = document.getElementById("lessonNavBtns");
+  const done = tutDoneList();
   wrap.innerHTML="";
   for(let i=0;i<TUT_LESSONS.length;i++){
     const b=document.createElement("button");
-    b.textContent=(i+1);
-    b.style.cssText="font-size:13px;padding:6px 10px;"+(tut&&tut.idx===i?"":"background:#2a3040;color:#e8ecf4;");
+    b.textContent = (i+1) + (done.includes(i) ? "✓" : "");
+    b.title = TUT_LESSONS[i].title;
+    b.style.cssText = "font-size:12px;padding:6px 8px;"
+      + (tut&&tut.idx===i ? "" : (done.includes(i) ? "background:#1f4d2b;color:#7ee787;" : "background:#2a3040;color:#e8ecf4;"));
     b.addEventListener("click",()=>startTutorial(i));
     wrap.appendChild(b);
   }
