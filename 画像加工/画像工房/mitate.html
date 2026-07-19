@@ -299,6 +299,16 @@
       <input type="range" id="puniHeightRange" min="0" max="25" value="3">
       <span class="val" id="puniHeightVal">3%</span>
     </div>
+    <div class="card">
+      <label class="k">やわらかさ</label>
+      <input type="range" id="puniSoftRange" min="0" max="100" value="50">
+      <span class="val" id="puniSoftVal">50%</span>
+    </div>
+    <div class="card">
+      <label class="k">ゆれのこり</label>
+      <input type="range" id="puniKeepRange" min="0" max="100" value="55">
+      <span class="val" id="puniKeepVal">55%</span>
+    </div>
     <button class="btn" id="puniDeleteBtn">🗑 消す</button>
   </div>
   <!-- 疑似3D用 -->
@@ -420,7 +430,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev25-puni-embed";
+const REV = "v2 rev26-puni4b";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -1353,16 +1363,27 @@ const PUNI_TUNE = {
   pointerRadius: 0.035, pointerDepth: 0.045, pointerRampSec: 0.20,
   color: 0xff82b2,
 };
-function puniApplyFeel(){
-  const s = clamp(PUNI_TUNE.soft, 0, 1);
-  const k = clamp(PUNI_TUNE.keep, 0, 1);
-  PUNI_TUNE.edgeCompliance = THREE.MathUtils.lerp(1.5e-5, 6.0e-5, s);
-  PUNI_TUNE.volCompliance  = THREE.MathUtils.lerp(2.0e-8, 5.0e-7, s);
-  PUNI_TUNE.hariK          = THREE.MathUtils.lerp(290, 155, s);
-  PUNI_TUNE.ligamentK      = THREE.MathUtils.lerp(0.095, 0.050, s);
-  PUNI_TUNE.velDamping     = THREE.MathUtils.lerp(16.0, 1.8, k);
+// 段階4-2: 手ざわり係数はスポット別(puff.phys.feel)。PUNI_TUNE.soft/keepは新規スポットの既定値
+function puniMakeFeel(soft, keep){
+  const s = clamp(Number(soft), 0, 1);
+  const k = clamp(Number(keep), 0, 1);
+  return {
+    soft: s,
+    keep: k,
+    edgeCompliance: THREE.MathUtils.lerp(1.5e-5, 6.0e-5, s),
+    volCompliance:  THREE.MathUtils.lerp(2.0e-8, 5.0e-7, s),
+    hariK:          THREE.MathUtils.lerp(290, 155, s),
+    ligamentK:      THREE.MathUtils.lerp(0.095, 0.050, s),
+    velDamping:     THREE.MathUtils.lerp(16.0, 1.8, k),
+  };
 }
-puniApplyFeel();
+function puniRefreshFeel(puff){
+  if(!puff?.phys) return null;
+  puff.soft = clamp(Number(puff.soft), 0, 1);
+  puff.keep = clamp(Number(puff.keep), 0, 1);
+  puff.phys.feel = puniMakeFeel(puff.soft, puff.keep);
+  return puff.phys.feel;
+}
 const PUNI = {
   enabled: false, acc: 0, lastItem: null,
   selected: null, placeArmed: false, xrPrevWorld: new Map(), tmpScale: new THREE.Vector3(),
@@ -1562,6 +1583,9 @@ function puniBuildTopology(puff){
   const phys = {
     N, rest, pos, prev, vel, target, invMass, uv, tri: triIndex, edges, edgeLen, anchor, coreLen, grad,
     restVol: 0, curVol: 0, nan: false, maxSpeed: 0, pokeMaxDisp: 0, baselineResid: 0, volLambda: 0,
+    feel: puniMakeFeel(puff.soft, puff.keep),
+    floorDepth: puniSinkDepth(puff),   // 埋め込み空間の深さ=各粒がrestからここまで沈める
+
     collider: { active:false, center:new THREE.Vector3(), prevCenter:new THREE.Vector3(), radius:PUNI_TUNE.pointerRadius, havePrev:false },
     xrColliders: [],
   };
@@ -1631,7 +1655,6 @@ function puniSpawn(opts = {}){
     soft: clamp(opts.soft ?? PUNI_TUNE.soft, 0, 1), keep: clamp(opts.keep ?? PUNI_TUNE.keep, 0, 1),
     baseZ:0, mesh:null, geo:null, phys:null,
   };
-  PUNI_TUNE.soft = puff.soft; PUNI_TUNE.keep = puff.keep; puniApplyFeel();
   // puffを先に登録し、レリーフへ埋め込みの凹みを作ってからrestを生成する
   activeItem.puffs.push(puff);
   displace();
@@ -1696,7 +1719,8 @@ function puniSetPinnedTargets(puff){
 }
 function puniIntegrate(puff, sdt){
   const p = puff.phys;
-  const damp = Math.max(0, 1 - PUNI_TUNE.velDamping*sdt);
+  const feel = p.feel;
+  const damp = Math.max(0, 1 - feel.velDamping*sdt);
   const inertiaA = puniMotionState(puff.item).stepAccel;
 
   for(let i=0; i<p.N; i++){
@@ -1706,9 +1730,9 @@ function puniIntegrate(puff, sdt){
     let vy = (p.pos[j+1]-p.prev[j+1])/sdt;
     let vz = (p.pos[j+2]-p.prev[j+2])/sdt;
 
-    vx += ((p.target[j]-p.pos[j]) * PUNI_TUNE.hariK + inertiaA.x) * sdt;
-    vy += ((p.target[j+1]-p.pos[j+1]) * PUNI_TUNE.hariK + PUNI_TUNE.gravity + inertiaA.y) * sdt;
-    vz += ((p.target[j+2]-p.pos[j+2]) * PUNI_TUNE.hariK + inertiaA.z) * sdt;
+    vx += ((p.target[j]-p.pos[j]) * feel.hariK + inertiaA.x) * sdt;
+    vy += ((p.target[j+1]-p.pos[j+1]) * feel.hariK + PUNI_TUNE.gravity + inertiaA.y) * sdt;
+    vz += ((p.target[j+2]-p.pos[j+2]) * feel.hariK + inertiaA.z) * sdt;
 
     vx *= damp; vy *= damp; vz *= damp;
     p.prev[j]=p.pos[j]; p.prev[j+1]=p.pos[j+1]; p.prev[j+2]=p.pos[j+2];
@@ -1719,7 +1743,7 @@ function puniIntegrate(puff, sdt){
   }
 }
 function puniSolveEdges(puff, sdt){
-  const p = puff.phys; const alpha = PUNI_TUNE.edgeCompliance/(sdt*sdt);
+  const p = puff.phys; const alpha = p.feel.edgeCompliance/(sdt*sdt);
   for(let e=0; e<p.edgeLen.length; e++){
     const a = p.edges[e*2], b = p.edges[e*2+1];
     const wa = p.invMass[a], wb = p.invMass[b]; const wsum = wa+wb;
@@ -1743,7 +1767,7 @@ function puniSolveVolume(puff, sdt){
   p.curVol = Math.abs(V);
   const lo = p.restVol * PUNI_TUNE.volMinRatio; const hi = p.restVol * PUNI_TUNE.volMaxRatio;
   const targetV = clamp(p.curVol, lo, hi);
-  const C = p.curVol - p.restVol; const alpha = PUNI_TUNE.volCompliance/(sdt*sdt);
+  const C = p.curVol - p.restVol; const alpha = p.feel.volCompliance/(sdt*sdt);
   let denom = alpha;
   for(let i=0; i<p.N; i++){
     const j = i*3;
@@ -1776,7 +1800,7 @@ function puniSolveCore(puff){
     let d = Math.hypot(dx, dy, dz);
     if(d < 1e-8){ p.pos[j+2] = Math.max(p.target[j+2]*0.25, PUNI_TUNE.minZ); continue; }
     const dr = p.coreLen[i];
-    let corr = (dr - d) * PUNI_TUNE.ligamentK;
+    let corr = (dr - d) * p.feel.ligamentK;
     corr = clamp(corr, -PUNI_TUNE.maxCorrection, PUNI_TUNE.maxCorrection);
     p.pos[j]+=dx/d*corr; p.pos[j+1]+=dy/d*corr; p.pos[j+2]+=dz/d*corr;
     dx = p.pos[j]-ax; dy = p.pos[j+1]-ay; dz = p.pos[j+2]-az;
@@ -1836,7 +1860,8 @@ function puniSafety(puff){
       p.prev[j]=p.pos[j]; p.prev[j+1]=p.pos[j+1]; p.prev[j+2]=p.pos[j+2];
       continue;
     }
-    const minZ = (puff.baseZ ?? 0) + PUNI_TUNE.minZ;
+    // 埋め込み型: 床は「各粒のrest − 凹み深さ」(中心baseZ基準だと傾いた表面で全粒が押し上げられ膨張する)
+    const minZ = Math.max(PUNI_TUNE.minZ, p.rest[j+2] - (p.floorDepth ?? 0));
     if(p.invMass[i] !== 0 && p.pos[j+2] < minZ){
       p.pos[j+2] = minZ;
       if(p.prev[j+2] < minZ){ p.prev[j+2] = minZ; }
@@ -1855,6 +1880,8 @@ function puniFinalize(puff, sdt){
 }
 function puniSoftStep(puff, h){
   const p = puff.phys; if(!p || p.nan) return;
+  // feelは生成時またはsoft/keep変更時のみ計算済み。サブステップ内ではキャッシュ参照だけ
+  if(!p.feel) puniRefreshFeel(puff);
   puniSetPinnedTargets(puff);
   const sub = PUNI_TUNE.substeps; const sdt = h/sub;
   for(let s=0; s<sub; s++){
@@ -2000,6 +2027,7 @@ function puniState(puff = PUNI.selected){
     ready: true, item: puff.item.name || puff.item.id || "",
     count: puff.item.puffs?.length || 0,
     u:+puff.u.toFixed(4), v:+puff.v.toFixed(4), r:+puff.r.toFixed(4), h:+puff.h.toFixed(4), baseZ:+(puff.baseZ || 0).toFixed(4),
+    soft:+clamp(Number(puff.soft), 0, 1).toFixed(3), keep:+clamp(Number(puff.keep), 0, 1).toFixed(3),
     textured: !!(puff.item && puff.item.imgTexSRGB), hasUV: !!(puff.geo && puff.geo.attributes.uv),
     mapMatches: !!(puff.mesh && puff.mesh.material && puff.mesh.material.map) && puff.mesh.material.map === puff.item.imgTexSRGB,
     particles: p.N, triangles: p.tri.length/3,
@@ -2009,7 +2037,7 @@ function puniState(puff = PUNI.selected){
   };
 }
 function puniStepSeconds(sec, colliderUpdater){
-  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  const puff = PUNI.selected || (activeItem && activeItem.puffs && activeItem.puffs[0]);
   if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
   const steps = Math.max(1, Math.round(sec/PUNI_FIXED));
   for(let s=0; s<steps; s++){
@@ -2020,7 +2048,7 @@ function puniStepSeconds(sec, colliderUpdater){
   return puff;
 }
 function puniPoke(depth = 0.035, sec = 0.45){
-  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  const puff = PUNI.selected || (activeItem && activeItem.puffs && activeItem.puffs[0]);
   if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
   const p = puff.phys; const centerIndex = 0; const restZ = p.rest[centerIndex*3+2]; const radius = PUNI_TUNE.pointerRadius;
   p.pokeMaxDisp = 0; p.collider.active = true; p.collider.radius = radius; p.collider.havePrev = false;
@@ -2037,7 +2065,7 @@ function puniPoke(depth = 0.035, sec = 0.45){
   return { requestedDepth: +depth.toFixed(4), pokeMaxDisp: +p.pokeMaxDisp.toFixed(5), state: puniState() };
 }
 function puniSettle(sec = 2.0){
-  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  const puff = PUNI.selected || (activeItem && activeItem.puffs && activeItem.puffs[0]);
   if(!puff || !puff.phys){ throw new Error("puni: call __puni.spawn() first"); }
   puff.phys.collider.active = false; puff.phys.collider.havePrev = false;
   puniStepSeconds(sec);
@@ -2048,7 +2076,7 @@ function puniSettle(sec = 2.0){
 // itemをworld方向へ1フレームで移動して止め、その後sec秒収束させる。
 // テスト終了時にitemのtransformと追跡状態は元へ戻す。
 function puniKick(dx = 0.06, dy = 0, dz = 0, sec = 2.0){
-  const puff = activeItem && activeItem.puffs && activeItem.puffs[0];
+  const puff = PUNI.selected || (activeItem && activeItem.puffs && activeItem.puffs[0]);
   if(!puff || !puff.phys){
     throw new Error("puni: call __puni.spawn() first");
   }
@@ -2155,12 +2183,20 @@ function puniSyncUI(){
   if(puff){
     const rp = Math.round(puff.r / shortSide * 100);
     const hp = Math.round(puff.h / shortSide * 100);
+    const sp = Math.round(clamp(Number(puff.soft), 0, 1) * 100);
+    const kp = Math.round(clamp(Number(puff.keep), 0, 1) * 100);
     $('puniRadiusRange').value = clamp(rp, 3, 42);
     $('puniHeightRange').value = clamp(hp, 0, 25);
+    $('puniSoftRange').value = sp;
+    $('puniKeepRange').value = kp;
     $('puniRadiusVal').textContent = rp + '%';
     $('puniHeightVal').textContent = hp + '%';
+    $('puniSoftVal').textContent = sp + '%';
+    $('puniKeepVal').textContent = kp + '%';
   }
   $('puniDeleteBtn').disabled = !puff;
+  $('puniSoftRange').disabled = !puff;
+  $('puniKeepRange').disabled = !puff;
   $('puniPlaceBtn').classList.toggle('on', PUNI.placeArmed);
 }
 function puniSelect(puff){
@@ -2207,6 +2243,22 @@ $('puniHeightRange').addEventListener('input', ()=>{
   puff.h = clamp(pct/100 * puniShortSide(puff.item), 0, puniShortSide(puff.item)*0.25);
   puniRebuild(puff);
 });
+$('puniSoftRange').addEventListener('input', ()=>{
+  const pct = Number($('puniSoftRange').value);
+  $('puniSoftVal').textContent = pct + '%';
+  const puff = PUNI.selected; if(!puff) return;
+  puff.soft = clamp(pct/100, 0, 1);
+  puniRefreshFeel(puff);   // 形は変わらないのでrest再生成は不要
+});
+$('puniKeepRange').addEventListener('input', ()=>{
+  const pct = Number($('puniKeepRange').value);
+  $('puniKeepVal').textContent = pct + '%';
+  const puff = PUNI.selected; if(!puff) return;
+  puff.keep = clamp(pct/100, 0, 1);
+  puniRefreshFeel(puff);
+});
+$('puniSoftRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
+$('puniKeepRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
 $('puniDeleteBtn').onclick = ()=>{ if(!PUNI.selected) return; puniRemovePuff(PUNI.selected); toast('ぷるぷるを消しました'); };
 // スライダー操作終了時に設定を保存(操作中はinputハンドラが物理を再構築、確定はchangeで)
 $('puniRadiusRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
@@ -2281,8 +2333,24 @@ window.__puni = {
     displace();   // 凹みを消す
     PUNI.pointer.active = false; PUNI.enabled = false; return true;
   },
-  setSoft(v){ PUNI_TUNE.soft = clamp(Number(v), 0, 1); puniApplyFeel(); return { soft: PUNI_TUNE.soft, hariK: PUNI_TUNE.hariK, edgeCompliance: PUNI_TUNE.edgeCompliance }; },
-  setKeep(v){ PUNI_TUNE.keep = clamp(Number(v), 0, 1); puniApplyFeel(); return { keep: PUNI_TUNE.keep, velDamping: PUNI_TUNE.velDamping }; },
+  setSoft(v){
+    const puff = PUNI.selected;
+    if(!puff?.phys) throw new Error("puni: select a puff first");
+    puff.soft = clamp(Number(v), 0, 1);
+    const feel = puniRefreshFeel(puff);
+    puniSyncUI();
+    schedulePuffsSave(puff.item, 0);
+    return { soft: puff.soft, hariK: feel.hariK, edgeCompliance: feel.edgeCompliance };
+  },
+  setKeep(v){
+    const puff = PUNI.selected;
+    if(!puff?.phys) throw new Error("puni: select a puff first");
+    puff.keep = clamp(Number(v), 0, 1);
+    const feel = puniRefreshFeel(puff);
+    puniSyncUI();
+    schedulePuffsSave(puff.item, 0);
+    return { keep: puff.keep, velDamping: feel.velDamping };
+  },
   setInertia(v){
     PUNI_TUNE.inertia = clamp(Number(v), 0, 1);
     for(const it of items) puniResetItemMotion(it);
