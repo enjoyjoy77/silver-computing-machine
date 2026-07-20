@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>覗ける標本 | 画像工房</title>
+<style>
+  :root{
+    --bg:#0d120f;
+    --panel:rgba(19,27,22,.92);
+    --line:#354139;
+    --ink:#eef1ec;
+    --dim:#9aa79f;
+    --accent:#8bd7ad;
+    --wood:#7b5837;
+    --wood-light:#aa7c4e;
+    --danger:#ffd7d7;
+  }
+  *{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent;
+  }
+  html,body{
+    width:100%;
+    height:100%;
+    margin:0;
+    overflow:hidden;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  }
+  #view{
+    position:fixed;
+    inset:0;
+    display:block;
+    width:100%;
+    height:100%;
+    touch-action:none;
+    cursor:grab;
+  }
+  #view.dragging{cursor:grabbing}
+  #top{
+    position:fixed;
+    z-index:20;
+    top:0;
+    left:0;
+    right:0;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-height:48px;
+    padding:8px 13px;
+    background:linear-gradient(180deg,rgba(8,12,10,.92),rgba(8,12,10,0));
+    pointer-events:none;
+  }
+  #top h1{
+    margin:0;
+    font-size:13px;
+    font-weight:900;
+    letter-spacing:.07em;
+  }
+  #top h1 b{color:var(--accent)}
+  #top a{
+    color:var(--dim);
+    text-decoration:none;
+    font-size:11px;
+    font-weight:700;
+    pointer-events:auto;
+  }
+  #rev{
+    margin-left:auto;
+    color:var(--dim);
+    font-size:10px;
+    letter-spacing:.1em;
+  }
+  #notice,
+  #error{
+    position:fixed;
+    z-index:40;
+    left:50%;
+    top:58px;
+    width:min(92vw,560px);
+    transform:translateX(-50%);
+    padding:11px 15px;
+    border-radius:11px;
+    font-size:12px;
+    line-height:1.65;
+    text-align:center;
+    background:var(--panel);
+    border:1px solid var(--line);
+  }
+  #notice{display:none;color:var(--ink)}
+  #error{
+    display:none;
+    color:var(--danger);
+    background:rgba(58,20,20,.96);
+    border-color:#7a3434;
+  }
+  #fallback{
+    position:fixed;
+    z-index:30;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:22px;
+    background:rgba(10,15,12,.96);
+    overflow:auto;
+  }
+  #fallback.show{display:flex}
+  .fallback-card{
+    width:min(94vw,520px);
+    padding:22px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:18px;
+    box-shadow:0 18px 60px rgba(0,0,0,.4);
+  }
+  .fallback-card h2{
+    margin:0 0 10px;
+    font-size:19px;
+  }
+  .fallback-card p{
+    margin:0 0 16px;
+    color:var(--dim);
+    font-size:12px;
+    line-height:1.8;
+  }
+  .pick{
+    display:block;
+    margin-top:10px;
+    padding:13px;
+    border:1px dashed var(--line);
+    border-radius:12px;
+    background:#202a24;
+    cursor:pointer;
+  }
+  .pick b{
+    display:block;
+    margin-bottom:4px;
+    font-size:13px;
+  }
+  .pick span{
+    color:var(--dim);
+    font-size:11px;
+  }
+  .pick.set{
+    border-style:solid;
+    border-color:var(--accent);
+  }
+  .pick input{display:none}
+  #openFiles{
+    width:100%;
+    margin-top:16px;
+    padding:13px 18px;
+    border:0;
+    border-radius:11px;
+    background:var(--accent);
+    color:#0b1410;
+    font:900 14px/1.2 inherit;
+    cursor:pointer;
+  }
+  #openFiles:disabled{
+    opacity:.35;
+    cursor:default;
+  }
+  #permission{
+    position:fixed;
+    z-index:60;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    background:rgba(5,9,7,.84);
+  }
+  #permission.show{display:flex}
+  .permission-card{
+    width:min(90vw,390px);
+    padding:24px;
+    border:1px solid var(--line);
+    border-radius:20px;
+    background:#18211c;
+    text-align:center;
+    box-shadow:0 20px 70px rgba(0,0,0,.48);
+  }
+  .permission-card .mark{
+    font-size:42px;
+    line-height:1;
+  }
+  .permission-card h2{
+    margin:14px 0 8px;
+    font-size:22px;
+  }
+  .permission-card p{
+    margin:0 0 18px;
+    color:var(--dim);
+    font-size:12px;
+    line-height:1.8;
+  }
+  #startLook{
+    width:100%;
+    padding:15px 20px;
+    border:0;
+    border-radius:13px;
+    background:var(--accent);
+    color:#0b1410;
+    font:900 16px/1.2 inherit;
+    cursor:pointer;
+  }
+  #hint{
+    position:fixed;
+    z-index:20;
+    left:50%;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    transform:translateX(-50%);
+    width:max-content;
+    max-width:90vw;
+    padding:8px 13px;
+    border:1px solid rgba(255,255,255,.09);
+    border-radius:999px;
+    background:rgba(10,15,12,.72);
+    color:var(--dim);
+    font-size:10.5px;
+    text-align:center;
+    pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="top">
+  <h1>覗ける<b>標本</b></h1>
+  <a href="index.html">← トップ</a>
+  <a href="depth.html">深度ページ</a>
+  <span id="rev">rev1</span>
+</div>
+
+<div id="notice"></div>
+<div id="error"></div>
+
+<div id="fallback">
+  <div class="fallback-card">
+    <h2>標本にする画像を選んでください</h2>
+    <p>
+      「深度ページから標本にする」で送ると自動で開きます。
+      自動で受け取れなかった場合は、元画像と深度画像の2つを選んでください。
+    </p>
+    <label class="pick" id="sourcePick">
+      <b>元画像</b>
+      <span id="sourceName">画像ファイルを選択</span>
+      <input id="sourceInput" type="file" accept="image/*">
+    </label>
+    <label class="pick" id="depthPick">
+      <b>深度画像</b>
+      <span id="depthName">白いほど手前の深度画像を選択</span>
+      <input id="depthInput" type="file" accept="image/*">
+    </label>
+    <button id="openFiles" type="button" disabled>標本を開く</button>
+  </div>
+</div>
+
+<div id="permission">
+  <div class="permission-card">
+    <div class="mark">👁</div>
+    <h2>覗きはじめる</h2>
+    <p>
+      端末を傾けると窓の中の視点が動き、標本が立体に見えます。
+      ジャイロの利用を求められた場合は許可してください。
+    </p>
+    <button id="startLook" type="button">覗きはじめる</button>
+  </div>
+</div>
+
+<div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+
+const REV = "rev1";
+const DB_NAME = "kobo-handoff";
+const DB_VERSION = 2;
+const STORE = "slots";
+const MAX_SEGMENTS = 256;
+const SMOOTHING = 0.15;
+
+const $ = id => document.getElementById(id);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const canvas = $("view");
+const notice = $("notice");
+const errorBox = $("error");
+const fallback = $("fallback");
+const permission = $("permission");
+const isTouchDevice =
+  navigator.maxTouchPoints > 0 ||
+  matchMedia("(pointer:coarse)").matches;
+
+$("rev").textContent = REV;
+
+let renderer = null;
+let scene = null;
+let camera = null;
+let specimen = null;
+let reliefGeometry = null;
+let sourceTexture = null;
+let animationId = 0;
+let loaded = false;
+let errorText = "";
+let sourceFile = null;
+let depthFile = null;
+let meshVerts = 0;
+
+let targetX = 0;
+let targetY = 0;
+let smoothX = 0;
+let smoothY = 0;
+let debugOverride = false;
+let orientationEnabled = false;
+let orientationBase = null;
+let dragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragOriginX = 0;
+let dragOriginY = 0;
+
+function showNotice(message) {
+  notice.textContent = message;
+  notice.style.display = "block";
+}
+
+function hideNotice() {
+  notice.style.display = "none";
+}
+
+function showError(message) {
+  errorText = String(message || "不明なエラー");
+  errorBox.textContent = "エラー: " + errorText;
+  errorBox.style.display = "block";
+}
+
+function clearError() {
+  errorText = "";
+  errorBox.style.display = "none";
+}
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE);
+      }
+      if (!db.objectStoreNames.contains("figures")) {
+        db.createObjectStore("figures", {
+          keyPath: "id",
+          autoIncrement: true
+        });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(
+      request.error || new Error("ブラウザの保存領域を開けませんでした")
+    );
+  });
+}
+
+async function handoffTake(slot) {
+  try {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE, "readonly");
+        const request = transaction.objectStore(STORE).get(slot);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function handoffClear(slot) {
+  try {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE, "readwrite");
+        transaction.objectStore(STORE).delete(slot);
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(
+          transaction.error || new Error("受け取りデータを消去できませんでした")
+        );
+      });
+    } finally {
+      db.close();
+    }
+  } catch {
+    // 消去失敗は表示を妨げない。
+  }
+}
+
+function blobToImage(blob, label) {
+  return new Promise((resolve, reject) => {
+    if (!blob || (blob.type && !blob.type.startsWith("image/"))) {
+      reject(new Error(label + "が画像ファイルではありません"));
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(label + "を読み込めませんでした"));
+    };
+    image.src = url;
+  });
+}
+
+function imageToDepthMap(image, width, height) {
+  const work = document.createElement("canvas");
+  work.width = width;
+  work.height = height;
+
+  const context = work.getContext("2d", {
+    willReadFrequently: true
+  });
+  context.drawImage(image, 0, 0, width, height);
+
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const depth = new Float32Array(width * height);
+
+  for (let index = 0; index < depth.length; index++) {
+    const offset = index * 4;
+    depth[index] =
+      (
+        pixels[offset] * 0.2126 +
+        pixels[offset + 1] * 0.7152 +
+        pixels[offset + 2] * 0.0722
+      ) / 255;
+  }
+
+  return depth;
+}
+
+function makeSourceTexture(image) {
+  const texture = new THREE.Texture(image);
+  texture.needsUpdate = true;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+function disposeSpecimen() {
+  if (specimen && scene) {
+    scene.remove(specimen);
+  }
+  if (reliefGeometry) {
+    reliefGeometry.dispose();
+    reliefGeometry = null;
+  }
+  if (sourceTexture) {
+    sourceTexture.dispose();
+    sourceTexture = null;
+  }
+  if (specimen) {
+    specimen.traverse(object => {
+      if (!object.material) return;
+      const materials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      for (const material of materials) {
+        material.dispose?.();
+      }
+      if (object.geometry && object.geometry !== reliefGeometry) {
+        object.geometry.dispose?.();
+      }
+    });
+  }
+  specimen = null;
+  meshVerts = 0;
+}
+
+function createBox(width, height, depth, color, x, y, z, roughness = 0.8) {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness,
+    metalness: 0
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
+function createSpecimen(sourceImage, depthImage) {
+  disposeSpecimen();
+
+  const aspect = sourceImage.naturalWidth / sourceImage.naturalHeight;
+  const innerHeight = 1.42;
+  const innerWidth = innerHeight * aspect;
+  const maxDimension = Math.max(
+    sourceImage.naturalWidth,
+    sourceImage.naturalHeight
+  );
+
+  let segmentsX = Math.round(
+    sourceImage.naturalWidth / maxDimension * MAX_SEGMENTS
+  );
+  let segmentsY = Math.round(
+    sourceImage.naturalHeight / maxDimension * MAX_SEGMENTS
+  );
+  segmentsX = clamp(segmentsX, 8, MAX_SEGMENTS);
+  segmentsY = clamp(segmentsY, 8, MAX_SEGMENTS);
+
+  reliefGeometry = new THREE.PlaneGeometry(
+    innerWidth,
+    innerHeight,
+    segmentsX,
+    segmentsY
+  );
+
+  const depthMap = imageToDepthMap(
+    depthImage,
+    segmentsX + 1,
+    segmentsY + 1
+  );
+  const positions = reliefGeometry.attributes.position;
+  const reliefStrength = Math.min(innerWidth, innerHeight) * 0.24;
+
+  for (let y = 0; y <= segmentsY; y++) {
+    for (let x = 0; x <= segmentsX; x++) {
+      const vertex = y * (segmentsX + 1) + x;
+      const depth = depthMap[vertex];
+      const edgeX = Math.min(x / segmentsX, 1 - x / segmentsX);
+      const edgeY = Math.min(y / segmentsY, 1 - y / segmentsY);
+      const edgeFade = THREE.MathUtils.smoothstep(
+        Math.min(edgeX, edgeY),
+        0,
+        0.075
+      );
+      positions.setZ(vertex, depth * reliefStrength * edgeFade);
+    }
+  }
+
+  positions.needsUpdate = true;
+  reliefGeometry.computeVertexNormals();
+  reliefGeometry.computeBoundingSphere();
+  meshVerts = positions.count;
+
+  sourceTexture = makeSourceTexture(sourceImage);
+
+  const reliefMaterial = new THREE.MeshStandardMaterial({
+    map: sourceTexture,
+    transparent: true,
+    alphaTest: 0.04,
+    side: THREE.DoubleSide,
+    roughness: 0.78,
+    metalness: 0,
+    emissive: 0xffffff,
+    emissiveMap: sourceTexture,
+    emissiveIntensity: 0.12
+  });
+
+  const group = new THREE.Group();
+  const relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
+  relief.position.z = 0.04;
+  group.add(relief);
+
+  const frameWidth = Math.max(
+    0.075,
+    Math.min(innerWidth, innerHeight) * 0.075
+  );
+  const frameDepth = 0.22;
+  const outerWidth = innerWidth + frameWidth * 2;
+  const outerHeight = innerHeight + frameWidth * 2;
+  const wood = 0x795334;
+  const woodLight = 0xa87949;
+
+  const backing = createBox(
+    innerWidth + 0.025,
+    innerHeight + 0.025,
+    0.055,
+    0x131a16,
+    0,
+    0,
+    -0.075,
+    0.95
+  );
+  group.add(backing);
+
+  const topFrame = createBox(
+    outerWidth,
+    frameWidth,
+    frameDepth,
+    woodLight,
+    0,
+    innerHeight / 2 + frameWidth / 2,
+    -0.015
+  );
+  const bottomFrame = createBox(
+    outerWidth,
+    frameWidth,
+    frameDepth,
+    wood,
+    0,
+    -innerHeight / 2 - frameWidth / 2,
+    -0.015
+  );
+  const leftFrame = createBox(
+    frameWidth,
+    innerHeight,
+    frameDepth,
+    wood,
+    -innerWidth / 2 - frameWidth / 2,
+    0,
+    -0.015
+  );
+  const rightFrame = createBox(
+    frameWidth,
+    innerHeight,
+    frameDepth,
+    woodLight,
+    innerWidth / 2 + frameWidth / 2,
+    0,
+    -0.015
+  );
+
+  group.add(topFrame, bottomFrame, leftFrame, rightFrame);
+
+  const innerShadowMaterial = new THREE.MeshBasicMaterial({
+    color:0x050806,
+    transparent:true,
+    opacity:0.72,
+    depthWrite:false
+  });
+  const shadowThickness = frameWidth * 0.2;
+
+  const shadowTop = new THREE.Mesh(
+    new THREE.BoxGeometry(innerWidth, shadowThickness, 0.025),
+    innerShadowMaterial
+  );
+  shadowTop.position.set(
+    0,
+    innerHeight / 2 - shadowThickness / 2,
+    0.115
+  );
+
+  const shadowLeft = new THREE.Mesh(
+    new THREE.BoxGeometry(shadowThickness, innerHeight, 0.025),
+    innerShadowMaterial.clone()
+  );
+  shadowLeft.position.set(
+    -innerWidth / 2 + shadowThickness / 2,
+    0,
+    0.115
+  );
+
+  group.add(shadowTop, shadowLeft);
+
+  specimen = group;
+  scene.add(specimen);
+  frameCamera(innerWidth, innerHeight, frameWidth);
+}
+
+function frameCamera(width, height, frameWidth) {
+  const framedHeight = height + frameWidth * 2;
+  const framedWidth = width + frameWidth * 2;
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+  const distanceForHeight =
+    framedHeight / (2 * Math.tan(verticalFov / 2));
+  const horizontalFov =
+    2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+  const distanceForWidth =
+    framedWidth / (2 * Math.tan(horizontalFov / 2));
+
+  camera.userData.baseDistance =
+    Math.max(distanceForHeight, distanceForWidth) * 1.16;
+  camera.userData.parallaxScale =
+    Math.min(width, height) * 0.22;
+  updateCamera(true);
+}
+
+function initThree() {
+  if (renderer) return;
+
+  renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias:true,
+    alpha:false,
+    preserveDrawingBuffer:true
+  });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.setSize(innerWidth, innerHeight, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d120f);
+
+  camera = new THREE.PerspectiveCamera(
+    42,
+    innerWidth / innerHeight,
+    0.01,
+    100
+  );
+
+  scene.add(new THREE.HemisphereLight(
+    0xfff5e8,
+    0x243029,
+    1.35
+  ));
+
+  const key = new THREE.DirectionalLight(0xfff4df, 2.0);
+  key.position.set(-2.5, 3.2, 4);
+  scene.add(key);
+
+  const fill = new THREE.DirectionalLight(0xbbe8d0, 0.8);
+  fill.position.set(3, -1, 2);
+  scene.add(fill);
+}
+
+function updateCamera(immediate = false) {
+  if (!camera) return;
+
+  if (immediate) {
+    smoothX = targetX;
+    smoothY = targetY;
+  } else {
+    smoothX += (targetX - smoothX) * SMOOTHING;
+    smoothY += (targetY - smoothY) * SMOOTHING;
+  }
+
+  const distance = camera.userData.baseDistance || 2.8;
+  const scale = camera.userData.parallaxScale || 0.28;
+
+  camera.position.set(
+    smoothX * scale,
+    -smoothY * scale,
+    distance
+  );
+  camera.lookAt(0, 0, 0);
+}
+
+function renderFrame() {
+  updateCamera(false);
+  renderer?.render(scene, camera);
+}
+
+function animate() {
+  renderFrame();
+  animationId = requestAnimationFrame(animate);
+}
+
+async function loadPair(sourceBlob, depthBlob, consumeHandoff = false) {
+  clearError();
+  hideNotice();
+  fallback.classList.remove("show");
+  showNotice("標本を組み立てています…");
+
+  try {
+    const [sourceImage, depthImage] = await Promise.all([
+      blobToImage(sourceBlob, "元画像"),
+      blobToImage(depthBlob, "深度画像")
+    ]);
+
+    initThree();
+    createSpecimen(sourceImage, depthImage);
+    loaded = true;
+
+    if (consumeHandoff) {
+      await Promise.all([
+        handoffClear("source"),
+        handoffClear("depth")
+      ]);
+    }
+
+    hideNotice();
+
+    if (isTouchDevice) {
+      permission.classList.add("show");
+    } else {
+      permission.classList.remove("show");
+    }
+
+    renderFrame();
+  } catch (error) {
+    loaded = false;
+    fallback.classList.add("show");
+    hideNotice();
+    showError(
+      error?.message ||
+      "画像から標本を作れませんでした"
+    );
+  }
+}
+
+async function tryHandoff() {
+  showNotice("深度ページから画像を受け取っています…");
+
+  const [sourceItem, depthItem] = await Promise.all([
+    handoffTake("source"),
+    handoffTake("depth")
+  ]);
+
+  if (sourceItem?.blob && depthItem?.blob) {
+    await loadPair(sourceItem.blob, depthItem.blob, true);
+    return;
+  }
+
+  hideNotice();
+  fallback.classList.add("show");
+}
+
+function updateFileButton() {
+  $("openFiles").disabled = !(sourceFile && depthFile);
+}
+
+$("sourceInput").addEventListener("change", event => {
+  sourceFile = event.target.files?.[0] || null;
+  $("sourcePick").classList.toggle("set", !!sourceFile);
+  $("sourceName").textContent =
+    sourceFile?.name || "画像ファイルを選択";
+  updateFileButton();
+});
+
+$("depthInput").addEventListener("change", event => {
+  depthFile = event.target.files?.[0] || null;
+  $("depthPick").classList.toggle("set", !!depthFile);
+  $("depthName").textContent =
+    depthFile?.name || "白いほど手前の深度画像を選択";
+  updateFileButton();
+});
+
+$("openFiles").addEventListener("click", () => {
+  if (!sourceFile || !depthFile) return;
+  loadPair(sourceFile, depthFile, false);
+});
+
+function setParallax(x, y) {
+  targetX = clamp(Number(x) || 0, -1, 1);
+  targetY = clamp(Number(y) || 0, -1, 1);
+}
+
+function enableOrientation() {
+  if (orientationEnabled) return;
+  orientationEnabled = true;
+  orientationBase = null;
+  window.addEventListener(
+    "deviceorientation",
+    handleOrientation,
+    true
+  );
+}
+
+function handleOrientation(event) {
+  if (debugOverride) return;
+
+  const gamma = Number(event.gamma);
+  const beta = Number(event.beta);
+  if (!Number.isFinite(gamma) || !Number.isFinite(beta)) return;
+
+  if (!orientationBase) {
+    orientationBase = {gamma, beta};
+  }
+
+  const dx = gamma - orientationBase.gamma;
+  const dy = beta - orientationBase.beta;
+  setParallax(dx / 28, dy / 28);
+}
+
+$("startLook").addEventListener("click", async () => {
+  clearError();
+
+  try {
+    if (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+      const result =
+        await DeviceOrientationEvent.requestPermission();
+
+      if (result !== "granted") {
+        showError(
+          "ジャイロの利用が許可されませんでした。指でドラッグして覗けます。"
+        );
+      } else {
+        enableOrientation();
+      }
+    } else if (typeof DeviceOrientationEvent !== "undefined") {
+      enableOrientation();
+    }
+
+    permission.classList.remove("show");
+  } catch (error) {
+    permission.classList.remove("show");
+    showError(
+      "ジャイロを開始できませんでした。指でドラッグして覗けます。"
+    );
+  }
+});
+
+window.addEventListener("pointermove", event => {
+  if (!loaded || dragging || debugOverride) return;
+  if (event.pointerType === "touch") return;
+
+  const x = event.clientX / Math.max(innerWidth, 1) * 2 - 1;
+  const y = event.clientY / Math.max(innerHeight, 1) * 2 - 1;
+  setParallax(x, y);
+});
+
+canvas.addEventListener("pointerdown", event => {
+  if (!loaded) return;
+
+  dragging = true;
+  debugOverride = false;
+  canvas.classList.add("dragging");
+  canvas.setPointerCapture?.(event.pointerId);
+
+  dragStartX = event.clientX;
+  dragStartY = event.clientY;
+  dragOriginX = targetX;
+  dragOriginY = targetY;
+});
+
+canvas.addEventListener("pointermove", event => {
+  if (!dragging || !loaded) return;
+
+  const dx =
+    (event.clientX - dragStartX) / Math.max(innerWidth, 1) * 2;
+  const dy =
+    (event.clientY - dragStartY) / Math.max(innerHeight, 1) * 2;
+
+  setParallax(
+    dragOriginX + dx,
+    dragOriginY + dy
+  );
+});
+
+function endDrag(event) {
+  if (!dragging) return;
+  dragging = false;
+  canvas.classList.remove("dragging");
+  canvas.releasePointerCapture?.(event.pointerId);
+}
+
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
+
+window.addEventListener("resize", () => {
+  if (!renderer || !camera) return;
+
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight, false);
+
+  if (specimen) {
+    const box = new THREE.Box3().setFromObject(specimen);
+    const size = box.getSize(new THREE.Vector3());
+    frameCamera(size.x, size.y, 0);
+  }
+
+  renderFrame();
+});
+
+window.__dbg = {
+  setParallax(x, y) {
+    debugOverride = true;
+    setParallax(x, y);
+    smoothX = targetX;
+    smoothY = targetY;
+    renderFrame();
+  },
+
+  state() {
+    return {
+      loaded,
+      camX:camera ? camera.position.x : 0,
+      camY:camera ? camera.position.y : 0,
+      meshVerts,
+      err:errorText
+    };
+  },
+
+  snap() {
+    if (!renderer) return "";
+    renderFrame();
+    return canvas.toDataURL("image/jpeg", 0.8);
+  },
+
+  step() {
+    renderFrame();
+    return this.state();
+  }
+};
+
+initThree();
+animate();
+tryHandoff();
+
+/*
+PCでの検証手順:
+1. depth.htmlから元画像と深度画像を送るか、手動で2ファイルを選択する。
+2. 開発者ツールで __dbg.setParallax(-1, 0)、__dbg.state()、
+   __dbg.setParallax(1, 0)、__dbg.step() の順に実行し、camXの符号が変わることを確認する。
+3. __dbg.snap() を実行し、返されたdata:image/jpeg URLを開いて標本表示を確認する。
+*/
+</script>
+</body>
+</html>

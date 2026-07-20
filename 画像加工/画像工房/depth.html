@@ -137,7 +137,7 @@ import {
   shelvesAll, shelvesAdd, getTargetShelf, setTargetShelf,
 } from "./assets/common.js";
 
-const REV = "v2 rev6-shelves-pcdepth";
+const REV = "v2 rev7-hyohon";
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
@@ -412,6 +412,7 @@ function makeCard(name, blob) {
         <input type="checkbox" class="view-chk" checked style="width:19px;height:19px;accent-color:var(--accent)"> 立体で見る棚に入れる
       </label>
       <button class="btn-plain btn-save-depth">💾 深度PNGを保存</button>
+      <button class="btn-plain btn-hyohon">👁 標本でのぞく</button>
     </div>
     <div class="sub-actions">
       <button class="btn-sm btn-remove">この結果を削除</button>
@@ -522,6 +523,15 @@ async function processOne({ blob, name, card }) {
     card.querySelector(".btn-save-wrap").classList.add("show");
     card.querySelector(".btn-save-depth").addEventListener("click", async () =>
       saveBlob(await canvasToBlob(outCv), baseName + "_深度.png"));
+    card.querySelector(".btn-hyohon").addEventListener("click", async () => {
+      try {
+        await handoffSend("source", blob, { name });
+        await handoffSend("depth", await canvasToBlob(outCv), { name: baseName + "_深度" });
+        location.href = "hyohon.html";
+      } catch (e) {
+        setStatus("error", "標本ページへの受け渡しに失敗しました: " + (e?.message || e));
+      }
+    });
     // 完成した子を「まとめて立体で見る」候補に登録
     doneCards.push({ name, blob, outCv, card });
     card.querySelector(".view-chk").addEventListener("change", updateViewBar);
