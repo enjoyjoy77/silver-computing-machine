@@ -208,6 +208,25 @@
     font:900 16px/1.2 inherit;
     cursor:pointer;
   }
+  #faceBtn{
+    position:fixed;
+    z-index:25;
+    right:12px;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    display:none;
+    padding:10px 14px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--panel);
+    color:var(--ink);
+    font:700 12px/1.2 inherit;
+    cursor:pointer;
+  }
+  #faceBtn.on{
+    background:var(--accent);
+    color:#0b1410;
+    border-color:var(--accent);
+  }
   #hint{
     position:fixed;
     z-index:20;
@@ -273,12 +292,13 @@
   </div>
 </div>
 
+<button id="faceBtn" type="button">🎥 顔で覗く</button>
 <div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "rev1";
+const REV = "rev2-face";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -797,6 +817,7 @@ async function loadPair(sourceBlob, depthBlob, consumeHandoff = false) {
       permission.classList.remove("show");
     }
 
+    $("faceBtn").style.display = "block";
     renderFrame();
   } catch (error) {
     loaded = false;
@@ -868,7 +889,7 @@ function enableOrientation() {
 }
 
 function handleOrientation(event) {
-  if (debugOverride) return;
+  if (debugOverride || faceActive) return;
 
   const gamma = Number(event.gamma);
   const beta = Number(event.beta);
@@ -915,7 +936,7 @@ $("startLook").addEventListener("click", async () => {
 });
 
 window.addEventListener("pointermove", event => {
-  if (!loaded || dragging || debugOverride) return;
+  if (!loaded || dragging || debugOverride || faceActive) return;
   if (event.pointerType === "touch") return;
 
   const x = event.clientX / Math.max(innerWidth, 1) * 2 - 1;
@@ -977,6 +998,101 @@ window.addEventListener("resize", () => {
   renderFrame();
 });
 
+// ---- 顔で覗く(ウェブカメラ+MediaPipe顔検出。PC向け、フィッシュタンクVR本来の形) ----
+let faceActive = false;
+let faceStream = null;
+let faceDetector = null;
+let faceVideo = null;
+let faceRafId = 0;
+const FACE_GAIN = 2.4;          // 顔の動き→視差の倍率(強すぎたらここを下げる)
+
+async function startFaceLook() {
+  const btn = $("faceBtn");
+  btn.disabled = true;
+  btn.textContent = "🎥 準備中…";
+  clearError();
+
+  try {
+    faceStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: 640, height: 480 },
+      audio: false
+    });
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "🎥 顔で覗く";
+    showError("カメラを使えませんでした。ブラウザのカメラ許可を確認してください。");
+    return;
+  }
+
+  try {
+    if (!faceDetector) {
+      const vision = await import("./lib/mediapipe/vision_bundle.mjs");
+      const fileset = await vision.FilesetResolver.forVisionTasks("./lib/mediapipe/wasm");
+      faceDetector = await vision.FaceDetector.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "./lib/mediapipe/blaze_face_short_range.tflite" },
+        runningMode: "VIDEO"
+      });
+    }
+
+    faceVideo = document.createElement("video");
+    faceVideo.playsInline = true;
+    faceVideo.muted = true;
+    faceVideo.srcObject = faceStream;
+    await faceVideo.play();
+
+    faceActive = true;
+    orientationBase = null;      // 戻ったときの傾き基準を取り直す
+    btn.disabled = false;
+    btn.classList.add("on");
+    btn.textContent = "🎥 顔で覗くのをやめる";
+    $("hint").textContent = "顔を左右に動かすと、窓の中を覗けます";
+    faceLoop();
+  } catch (e) {
+    stopFaceLook();
+    showError("顔検出の準備に失敗しました: " + (e?.message || e));
+  }
+}
+
+function faceLoop() {
+  if (!faceActive) return;
+  faceRafId = requestAnimationFrame(faceLoop);
+  if (!faceVideo || faceVideo.readyState < 2) return;
+
+  const result = faceDetector.detectForVideo(faceVideo, performance.now());
+  const det = result?.detections?.[0];
+  if (!det) return;              // 顔が見えない間は直前の視点を保つ
+
+  const box = det.boundingBox;
+  const cx = (box.originX + box.width / 2) / faceVideo.videoWidth;
+  const cy = (box.originY + box.height / 2) / faceVideo.videoHeight;
+  // ウェブカメラは鏡像でないため、頭を右へ動かすと画像上では左(cxが減る)
+  const fx = (0.5 - cx) * 2 * FACE_GAIN;
+  const fy = (cy - 0.5) * 2 * FACE_GAIN;
+  targetX = clamp(fx, -1, 1);
+  targetY = clamp(fy, -1, 1);
+}
+
+function stopFaceLook() {
+  faceActive = false;
+  if (faceRafId) { cancelAnimationFrame(faceRafId); faceRafId = 0; }
+  if (faceStream) {
+    for (const t of faceStream.getTracks()) t.stop();
+    faceStream = null;
+  }
+  if (faceVideo) { faceVideo.srcObject = null; faceVideo = null; }
+  const btn = $("faceBtn");
+  btn.disabled = false;
+  btn.classList.remove("on");
+  btn.textContent = "🎥 顔で覗く";
+  $("hint").textContent = "端末を傾ける／マウスを動かすと、窓の中を覗けます";
+  targetX = 0; targetY = 0;
+}
+
+$("faceBtn").addEventListener("click", () => {
+  if (faceActive) stopFaceLook(); else startFaceLook();
+});
+window.addEventListener("pagehide", stopFaceLook);
+
 window.__dbg = {
   setParallax(x, y) {
     debugOverride = true;
@@ -992,6 +1108,7 @@ window.__dbg = {
       camX:camera ? camera.position.x : 0,
       camY:camera ? camera.position.y : 0,
       meshVerts,
+      faceActive,
       err:errorText
     };
   },
