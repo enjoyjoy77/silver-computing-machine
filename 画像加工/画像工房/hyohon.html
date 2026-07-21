@@ -1167,37 +1167,20 @@ function createSpecimen(sourceImage, depthImage) {
     emissiveIntensity: 0.12
   });
 
-  // 「窓の奥の箱(シャドーボックス)」構成: 額縁=窓(z≈0)、中身は箱の奥に置く。
-  // 覗く角度で内壁と額縁の見え方が変わることが、立体錯覚の心臓部。
-  const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.55;
+  // 「画面そのものが窓」構成(VRChatのモニタ窓と同じ考え方):
+  // 額縁や箱は描かない。絵は窓(=画面)の奥に置き、視点が最大まで動いても
+  // 絵の端が画面に入らないよう大きめに拡大する(端が見えるとジャギつき+興ざめ)。
+  const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.6;
 
   const group = new THREE.Group();
   const relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
-  relief.position.z = -BOX_DEPTH + 0.02;
+  relief.position.z = -BOX_DEPTH;
+  group.userData.relief = relief;
+  group.userData.reliefW = innerWidth;
+  group.userData.reliefH = innerHeight;
+  group.userData.boxDepth = BOX_DEPTH;
+  group.userData.reliefStrength = reliefStrength;
   group.add(relief);
-
-  // 箱の内壁4面(内向き)
-  const wallSide = new THREE.MeshStandardMaterial({ color:0x232e27, roughness:0.95, metalness:0 });
-  const wallTopM = new THREE.MeshStandardMaterial({ color:0x2e3b33, roughness:0.95, metalness:0 });
-  const wallBotM = new THREE.MeshStandardMaterial({ color:0x1a231d, roughness:0.95, metalness:0 });
-
-  const wallL = new THREE.Mesh(new THREE.PlaneGeometry(BOX_DEPTH, innerHeight), wallSide);
-  wallL.rotation.y = Math.PI / 2;
-  wallL.position.set(-innerWidth / 2, 0, -BOX_DEPTH / 2);
-
-  const wallR = new THREE.Mesh(new THREE.PlaneGeometry(BOX_DEPTH, innerHeight), wallSide.clone());
-  wallR.rotation.y = -Math.PI / 2;
-  wallR.position.set(innerWidth / 2, 0, -BOX_DEPTH / 2);
-
-  const wallT = new THREE.Mesh(new THREE.PlaneGeometry(innerWidth, BOX_DEPTH), wallTopM);
-  wallT.rotation.x = Math.PI / 2;
-  wallT.position.set(0, innerHeight / 2, -BOX_DEPTH / 2);
-
-  const wallB = new THREE.Mesh(new THREE.PlaneGeometry(innerWidth, BOX_DEPTH), wallBotM);
-  wallB.rotation.x = -Math.PI / 2;
-  wallB.position.set(0, -innerHeight / 2, -BOX_DEPTH / 2);
-
-  group.add(wallL, wallR, wallT, wallB);
 
   // 奥行きの手がかり: 箱の中を漂う小さな光の粒
   const moteMat = new THREE.MeshBasicMaterial({ color:0x8bd7ad, transparent:true, opacity:0.32, depthWrite:false });
@@ -1214,91 +1197,44 @@ function createSpecimen(sourceImage, depthImage) {
     group.add(mote);
   }
 
-  const frameWidth = Math.max(
-    0.075,
-    Math.min(innerWidth, innerHeight) * 0.075
-  );
-  const frameDepth = 0.22;
-  const outerWidth = innerWidth + frameWidth * 2;
-  const outerHeight = innerHeight + frameWidth * 2;
-  const wood = 0x795334;
-  const woodLight = 0xa87949;
-
-  const backing = createBox(
-    innerWidth + 0.025,
-    innerHeight + 0.025,
-    0.055,
-    0x131a16,
-    0,
-    0,
-    -BOX_DEPTH - 0.04,
-    0.95
-  );
-  group.add(backing);
-
-  const topFrame = createBox(
-    outerWidth,
-    frameWidth,
-    frameDepth,
-    woodLight,
-    0,
-    innerHeight / 2 + frameWidth / 2,
-    -0.015
-  );
-  const bottomFrame = createBox(
-    outerWidth,
-    frameWidth,
-    frameDepth,
-    wood,
-    0,
-    -innerHeight / 2 - frameWidth / 2,
-    -0.015
-  );
-  const leftFrame = createBox(
-    frameWidth,
-    innerHeight,
-    frameDepth,
-    wood,
-    -innerWidth / 2 - frameWidth / 2,
-    0,
-    -0.015
-  );
-  const rightFrame = createBox(
-    frameWidth,
-    innerHeight,
-    frameDepth,
-    woodLight,
-    innerWidth / 2 + frameWidth / 2,
-    0,
-    -0.015
-  );
-
-  group.add(topFrame, bottomFrame, leftFrame, rightFrame);
-
   specimen = group;
   scene.add(specimen);
-  frameCamera(innerWidth, innerHeight, frameWidth);
+  frameCamera();
 }
 
-function frameCamera(width, height, frameWidth) {
-  // 額縁の窓を「画面そのもの」とみなす軸外投影の準備。
-  // 画面の縦横比に合わせて窓を広げる(引き伸ばし歪み防止)。
+function frameCamera() {
+  // 画面そのものを「窓」として扱う軸外投影の準備。
+  // 窓サイズは画面比から決め、絵は視点が最大まで動いても端が見えない大きさに拡大する。
   const ud = camera.userData;
-  ud.rawW = width; ud.rawH = height; ud.rawFrame = frameWidth;
-
-  let winW = width + frameWidth * 2;
-  let winH = height + frameWidth * 2;
   // 画面比はcanvasの実サイズから取る(裏タブ等でwindowが0x0でも壊さない)
   const cw = canvas.width || innerWidth || 1;
   const ch = canvas.height || innerHeight || 1;
-  const canvasAspect = (cw > 0 && ch > 0) ? cw / ch : 1;
-  if (winW / winH < canvasAspect) winW = winH * canvasAspect;
-  else winH = winW / canvasAspect;
+  const aspect = (cw > 0 && ch > 0) ? cw / ch : 1;
 
+  const winH = 1.3;
+  const winW = winH * aspect;
   ud.winW = winW;
   ud.winH = winH;
-  ud.baseDistance = winH * 1.15;
-  ud.parallaxScale = Math.min(width, height) * 0.34;
+  ud.baseDistance = winH * 1.05;
+  ud.parallaxScale = winH * 0.3;
+
+  if (specimen?.userData?.relief) {
+    const D = specimen.userData.boxDepth;
+    const dMin = ud.baseDistance * 0.55;   // 顔を最接近させた時でも端が見えない前提で計算
+    const xMax = ud.parallaxScale;
+    const needW = winW * (dMin + D) / dMin + 2 * xMax * D / dMin;
+    const needH = winH * (dMin + D) / dMin + 2 * xMax * D / dMin;
+    const s = Math.max(
+      needW / specimen.userData.reliefW,
+      needH / specimen.userData.reliefH
+    ) * 1.05;
+    // 奥行き方向は「盛り上がりが窓から飛び出さない」上限に別途スケール
+    const sz = (BOXZ => Math.max(0.5, Math.min(BOXZ, 4)))(
+      (specimen.userData.boxDepth * 0.6) /
+      Math.max(specimen.userData.reliefStrength, 0.001)
+    );
+    specimen.userData.relief.scale.set(s, s, sz);
+  }
   updateCamera(true);
 }
 
