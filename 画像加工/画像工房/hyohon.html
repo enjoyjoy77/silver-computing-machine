@@ -457,7 +457,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev5-rack";
+const REV = "rev6-hybrid";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -1495,7 +1495,8 @@ function enableOrientation() {
 }
 
 function handleOrientation(event) {
-  if (debugOverride || faceActive) return;
+  // 顔で覗くと併用可: スマホでは傾き=視差、顔=距離の分担(faceActiveでも止めない)
+  if (debugOverride) return;
 
   const gamma = Number(event.gamma);
   const beta = Number(event.beta);
@@ -1652,7 +1653,9 @@ async function startFaceLook() {
     btn.disabled = false;
     btn.classList.add("on");
     btn.textContent = "🎥 顔で覗くのをやめる";
-    $("hint").textContent = "顔を左右に動かすと、窓の中を覗けます";
+    $("hint").textContent = orientationEnabled
+      ? "傾けて覗く+顔を近づけると窓に近づきます"
+      : "顔を左右に動かすと覗け、近づくと窓に近づきます";
     faceLoop();
   } catch (e) {
     stopFaceLook();
@@ -1673,10 +1676,14 @@ function faceLoop() {
   const cx = (box.originX + box.width / 2) / faceVideo.videoWidth;
   const cy = (box.originY + box.height / 2) / faceVideo.videoHeight;
   // ウェブカメラは鏡像でないため、頭を右へ動かすと画像上では左(cxが減る)
-  const fx = (0.5 - cx) * 2 * FACE_GAIN;
-  const fy = (cy - 0.5) * 2 * FACE_GAIN;
-  targetX = clamp(fx, -1, 1);
-  targetY = clamp(fy, -1, 1);
+  // スマホでジャイロが生きている間は、視差は傾きに任せて顔は「距離」専用にする
+  // (傾け＋近づきの合わせ技。PCや、ジャイロ未許可のときは顔が視差も担当)
+  if (!orientationEnabled) {
+    const fx = (0.5 - cx) * 2 * FACE_GAIN;
+    const fy = (cy - 0.5) * 2 * FACE_GAIN;
+    targetX = clamp(fx, -1, 1);
+    targetY = clamp(fy, -1, 1);
+  }
 
   // 顔の大きさ=距離。近づくと窓に近づく(ズーム)。開始時の顔サイズを基準にする
   const bw = box.width / faceVideo.videoWidth;
