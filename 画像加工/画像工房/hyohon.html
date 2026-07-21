@@ -208,6 +208,148 @@
     font:900 16px/1.2 inherit;
     cursor:pointer;
   }
+  #shelfNav{
+    display:none;
+    padding:6px 11px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--panel);
+    color:var(--ink);
+    font:800 11px/1.2 inherit;
+    pointer-events:auto;
+    cursor:pointer;
+  }
+  #saveShelf{
+    position:fixed;
+    z-index:25;
+    left:50%;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    display:none;
+    transform:translateX(-50%);
+    padding:11px 18px;
+    border:1px solid var(--accent);
+    border-radius:999px;
+    background:var(--accent);
+    color:#0b1410;
+    font:900 12px/1.2 inherit;
+    cursor:pointer;
+  }
+  #saveShelf:disabled{
+    opacity:.55;
+    cursor:default;
+  }
+  #shelfView{
+    position:fixed;
+    z-index:35;
+    inset:0;
+    display:none;
+    overflow:auto;
+    padding:
+      calc(68px + env(safe-area-inset-top))
+      16px
+      calc(30px + env(safe-area-inset-bottom));
+    background:var(--bg);
+  }
+  #shelfView.show{display:block}
+  .shelf-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    width:min(100%,1100px);
+    margin:0 auto 18px;
+  }
+  .shelf-head h2{
+    margin:0;
+    font-size:20px;
+  }
+  #shelfAdd{
+    padding:10px 14px;
+    border:1px solid var(--accent);
+    border-radius:999px;
+    background:transparent;
+    color:var(--accent);
+    font:800 12px/1.2 inherit;
+    cursor:pointer;
+  }
+  #shelfGrid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:14px;
+    width:min(100%,1100px);
+    margin:0 auto;
+  }
+  .shelf-card{
+    position:relative;
+    overflow:hidden;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:var(--panel);
+    box-shadow:0 8px 26px rgba(0,0,0,.22);
+  }
+  .shelf-open{
+    display:block;
+    width:100%;
+    padding:0;
+    border:0;
+    background:transparent;
+    color:var(--ink);
+    text-align:left;
+    cursor:pointer;
+  }
+  .shelf-open img{
+    display:block;
+    width:100%;
+    aspect-ratio:1/1;
+    object-fit:cover;
+    background:#151d18;
+  }
+  .shelf-name{
+    display:block;
+    overflow:hidden;
+    padding:10px 42px 11px 11px;
+    font-size:12px;
+    font-weight:800;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .shelf-delete{
+    position:absolute;
+    right:7px;
+    bottom:7px;
+    width:31px;
+    height:31px;
+    padding:0;
+    border:1px solid var(--line);
+    border-radius:50%;
+    background:#202a24;
+    color:var(--ink);
+    font-size:15px;
+    cursor:pointer;
+  }
+  #shelfEmpty{
+    display:none;
+    width:min(100%,560px);
+    margin:80px auto 0;
+    color:var(--dim);
+    font-size:13px;
+    line-height:1.8;
+    text-align:center;
+  }
+  @media (max-width:520px){
+    #shelfView{
+      padding-left:10px;
+      padding-right:10px;
+    }
+    #shelfGrid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .shelf-name{
+      padding-left:9px;
+      font-size:11px;
+    }
+  }
   #faceBtn{
     position:fixed;
     z-index:25;
@@ -253,6 +395,7 @@
   <h1>覗ける<b>標本</b></h1>
   <a href="index.html">← トップ</a>
   <a href="depth.html">深度ページ</a>
+  <button id="shelfNav" type="button">← 棚</button>
   <span id="rev">rev1</span>
 </div>
 
@@ -292,18 +435,43 @@
   </div>
 </div>
 
+<button id="saveShelf" type="button">棚にしまう</button>
+
+<section id="shelfView" aria-label="標本の棚">
+  <div class="shelf-head">
+    <h2>標本の棚</h2>
+    <button id="shelfAdd" type="button">画像から追加</button>
+  </div>
+  <div id="shelfGrid"></div>
+  <p id="shelfEmpty">
+    まだ標本がありません。深度ページから送るか、画像から追加してください。
+  </p>
+</section>
+
 <button id="faceBtn" type="button">🎥 顔で覗く</button>
 <div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "rev2-face";
+const REV = "rev3-shelf";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
 const MAX_SEGMENTS = 256;
 const SMOOTHING = 0.15;
+
+const SHELF_DB_NAME = "hyohon-shelf";
+const SHELF_DB_VERSION = 1;
+const SHELF_STORE = "items";
+
+let currentSourceBlob = null;
+let currentDepthBlob = null;
+let currentSpecimenName = "";
+let pendingShelfName = "";
+let shelfSaving = false;
+let shelfSaved = 0;
+let currentView = "look";
 
 const $ = id => document.getElementById(id);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -343,6 +511,345 @@ let dragStartX = 0;
 let dragStartY = 0;
 let dragOriginX = 0;
 let dragOriginY = 0;
+
+function openShelfDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(
+      SHELF_DB_NAME,
+      SHELF_DB_VERSION
+    );
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SHELF_STORE)) {
+        db.createObjectStore(SHELF_STORE, {
+          keyPath:"id",
+          autoIncrement:true
+        });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(
+      request.error ||
+      new Error("標本の棚を開けませんでした")
+    );
+  });
+}
+
+async function shelfRequest(mode, operation) {
+  const db = await openShelfDb();
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(SHELF_STORE, mode);
+      const store = transaction.objectStore(SHELF_STORE);
+      let result;
+
+      try {
+        const request = operation(store);
+        if (request) {
+          request.onsuccess = () => {
+            result = request.result;
+          };
+          request.onerror = () => reject(request.error);
+        }
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
+      transaction.oncomplete = () => resolve(result);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(
+        transaction.error ||
+        new Error("標本の棚を更新できませんでした")
+      );
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function shelfGetAll() {
+  return shelfRequest(
+    "readonly",
+    store => store.getAll()
+  );
+}
+
+function shelfGet(id) {
+  return shelfRequest(
+    "readonly",
+    store => store.get(Number(id))
+  );
+}
+
+function shelfRemove(id) {
+  return shelfRequest(
+    "readwrite",
+    store => store.delete(Number(id))
+  );
+}
+
+function shelfPut(item) {
+  return shelfRequest(
+    "readwrite",
+    store => store.add(item)
+  );
+}
+
+async function makeShelfThumb(sourceBlob) {
+  const image = await blobToImage(sourceBlob, "元画像");
+  const longest = Math.max(
+    image.naturalWidth,
+    image.naturalHeight
+  );
+  const scale = Math.min(1, 256 / Math.max(longest, 1));
+  const width = Math.max(
+    1,
+    Math.round(image.naturalWidth * scale)
+  );
+  const height = Math.max(
+    1,
+    Math.round(image.naturalHeight * scale)
+  );
+  const work = document.createElement("canvas");
+  work.width = width;
+  work.height = height;
+
+  const context = work.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  return await new Promise((resolve, reject) => {
+    work.toBlob(
+      blob => blob
+        ? resolve(blob)
+        : reject(new Error("サムネイルを作成できませんでした")),
+      "image/jpeg",
+      0.82
+    );
+  });
+}
+
+function defaultSpecimenName(blob) {
+  const fileName =
+    typeof blob?.name === "string" ? blob.name.trim() : "";
+  return fileName || (
+    "標本 " + new Date().toLocaleString("ja-JP")
+  );
+}
+
+function setLookControlsVisible(visible) {
+  $("shelfNav").style.display = visible ? "inline-block" : "none";
+  $("saveShelf").style.display =
+    visible && loaded ? "block" : "none";
+  $("faceBtn").style.display =
+    visible && loaded ? "block" : "none";
+  $("hint").style.display = visible ? "block" : "none";
+}
+
+function showLookView() {
+  currentView = "look";
+  $("shelfView").classList.remove("show");
+  canvas.style.display = "block";
+  setLookControlsVisible(true);
+  renderFrame();
+}
+
+async function showShelfView() {
+  currentView = "shelf";
+  stopFaceLook();
+  permission.classList.remove("show");
+  fallback.classList.remove("show");
+  hideNotice();
+  clearError();
+  canvas.style.display = "none";
+  setLookControlsVisible(false);
+  $("shelfView").classList.add("show");
+  await renderShelf();
+}
+
+function showManualPicker() {
+  currentView = "look";
+  $("shelfView").classList.remove("show");
+  canvas.style.display = "block";
+  setLookControlsVisible(false);
+  fallback.classList.add("show");
+}
+
+async function renderShelf() {
+  const grid = $("shelfGrid");
+  const empty = $("shelfEmpty");
+  const items = (await shelfGetAll())
+    .sort((a, b) => b.ts - a.ts);
+
+  shelfSaved = items.length;
+  grid.replaceChildren();
+  empty.style.display = items.length ? "none" : "block";
+
+  for (const item of items) {
+    const card = document.createElement("article");
+    card.className = "shelf-card";
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "shelf-open";
+    openButton.dataset.id = item.id;
+
+    const image = document.createElement("img");
+    image.alt = item.name || "保存した標本";
+    const thumbUrl = URL.createObjectURL(item.thumb);
+    image.src = thumbUrl;
+    image.addEventListener(
+      "load",
+      () => URL.revokeObjectURL(thumbUrl),
+      {once:true}
+    );
+    image.addEventListener(
+      "error",
+      () => URL.revokeObjectURL(thumbUrl),
+      {once:true}
+    );
+
+    const name = document.createElement("span");
+    name.className = "shelf-name";
+    name.textContent = item.name || "名前のない標本";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "shelf-delete";
+    deleteButton.dataset.id = item.id;
+    deleteButton.setAttribute(
+      "aria-label",
+      (item.name || "この標本") + "を削除"
+    );
+    deleteButton.textContent = "🗑";
+
+    openButton.append(image, name);
+    card.append(openButton, deleteButton);
+    grid.append(card);
+  }
+}
+
+async function saveToShelf() {
+  if (
+    shelfSaving ||
+    !loaded ||
+    !currentSourceBlob ||
+    !currentDepthBlob
+  ) {
+    return null;
+  }
+
+  shelfSaving = true;
+  const button = $("saveShelf");
+  const normalLabel = "棚にしまう";
+  button.disabled = true;
+  button.textContent = "保存中…";
+  clearError();
+
+  try {
+    const thumb = await makeShelfThumb(currentSourceBlob);
+    const id = await shelfPut({
+      source:currentSourceBlob,
+      depth:currentDepthBlob,
+      thumb,
+      name:currentSpecimenName ||
+        defaultSpecimenName(currentSourceBlob),
+      ts:Date.now()
+    });
+
+    shelfSaved += 1;
+    button.textContent = "しまった";
+    window.setTimeout(() => {
+      button.textContent = normalLabel;
+      button.disabled = false;
+      shelfSaving = false;
+    }, 1600);
+    return id;
+  } catch (error) {
+    const quota =
+      error?.name === "QuotaExceededError" ||
+      error?.message?.includes("Quota");
+
+    showError(
+      quota
+        ? "ブラウザの保存領域がいっぱいです。棚の標本をいくつか削除してください。"
+        : "標本を棚に保存できませんでした: " +
+          (error?.message || error)
+    );
+    button.textContent = normalLabel;
+    button.disabled = false;
+    shelfSaving = false;
+    throw error;
+  }
+}
+
+async function openFromShelf(id) {
+  clearError();
+  const item = await shelfGet(id);
+
+  if (!item?.source || !item?.depth) {
+    throw new Error("棚から標本を読み込めませんでした");
+  }
+
+  pendingShelfName = item.name || "名前のない標本";
+  await loadPair(item.source, item.depth, false);
+  return item.id;
+}
+
+async function deleteFromShelf(id) {
+  const item = await shelfGet(id);
+  if (!item) return false;
+
+  const name = item.name || "この標本";
+  if (!confirm("「" + name + "」を棚から削除しますか？")) {
+    return false;
+  }
+
+  await shelfRemove(id);
+  await renderShelf();
+  return true;
+}
+
+async function startStage2() {
+  showNotice(
+    "深度ページから画像を受け取っています…"
+  );
+
+  const [sourceItem, depthItem] = await Promise.all([
+    handoffTake("source"),
+    handoffTake("depth")
+  ]);
+
+  if (sourceItem?.blob && depthItem?.blob) {
+    await loadPair(
+      sourceItem.blob,
+      depthItem.blob,
+      true
+    );
+    return;
+  }
+
+  hideNotice();
+
+  try {
+    const items = await shelfGetAll();
+    shelfSaved = items.length;
+
+    if (items.length) {
+      await showShelfView();
+    } else {
+      showManualPicker();
+    }
+  } catch (error) {
+    showManualPicker();
+    showError(
+      "標本の棚を確認できませんでした: " +
+      (error?.message || error)
+    );
+  }
+}
 
 function showNotice(message) {
   notice.textContent = message;
@@ -801,6 +1308,12 @@ async function loadPair(sourceBlob, depthBlob, consumeHandoff = false) {
     initThree();
     createSpecimen(sourceImage, depthImage);
     loaded = true;
+    currentSourceBlob = sourceBlob;
+    currentDepthBlob = depthBlob;
+    currentSpecimenName =
+      pendingShelfName || defaultSpecimenName(sourceBlob);
+    pendingShelfName = "";
+    showLookView();
 
     if (consumeHandoff) {
       await Promise.all([
@@ -1088,6 +1601,44 @@ function stopFaceLook() {
   targetX = 0; targetY = 0;
 }
 
+$("shelfNav").addEventListener("click", () => {
+  showShelfView().catch(error => {
+    showError(
+      "標本の棚を表示できませんでした: " +
+      (error?.message || error)
+    );
+  });
+});
+
+$("saveShelf").addEventListener("click", () => {
+  saveToShelf().catch(() => {});
+});
+
+$("shelfAdd").addEventListener("click", showManualPicker);
+
+$("shelfGrid").addEventListener("click", event => {
+  const deleteButton = event.target.closest(".shelf-delete");
+  if (deleteButton) {
+    deleteFromShelf(deleteButton.dataset.id).catch(error => {
+      showError(
+        "標本を削除できませんでした: " +
+        (error?.message || error)
+      );
+    });
+    return;
+  }
+
+  const openButton = event.target.closest(".shelf-open");
+  if (openButton) {
+    openFromShelf(openButton.dataset.id).catch(error => {
+      showError(
+        "標本を開けませんでした: " +
+        (error?.message || error)
+      );
+    });
+  }
+});
+
 $("faceBtn").addEventListener("click", () => {
   if (faceActive) stopFaceLook(); else startFaceLook();
 });
@@ -1109,6 +1660,8 @@ window.__dbg = {
       camY:camera ? camera.position.y : 0,
       meshVerts,
       faceActive,
+      view:currentView,
+      shelfSaved,
       err:errorText
     };
   },
@@ -1122,12 +1675,30 @@ window.__dbg = {
   step() {
     renderFrame();
     return this.state();
-  }
+  },
+
+  saveToShelf,
+
+  async shelfList() {
+    const items = await shelfGetAll();
+    return items
+      .sort((a, b) => b.ts - a.ts)
+      .map(item => ({
+        id:item.id,
+        name:item.name,
+        ts:item.ts,
+        thumbBytes:item.thumb?.size || 0
+      }));
+  },
+
+  openFromShelf,
+
+  deleteFromShelf
 };
 
 initThree();
 animate();
-tryHandoff();
+startStage2();
 
 /*
 PCでの検証手順:
