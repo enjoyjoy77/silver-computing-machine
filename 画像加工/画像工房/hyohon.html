@@ -373,7 +373,7 @@
     position:fixed;
     z-index:20;
     left:50%;
-    bottom:max(18px,env(safe-area-inset-bottom));
+    bottom:max(68px,calc(env(safe-area-inset-bottom) + 56px));
     transform:translateX(-50%);
     width:max-content;
     max-width:90vw;
@@ -457,7 +457,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev6-hybrid";
+const REV = "rev7-window";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -1529,15 +1529,7 @@ window.addEventListener("resize", () => {
   if (!renderer || !camera) return;
 
   renderer.setSize(innerWidth, innerHeight, false);
-
-  if (camera.userData.rawW) {
-    frameCamera(
-      camera.userData.rawW,
-      camera.userData.rawH,
-      camera.userData.rawFrame
-    );
-  }
-
+  frameCamera();
   renderFrame();
 });
 
@@ -1720,13 +1712,7 @@ window.__dbg = {
     if (!canvas.width || !canvas.height) {
       // 裏タブでサイズ0のときの検証用フォールバック
       renderer.setSize(960, 720, false);
-      if (camera.userData.rawW) {
-        frameCamera(
-          camera.userData.rawW,
-          camera.userData.rawH,
-          camera.userData.rawFrame
-        );
-      }
+      frameCamera();
     }
     renderFrame();
     return canvas.toDataURL("image/jpeg", 0.8);
