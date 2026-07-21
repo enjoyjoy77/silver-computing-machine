@@ -454,7 +454,7 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 
-const REV = "rev3-shelf";
+const REV = "rev4-flow";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -823,15 +823,31 @@ async function startStage2() {
   ]);
 
   if (sourceItem?.blob && depthItem?.blob) {
+    // 深度づくり→棚→標本 の流れ: 受け取った標本は自動で棚にしまい、棚から覗く
+    pendingShelfName = (sourceItem.name || "").trim();
     await loadPair(
       sourceItem.blob,
       depthItem.blob,
       true
     );
+    try {
+      await saveToShelf();
+      await showShelfView();
+      showNotice("標本を棚にしまいました。タップすると覗けます");
+      window.setTimeout(hideNotice, 4500);
+    } catch {
+      // 保存できなかったときはそのまま覗き画面(エラーはsaveToShelfが表示済み)
+    }
     return;
   }
 
   hideNotice();
+
+  // ?view=shelf で棚に直行(入口ページの「標本の棚」ボタン用。0件でも棚の案内を出す)
+  if (new URLSearchParams(location.search).get("view") === "shelf") {
+    await showShelfView();
+    return;
+  }
 
   try {
     const items = await shelfGetAll();
