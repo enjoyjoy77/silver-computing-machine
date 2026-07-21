@@ -369,6 +369,80 @@
     color:#0b1410;
     border-color:var(--accent);
   }
+  #faceBtn{
+    right:54px;
+  }
+  #eyeSettingsBtn{
+    position:fixed;
+    z-index:25;
+    right:12px;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    display:none;
+    width:36px;
+    height:36px;
+    padding:0;
+    border:1px solid var(--line);
+    border-radius:50%;
+    background:var(--panel);
+    color:var(--ink);
+    font:700 16px/1 inherit;
+    cursor:pointer;
+  }
+  #eyeSettingsPanel{
+    position:fixed;
+    z-index:50;
+    right:12px;
+    bottom:max(66px,calc(env(safe-area-inset-bottom) + 60px));
+    display:none;
+    width:min(310px,calc(100vw - 24px));
+    padding:15px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:var(--panel);
+    box-shadow:0 16px 48px rgba(0,0,0,.4);
+  }
+  #eyeSettingsPanel.show{display:block}
+  #eyeSettingsPanel h2{
+    margin:0 0 12px;
+    font-size:14px;
+  }
+  #eyeSettingsPanel label{
+    display:grid;
+    gap:6px;
+    color:var(--dim);
+    font-size:11px;
+  }
+  #screenInchInput{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:#101713;
+    color:var(--ink);
+    font:700 14px/1.2 inherit;
+  }
+  #eyeCalibrationState{
+    margin:10px 0;
+    color:var(--dim);
+    font-size:11px;
+    line-height:1.6;
+  }
+  #calibrateEye,
+  #closeEyeSettings{
+    width:100%;
+    margin-top:8px;
+    padding:10px;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:#202a24;
+    color:var(--ink);
+    font:800 12px/1.3 inherit;
+    cursor:pointer;
+  }
+  #calibrateEye{
+    border-color:var(--accent);
+    color:var(--accent);
+  }
   #hint{
     position:fixed;
     z-index:20;
@@ -451,18 +525,238 @@
 </section>
 
 <button id="faceBtn" type="button">🎥 顔で覗く</button>
+<button id="eyeSettingsBtn" type="button" aria-label="視点設定">⚙</button>
+<section id="eyeSettingsPanel" aria-label="視点設定">
+  <h2>視点設定</h2>
+  <label>
+    画面サイズ（対角インチ）
+    <input id="screenInchInput" type="number" min="1" max="200" step="0.1" inputmode="decimal">
+  </label>
+  <p id="eyeCalibrationState">未校正: 標準設定で動作中</p>
+  <button id="calibrateEye" type="button">📏 距離をあわせる（約60cmで押す）</button>
+  <button id="closeEyeSettings" type="button">閉じる</button>
+</section>
 <div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev10-fit";
+const REV = "rev11-eye";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
 const MAX_SEGMENTS = 256;
 const SMOOTHING = 0.15;
+
+const IRIS_DIAMETER_M = 0.0117;
+const DEFAULT_HFOV_RAD = Math.PI / 3;
+const EXTRAP_S = 0.025;
+// 外挿を増やす場合も0.04秒を超えさせない。長い予測は視点の跳ねを生む。
+const SCREEN_INCH_KEY = "hyohon-screen-inch";
+const FPX_KEY = "hyohon-fpx";
+
+function readStoredNumber(key) {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+let screenInch =
+  readStoredNumber(SCREEN_INCH_KEY) ||
+  (window.innerWidth > 1000 ? 24 : 6.1);
+let calibratedFpx = readStoredNumber(FPX_KEY);
+let lastIrisPx = 0;
+let eyeX = 0;
+let eyeY = 0;
+let eyeZ = 0.6;
+let filteredEye = {x:0, y:0, z:0.6};
+let eyeOverride = false;
+
+class LowPassFilter {
+  constructor() {
+    this.initialized = false;
+    this.value = 0;
+  }
+
+  filter(value, alpha) {
+    if (!this.initialized) {
+      this.initialized = true;
+      this.value = value;
+      return value;
+    }
+    this.value = alpha * value + (1 - alpha) * this.value;
+    return this.value;
+  }
+
+  reset() {
+    this.initialized = false;
+    this.value = 0;
+  }
+}
+
+class OneEuroFilter {
+  constructor(minCutoff = 1.0, beta = 0.02, dCutoff = 1.0) {
+    this.minCutoff = minCutoff;
+    this.beta = beta;
+    this.dCutoff = dCutoff;
+    this.valueFilter = new LowPassFilter();
+    this.derivativeFilter = new LowPassFilter();
+    this.lastRaw = 0;
+    this.lastFiltered = 0;
+    this.lastTime = null;
+    this.velocity = 0;
+  }
+
+  alpha(cutoff, dt) {
+    const tau = 1 / (2 * Math.PI * cutoff);
+    return 1 / (1 + tau / dt);
+  }
+
+  filter(value, timeMs) {
+    if (this.lastTime === null) {
+      this.lastTime = timeMs;
+      this.lastRaw = value;
+      this.lastFiltered = this.valueFilter.filter(value, 1);
+      this.velocity = 0;
+      return this.lastFiltered;
+    }
+
+    const dt = clamp((timeMs - this.lastTime) / 1000, 1 / 240, 0.1);
+    const rawDerivative = (value - this.lastRaw) / dt;
+    const derivative = this.derivativeFilter.filter(
+      rawDerivative,
+      this.alpha(this.dCutoff, dt)
+    );
+    const cutoff = this.minCutoff + this.beta * Math.abs(derivative);
+    const next = this.valueFilter.filter(
+      value,
+      this.alpha(cutoff, dt)
+    );
+
+    this.velocity = (next - this.lastFiltered) / dt;
+    this.lastRaw = value;
+    this.lastFiltered = next;
+    this.lastTime = timeMs;
+    return next;
+  }
+
+  reset() {
+    this.valueFilter.reset();
+    this.derivativeFilter.reset();
+    this.lastRaw = 0;
+    this.lastFiltered = 0;
+    this.lastTime = null;
+    this.velocity = 0;
+  }
+}
+
+const eyeFilterX = new OneEuroFilter(1.0, 0.02, 1.0);
+const eyeFilterY = new OneEuroFilter(1.0, 0.02, 1.0);
+const eyeFilterZ = new OneEuroFilter(1.0, 0.02, 1.0);
+
+function resetEyeFilters() {
+  eyeFilterX.reset();
+  eyeFilterY.reset();
+  eyeFilterZ.reset();
+}
+
+function screenPhysicalSize() {
+  const diagonal = screenInch * 0.0254;
+  const pixelWidth = canvas.width || innerWidth || 1;
+  const pixelHeight = canvas.height || innerHeight || 1;
+  const aspect = pixelWidth / Math.max(pixelHeight, 1);
+  const height = diagonal / Math.sqrt(aspect * aspect + 1);
+  return {
+    width:height * aspect,
+    height
+  };
+}
+
+function currentFpx(videoWidth) {
+  return calibratedFpx ||
+    videoWidth / (2 * Math.tan(DEFAULT_HFOV_RAD / 2));
+}
+
+function irisDiameterPx(landmarks, indices, width, height) {
+  const points = indices
+    .map(index => landmarks[index])
+    .filter(point =>
+      point &&
+      Number.isFinite(point.x) &&
+      Number.isFinite(point.y)
+    )
+    .map(point => ({
+      x:point.x * width,
+      y:point.y * height
+    }));
+
+  if (points.length < 2) return 0;
+
+  let maximum = 0;
+  for (let a = 0; a < points.length - 1; a++) {
+    for (let b = a + 1; b < points.length; b++) {
+      maximum = Math.max(
+        maximum,
+        Math.hypot(
+          points[a].x - points[b].x,
+          points[a].y - points[b].y
+        )
+      );
+    }
+  }
+  return maximum;
+}
+
+function updateMeasuredEye(landmarks, videoWidth, videoHeight, timeMs) {
+  const leftCenter = landmarks[468];
+  const rightCenter = landmarks[473];
+  if (!leftCenter && !rightCenter) return;
+
+  const diameters = [
+    irisDiameterPx(landmarks, [469,470,471,472], videoWidth, videoHeight),
+    irisDiameterPx(landmarks, [474,475,476,477], videoWidth, videoHeight)
+  ].filter(value => Number.isFinite(value) && value > 0);
+
+  if (!diameters.length) return;
+
+  const irisPx =
+    diameters.reduce((sum, value) => sum + value, 0) /
+    diameters.length;
+  const centers = [leftCenter, rightCenter].filter(Boolean);
+  const centerX =
+    centers.reduce((sum, point) => sum + point.x, 0) /
+    centers.length * videoWidth;
+  const centerY =
+    centers.reduce((sum, point) => sum + point.y, 0) /
+    centers.length * videoHeight;
+  const fpx = currentFpx(videoWidth);
+  const physicalScreen = screenPhysicalSize();
+  const z = fpx * IRIS_DIAMETER_M / irisPx;
+  const x = -((centerX - videoWidth / 2) / fpx * z);
+  const y =
+    -((centerY - videoHeight / 2) / fpx * z) -
+    physicalScreen.height / 2;
+
+  lastIrisPx = irisPx;
+
+  const fx = eyeFilterX.filter(x, timeMs);
+  const fy = eyeFilterY.filter(y, timeMs);
+  const fz = eyeFilterZ.filter(z, timeMs);
+
+  filteredEye = {x:fx, y:fy, z:fz};
+  eyeX = fx + eyeFilterX.velocity * EXTRAP_S;
+  eyeY = fy + eyeFilterY.velocity * EXTRAP_S;
+  eyeZ = Math.max(0.05, fz + eyeFilterZ.velocity * EXTRAP_S);
+}
+
+function syncEyeSettingsUi(message = "") {
+  $("screenInchInput").value = String(screenInch);
+  $("eyeCalibrationState").textContent = message || (
+    calibratedFpx
+      ? "校正済み: 実測した焦点距離で動作中"
+      : "未校正: 標準設定で動作中"
+  );
+}
 
 const SHELF_DB_NAME = "hyohon-shelf";
 const SHELF_DB_VERSION = 1;
@@ -702,7 +996,13 @@ function setLookControlsVisible(visible) {
     visible && loaded && storageOk ? "block" : "none";
   $("faceBtn").style.display =
     visible && loaded ? "block" : "none";
+  $("eyeSettingsBtn").style.display =
+    visible && loaded ? "block" : "none";
   $("hint").style.display = visible ? "block" : "none";
+
+  if (!visible) {
+    $("eyeSettingsPanel").classList.remove("show");
+  }
 }
 
 function showLookView() {
@@ -1262,47 +1562,72 @@ function createSpecimen(sourceImage, depthImage) {
 
 function frameCamera() {
   // 画面そのものを「窓」として扱う軸外投影の準備。
-  // 窓サイズは画面比から決め、絵は視点が最大まで動いても端が見えない大きさに拡大する。
+  // rev11: 窓サイズは画面の物理サイズ(メートル実寸)。顔で覗く時は目の実位置と1:1で一致する。
   const ud = camera.userData;
-  // 画面比はcanvasの実サイズから取る(裏タブ等でwindowが0x0でも壊さない)
   const cw = canvas.width || innerWidth || 1;
   const ch = canvas.height || innerHeight || 1;
-  const aspect = (cw > 0 && ch > 0) ? cw / ch : 1;
-
-  const winH = 1.3;
+  const aspect = cw > 0 && ch > 0 ? cw / ch : 1;
+  const physicalScreen = screenPhysicalSize();
+  const winH = physicalScreen.height;
   const winW = winH * aspect;
+  const unitScale = winH / 1.3;
+
   ud.winW = winW;
   ud.winH = winH;
   ud.baseDistance = winH * 1.05;
   ud.parallaxScale = winH * 0.3;
+  ud.unitScale = unitScale;
 
   if (specimen?.userData?.relief) {
-    const D = specimen.userData.boxDepth;
+    const D = specimen.userData.boxDepth * unitScale;
     const d0 = ud.baseDistance;
-    const dMin = d0 * 0.55;   // 顔を最接近させた時の距離
+    const dMin = d0 * 0.55;
     const xMax = ud.parallaxScale;
 
-    // 主役の写真: 窓に「収まる」大きさ(縦長でも切れない。少しだけ余裕を持たせる)
+    specimen.scale.setScalar(unitScale);
+
     const worldW = winW * (d0 + D) / d0;
     const worldH = winH * (d0 + D) / d0;
-    const s = Math.min(
-      worldW / specimen.userData.reliefW,
-      worldH / specimen.userData.reliefH
+    const reliefScale = Math.min(
+      worldW / (specimen.userData.reliefW * unitScale),
+      worldH / (specimen.userData.reliefH * unitScale)
     ) * 1.08;
-    // 奥行き方向は「盛り上がりが窓から飛び出さない」上限に別途スケール
-    const sz = (BOXZ => Math.max(0.5, Math.min(BOXZ, 4)))(
-      (D * 0.6) / Math.max(specimen.userData.reliefStrength, 0.001)
+    const reliefDepthScale = Math.max(
+      0.5,
+      Math.min(
+        (D * 0.6) /
+          Math.max(
+            specimen.userData.reliefStrength * unitScale,
+            0.001
+          ),
+        4
+      )
     );
-    specimen.userData.relief.scale.set(s, s, sz);
 
-    // 背景のぼかし版: 最接近+最大視差でも画面を覆い切る大きさ
+    specimen.userData.relief.scale.set(
+      reliefScale,
+      reliefScale,
+      reliefDepthScale
+    );
+
     if (specimen.userData.backdrop) {
-      const Db = D + 0.12;
-      const needW = winW * (dMin + Db) / dMin + 2 * xMax * Db / dMin;
-      const needH = winH * (dMin + Db) / dMin + 2 * xMax * Db / dMin;
-      specimen.userData.backdrop.scale.set(needW * 1.05, needH * 1.05, 1);
+      const backdropDepth =
+        (specimen.userData.boxDepth + 0.12) * unitScale;
+      const needW =
+        winW * (dMin + backdropDepth) / dMin +
+        2 * xMax * backdropDepth / dMin;
+      const needH =
+        winH * (dMin + backdropDepth) / dMin +
+        2 * xMax * backdropDepth / dMin;
+
+      specimen.userData.backdrop.scale.set(
+        needW * 1.05 / unitScale,
+        needH * 1.05 / unitScale,
+        1
+      );
     }
   }
+
   updateCamera(true);
 }
 
@@ -1347,23 +1672,38 @@ function initThree() {
 function updateCamera(immediate = false) {
   if (!camera) return;
 
-  if (immediate) {
-    smoothX = targetX;
-    smoothY = targetY;
-    zoomSmooth = zoomTarget;
-  } else {
-    smoothX += (targetX - smoothX) * SMOOTHING;
-    smoothY += (targetY - smoothY) * SMOOTHING;
-    zoomSmooth += (zoomTarget - zoomSmooth) * 0.08;
+  const physicalEyeActive = faceActive || eyeOverride;
+
+  if (!physicalEyeActive) {
+    if (immediate) {
+      smoothX = targetX;
+      smoothY = targetY;
+      zoomSmooth = zoomTarget;
+    } else {
+      smoothX += (targetX - smoothX) * SMOOTHING;
+      smoothY += (targetY - smoothY) * SMOOTHING;
+      zoomSmooth += (zoomTarget - zoomSmooth) * 0.08;
+    }
   }
 
   const ud = camera.userData;
   const w = ud.winW || 1.8;
   const h = ud.winH || 1.8;
-  const d = (ud.baseDistance || 2.6) * zoomSmooth;
-  const scale = ud.parallaxScale || 0.3;
-  const x = smoothX * scale;
-  const y = -smoothY * scale;
+  let x;
+  let y;
+  let d;
+
+  if (physicalEyeActive) {
+    // 実寸モード: 目の実位置(m)をそのままカメラに(窓=画面の物理サイズと1:1)
+    x = eyeX;
+    y = eyeY;
+    d = Math.max(eyeZ, 0.05);
+  } else {
+    d = (ud.baseDistance || 2.6) * zoomSmooth;
+    const scale = ud.parallaxScale || 0.3;
+    x = smoothX * scale;
+    y = -smoothY * scale;
+  }
 
   // 軸外投影(off-axis projection): 窓は空間に固定したまま視点だけ動かす。
   // lookAtで首を振る方式だと「絵が回る」だけで窓にならない(フィッシュタンクVRの心臓部)。
@@ -1601,14 +1941,12 @@ window.addEventListener("resize", () => {
   renderFrame();
 });
 
-// ---- 顔で覗く(ウェブカメラ+MediaPipe顔検出。PC向け、フィッシュタンクVR本来の形) ----
+// ---- 顔で覗く(ウェブカメラ+MediaPipe虹彩ランドマーク。実寸の目位置トラッキング) ----
 let faceActive = false;
 let faceStream = null;
-let faceDetector = null;
+let faceLandmarker = null;
 let faceVideo = null;
 let faceRafId = 0;
-let faceBaseW = null;           // 開始時の顔の大きさ(距離の基準)
-const FACE_GAIN = 2.4;          // 顔の動き→視差の倍率(強すぎたらここを下げる)
 
 async function startFaceLook() {
   const btn = $("faceBtn");
@@ -1629,12 +1967,14 @@ async function startFaceLook() {
   }
 
   try {
-    if (!faceDetector) {
+    if (!faceLandmarker) {
       const vision = await import("./lib/mediapipe/vision_bundle.mjs");
       const fileset = await vision.FilesetResolver.forVisionTasks("./lib/mediapipe/wasm");
-      faceDetector = await vision.FaceDetector.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: "./lib/mediapipe/blaze_face_short_range.tflite" },
-        runningMode: "VIDEO"
+      faceLandmarker = await vision.FaceLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "./lib/mediapipe/face_landmarker.task" },
+        runningMode: "VIDEO",
+        numFaces: 1,
+        outputFaceBlendshapes: false
       });
     }
 
@@ -1644,18 +1984,18 @@ async function startFaceLook() {
     faceVideo.srcObject = faceStream;
     await faceVideo.play();
 
+    resetEyeFilters();
+    eyeOverride = false;
     faceActive = true;
     orientationBase = null;      // 戻ったときの傾き基準を取り直す
     btn.disabled = false;
     btn.classList.add("on");
     btn.textContent = "🎥 顔で覗くのをやめる";
-    $("hint").textContent = orientationEnabled
-      ? "傾けて覗く+顔を近づけると窓に近づきます"
-      : "顔を左右に動かすと覗け、近づくと窓に近づきます";
+    $("hint").textContent = "顔を動かすと、実際の位置から窓の中を覗けます";
     faceLoop();
   } catch (e) {
     stopFaceLook();
-    showError("顔検出の準備に失敗しました: " + (e?.message || e));
+    showError("顔ランドマークの準備に失敗しました: " + (e?.message || e));
   }
 }
 
@@ -1664,27 +2004,17 @@ function faceLoop() {
   faceRafId = requestAnimationFrame(faceLoop);
   if (!faceVideo || faceVideo.readyState < 2) return;
 
-  const result = faceDetector.detectForVideo(faceVideo, performance.now());
-  const det = result?.detections?.[0];
-  if (!det) return;              // 顔が見えない間は直前の視点を保つ
+  const now = performance.now();
+  const result = faceLandmarker.detectForVideo(faceVideo, now);
+  const landmarks = result?.faceLandmarks?.[0];
+  if (!landmarks) return;        // 顔が見えない間は直前の視点を保つ
 
-  const box = det.boundingBox;
-  const cx = (box.originX + box.width / 2) / faceVideo.videoWidth;
-  const cy = (box.originY + box.height / 2) / faceVideo.videoHeight;
-  // ウェブカメラは鏡像でないため、頭を右へ動かすと画像上では左(cxが減る)
-  // スマホでジャイロが生きている間は、視差は傾きに任せて顔は「距離」専用にする
-  // (傾け＋近づきの合わせ技。PCや、ジャイロ未許可のときは顔が視差も担当)
-  if (!orientationEnabled) {
-    const fx = (0.5 - cx) * 2 * FACE_GAIN;
-    const fy = (cy - 0.5) * 2 * FACE_GAIN;
-    targetX = clamp(fx, -1, 1);
-    targetY = clamp(fy, -1, 1);
-  }
-
-  // 顔の大きさ=距離。近づくと窓に近づく(ズーム)。開始時の顔サイズを基準にする
-  const bw = box.width / faceVideo.videoWidth;
-  if (!faceBaseW) faceBaseW = bw;
-  zoomTarget = clamp(faceBaseW / Math.max(bw, 0.02), 0.55, 1.8);
+  updateMeasuredEye(
+    landmarks,
+    faceVideo.videoWidth,
+    faceVideo.videoHeight,
+    now
+  );
 }
 
 function stopFaceLook() {
@@ -1700,8 +2030,8 @@ function stopFaceLook() {
   btn.classList.remove("on");
   btn.textContent = "🎥 顔で覗く";
   $("hint").textContent = "端末を傾ける／マウスを動かすと、窓の中を覗けます";
+  resetEyeFilters();
   targetX = 0; targetY = 0;
-  faceBaseW = null;
   zoomTarget = 1;
 }
 
@@ -1748,14 +2078,87 @@ $("shelfGrid").addEventListener("click", event => {
   }
 });
 
+syncEyeSettingsUi();
+
+$("eyeSettingsBtn").addEventListener("click", () => {
+  syncEyeSettingsUi();
+  $("eyeSettingsPanel").classList.toggle("show");
+});
+
+$("closeEyeSettings").addEventListener("click", () => {
+  $("eyeSettingsPanel").classList.remove("show");
+});
+
+$("screenInchInput").addEventListener("change", event => {
+  const value = Number(event.target.value);
+
+  if (!Number.isFinite(value) || value < 1 || value > 200) {
+    syncEyeSettingsUi("画面サイズは1〜200インチの範囲で入力してください");
+    return;
+  }
+
+  screenInch = value;
+  localStorage.setItem(SCREEN_INCH_KEY, String(screenInch));
+  syncEyeSettingsUi();
+  if (camera) frameCamera();
+});
+
+$("calibrateEye").addEventListener("click", () => {
+  if (!faceActive || !lastIrisPx) {
+    syncEyeSettingsUi("顔で覗くを開始し、虹彩が見える状態で押してください");
+    return;
+  }
+
+  calibratedFpx = lastIrisPx * 0.60 / IRIS_DIAMETER_M;
+  localStorage.setItem(FPX_KEY, String(calibratedFpx));
+  syncEyeSettingsUi("校正済み: 約60cmの測定値を保存しました");
+});
+
 $("faceBtn").addEventListener("click", () => {
   if (faceActive) stopFaceLook(); else startFaceLook();
 });
 window.addEventListener("pagehide", stopFaceLook);
 
 window.__dbg = {
+  setEye(x, y, z) {
+    const nextX = Number(x);
+    const nextY = Number(y);
+    const nextZ = Number(z);
+
+    if (
+      !Number.isFinite(nextX) ||
+      !Number.isFinite(nextY) ||
+      !Number.isFinite(nextZ) ||
+      nextZ <= 0
+    ) {
+      throw new Error("setEyeにはメートル単位の有限なx, yと、0より大きいzを指定してください");
+    }
+
+    debugOverride = true;
+    eyeOverride = true;
+    eyeX = nextX;
+    eyeY = nextY;
+    eyeZ = nextZ;
+    filteredEye = {x:nextX, y:nextY, z:nextZ};
+    renderFrame();
+    return this.eyeState();
+  },
+
+  eyeState() {
+    const videoWidth = faceVideo?.videoWidth || 0;
+    return {
+      ex:eyeX,
+      ey:eyeY,
+      ez:eyeZ,
+      fpx:videoWidth ? currentFpx(videoWidth) : calibratedFpx,
+      screenInch,
+      filtered:{...filteredEye}
+    };
+  },
+
   setParallax(x, y) {
     debugOverride = true;
+    eyeOverride = false;
     setParallax(x, y);
     smoothX = targetX;
     smoothY = targetY;
