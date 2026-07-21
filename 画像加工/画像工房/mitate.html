@@ -426,7 +426,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev32-undo";
+const REV = "v2 rev33-guard";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -913,6 +913,12 @@ $('toHyohonBtn').onclick = async () => {
 
 // 受け渡し(深度づくりから)= 選択中の棚に1体追加
 (async () => {
+  // アプリ内ブラウザ等では棚の保存先(IndexedDB)自体が無い→先に日本語で案内
+  if (typeof indexedDB === "undefined") {
+    const guardMsg = "このブラウザでは棚(3Dラック)が使えません。他のアプリの中のブラウザで開いている場合は、SafariやChromeなどのブラウザ本体でこのページを開き直してください。";
+    showErr(guardMsg);
+    setInterval(() => showErr(guardMsg), 12000);   // 自動で消えても繰り返し出す(この環境では棚が全滅のため)
+  }
   refreshShelfSelector(getTargetShelf());
 
   const src = await handoffTake('source');

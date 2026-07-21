@@ -137,7 +137,12 @@ import {
   shelvesAll, shelvesAdd, getTargetShelf, setTargetShelf,
 } from "./assets/common.js";
 
-const REV = "v2 rev9-rack";
+const REV = "v2 rev10-guard";
+// アプリ内ブラウザ等で保存機能(IndexedDB)が無い環境を起動時に検知して日本語で案内
+if (typeof indexedDB === "undefined") {
+  setTimeout(() => setStatus("error",
+    "このブラウザでは棚(3Dラック)への保存が使えません。アプリの中のブラウザで開いている場合は、SafariやChromeなどのブラウザ本体でこのページを開き直してください。"), 300);
+}
 document.getElementById("rev-badge").textContent = REV;
 
 env.allowLocalModels = false;
@@ -328,7 +333,7 @@ async function init() {
   pump();
 }
 function failPrepare(prepareBtn) {
-  setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。");
+  setStatus("error", "モデルの読み込みに失敗しました。インターネット接続を確認して、もう一度ボタンを押してください。他のアプリの中のブラウザで開いている場合は失敗しやすいので、SafariやChromeなどのブラウザ本体でこのページを開き直すと直ることがあります。");
   prepareBtn.disabled = false;
   prepareBtn.querySelector("span:last-child").textContent = "もう一度試す";
 }

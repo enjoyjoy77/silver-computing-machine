@@ -457,7 +457,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev8-open";
+const REV = "rev9-guard";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -488,6 +488,16 @@ const isTouchDevice =
   matchMedia("(pointer:coarse)").matches;
 
 $("rev").textContent = REV;
+
+// ---- 環境チェックと無言failure防止 ----
+// アプリ内ブラウザ等ではIndexedDB(3Dラックの保存先)自体が無いことがある
+const storageOk = (typeof indexedDB !== "undefined");
+window.addEventListener("error", e => {
+  showError("画面の処理でエラーが起きました: " + (e?.message || "不明"));
+});
+window.addEventListener("unhandledrejection", e => {
+  showError("処理が途中で失敗しました: " + (e?.reason?.message || e?.reason || "不明"));
+});
 
 let renderer = null;
 let scene = null;
@@ -689,7 +699,7 @@ function setLookControlsVisible(visible) {
   $("shelfNav").style.display = visible ? "inline-block" : "none";
   $("toMitate").style.display = visible ? "inline-block" : "none";
   $("saveShelf").style.display =
-    visible && loaded ? "block" : "none";
+    visible && loaded && storageOk ? "block" : "none";
   $("faceBtn").style.display =
     visible && loaded ? "block" : "none";
   $("hint").style.display = visible ? "block" : "none";
@@ -858,6 +868,18 @@ async function deleteFromShelf(id) {
 }
 
 async function startStage2() {
+  if (!storageOk) {
+    // 3Dラック(保存)が使えない環境。覗くだけ(手動2ファイル)は使えるので案内して開放する
+    hideNotice();
+    showManualPicker();
+    showError(
+      "このブラウザでは3Dラック(保存)が使えません。他のアプリの中のブラウザで開いている場合は、" +
+      "SafariやChromeなどのブラウザ本体でこのページを開き直してください。" +
+      "下の画像選択からなら、保存なしでそのまま覗けます。"
+    );
+    return;
+  }
+
   showNotice(
     "深度ページから画像を受け取っています…"
   );
@@ -877,6 +899,7 @@ async function startStage2() {
       depthItem.blob,
       true
     );
+    if (!loaded) return;   // 読み込み失敗時はloadPairが案内済み。偽の「しまいました」を出さない
     try {
       await saveToShelf();
       await showShelfView();
@@ -1759,7 +1782,12 @@ window.__dbg = {
 
 initThree();
 animate();
-startStage2();
+startStage2().catch(e => {
+  hideNotice();
+  showManualPicker();
+  showError("開始処理に失敗しました: " + (e?.message || e) +
+    " / 下の画像選択からなら、そのまま覗けます");
+});
 
 /*
 PCでの検証手順:
