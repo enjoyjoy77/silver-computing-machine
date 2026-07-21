@@ -362,7 +362,7 @@ plateMesh.position.set(0,0,-0.010); plateGroup.add(plateMesh);
 // 解剖学ベースの上半身(段階3-1): Blender公式のCC0写実女性素体(GLB)を胸板に取り付ける。
 // 読めたら板は隠す(読めなければ従来の板のまま=フォールバック)。ふくらみ物理は不変。
 let torso = null;
-new GLTFLoader().load("./lib/models/female_base.glb", (gltf)=>{
+new GLTFLoader().load("./lib/models/female_base_classic.glb", (gltf)=>{
   torso = gltf.scene;
   bustMat.side = THREE.DoubleSide;   // カット断面から内側が見えても肌色に(ふくらみは閉じているので無害)
   // ※ズレ(x≈+1.34)は頂点でなく「ノードの位置」に入っている→必ずシーン座標(ノード変換込み)で測る
