@@ -63,8 +63,9 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands } from "./lib/hands.js";
+import { estimateArm } from "./lib/arm.js";
 
-const REV = "rev1";
+const REV = "rev2";
 const GOOD_MIN_CM_S = 3;
 const GOOD_MAX_CM_S = 7;
 const ARM_LENGTH = 0.25;
@@ -342,10 +343,17 @@ const tmpAxis = new THREE.Vector3();
 const tmpSegment = new THREE.Vector3();
 const tmpClosest = new THREE.Vector3();
 const tmpHeadPos = new THREE.Vector3();
+const tmpHeadQuat = new THREE.Quaternion();
 const tmpForward = new THREE.Vector3();
 const tmpQuat = new THREE.Quaternion();
 const tmpMatrix = new THREE.Matrix4();
+const tmpElbowVec = new THREE.Vector3();
+const tmpForearmDir = new THREE.Vector3();
 const zAxis = new THREE.Vector3(0,0,1);
+// estimateArm(ひじIK)に渡す使い回し配列。毎フレームnewしないための固定バッファ
+const tmpHeadPosArr = [0,0,0];
+const tmpHeadQuatArr = [0,0,0,1];
+const tmpWristPosArr = [0,0,0];
 const target = new THREE.Vector3(0,1.16,-1.25);
 
 function inputForHand(handedness){
@@ -385,16 +393,31 @@ function updateTrackedHands(frame){
       leftPose.transform.position.y,
       leftPose.transform.position.z
     );
-    tmpQuat.set(
-      leftPose.transform.orientation.x,
-      leftPose.transform.orientation.y,
-      leftPose.transform.orientation.z,
-      leftPose.transform.orientation.w
-    );
     leftForearm.position.copy(tmpLeftPos);
-    leftForearm.quaternion.copy(tmpQuat);
 
-    tmpAxis.copy(zAxis).applyQuaternion(tmpQuat).normalize();
+    // 手首クォータニオンをそのまま前腕の向きにしない(ひねる/曲げるだけで前腕が振り回される不具合の原因だった)。
+    // 代わりに頭の位置・向きから肩を仮定し、肩→ひじ→手首の二節IK(共通部品 lib/arm.js)でひじの位置を逆算し、
+    // 「ひじ→手首」の向きをそのまま前腕の向きに使う。手首の実測位置(leftForearm.position)は従来通り正確に使う。
+    camera.updateMatrixWorld(true);
+    camera.getWorldPosition(tmpHeadPos);
+    camera.getWorldQuaternion(tmpHeadQuat);
+    tmpHeadPosArr[0] = tmpHeadPos.x; tmpHeadPosArr[1] = tmpHeadPos.y; tmpHeadPosArr[2] = tmpHeadPos.z;
+    tmpHeadQuatArr[0] = tmpHeadQuat.x; tmpHeadQuatArr[1] = tmpHeadQuat.y;
+    tmpHeadQuatArr[2] = tmpHeadQuat.z; tmpHeadQuatArr[3] = tmpHeadQuat.w;
+    tmpWristPosArr[0] = tmpLeftPos.x; tmpWristPosArr[1] = tmpLeftPos.y; tmpWristPosArr[2] = tmpLeftPos.z;
+
+    const armIK = estimateArm(tmpHeadPosArr, tmpHeadQuatArr, tmpWristPosArr, "left", {});
+    tmpElbowVec.set(armIK.elbow[0], armIK.elbow[1], armIK.elbow[2]);
+    tmpForearmDir.copy(tmpElbowVec).sub(tmpLeftPos);
+    // カプセルはleftForearmのローカル+Z方向(手首→ひじ側)に伸びる形状(armCapsule.position.z = ARM_LENGTH*.5)。
+    // ひじ方向がほぼ手首と重なる異常値のときは前フレームの向きを維持する(ゼロ除算・NaN回避)。
+    if(tmpForearmDir.lengthSq() > 1e-8){
+      tmpForearmDir.normalize();
+      tmpQuat.setFromUnitVectors(zAxis, tmpForearmDir);
+      leftForearm.quaternion.copy(tmpQuat);
+    }
+
+    tmpAxis.copy(zAxis).applyQuaternion(leftForearm.quaternion).normalize();
 
     if(!loggedLeft){
       loggedLeft = true;
