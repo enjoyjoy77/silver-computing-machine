@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q4 rev1</div>
+<div id="rev">MR版 q4 rev2</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -209,10 +209,20 @@ body.xr-active #hint{
     <button data-size="4">4</button>
     <button data-size="5">5</button>
     <button data-size="6">6</button>
-    <button data-size="7" class="on">7</button>
+    <button data-size="7">7</button>
     <button data-size="8">8</button>
     <button data-size="9">9</button>
-    <button data-size="10">10</button>
+    <button data-size="10" class="on">10</button>
+    <button data-size="11">11</button>
+    <button data-size="12">12</button>
+    <button data-size="13">13</button>
+    <button data-size="14">14</button>
+    <button data-size="15">15</button>
+    <button data-size="16">16</button>
+    <button data-size="17">17</button>
+    <button data-size="18">18</button>
+    <button data-size="19">19</button>
+    <button data-size="20">20</button>
   </div>
 
   <div class="buttons">
@@ -464,21 +474,32 @@ function makeRoughnessMap(){
   return texture;
 }
 
+/* サイズ20段階(実機フィードバックで拡張: 旧1〜10は10〜19へ、1〜9はさらに短い方へ、20=最長) */
 const SIZES=[
   null,
-  {name:"ミニ",length:.023,width:.0060,height:.0037,tip:.67},
-  {name:"ちび",length:.031,width:.0074,height:.0045,tip:.69},
-  {name:"小粒",length:.041,width:.0090,height:.0054,tip:.71},
-  {name:"小型",length:.054,width:.0110,height:.0066,tip:.73},
-  {name:"かわいい",length:.070,width:.0135,height:.0080,tip:.75},
-  {name:"短め",length:.095,width:.0180,height:.0108,tip:.77},
-  {name:"標準",length:.125,width:.0230,height:.0140,tip:.79},
-  {name:"大きめ",length:.145,width:.0250,height:.0150,tip:.80},
-  {name:"大型",length:.162,width:.0265,height:.0158,tip:.81},
-  {name:"エイリアン",length:.180,width:.0280,height:.0165,tip:.82}
+  {name:"まめ",length:.008,width:.0027,height:.0017,tip:.60},
+  {name:"まめ+",length:.0095,width:.0031,height:.0019,tip:.61},
+  {name:"ちょび",length:.011,width:.0035,height:.0021,tip:.62},
+  {name:"ちょび+",length:.0128,width:.0039,height:.0024,tip:.63},
+  {name:"小",length:.0148,width:.0043,height:.0027,tip:.64},
+  {name:"小+",length:.0168,width:.0047,height:.0029,tip:.65},
+  {name:"中小",length:.0185,width:.0051,height:.0031,tip:.655},
+  {name:"中小+",length:.020,width:.0054,height:.0033,tip:.66},
+  {name:"ほぼふつう",length:.0215,width:.0057,height:.0035,tip:.665},
+  {name:"ふつう",length:.023,width:.0060,height:.0037,tip:.67},
+  {name:"ふつう+",length:.031,width:.0074,height:.0045,tip:.69},
+  {name:"長め",length:.041,width:.0090,height:.0054,tip:.71},
+  {name:"長め+",length:.054,width:.0110,height:.0066,tip:.73},
+  {name:"長い",length:.070,width:.0135,height:.0080,tip:.75},
+  {name:"長い+",length:.095,width:.0180,height:.0108,tip:.77},
+  {name:"かなり長い",length:.125,width:.0230,height:.0140,tip:.79},
+  {name:"すごく長い",length:.145,width:.0250,height:.0150,tip:.80},
+  {name:"すごく長い+",length:.162,width:.0265,height:.0158,tip:.81},
+  {name:"エイリアン",length:.180,width:.0280,height:.0165,tip:.82},
+  {name:"エイリアン+",length:.200,width:.0292,height:.0172,tip:.83}
 ];
 
-let sizeLevel=7;
+let sizeLevel=10;
 let L0=SIZES[sizeLevel].length;
 let W0=SIZES[sizeLevel].width;
 let H0=SIZES[sizeLevel].height;
@@ -1258,7 +1279,7 @@ function updateSizeUI(){
 }
 
 function setSize(level){
-  const next=Math.max(1,Math.min(10,Math.round(Number(level)||7)));
+  const next=Math.max(1,Math.min(20,Math.round(Number(level)||10)));
   sizeLevel=next;
 
   const spec=SIZES[sizeLevel];
@@ -1671,21 +1692,21 @@ addEventListener("unhandledrejection",event=>{
 
 redrawLog();
 
-function makeButtonTexture(label){
+function makeButtonTexture(label,on=false){
   const canvas=document.createElement("canvas");
-  canvas.width=384;
-  canvas.height=128;
+  canvas.width=768;   // 高解像度化(実機で文字がにじむ対策)
+  canvas.height=320;
   const g=canvas.getContext("2d");
-  g.fillStyle="#9e3e59";
+  g.fillStyle=on?"#d94f78":"#5a3a49";  // ON=明るい/OFF=落ち着いた色で状態が分かる
   g.fillRect(0,0,canvas.width,canvas.height);
-  g.strokeStyle="#ffd0d9";
-  g.lineWidth=8;
-  g.strokeRect(5,5,canvas.width-10,canvas.height-10);
+  g.strokeStyle=on?"#ffe3ea":"#c9909f";
+  g.lineWidth=14;
+  g.strokeRect(9,9,canvas.width-18,canvas.height-18);
   g.fillStyle="#fff";
   g.textAlign="center";
   g.textBaseline="middle";
-  g.font="bold 45px sans-serif";
-  g.fillText(label,canvas.width/2,canvas.height/2);
+  g.font="bold 108px sans-serif";
+  g.fillText(label,canvas.width/2,canvas.height/2+6);
   const texture=new THREE.CanvasTexture(canvas);
   texture.colorSpace=THREE.SRGBColorSpace;
   return texture;
@@ -1695,29 +1716,62 @@ const xrUI=new THREE.Group();
 xrUI.visible=false;
 scene.add(xrUI);
 
-const xrButtonLabels=["ぺろぺろ","小 (3)","標準 (7)","大 (10)","手で操る","録体 REC","録体 保存","録体 再生"];
-xrButtonLabels.push("装着");
+// XRボタン(実機UI改修: 大きく・間隔を空け・押した反応と状態表示つき)
+const xrButtonLabels=["ぺろぺろ","サイズ −","サイズ +","装着","手で操る","録体 REC","録体 保存","録体 再生"];
 const xrButtons=[];
-const buttonGeometry=new THREE.PlaneGeometry(.064,.027);
+const xrButtonPressedUntil=new Float64Array(xrButtonLabels.length);
+const xrButtonOnState=new Uint8Array(xrButtonLabels.length);
+const buttonGeometry=new THREE.PlaneGeometry(.088,.038);
 
 for(let i=0;i<xrButtonLabels.length;i++){
   const mesh=new THREE.Mesh(
     buttonGeometry,
     new THREE.MeshBasicMaterial({
-      map:makeButtonTexture(xrButtonLabels[i]),
+      map:makeButtonTexture(xrButtonLabels[i],false),
       side:THREE.DoubleSide,
       transparent:true,
       depthTest:false
     })
   );
+  mesh.userData.texOff=mesh.material.map;
+  mesh.userData.texOn=makeButtonTexture(xrButtonLabels[i],true);
   const column=i%4;
   const row=Math.floor(i/4);
-  mesh.position.x=(column-1.5)*.071;
-  mesh.position.y=-row*.034;
+  mesh.position.x=(column-1.5)*.100;   // 間隔を .071→.100 に拡大(誤タッチ対策)
+  mesh.position.y=-row*.050;           // 段間も拡大
   mesh.userData.action=i;
   mesh.renderOrder=31;
   xrUI.add(mesh);
   xrButtons.push(mesh);
+}
+
+// トグル系ボタンのON/OFF表示と、押した瞬間の反応(縮む+ひかる)
+function refreshXRButtonStates(){
+  xrButtonOnState[0]=automatic==="pero"?1:0;
+  xrButtonOnState[3]=tongueMounted?1:0;
+  xrButtonOnState[4]=handGestures.enabled?1:0;
+  xrButtonOnState[5]=rokutai.recording?1:0;
+  xrButtonOnState[7]=rokutai.playing?1:0;
+  for(let b=0;b<xrButtons.length;b++){
+    const mesh=xrButtons[b];
+    const on=xrButtonOnState[b]===1;
+    const tex=on?mesh.userData.texOn:mesh.userData.texOff;
+    if(mesh.material.map!==tex){
+      mesh.material.map=tex;
+      mesh.material.needsUpdate=true;
+    }
+  }
+}
+
+function updateXRButtonVisuals(time){
+  for(let b=0;b<xrButtons.length;b++){
+    const mesh=xrButtons[b];
+    const pressed=time<xrButtonPressedUntil[b];
+    const s=pressed?.86:1;
+    mesh.scale.x=s;
+    mesh.scale.y=s;
+    mesh.material.color.setHex(pressed?0xffe082:0xffffff);
+  }
 }
 
 let buttonCooldownUntil=0;
@@ -1736,11 +1790,13 @@ function triggerXRButton(action,controllerIndex){
     }
     logJapanese(enable?"ぺろぺろを開始しました。":"ぺろぺろを停止しました。");
   }else if(action===1){
-    setSize(3);
+    setSize(sizeLevel-1);
+    logJapanese(`サイズ ${sizeLevel}(${SIZES[sizeLevel].name}・${(SIZES[sizeLevel].length*100).toFixed(1)}cm)`);
   }else if(action===2){
-    setSize(7);
+    setSize(sizeLevel+1);
+    logJapanese(`サイズ ${sizeLevel}(${SIZES[sizeLevel].name}・${(SIZES[sizeLevel].length*100).toFixed(1)}cm)`);
   }else if(action===3){
-    setSize(10);
+    setTongueMounted(!tongueMounted);
   }else if(action===4){
     const enable=!handGestures.enabled;
     handGestures.setEnabled(enable);
@@ -1754,9 +1810,11 @@ function triggerXRButton(action,controllerIndex){
     saveRokutai();
   }else if(action===7){
     toggleRokutaiPlayback();
-  }else if(action===8){
-    setTongueMounted(!tongueMounted);
   }
+
+  // 押した反応: 0.18秒ちぢんで光る+状態表示を更新
+  xrButtonPressedUntil[action]=performance.now()+180;
+  refreshXRButtonStates();
 
   if(controllerIndex>=0){
     const source=inputSources[controllerIndex];
@@ -1784,7 +1842,7 @@ function updateXRButtons(time){
       const dy=y-buttonWorldPosition.y;
       const dz=z-buttonWorldPosition.z;
 
-      if(dx*dx+dy*dy+dz*dz<.020*.020){
+      if(dx*dx+dy*dy+dz*dz<.026*.026){
         buttonCooldownUntil=time+500;
         triggerXRButton(
           xrButtons[b].userData.action,
@@ -1935,6 +1993,7 @@ for(let i=0;i<2;i++){
 const xrCameraPosition=new THREE.Vector3();
 const xrCameraQuaternion=new THREE.Quaternion();
 const xrForward=new THREE.Vector3();
+const xrRightVec=new THREE.Vector3();
 const yawFlip=new THREE.Quaternion().setFromAxisAngle(
   new THREE.Vector3(0,1,0),
   Math.PI
@@ -1955,16 +2014,19 @@ function syncTongueMountButton(){
   button.textContent=tongueMounted?"引き抜く":"装着モード";
 }
 
-function applyTongueMountPose(distance=.075,verticalDrop=.105){
+function applyTongueMountPose(distance=.075,verticalDrop=.12,sideShift=.015){
+  // 実機フィードバック: 左に寄っていたので右へ1.5cm、下へも1.5cm(drop .105→.12)
   if(!xrActive)return;
 
   const xrCamera=renderer.xr.getCamera(camera);
   xrCamera.getWorldPosition(xrCameraPosition);
   xrCamera.getWorldQuaternion(xrCameraQuaternion);
   xrForward.set(0,0,-1).applyQuaternion(xrCameraQuaternion);
+  xrRightVec.set(1,0,0).applyQuaternion(xrCameraQuaternion);
 
   tongueRoot.position.copy(xrCameraPosition)
-    .addScaledVector(xrForward,distance);
+    .addScaledVector(xrForward,distance)
+    .addScaledVector(xrRightVec,sideShift);
   tongueRoot.position.y-=verticalDrop;
   tongueRoot.quaternion.copy(xrCameraQuaternion).multiply(yawFlip);
   tongueRoot.updateMatrixWorld(true);
@@ -2008,13 +2070,13 @@ function placeXRContent(){
 
   xrUI.position.copy(tongueRoot.position);
   xrUI.quaternion.copy(xrCameraQuaternion);
-  xrUI.position.y-=.105;
+  xrUI.position.y-=.15;                        // 舌との間隔を広げる
   xrUI.position.addScaledVector(xrForward,.015);
   xrUI.updateMatrixWorld(true);
 
-  logPanel.position.copy(xrCameraPosition)
-    .addScaledVector(xrForward,.47);
-  logPanel.position.y-=.25;
+  logPanel.position.copy(xrCameraPosition)     // ログはボタンよりさらに下+奥(重なり解消)
+    .addScaledVector(xrForward,.55);
+  logPanel.position.y-=.38;
   logPanel.quaternion.copy(xrCameraQuaternion);
   logPanel.updateMatrixWorld(true);
 
@@ -2306,6 +2368,8 @@ renderer.setAnimationLoop((time,frame)=>{
     updateXRInputs(frame);
     handGestures.update(frame,xrReferenceSpace,inputSources,time);
     updateXRButtons(time);
+    updateXRButtonVisuals(time);
+    refreshXRButtonStates();
   }else{
     colliderCount=0;
   }

@@ -59,18 +59,6 @@
   <div class="mark">むねゆれ再現</div>
   <h1>やわらかさと揺れを<br>物理で再現する実験です</h1>
   <p>目の前にうかぶ「胸板」に、やわらかいふくらみが2つ付いています。<br>手で押すと沈み、板ごと動かすと、遅れてぷるんと揺れます。<br>まずは物理の手ざわりを確かめる、土台の回です。</p>
-  <div id="engineSel" style="margin:6px 0 14px; display:flex; gap:10px; justify-content:center;">
-    <button class="engBtn" id="engC0" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:#e0719c;color:#fff;cursor:pointer;">あたらしい触感（C0）</button>
-    <button class="engBtn" id="engV5" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:transparent;color:#e0719c;cursor:pointer;">これまで（v5）</button>
-  </div>
-  <!-- 過去版(公開Gitの履歴から発掘した実物。別ページとして開く) -->
-  <div id="oldVers" style="margin:0 0 12px; display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap;">
-    <span style="font-size:12px; opacity:.75;">むかしの版:</span>
-    <button onclick="location.href='mune_v1.html'" style="border:1px solid #b98;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;background:transparent;color:#b98;cursor:pointer;">v1</button>
-    <button onclick="location.href='mune_v2.html'" style="border:1px solid #b98;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;background:transparent;color:#b98;cursor:pointer;">v2</button>
-    <button onclick="location.href='mune_v3.html'" style="border:1px solid #b98;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;background:transparent;color:#b98;cursor:pointer;">v3</button>
-    <button onclick="location.href='mune_v4.html'" style="border:1px solid #b98;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;background:transparent;color:#b98;cursor:pointer;">v4</button>
-  </div>
   <button id="goBtn" disabled>じゅんび中…</button>
   <div id="note">
     <b>英語の画面が出たら</b><br>
@@ -94,11 +82,9 @@
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
-import { forEachHandBonePoint } from "./lib/hands.js";               // 素手の当たり判定=骨格コライダー共通部品(xr-hands)
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
-import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v6 rev7";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加。ふくらみ(bustMat)はUV無し生成メッシュのため従来の単色のまま / rev7=開始画面に過去版ボタン(v1〜v4=公開Git履歴から発掘した実物をmune_v1〜v4.htmlとして同梱)
+const REV = "v4 rev8";
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -139,10 +125,7 @@ const TUNE = {
   edgeCompliance: 3e-4,  // 表面のハリ（softから applyFeel が自動設定）
   hariK: 100,            // 形を保つばね（＝揺れの速さ。softから自動設定。目安1〜2Hz）
   velDamping: 4.0,       // 揺れの減衰（keepから自動設定。小さいほど長く揺れる）
-  volGuardLo: 0.95,      // v5: 体積比がこの値以上なら下限ガードは沈黙(デッドゾーン式=常時内圧の廃止)
-  volGuardHi: 1.05,      // v5: 体積比がこの値以下なら上限ガードは沈黙
-  volGuardCompliance: 1e-6, // v5: デッドゾーン外だけ働く柔らかい体積バリア。0は禁止
-  volGuardMaxCorr: 0.001,   // v5: 体積バリアによる1粒・1substep最大補正(m)
+  volCompliance: 1e-6,   // 圧縮性。0=完全非圧縮だと「押した分が全体に張り出す」=水風船感の一因(実機⑩)。この系ではほぼ二択で、非0なら静止体積~88%で釣り合う(見た目差は約4%=許容)
   // --- 脂肪の充填(v4段階A: 設計書_脂肪充填.md): 同心殻3層(外殻・中殻=果肉・芯=種)を編む距離制約 ---
   fleshRadialC: 8e-5,    // 果肉の放射(外殻↔中殻)のやわらかさ。押し込みの伝達を担い、soft(やわらかさ)で3e-5(硬)〜3e-4(やわ)にlerp
   fleshTangentC: 2e-4,   // 果肉の接線(中殻どうし)のやわらかさ。横への逃げを独立調整する。レバー非連動。
@@ -150,56 +133,27 @@ const TUNE = {
   netCompliance: 5e-6,   // 網目チェーン(アンカー↔芯・芯↔中殻)の硬さ。旧「アンカー→表面の直線吊り」をこの2段の網に格上げ。必ず戻る吊りの実体
   seedCompliance: 1e-6,  // 種(芯どうしの相互辺)のとても硬い辺。奥の硬い手応えの実体(coreKの数式抵抗と併用)
   // --- もちもち・吸い付き(粘弾性)(実機⑩「人工物っぽい・水風船っぽい」への根本対策) ---
-  skinPretension: 1.00,  // v5: 常時収縮を撤廃(辺の自然長=意図した静止形そのもの)。張りは靭帯と形状ばねが担う。
-                         // 経緯: 0.94(rev9)→0.97(rev7座屈対策)→1.00(v5=常時加圧膜の解消。プレテンション×内圧の拮抗が水風船の正体)
+  skinPretension: 0.97,  // 皮膚の張力(自然長の倍率)。<1=表面が常に張る=ハリ。
+                         // v4 rev7で0.94→0.97: 縮みが内圧(pressure)とのつり合いを超えると「圧縮された殻」になり、
+                         // 一点押しで広範囲がペコッと折れ込む座屈=「空気の抜けたボール」の正体だった(実機⑲)
   ligamentK: 0.12,       // 内部の吊り(クーパー靭帯)。付け根から各粒を静止距離へ"常に"引き戻す＝詰まった支え＆必ず戻る。
                          // v4 rev7で0.05→0.12: 土台を強くするとくぼみの波長が短くなる=凹みが指の周りに局所化
                          // (くぼみ半径∝(膜/土台)^1/4)。「広範囲べこっ」→「指の所だけぷにっ」の主役
   stickRange: 0.012,     // 接触粘性(ねっとり)の判定マージン(m)。※クリープ・吸い付きは撤去(調査: 健常な胸は残留変形しない=靭帯/皮膚が必ず戻す)
   contactVisc: 6,        // 触っている所の粘性(1/s)。触点がわずかに重く。強すぎると"液体っぽい遅れ"=水風船感(調査より)なので控えめ
-  // pressure は v5 で廃止(常時内圧=水風船の正体)。体積は volGuardLo/Hi のデッドゾーン式見張りに置換
+  pressure: 1.05,        // 内圧(体積目標の倍率)。v4 rev7で1.03→1.05: 皮膚の張り(プレテンション)は内圧とつり合って
+                         // 初めて「張り」になる。内圧が負けると圧縮殻=座屈(空気抜けボール)になるため釣り合いを張り側へ
   gravity: 1.3,          // 重力(m/s^2)。少し垂れ下がる（大きすぎると垂れすぎる）
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
   mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
-  handMinR: 0.006,       // 手の骨格コライダの下限半径(m)。位置は純正のまま。
+  handMinR: 0.009,       // 手の関節コライダの下限半径(m)。位置は純正のまま。
                          // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
-                         // v6 rev4で0.009→0.006: 共通部品forEachHandBonePointへ一本化、自前の太らせ・中間点挿入を廃止(「でかすぎる」対策)。
                          // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
-  // ===== v6 C0: 直接変形エンジン(原点回帰・設計書_v6構想_原点回帰.md) =====
-  // 物理シミュを主役から降ろし「静止面基準のスカラー凹み場+一次遅れ」。崩壊・裏返り・自己振動が"表現できない"設計。
-  // URLに ?mode=v5 を付けると旧v5(粒子物理)で起動=Quest上のブックマーク2つでA/B可能
-  engineC0: true,        // true=C0直接変形 / false=v5粒子物理
-  c0PatchR: 0.042,       // 凹みカーネル半径(m)。中心50%は平頂
-  c0MaxDent: 0.026,      // 最大凹み(m)。やわらかさレバーで18〜30mm(applyFeel)
-  c0TauIn: 0.08,         // 押し込みの追従時定数(s)。一次遅れ=オーバーシュートが存在しない
-  c0TauOut: 0.18,        // 戻りの時定数(s)。ゆれのこりレバーで120〜250ms(applyFeel)
-  c0Start: 0.004,        // 接触開始のしきい値(m)=この深さ以上の明確な侵入で開始(Schmitt)
-  c0Release: 0.010,      // 接触維持の余裕(m)=この距離まで離れても維持(Schmitt)
-  c0Hold: 0.12,          // 接触消失の猶予(s)=遮蔽・推定飛びの1〜2フレームで切らない
-  c0Smooth: 0.35,        // コライダ位置のEMA平滑係数/フレーム(トラッキングノイズを物理に入れない)
   chestWall: true,       // 胸壁(v4 rev7): 粒が板の裏へ回る=殻の裏返り(9cm貫きで残留)の物理的禁止。falseでA/B比較用
-  safetyFences: true,    // v5: 過伸長・面潰れ/反転・殻間潰れ・異常速度を禁止。falseでA/B比較用
-  edgeStretchMax: 1.50,  // v5: 外殻辺の最大長/静止長
-  areaMinRatio: 0.20,    // v5: 外殻面の最小面積/静止面積
-  shellGapMin: 0.25,     // v5: 外殻―対応中殻距離の最小値/静止値
-  safetyMaxCorr: 0.005,  // v5: 面バリアの1粒・1substep最大補正(m)
-  maxParticleSpeed: 4.0, // v5: finalize後の全可動粒速度上限(m/s)
   faceCollide: true,     // 面あたり(v4 rev3): 粒(点)だけでなく三角形の"面"でも受け止める。細い指が粒のすき間へ
                          // すっと入る貫通の根本対策(点あたりは粒を横に押しのけて指が通ってしまう)。falseで旧挙動(A/B比較用)
-  contactV5: true,       // v5: rest基準の有限強度接触パッチ＋粒子単位の最終集約。falseでv4旧接触経路
-  dentGain: 0.80,        // v5 rev4(P1): 浅い押し込みの追従率。softレバーが上書き(applyFeel)
-  dentDepthScale: 0.85,  // v5 rev4(P1): 最大凹み・底付き位置のスケール。softレバーが上書き
-  contactSMin: 0.20,     // v5: 浅い接触でも残す最低追従率
-  contactPHard: 0.020,   // v5: この押し込み深さ(m)で追従率が1へ到達
-  contactVMax: 3.0,      // v5: 接触による最大補正速度(m/s)。補正上限=contactVMax*sdt。
-                         // 0.5だと靭帯の毎サブステップの戻し(ligamentK×凹み)との綱引きに負けて凹みが7mmで頭打ちした
-  dentCap: 0.040,        // v5: 接触パッチの最大法線凹み(m)
-  contactPatchScale: 2.5,  // v5: パッチ半径=コライダ半径×この値。狭すぎると皮膚の辺が突っ張って深く沈めない
-                           // (実測: 1.5でgap5cm押し12mm→2.5で16mm。本物も凹みは指よりやや広い)
-  contactPatchMinR: 0.028, // v5: 粗い162粒でも複数粒へ分配する最小パッチ半径(m)
-  contactPatchMaxR: 0.050, // v5 rev4: パッチ半径上限。実効上限はmin(この値,0.65*R)。コントローラ球34mmで胸全体を覆うのを防ぐ
   ctrlR: 0.034,          // コントローラの当たり半径(m)
   // --- 有機感(段階2) ---
   coreStart: 0.24,       // 押し込みがこの割合を超えると「芯の抵抗」が効き始める(浅い押しは邪魔しない)
@@ -246,36 +200,11 @@ function applyFeel(){
   const k = Math.max(0, Math.min(1, TUNE.keep));
   // 実測ベース(調査2026-07-12): 皮膚=張力膜(脂肪の10倍硬い)が力を広く分散/戻りは即座(クリープ僅か)/揺れは減衰比0.2-0.5・1-3Hz
   // 実機⑫「レバー0でもまだ柔らかい」→旧0の硬さを新しい真ん中に再配置し、左半分をさらに硬い側へ延長(3回目の再配置)
-  // v5 rev4(P1): レバーの意味を再設計。「構造の剛性」は壊れない狭域に固定し、
-  // スポンジ感の本体=「接触の沈み込み(dentGain/dentDepthScale)・土台(ligamentK)・底付き(coreStart)」を動かす
-  TUNE.edgeCompliance = lerp2(1e-5, 2e-5, 4e-5, s);     // 構造(狭域固定): 皮膚の張力
-  TUNE.fleshRadialC   = lerp2(6e-5, 8e-5, 1.2e-4, s);   // 構造(狭域固定): 果肉の放射
-  TUNE.hariK          = lerp2(300, 240, 180, s);        // 構造(狭域固定): 塊の戻り(揺れの質を保つ)
-  TUNE.dentGain       = lerp2(0.55, 0.80, 1.00, s);     // スポンジ感: 浅い押し込みの追従率(ふわっと感の本体)
-  TUNE.dentDepthScale = lerp2(0.70, 0.85, 1.00, s);     // スポンジ感: 最大凹み・底付き位置
-  TUNE.ligamentK      = lerp2(0.16, 0.12, 0.09, s);     // スポンジ感: 土台の硬さ(局所くぼみの深さ/広さ)
-  TUNE.coreStart      = lerp2(0.18, 0.24, 0.28, s);     // スポンジ感: 底付きの開始(柔らかいほど深くから詰まる)
+  TUNE.edgeCompliance = lerp2(6e-6, 2e-5, 5e-4, s);     // 皮膚の張力。硬め=指の力が広くなだらかに分散(局所の深い穴=人工物っぽさの元)
+  TUNE.fleshRadialC   = lerp2(3e-5, 8e-5, 3e-4, s);     // 果肉(脂肪)の放射方向のやわらかさ。中央=既定値8e-5。押しのけの量を直接左右する
+  TUNE.hariK          = lerp2(420, 240, 45, s);         // 塊の戻り。中央240=固有振動数約2.5Hz(実測1-3Hzの上寄り=張りのある胸)
   TUNE.velDamping     = lerp2(26, 10, 0.6, k);          // 中央10=減衰比約0.32=2回ほどぷるんと揺れて収まる(アンダーダンプ=生体の実測)
-  // C0(直接変形)のレバー: 物理定数でなく「どこに回しても安全な知覚レンジ」だけを動かす(v6憲法4条)
-  TUNE.c0MaxDent = lerp2(0.018, 0.024, 0.030, s);       // やわらかさ=最大凹み18〜30mm
-  TUNE.c0TauOut  = lerp2(0.12, 0.18, 0.25, k);          // ゆれのこり=戻りの時定数120〜250ms
 }
-// 起動モード: 開始画面のボタンで選択(既定=C0)。?mode=v5 のURLでも旧v5で起動できる(ブックマーク用)
-try{
-  const _mode=new URLSearchParams(location.search).get("mode");
-  if(_mode==="v5") TUNE.engineC0=false;
-}catch(e){}
-// 開始画面のエンジン選択ボタン: 選択状態の見た目を同期し、TUNE.engineC0を切り替える
-function syncEngineButtons(){
-  const c0=document.getElementById("engC0"), v5=document.getElementById("engV5");
-  if(!c0||!v5) return;
-  const on=(b)=>{ b.style.background="#e0719c"; b.style.color="#fff"; };
-  const off=(b)=>{ b.style.background="transparent"; b.style.color="#e0719c"; };
-  if(TUNE.engineC0){ on(c0); off(v5); } else { on(v5); off(c0); }
-}
-document.getElementById("engC0").addEventListener("click", ()=>{ TUNE.engineC0=true; syncEngineButtons(); });
-document.getElementById("engV5").addEventListener("click", ()=>{ TUNE.engineC0=false; syncEngineButtons(); });
-syncEngineButtons();
 applyFeel();
 
 /* ============================================================
@@ -321,20 +250,8 @@ bustMat.onBeforeCompile = (sh)=>{
   );
 };
 
-// マネキン(素体GLB)専用の肌テクスチャ材質(v6 rev6)。ふくらみ(bustMat)はUVを持たない生成メッシュのため対象外、
-// 素体GLBは正規のUV展開があるテクスチャ対応の実在モデルなのでここだけ写真テクスチャを貼る。質感パラメータはbustMatと同じ。
-const skinTex = new THREE.TextureLoader().load("./lib/skin_texture.jpg");
-skinTex.colorSpace = THREE.SRGBColorSpace;
-skinTex.wrapS = skinTex.wrapT = THREE.RepeatWrapping;
-skinTex.repeat.set(3, 3);   // 継ぎ目のない素材を体表全体で繰り返し、毛穴の粒度を人間サイズに合わせる
-skinTex.anisotropy = 4;
-const torsoMat = bustMat.clone();
-torsoMat.map = skinTex;
-torsoMat.color.set(0xffffff);   // 色は写真側に任せる(colorを掛けると濁るため白に)
-torsoMat.onBeforeCompile = bustMat.onBeforeCompile;
-
 // トポロジ（単位球。両方のふくらみで共有）
-let N, tri, triN, edge, edgeN, edgeLenU, edgeTriA, edgeTriB, vertexTriOffset, vertexTriIds, rest, restRawU, invMass, grad, restVolU, vmap, vCount, baseGeo, pinCount;
+let N, tri, triN, edge, edgeN, edgeLenU, rest, restRawU, invMass, grad, restVolU, vmap, vCount, baseGeo, pinCount;
 // 脂肪の充填(v4段階A): 中殻(果肉42粒)・芯(種12粒)のトポロジ。添字は N..N+MID_N-1=中殻、N+MID_N..NT-1=芯（外殻0..N-1は既存のまま）
 let MID_N, CORE_N, NT, midRestU, coreRestU, midEdge, midEdgeN, midEdgeLenU, coreEdge, coreEdgeN, coreEdgeLenU;
 let mOf, cOf, fleshLenU, netAcLenU, netCmLenU, seedLenU;
@@ -410,31 +327,12 @@ function buildTopology(){
   teardropDeform(rest, N);   // 涙型に変形(段階2): 先端ほど下へ垂れ・下ふっくら・上なだらか
   triN = vCount/3; tri = new Int32Array(triN*3);
   for(let t=0;t<triN;t++){ tri[t*3]=vm[t*3]; tri[t*3+1]=vm[t*3+1]; tri[t*3+2]=vm[t*3+2]; }
-  const emap=new Map(), el=[], eta=[], etb=[];   // 辺→隣接2面(折れ辺検出用)も同時に構築(v5 rev4)
-  const addE=(a,b,t)=>{
-    const key=a<b?a+"_"+b:b+"_"+a;
-    let e=emap.get(key);
-    if(e===undefined){ e=el.length/2; emap.set(key,e); el.push(a,b); eta.push(t); etb.push(-1); }
-    else if(etb[e]===-1){ etb[e]=t; }
-  };
-  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; addE(a,b,t); addE(b,c,t); addE(c,a,t); }
-  edge=new Int32Array(el); edgeN=el.length/2;
-  edgeTriA=new Int32Array(eta); edgeTriB=new Int32Array(etb);
+  const eset = new Set(); const el = [];
+  const addE = (a,b)=>{ const key=a<b?a+"_"+b:b+"_"+a; if(!eset.has(key)){ eset.add(key); el.push(a,b); } };
+  for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2]; addE(a,b); addE(b,c); addE(c,a); }
+  edge = new Int32Array(el); edgeN = el.length/2;
   edgeLenU = new Float32Array(edgeN);
   for(let e=0;e<edgeN;e++){ const a=edge[e*2],b=edge[e*2+1]; edgeLenU[e]=Math.hypot(rest[a*3]-rest[b*3],rest[a*3+1]-rest[b*3+1],rest[a*3+2]-rest[b*3+2]); }
-  // 頂点→隣接面CSR(v5 rev4): 接触粒の1-ringだけを面柵で検査するため、起動時に一度だけ構築
-  const vertexTriCount=new Int32Array(N);
-  for(let t=0;t<triN;t++){ vertexTriCount[tri[t*3]]++; vertexTriCount[tri[t*3+1]]++; vertexTriCount[tri[t*3+2]]++; }
-  vertexTriOffset=new Int32Array(N+1);
-  for(let i=0;i<N;i++) vertexTriOffset[i+1]=vertexTriOffset[i]+vertexTriCount[i];
-  vertexTriIds=new Int32Array(vertexTriOffset[N]);
-  const vertexTriWrite=vertexTriOffset.slice(0,N);
-  for(let t=0;t<triN;t++){
-    const ia=tri[t*3], ib=tri[t*3+1], ic=tri[t*3+2];
-    vertexTriIds[vertexTriWrite[ia]++]=t;
-    vertexTriIds[vertexTriWrite[ib]++]=t;
-    vertexTriIds[vertexTriWrite[ic]++]=t;
-  }
   let rv=0;
   for(let t=0;t<triN;t++){ const a=tri[t*3],b=tri[t*3+1],c=tri[t*3+2];
     const ax=rest[a*3],ay=rest[a*3+1],az=rest[a*3+2], bx=rest[b*3],by=rest[b*3+1],bz=rest[b*3+2], cx=rest[c*3],cy=rest[c*3+1],cz=rest[c*3+2];
@@ -549,12 +447,9 @@ plateMesh.position.set(0,0,-0.010); plateGroup.add(plateMesh);
 // 解剖学ベースの上半身(段階3-1): Blender公式のCC0写実女性素体(GLB)を胸板に取り付ける。
 // 読めたら板は隠す(読めなければ従来の板のまま=フォールバック)。ふくらみ物理は不変。
 let torso = null;
-const _dracoLoader = new DRACOLoader().setDecoderPath("./lib/draco/");   // Draco復元器(オフライン同梱・展開は別スレッド)。読めなければ従来どおり板にフォールバック
-const _gltfLoader = new GLTFLoader(); _gltfLoader.setDRACOLoader(_dracoLoader);
-_gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
+new GLTFLoader().load("./lib/models/female_base.glb", (gltf)=>{
   torso = gltf.scene;
   bustMat.side = THREE.DoubleSide;   // カット断面から内側が見えても肌色に(ふくらみは閉じているので無害)
-  torsoMat.side = THREE.DoubleSide;
   // ※ズレ(x≈+1.34)は頂点でなく「ノードの位置」に入っている→必ずシーン座標(ノード変換込み)で測る
   torso.updateMatrixWorld(true);
   let kminx=1e9,kmaxx=-1e9,kminz=1e9,kmaxz=-1e9, kfeet=1e9;   // 残した部分のシーン座標bbox(中心合わせ用)
@@ -593,7 +488,7 @@ _gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
     if(y0<kfeet) kfeet=y0;
     g.computeVertexNormals();   // 滑らかな法線=カクカクした面の継ぎ目を消す
     g.computeBoundingSphere();  // 平胸化で頂点を動かしたのでレイキャスト用の境界も更新
-    o.material = torsoMat;      // マネキンは写真テクスチャ入りの肌素材(ふくらみは従来のbustMatのまま)
+    o.material = bustMat;       // ふくらみと同じ肌素材(色・質感を完全に一致させる)
     o.frustumCulled = false;
   }});
   const cx=(kminx+kmaxx)/2, cz=(kminz+kmaxz)/2;
@@ -670,87 +565,11 @@ function computeTargets(B){
   B.anchorW[2] = M[2]*ax + M[6]*ay + M[10]*az + M[14];
   // 胸壁の法線(板ローカル+z軸のワールド向き)。粒が胸壁の裏へ回る=殻の裏返り(volRatio負で発覚)の防止に使う(v4 rev7)
   plateNx = M[8]; plateNy = M[9]; plateNz = M[10];
-  if(B.restNormalLocal) updateRestNormalsWorld(B);   // 板の剛体移動・回転を法線に毎フレーム反映(v5 rev4)
-}
-
-// 面積加重の静止頂点法線(v5 rev4)。tgtから構築し、向きはanchorWへ向かう「内向き」に統一。
-// アンカー放射(anchorW−tgt_i)は涙型・フィット形では表面法線でない(斜め引き・中心寄せの原因)ため置換。
-function rebuildRestNormals(B){
-  if(!B.restNormal || B.restNormal.length!==N*3) B.restNormal=new Float32Array(N*3);
-  if(!B.restNormalLocal || B.restNormalLocal.length!==N*3) B.restNormalLocal=new Float32Array(N*3);
-
-  const W=B.restNormal;
-  const L=B.restNormalLocal;
-  W.fill(0);
-
-  for(let t=0;t<triN;t++){
-    const ia=tri[t*3], ib=tri[t*3+1], ic=tri[t*3+2];
-    const ax=B.tgt[ia*3], ay=B.tgt[ia*3+1], az=B.tgt[ia*3+2];
-    const abx=B.tgt[ib*3]-ax, aby=B.tgt[ib*3+1]-ay, abz=B.tgt[ib*3+2]-az;
-    const acx=B.tgt[ic*3]-ax, acy=B.tgt[ic*3+1]-ay, acz=B.tgt[ic*3+2]-az;
-    const nx=aby*acz-abz*acy;
-    const ny=abz*acx-abx*acz;
-    const nz=abx*acy-aby*acx;
-    W[ia*3]+=nx; W[ia*3+1]+=ny; W[ia*3+2]+=nz;
-    W[ib*3]+=nx; W[ib*3+1]+=ny; W[ib*3+2]+=nz;
-    W[ic*3]+=nx; W[ic*3+1]+=ny; W[ic*3+2]+=nz;
-  }
-
-  const M=plateGroup.matrixWorld.elements;
-  for(let i=0;i<N;i++){
-    const ci=i*3;
-    const inwardX=B.anchorW[0]-B.tgt[ci];
-    const inwardY=B.anchorW[1]-B.tgt[ci+1];
-    const inwardZ=B.anchorW[2]-B.tgt[ci+2];
-
-    let nx=W[ci], ny=W[ci+1], nz=W[ci+2];
-    let nl=Math.hypot(nx,ny,nz);
-    if(nl<1e-12){
-      nx=inwardX; ny=inwardY; nz=inwardZ;
-      nl=Math.hypot(nx,ny,nz);
-      if(nl<1e-12){ nx=-plateNx; ny=-plateNy; nz=-plateNz; nl=1; }
-    }
-    nx/=nl; ny/=nl; nz/=nl;
-    if(nx*inwardX+ny*inwardY+nz*inwardZ<0){ nx=-nx; ny=-ny; nz=-nz; }
-    W[ci]=nx; W[ci+1]=ny; W[ci+2]=nz;
-
-    // 板ローカルにも保存(板を動かした時のワールド法線の置き去り防止)
-    let lx=M[0]*nx+M[1]*ny+M[2]*nz;
-    let ly=M[4]*nx+M[5]*ny+M[6]*nz;
-    let lz=M[8]*nx+M[9]*ny+M[10]*nz;
-    const ll=Math.hypot(lx,ly,lz);
-    if(ll>1e-12){ lx/=ll; ly/=ll; lz/=ll; }
-    L[ci]=lx; L[ci+1]=ly; L[ci+2]=lz;
-  }
-}
-
-// 法線形状は再構築せず、板の剛体変換だけ反映
-function updateRestNormalsWorld(B){
-  const M=plateGroup.matrixWorld.elements;
-  const L=B.restNormalLocal;
-  const W=B.restNormal;
-  for(let i=0;i<N;i++){
-    const ci=i*3;
-    const lx=L[ci], ly=L[ci+1], lz=L[ci+2];
-    let nx=M[0]*lx+M[4]*ly+M[8]*lz;
-    let ny=M[1]*lx+M[5]*ly+M[9]*lz;
-    let nz=M[2]*lx+M[6]*ly+M[10]*lz;
-    const nl=Math.hypot(nx,ny,nz);
-    if(nl>1e-12){ nx/=nl; ny/=nl; nz/=nl; }
-    W[ci]=nx; W[ci+1]=ny; W[ci+2]=nz;
-  }
 }
 function placeBust(B){
   computeTargets(B);
-  rebuildRestNormals(B);   // 静止頂点法線を再構築(フィット/サイズ/涙型が変わるたびに)
   for(let i=0;i<NT*3;i++){ B.pos[i]=B.tgt[i]; B.prev[i]=B.tgt[i]; B.vel[i]=0; }   // NT=外殻+中殻+芯。速度0・prev=pos(キネマティック鉄則と同じ、地雷2)
-  // torsoフィット時はfitBustsToTorsoが算出したB.restVolを保持。非フィット時もWX/PZ/涙型込みの実形状からV0を一度だけ固定
-  if(!Number.isFinite(B.restVol) || B.restVol<=1e-12) B.restVol=outerSignedVolume(B.tgt);
-  B.curVol=outerSignedVolume(B.pos);
-  B.volLambdaLo=0;
-  B.volLambdaHi=0;
-  resetContactV5State(B);
-  checkVolumeGuardStart(B);
+  B.curVol = B.restVol || restVolU*R*R*R;
   B.mesh.visible = true;
 }
 // 付け根を素体の胸の曲面に沿わせる(段階3-2の核心)。板の後ろからレイを飛ばし、付け根の粒を素体表面に置く。
@@ -868,7 +687,7 @@ function arrangeBusts(){
 }
 
 /* --- 当たり判定用の球（指先・コントローラ・PC押し込み） --- */
-const MAXCOL = 240;   // 骨格コライダー(骨沿い連続配置・約90〜110個/手)×両手＋コントローラ2を収める。超過はaddColが黙って捨てるので余裕を持たせる
+const MAXCOL = 104;   // 純正ハンドの25関節＋中間球24(すき間埋め)＝49×両手＋コントローラ2＝最大100を収める
 // 中間球の橋渡し表(WebXR仕様の関節順: 0=手首,1-4=親指,5-9=人差指,10-14=中指,15-19=薬指,20-24=小指)
 // 「同じ指の中の隣り合う関節」＋「手首→各指の付け根」。指またぎ(4→5等)は架けない。
 const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
@@ -878,279 +697,25 @@ const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
 let colN = 0;
 let contactDepth = 0;
-// ふくらみ2つの「今の位置+半径」(素手の骨格コライダーをxr-hands共通部品のnearに渡す軽量化用/v6 rev5)。
-// 毎フレームnewしない使い回し配列。中身はupdateNearBulges()で書き換えるだけ。
-const nearBulge = [[0,0,0,0],[0,0,0,0]];
-function updateNearBulges(){
-  for(let bi=0; bi<busts.length && bi<2; bi++){
-    const B = busts[bi], nb = nearBulge[bi];
-    const s = B.mesh && B.mesh.geometry && B.mesh.geometry.boundingSphere;
-    if(s){ nb[0]=s.center.x; nb[1]=s.center.y; nb[2]=s.center.z; nb[3]=s.radius + 0.05; }
-    else { nb[0]=B.mount.x; nb[1]=B.mount.y; nb[2]=0; nb[3]=R*2.5 + 0.05; }   // 起動直後・未描画時のフォールバック
-  }
-}
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
 // CCD(貫通防止): 手の位置は1フレームに1回しか取れないが、物理はサブステップで回る。
 // 前フレーム位置→今フレーム位置を補間した「通り道」で当てると、速い手が粒を飛び越えて中に入るのを防げる。
 const pColX=new Float32Array(MAXCOL), pColY=new Float32Array(MAXCOL), pColZ=new Float32Array(MAXCOL); let pColN=0;
 const eColX=new Float32Array(MAXCOL), eColY=new Float32Array(MAXCOL), eColZ=new Float32Array(MAXCOL);
-// v5接触の全作業領域。Bごとに一度だけ確保し、フレーム・サブステップ中は再利用する。
-function contactV5StateOf(B){
-  if(B.contactV5State) return B.contactV5State;
-  const S = {
-    patchActive: new Uint8Array(MAXCOL),
-    patchSeen: new Uint8Array(MAXCOL),
-    patchType: new Uint8Array(MAXCOL),
-    patchQ: new Float32Array(MAXCOL*3),
-    patchN: new Float32Array(MAXCOL*3),
-    patchRadius: new Float32Array(MAXCOL),
-    patchColR: new Float32Array(MAXCOL),
-    patchAge: new Uint8Array(MAXCOL),
-    patchLastX: new Float32Array(MAXCOL),
-    patchLastY: new Float32Array(MAXCOL),
-    patchLastZ: new Float32Array(MAXCOL),
-    patchW: new Float32Array(MAXCOL*N),
-
-    bestDepth: new Float32Array(N),
-    bestCorr: new Float32Array(N*3),
-    bestK: new Int16Array(N),
-    bestCX: new Float32Array(N),
-    bestCY: new Float32Array(N),
-    bestCZ: new Float32Array(N),
-
-    prevBestK: new Int16Array(N),
-    prevDepth: new Float32Array(N),
-    prevCorr: new Float32Array(N*3),
-
-    applyCount: new Uint8Array(N),
-    appliedParticle: new Int16Array(N),
-    appliedN: 0,
-
-    dirtyFaceMark: new Uint8Array(triN),
-    dirtyFaceList: new Int32Array(triN),
-
-    frameMaxApply: 0,
-    lastFrameMaxApply: 0
-  };
-  S.patchLastX.fill(NaN);
-  S.patchLastY.fill(NaN);
-  S.patchLastZ.fill(NaN);
-  S.bestK.fill(-1);
-  S.prevBestK.fill(-1);
-  B.contactV5State = S;
-  return S;
-}
-
-function resetContactV5State(B){
-  const S=contactV5StateOf(B);
-  S.patchActive.fill(0);
-  S.patchSeen.fill(0);
-  S.patchW.fill(0);
-  S.bestK.fill(-1);
-  S.prevBestK.fill(-1);
-  S.applyCount.fill(0);
-  S.appliedN=0;
-  S.dirtyFaceMark.fill(0);
-  S.patchLastX.fill(NaN);
-  S.patchLastY.fill(NaN);
-  S.patchLastZ.fill(NaN);
-  S.frameMaxApply=0;
-  S.lastFrameMaxApply=0;
-}
-
-function beginContactFrameV5(B, clearPatches){
-  const S=contactV5StateOf(B);
-  S.patchSeen.fill(0);
-  S.frameMaxApply=0;
-  if(clearPatches){
-    S.patchActive.fill(0);
-    S.prevBestK.fill(-1);
-  }
-}
-
-function endContactFrameV5(B){
-  const S=contactV5StateOf(B);
-  for(let k=0;k<MAXCOL;k++){
-    if(k>=colN || !S.patchSeen[k]){
-      S.patchActive[k]=0;
-      continue;
-    }
-    S.patchLastX[k]=colX[k];
-    S.patchLastY[k]=colY[k];
-    S.patchLastZ[k]=colZ[k];
-    S.patchColR[k]=colR[k];
-    if(S.patchAge[k]<255) S.patchAge[k]++;   // 加齢は「フレーム単位」(substep単位だと1フレームでランプが終わり効かない)
-  }
-  S.lastFrameMaxApply=S.frameMaxApply;
-}
-
-function markContactApply(B, i){
-  const S=contactV5StateOf(B);
-  if(S.applyCount[i]===0 && S.appliedN<N){
-    S.appliedParticle[S.appliedN++]=i;   // dirty面検査(1-ring)の種
-  }
-  if(S.applyCount[i]<255) S.applyCount[i]++;
-  if(S.applyCount[i]>S.frameMaxApply) S.frameMaxApply=S.applyCount[i];
-}
 
 /* --- XPBD 1歩（h=1/60 を substeps に刻む） --- */
 const FIXED = 1/60;
 let physAcc = 0, physMs = 0;
 let restVolCur = 0, edgeLenCur = null;   // 現在処理中のふくらみの静止体積・辺基準長(曲面フィット後は各自の値)
 function usePtr(B){ pos=B.pos; prev=B.prev; vel=B.vel; curVol=B.curVol; restVolCur = B.restVol || restVolU*R*R*R; edgeLenCur = B.edgeLen || null; }
-// 外殻の符号付き体積(v5): 体積ガードのV0固定と起動時デッドゾーン検査に使う
-function outerSignedVolume(P){
-  let V=0;
-  for(let t=0;t<triN;t++){
-    const a=tri[t*3], b=tri[t*3+1], c=tri[t*3+2];
-    const ax=P[a*3], ay=P[a*3+1], az=P[a*3+2];
-    const bx=P[b*3], by=P[b*3+1], bz=P[b*3+2];
-    const cx=P[c*3], cy=P[c*3+1], cz=P[c*3+2];
-    V+=(ax*(by*cz-bz*cy)+ay*(bz*cx-bx*cz)+az*(bx*cy-by*cx))/6;
-  }
-  return V;
-}
-function checkVolumeGuardStart(B){
-  const V0=B.restVol;
-  const V=outerSignedVolume(B.pos);
-  const ratio=V0>1e-12 ? V/V0 : NaN;
-  B.startVolRatio=ratio;
-  if(!Number.isFinite(ratio) || ratio<TUNE.volGuardLo || ratio>TUNE.volGuardHi){
-    log("警告: v5体積ガードの初期値がデッドゾーン外です ratio="+(Number.isFinite(ratio)?ratio.toFixed(4):"NaN")
-      +" zone=["+TUNE.volGuardLo.toFixed(3)+","+TUNE.volGuardHi.toFixed(3)+"]", true);
-  }
-}
-
-/* ============================================================
-   v6 C0: 直接変形エンジン(設計書_v6構想_原点回帰.md)
-   思想: 追跡→接触推定→時間安定化→変形(センサー品質を超える物理を作らない)。
-   各粒は「静止法線方向の凹み量d」だけを持ち pos=静止形+法線×d。
-   一次遅れ追従=オーバーシュートが存在しない。速度は常に0=自由振動が存在しない。
-   崩壊・裏返り・自己振動という状態が"表現できない"。
-   ============================================================ */
-const c0Ex=new Float32Array(MAXCOL), c0Ey=new Float32Array(MAXCOL), c0Ez=new Float32Array(MAXCOL);
-const c0Seen=new Uint8Array(MAXCOL);
-function c0StateOf(B){
-  if(B.c0) return B.c0;
-  B.c0={ d:new Float32Array(N), tgtD:new Float32Array(N),
-         act:new Uint8Array(MAXCOL), hold:new Float32Array(MAXCOL),
-         q:new Int32Array(MAXCOL), p:new Float32Array(MAXCOL) };
-  return B.c0;
-}
-function c0Step(h){
-  // コライダ位置のEMA平滑(トラッキングノイズを変形に入れない・会議結論の機序1位対策)
-  if(colN!==pColN) c0Seen.fill(0);   // 本数が変わったら対応が崩れるので張り直し
-  for(let k=0;k<colN;k++){
-    if(!c0Seen[k]){ c0Ex[k]=colX[k]; c0Ey[k]=colY[k]; c0Ez[k]=colZ[k]; c0Seen[k]=1; }
-    else{ const a=TUNE.c0Smooth; c0Ex[k]+=(colX[k]-c0Ex[k])*a; c0Ey[k]+=(colY[k]-c0Ey[k])*a; c0Ez[k]+=(colZ[k]-c0Ez[k])*a; }
-  }
-  for(let k=colN;k<MAXCOL;k++) c0Seen[k]=0;
-
-  breathT+=h; breathZ=0;   // C0評価中は呼吸OFF(会議決定: 基礎系が完全静止できるまで戻さない)
-
-  for(const B of busts){
-    computeTargets(B);
-    const S=c0StateOf(B);
-    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
-    let mDr=0.15; if(B.drA){ mDr=0; for(let i=0;i<N;i++) if(B.drA[i]>mDr) mDr=B.drA[i]; }
-
-    // --- 接触意図の更新(Schmittトリガー+消失猶予)。深さは"静止面"基準=変形結果を入力へ戻さない(自己振動しない) ---
-    for(let k=0;k<MAXCOL;k++){
-      if(k>=colN){ S.act[k]=0; continue; }
-      const cx=c0Ex[k], cy=c0Ey[k], cz=c0Ez[k], Rc=colR[k];
-      const dxA=cx-ax, dyA=cy-ay, dzA=cz-az;
-      if(dxA*dxA+dyA*dyA+dzA*dzA > (mDr+Rc+0.05)*(mDr+Rc+0.05)){
-        if(S.act[k]){ S.hold[k]-=h; if(S.hold[k]<=0) S.act[k]=0; }
-        continue;
-      }
-      // 最寄りの静止表面粒(粗い162粒で十分)
-      let best=1e9, bi=-1;
-      for(let i=0;i<N;i++){
-        if(invMass[i]===0) continue;
-        const dx=B.tgt[i*3]-cx, dy=B.tgt[i*3+1]-cy, dz=B.tgt[i*3+2]-cz;
-        const d2=dx*dx+dy*dy+dz*dz;
-        if(d2<best){ best=d2; bi=i; }
-      }
-      if(bi<0){ S.act[k]=0; continue; }
-      const ni=bi*3;
-      const nx=B.restNormal[ni], ny=B.restNormal[ni+1], nz=B.restNormal[ni+2];
-      const p=Rc+(cx-B.tgt[ni])*nx+(cy-B.tgt[ni+1])*ny+(cz-B.tgt[ni+2])*nz;   // 静止面への侵入深さ
-      if(S.act[k]){
-        if(p>-TUNE.c0Release){ S.hold[k]=TUNE.c0Hold; S.q[k]=bi; S.p[k]=Math.max(0,p); }
-        else{ S.hold[k]-=h; if(S.hold[k]<=0) S.act[k]=0; }
-      }else if(p>TUNE.c0Start){
-        S.act[k]=1; S.hold[k]=TUNE.c0Hold; S.q[k]=bi; S.p[k]=p;
-      }
-      if(S.act[k] && S.p[k]>contactDepth) contactDepth=S.p[k];   // 音・振動用
-    }
-
-    // --- 凹みターゲット: 複数接触はmax(加算しない)。平頂カーネル ---
-    const T=S.tgtD; T.fill(0);
-    const PR=TUNE.c0PatchR, core=PR*0.5, fall=PR-core;
-    for(let k=0;k<colN;k++){
-      if(!S.act[k]) continue;
-      const qi=S.q[k]*3;
-      const qx=B.tgt[qi], qy=B.tgt[qi+1], qz=B.tgt[qi+2];
-      const depth=Math.min(TUNE.c0MaxDent, S.p[k]);
-      if(depth<=0) continue;
-      for(let i=0;i<N;i++){
-        if(invMass[i]===0) continue;
-        const dx=B.tgt[i*3]-qx, dy=B.tgt[i*3+1]-qy, dz=B.tgt[i*3+2]-qz;
-        const r=Math.hypot(dx,dy,dz);
-        if(r>=PR) continue;
-        let w=1;
-        if(r>core){ const u=(r-core)/fall; w=1-u*u*(3-2*u); }
-        const t=depth*w;
-        if(t>T[i]) T[i]=t;
-      }
-    }
-
-    // --- 一次遅れ追従(押し=速く/戻り=ゆっくり)+完全静止スナップ ---
-    const aIn =1-Math.exp(-h/Math.max(1e-3,TUNE.c0TauIn));
-    const aOut=1-Math.exp(-h/Math.max(1e-3,TUNE.c0TauOut));
-    for(let i=0;i<N;i++){
-      const t=T[i];
-      let d=S.d[i];
-      d += (t-d) * (t>d ? aIn : aOut);
-      if(t<=0 && d<0.0003) d=0;   // 放置すると"完全に"止まる(常時ジッターの根絶)
-      S.d[i]=d;
-    }
-
-    // --- 位置の直書き: pos = 静止形 + 内向き法線×d。速度は常に0 ---
-    for(let i=0;i<N;i++){
-      const ci=i*3, d=S.d[i];
-      B.pos[ci]  =B.tgt[ci]  +B.restNormal[ci]  *d;
-      B.pos[ci+1]=B.tgt[ci+1]+B.restNormal[ci+1]*d;
-      B.pos[ci+2]=B.tgt[ci+2]+B.restNormal[ci+2]*d;
-      B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
-      B.vel[ci]=0; B.vel[ci+1]=0; B.vel[ci+2]=0;
-    }
-    for(let i=N;i<NT;i++){
-      const ci=i*3;
-      B.pos[ci]=B.tgt[ci]; B.pos[ci+1]=B.tgt[ci+1]; B.pos[ci+2]=B.tgt[ci+2];
-      B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
-      B.vel[ci]=0; B.vel[ci+1]=0; B.vel[ci+2]=0;
-    }
-    B.curVol=B.restVol||restVolU*R*R*R;
-  }
-}
 
 function softStep(h){
   if(!bustReady) return;
-  if(TUNE.engineC0){
-    c0Step(h);
-    if(statsWorstActive) updateStatsWorst();
-    for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }
-    pColN = colN;
-    return;
-  }
   breathT += h;
   breathZ = TUNE.breath * Math.sin(breathT * Math.PI*2 * TUNE.breathHz);   // 呼吸(ゆっくり前後)
   for(const B of busts) computeTargets(B);         // 板の今の姿勢での定位置（フレーム内は板は動かない）
   const sub = TUNE.substeps, sdt = h/sub;
   const ccd = (colN>0 && colN===pColN);   // 前フレームと本数が同じ時だけ「通り道」を補間(速い手の貫通防止)
-  const clearContactPatches = !TUNE.contactV5 || colN!==pColN;   // 本数が変わったらkの対応が崩れるのでパッチ全破棄
-  for(const B of busts) beginContactFrameV5(B, clearContactPatches);
   buildFaceCandidates();   // 面あたり(v4 rev3): コライダ近くの三角形をフレーム頭に1回だけ絞り込む(毎サブステップは重い)
   for(let s=0;s<sub;s++){
     const t=(s+1)/sub;
@@ -1163,18 +728,15 @@ function softStep(h){
       integrate(B, sdt);
       solveEdges(sdt);
       solveFlesh(B, sdt);   // 脂肪の充填(v4段階A): 果肉・網目・種の距離制約。solveEdgesの直後(設計書#5)
-      solveVolume(B, sdt);
+      solveVolume(sdt);
       solveCore(B);
-      solveColliders(B, sdt);   // contactV5=trueならrest基準パッチ、falseならv4旧経路
-      applyChestWall(B);   // 胸壁の後にv5安全柵を通し、最後に速度へ変換する
-      if(s===sub-1) applySafetyFences(B);   // 最終substepは辺・面・殻間を全面検査
-      else applyDirtyFaceFences(B);        // それ以前は接触適用粒の1-ring面だけを早期検査(v5 rev4)
+      solveColliders(B);   // v4 rev4: 接触を芯の後=サブステップ内の最後に。芯(靭帯・床)が接触の押しを毎回
+                           // 引き戻して「皮膚が指に付いてこない=深押しでめり込んで見える」のを防ぐ(最後の発言権は接触)
+      applyChestWall(B);   // v4 rev8: 胸壁は接触よりさらに後=接触が粒を壁裏へ押してもサブステップ内で必ず戻す
       finalize(sdt);
       B.curVol = curVol;
     }
   }
-  for(const B of busts) endContactFrameV5(B);
-  if(statsWorstActive) updateStatsWorst();   // 通常運転はboolean分岐だけ。蓄積中のみ重い統計を計算(v5 rev4)
   for(let k=0;k<colN;k++){ pColX[k]=colX[k]; pColY[k]=colY[k]; pColZ[k]=colZ[k]; }   // 次フレームのCCD用に記憶
   pColN = colN;
 }
@@ -1230,192 +792,6 @@ function applyChestWall(B){
     }
   }
 }
-// 柵とcontactStats v2で必ず共有する基準・除外判定(v5 rev4)。
-// 段階②以降、辺は固定粒接続でも保護し(invMass配分が固定側を守る)、真に退化した基準長1mm未満だけを除外する。
-function edgeRestLengthFor(B,e){
-  return B.edgeLen ? B.edgeLen[e] : edgeLenU[e]*R;
-}
-function edgeFenceExcluded(restLen, ia, ib){
-  // 除外=6mm未満 or 固定粒接続。Codex案(1mmのみ・固定接続はinvMass配分で保護)を実測が棄却:
-  // 付け根フィット由来で「固定粒接続かつ基準長6mm以上」の辺が静止時から3.6倍に伸びて常在し、
-  // 除外しないと柵が静止で常時発火(edgeP=1.500張り付き)する。将来の正攻法はbaseline相対の柵(カルテ参照)
-  return !Number.isFinite(restLen) || restLen<0.006 || invMass[ia]===0 || invMass[ib]===0;
-}
-function faceFenceExcluded(ia,ib,ic){
-  return invMass[ia]===0 || invMass[ib]===0 || invMass[ic]===0;
-}
-function shellRestGapFor(B,i){
-  return B.fleshLen ? B.fleshLen[i] : fleshLenU[i]*R;
-}
-// contactStats v2と同じsigned area ratioで、対象面の復元係数を頂点へ集約する(v5 rev4面柵の共通部)
-function accumulateFaceFence(B, t, faceK){
-  const ia=tri[t*3], ib=tri[t*3+1], ic=tri[t*3+2];
-  if(faceFenceExcluded(ia,ib,ic)) return;
-
-  const tax=B.tgt[ia*3], tay=B.tgt[ia*3+1], taz=B.tgt[ia*3+2];
-  const tabx=B.tgt[ib*3]-tax, taby=B.tgt[ib*3+1]-tay, tabz=B.tgt[ib*3+2]-taz;
-  const tacx=B.tgt[ic*3]-tax, tacy=B.tgt[ic*3+1]-tay, tacz=B.tgt[ic*3+2]-taz;
-  const tnx=taby*tacz-tabz*tacy;
-  const tny=tabz*tacx-tabx*tacz;
-  const tnz=tabx*tacy-taby*tacx;
-  const restArea2Sq=tnx*tnx+tny*tny+tnz*tnz;
-  if(restArea2Sq<1e-24) return;
-
-  const ax=pos[ia*3], ay=pos[ia*3+1], az=pos[ia*3+2];
-  const abx=pos[ib*3]-ax, aby=pos[ib*3+1]-ay, abz=pos[ib*3+2]-az;
-  const acx=pos[ic*3]-ax, acy=pos[ic*3+1]-ay, acz=pos[ic*3+2]-az;
-  const nx=aby*acz-abz*acy;
-  const ny=abz*acx-abx*acz;
-  const nz=abx*acy-aby*acx;
-
-  const rs=(nx*tnx+ny*tny+nz*tnz)/restArea2Sq;
-  if(rs>=0.35) return;
-
-  // 連続係数(閾値の段差禁止): rs=0.35で0→潰れ/反転で最大
-  let u=(0.35-rs)/0.35;
-  if(u<0) u=0; else if(u>1) u=1;
-  const smooth=u*u*(3-2*u);
-  let k=0.35*smooth;
-  if(rs<0 && k<0.50) k=0.50;
-
-  if(k>faceK[ia]) faceK[ia]=k;
-  if(k>faceK[ib]) faceK[ib]=k;
-  if(k>faceK[ic]) faceK[ic]=k;
-}
-
-function applyAccumulatedFaceFence(B, faceK){
-  for(let i=0;i<N;i++){
-    const k=faceK[i];
-    if(k<=0 || invMass[i]===0) continue;
-
-    let dx=(B.tgt[i*3]-pos[i*3])*k;
-    let dy=(B.tgt[i*3+1]-pos[i*3+1])*k;
-    let dz=(B.tgt[i*3+2]-pos[i*3+2])*k;
-    const d=Math.hypot(dx,dy,dz);
-    if(d>TUNE.safetyMaxCorr && d>1e-12){
-      const s=TUNE.safetyMaxCorr/d;
-      dx*=s; dy*=s; dz*=s;
-    }
-    pos[i*3]+=dx; pos[i*3+1]+=dy; pos[i*3+2]+=dz;
-  }
-}
-
-function applyFullFaceFences(B){
-  if(!B.safetyFaceK) B.safetyFaceK=new Float32Array(N);
-  const faceK=B.safetyFaceK;
-  faceK.fill(0);
-  for(let t=0;t<triN;t++) accumulateFaceFence(B,t,faceK);
-  applyAccumulatedFaceFence(B,faceK);
-}
-
-// 接触補正が実際に適用された粒の隣接面+1-ring拡張だけを検査(接触substepの早期予防・v5 rev4)
-function applyDirtyFaceFences(B){
-  if(!TUNE.safetyFences) return;
-
-  const S=contactV5StateOf(B);
-  if(S.appliedN===0) return;
-
-  const dirtyFaceMark=S.dirtyFaceMark;
-  const dirtyFaceList=S.dirtyFaceList;
-  let dirtyN=0;
-
-  for(let q=0;q<S.appliedN;q++){
-    const i=S.appliedParticle[q];
-    for(let p=vertexTriOffset[i];p<vertexTriOffset[i+1];p++){
-      const t=vertexTriIds[p];
-      if(dirtyFaceMark[t]===0){ dirtyFaceMark[t]=1; dirtyFaceList[dirtyN++]=t; }
-    }
-  }
-
-  const seedN=dirtyN;
-  for(let q=0;q<seedN;q++){
-    const t=dirtyFaceList[q];
-    for(let c=0;c<3;c++){
-      const i=tri[t*3+c];
-      for(let p=vertexTriOffset[i];p<vertexTriOffset[i+1];p++){
-        const adjacentT=vertexTriIds[p];
-        if(dirtyFaceMark[adjacentT]===0){ dirtyFaceMark[adjacentT]=1; dirtyFaceList[dirtyN++]=adjacentT; }
-      }
-    }
-  }
-
-  if(!B.safetyFaceK) B.safetyFaceK=new Float32Array(N);
-  const faceK=B.safetyFaceK;
-  faceK.fill(0);
-
-  for(let q=0;q<dirtyN;q++) accumulateFaceFence(B,dirtyFaceList[q],faceK);
-  applyAccumulatedFaceFence(B,faceK);
-
-  for(let q=0;q<dirtyN;q++) dirtyFaceMark[dirtyFaceList[q]]=0;
-}
-// v5安全柵。材料感を作る制約ではなく、数値的に「許可してはいけない状態」だけを止める最後の柵。
-// applyChestWallの後、finalizeで位置補正を速度化する前に1回だけ呼ぶ。
-function applySafetyFences(B){
-  if(!TUNE.safetyFences) return;
-
-  // 1) 外殻辺の過伸長。invMass比で配分し、固定粒は動かさない。
-  for(let e=0;e<edgeN;e++){
-    const ia=edge[e*2], ib=edge[e*2+1];
-    let dx=pos[ia*3]-pos[ib*3];
-    let dy=pos[ia*3+1]-pos[ib*3+1];
-    let dz=pos[ia*3+2]-pos[ib*3+2];
-    const len=Math.hypot(dx,dy,dz);
-    if(len<1e-9) continue;
-
-    const restLen=edgeRestLengthFor(B,e);
-    if(edgeFenceExcluded(restLen, ia, ib)) continue;
-    const maxLen=restLen*TUNE.edgeStretchMax;
-    if(len<=maxLen) continue;
-
-    const wa=invMass[ia], wb=invMass[ib];
-    const wsum=wa+wb;
-    if(wsum<1e-9) continue;
-
-    dx/=len; dy/=len; dz/=len;
-    const corr=len-maxLen;
-    const ca=corr*wa/wsum;
-    const cb=corr*wb/wsum;
-
-    pos[ia*3]-=dx*ca; pos[ia*3+1]-=dy*ca; pos[ia*3+2]-=dz*ca;
-    pos[ib*3]+=dx*cb; pos[ib*3+1]+=dy*cb; pos[ib*3+2]+=dz*cb;
-  }
-
-  // 2) 面積潰れ・反転。signed area ratioに対する連続係数で全面検査(v5 rev4)。
-  // 固定粒を含む面は、フィット由来の常在歪みがあるため引き続き除外(accumulateFaceFence内で判定)。
-  applyFullFaceFences(B);
-
-  // 3) 外殻―対応中殻の最小間隔。距離ゼロ時は静止形の方向を使用する。
-  for(let i=0;i<N;i++){
-    if(invMass[i]===0) continue;
-    const j=mOf[i], ib=N+j;
-    const restGap=shellRestGapFor(B,i);
-    const minGap=restGap*TUNE.shellGapMin;
-
-    let dx=pos[i*3]-pos[ib*3];
-    let dy=pos[i*3+1]-pos[ib*3+1];
-    let dz=pos[i*3+2]-pos[ib*3+2];
-    let d=Math.hypot(dx,dy,dz);
-    if(d>=minGap) continue;
-
-    if(d<1e-9){
-      dx=B.tgt[i*3]-B.tgt[ib*3];
-      dy=B.tgt[i*3+1]-B.tgt[ib*3+1];
-      dz=B.tgt[i*3+2]-B.tgt[ib*3+2];
-      d=Math.hypot(dx,dy,dz);
-      if(d<1e-9) continue;
-    }
-    dx/=d; dy/=d; dz/=d;
-
-    const wa=invMass[i], wb=1;
-    const wsum=wa+wb;
-    const corr=minGap-d;
-    const ca=corr*wa/wsum;
-    const cb=corr*wb/wsum;
-
-    pos[i*3]+=dx*ca; pos[i*3+1]+=dy*ca; pos[i*3+2]+=dz*ca;
-    pos[ib*3]-=dx*cb; pos[ib*3+1]-=dy*cb; pos[ib*3+2]-=dz*cb;
-  }
-}
 // 脂肪の充填(v4段階A): 果肉(#3放射+接線)・網目チェーン(#2)・種(#4)の距離制約。既存solveEdgesと同じXPBD数式。
 // アンカーは固定点(B.anchorWのワールド座標、重み0)として直接扱う。中殻・芯は常に可動(重み1、当たり判定なし)。
 function solveFlesh(B, sdt){
@@ -1423,39 +799,19 @@ function solveFlesh(B, sdt){
   const fta = TUNE.fleshTangentC/(sdt*sdt);
   const na = TUNE.netCompliance/(sdt*sdt);
   const sa = TUNE.seedCompliance/(sdt*sdt);
-  // 果肉(放射): 外殻i ↔ 中殻m(i)。通常のcompliant補正後に最小殻間距離も毎substep守る(v5 rev4二段柵)。
+  // 果肉(放射): 外殻i ↔ 中殻m(i)。押しのけの主役＝押すと縮み、中殻が横へ逃げて隣の放射辺を押し上げる
   for(let i=0;i<N;i++){
     const j=mOf[i], jb=N+j;
-    const rl=shellRestGapFor(B,i);
+    let gx=pos[i*3]-pos[jb*3], gy=pos[i*3+1]-pos[jb*3+1], gz=pos[i*3+2]-pos[jb*3+2];
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const rl = B.fleshLen ? B.fleshLen[i] : fleshLenU[i]*R;
+    const C=len-rl;
     const wa=invMass[i], wb=1;
     const wsum=wa+wb; if(wsum<1e-9) continue;
-
-    let gx=pos[i*3]-pos[jb*3], gy=pos[i*3+1]-pos[jb*3+1], gz=pos[i*3+2]-pos[jb*3+2];
-    let len=Math.hypot(gx,gy,gz);
-    if(len>=1e-9){
-      let inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-      const C=len-rl;
-      const s=-C/(wsum+fra);
-      pos[i*3]+=gx*s*wa; pos[i*3+1]+=gy*s*wa; pos[i*3+2]+=gz*s*wa;
-      pos[jb*3]-=gx*s*wb; pos[jb*3+1]-=gy*s*wb; pos[jb*3+2]-=gz*s*wb;
-    }
-
-    if(!TUNE.safetyFences) continue;
-    // compliant補正後に再読込。距離ゼロなら静止形の外殻→中殻方向を使う
-    gx=pos[i*3]-pos[jb*3]; gy=pos[i*3+1]-pos[jb*3+1]; gz=pos[i*3+2]-pos[jb*3+2];
-    len=Math.hypot(gx,gy,gz);
-    const minGap=rl*TUNE.shellGapMin;
-    if(len>=minGap) continue;
-    if(len<1e-9){
-      gx=B.tgt[i*3]-B.tgt[jb*3]; gy=B.tgt[i*3+1]-B.tgt[jb*3+1]; gz=B.tgt[i*3+2]-B.tgt[jb*3+2];
-      len=Math.hypot(gx,gy,gz);
-      if(len<1e-9) continue;
-    }
-    const inv2=1/len; gx*=inv2; gy*=inv2; gz*=inv2;
-    const hardCorr=minGap-len;
-    const ca=hardCorr*wa/wsum, cb=hardCorr*wb/wsum;
-    pos[i*3]+=gx*ca; pos[i*3+1]+=gy*ca; pos[i*3+2]+=gz*ca;
-    pos[jb*3]-=gx*cb; pos[jb*3+1]-=gy*cb; pos[jb*3+2]-=gz*cb;
+    const s=-C/(wsum+fra);
+    pos[i*3]+=gx*s*wa; pos[i*3+1]+=gy*s*wa; pos[i*3+2]+=gz*s*wa;
+    pos[jb*3]-=gx*s*wb; pos[jb*3+1]-=gy*s*wb; pos[jb*3+2]-=gz*s*wb;
   }
   // 果肉(接線): 中殻どうしの辺。横につながって「隣が盛り上がる」を助ける(放射とは独立調整)
   for(let e=0;e<midEdgeN;e++){
@@ -1540,33 +896,18 @@ function solveEdges(sdt){
   const alpha = TUNE.edgeCompliance/(sdt*sdt);
   for(let e=0;e<edgeN;e++){
     const a=edge[e*2], b=edge[e*2+1];
-    const restLen=edgeLenCur ? edgeLenCur[e] : edgeLenU[e]*R;
-
     let gx=pos[a*3]-pos[b*3], gy=pos[a*3+1]-pos[b*3+1], gz=pos[a*3+2]-pos[b*3+2];
-    let len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
-    let inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const C=len-restLen*TUNE.skinPretension;
+    const len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
+    const inv=1/len; gx*=inv; gy*=inv; gz*=inv;
+    const C=len-(edgeLenCur ? edgeLenCur[e] : edgeLenU[e]*R)*TUNE.skinPretension;   // 皮膚の張力: 自然長を実寸より短く=表面が常に張る=ハリ
     const wa=invMass[a], wb=invMass[b];
     const wsum=wa+wb; if(wsum<1e-9) continue;
     const s=-C/(wsum+alpha);
     pos[a*3]+=gx*s*wa; pos[a*3+1]+=gy*s*wa; pos[a*3+2]+=gz*s*wa;
     pos[b*3]-=gx*s*wb; pos[b*3+1]-=gy*s*wb; pos[b*3+2]-=gz*s*wb;
-
-    // v5 rev4 早期strain limit: compliant補正後の位置を必ず再読込してからハードクランプ。
-    // 固定粒接続辺もinvMass配分で可動側だけ動かす(後段の接触に破られても最終全面柵が閉じる=二段構え)
-    if(!TUNE.safetyFences || edgeFenceExcluded(restLen, a, b)) continue;
-    gx=pos[a*3]-pos[b*3]; gy=pos[a*3+1]-pos[b*3+1]; gz=pos[a*3+2]-pos[b*3+2];
-    len=Math.hypot(gx,gy,gz); if(len<1e-9) continue;
-    const maxLen=restLen*TUNE.edgeStretchMax;
-    if(len<=maxLen) continue;
-    inv=1/len; gx*=inv; gy*=inv; gz*=inv;
-    const hardCorr=len-maxLen;
-    const ca=hardCorr*wa/wsum, cb=hardCorr*wb/wsum;
-    pos[a*3]-=gx*ca; pos[a*3+1]-=gy*ca; pos[a*3+2]-=gz*ca;
-    pos[b*3]+=gx*cb; pos[b*3+1]+=gy*cb; pos[b*3+2]+=gz*cb;
   }
 }
-function solveVolume(B, sdt){
+function solveVolume(sdt){
   grad.fill(0);
   let V=0;
   for(let t=0;t<triN;t++){
@@ -1583,69 +924,13 @@ function solveVolume(B, sdt){
     grad[c*3]+=abx/6; grad[c*3+1]+=aby/6; grad[c*3+2]+=abz/6;
   }
   curVol = V;
-  // v5: 常時内圧(等式制約)を廃止し、デッドゾーン式の上下別・片側XPBDバリアに。
-  // [volGuardLo, volGuardHi]の間は完全に沈黙(λもリセット)。外れた時だけ近い側の境界へ柔らかく戻す
-  const V0=B.restVol;
-  if(!Number.isFinite(V0) || V0<=1e-12){ B.volLambdaLo=0; B.volLambdaHi=0; return; }
-  const lo=V0*TUNE.volGuardLo;
-  const hi=V0*TUNE.volGuardHi;
-  if(V>=lo && V<=hi){ B.volLambdaLo=0; B.volLambdaHi=0; return; }
-
-  const alpha=Math.max(0,TUNE.volGuardCompliance)/(sdt*sdt);
-  let gradDenom=0;
-  for(let i=0;i<N;i++){
-    const gx=grad[i*3], gy=grad[i*3+1], gz=grad[i*3+2];
-    gradDenom+=invMass[i]*(gx*gx+gy*gy+gz*gz);
-  }
-  const denom=gradDenom+alpha;
-  if(denom<1e-12){ B.volLambdaLo=0; B.volLambdaHi=0; return; }
-
-  let oldLambda, deltaLambda, direction;
-  if(V<lo){
-    // C_lo=V-lo>=0、勾配=+grad、λ_lo>=0(片側)
-    B.volLambdaHi=0;
-    oldLambda=B.volLambdaLo||0;
-    const C=V-lo;
-    const proposed=Math.max(0,oldLambda+(-C-alpha*oldLambda)/denom);
-    deltaLambda=proposed-oldLambda;
-    direction=1;
-  }else{
-    // C_hi=hi-V>=0、勾配=-grad、λ_hi>=0(片側)
-    B.volLambdaLo=0;
-    oldLambda=B.volLambdaHi||0;
-    const C=hi-V;
-    const proposed=Math.max(0,oldLambda+(-C-alpha*oldLambda)/denom);
-    deltaLambda=proposed-oldLambda;
-    direction=-1;
-  }
-
-  // 1粒あたりの最大補正が上限内になるようλ増分を縮める(バリアの暴れ防止)
-  let maxMove=0;
-  const absDelta=Math.abs(deltaLambda);
-  if(absDelta>0){
-    for(let i=0;i<N;i++){
-      const w=invMass[i];
-      if(!w) continue;
-      const gm=Math.hypot(grad[i*3],grad[i*3+1],grad[i*3+2]);
-      const move=w*gm*absDelta;
-      if(move>maxMove) maxMove=move;
-    }
-  }
-  if(maxMove>TUNE.volGuardMaxCorr && maxMove>1e-12){
-    deltaLambda*=TUNE.volGuardMaxCorr/maxMove;
-  }
-
-  if(direction>0) B.volLambdaLo=oldLambda+deltaLambda;
-  else B.volLambdaHi=oldLambda+deltaLambda;
-
-  for(let i=0;i<N;i++){
-    const w=invMass[i];
-    if(!w) continue;
-    const s=direction*deltaLambda*w;
-    pos[i*3]+=grad[i*3]*s;
-    pos[i*3+1]+=grad[i*3+1]*s;
-    pos[i*3+2]+=grad[i*3+2]*s;
-  }
+  const alpha = TUNE.volCompliance/(sdt*sdt);
+  let denom = alpha;
+  for(let i=0;i<N;i++){ const gx=grad[i*3],gy=grad[i*3+1],gz=grad[i*3+2]; denom += invMass[i]*(gx*gx+gy*gy+gz*gz); }
+  if(denom<1e-12) return;
+  const C = V - restVolCur*TUNE.pressure;   // 曲面フィット後は各ふくらみの実際の静止体積を目標に
+  const s = -C/denom;
+  for(let i=0;i<N;i++){ const w=invMass[i]; pos[i*3]+=grad[i*3]*s*w; pos[i*3+1]+=grad[i*3+1]*s*w; pos[i*3+2]+=grad[i*3+2]*s*w; }
 }
 /* --- 面あたり(v4 rev3)の前処理: コライダごとに「近くの三角形」を毎フレーム1回だけ絞り込む ---
    全三角形×全コライダを毎サブステップ回すと重すぎる(320×100×10)ので、
@@ -1699,7 +984,7 @@ function buildFaceCandidates(){
     }
   }
 }
-function solveCollidersLegacy(B){
+function solveColliders(B){
   viscF.fill(0);
   const sr=TUNE.stickRange;   // 接触粘性(ねっとり)の判定マージン。※吸い付きの引力は撤去済み(実機⑪)
   for(let k=0;k<colN;k++){
@@ -1716,12 +1001,9 @@ function solveCollidersLegacy(B){
           if(d2>1e-12){
             const d=Math.sqrt(d2), push=(Rc-d)/d;
             pos[i*3]+=dx*push; pos[i*3+1]+=dy*push; pos[i*3+2]+=dz*push;
-            markContactApply(B,i);
             if(Rc-d>contactDepth) contactDepth=Rc-d;
           }else{
-            pos[i*3+1]+=Rc;
-            markContactApply(B,i);
-            if(Rc>contactDepth) contactDepth=Rc;
+            pos[i*3+1]+=Rc; if(Rc>contactDepth) contactDepth=Rc;
           }
         }
         // ※「吸い付き」(表面すぐ外の粒を手へ引く)はv3 rev6で実装したが、実機⑪「本当に吸い付いて気持ち悪い」で撤去。
@@ -1789,301 +1071,21 @@ function solveCollidersLegacy(B){
         const wsum = w0*w0*(invMass[ia]?1:0) + w1*w1*(invMass[ib]?1:0) + w2*w2*(invMass[ic]?1:0);
         if(wsum<1e-9) continue;
         const s=tq/wsum;   // tqは負=内側へ動かす
-        if(invMass[ia]){ pos[ia*3]+=ox2*s*w0; pos[ia*3+1]+=oy2*s*w0; pos[ia*3+2]+=oz2*s*w0; markContactApply(B,ia); if(pen>0.002)viscF[ia]=1; }
-        if(invMass[ib]){ pos[ib*3]+=ox2*s*w1; pos[ib*3+1]+=oy2*s*w1; pos[ib*3+2]+=oz2*s*w1; markContactApply(B,ib); if(pen>0.002)viscF[ib]=1; }
-        if(invMass[ic]){ pos[ic*3]+=ox2*s*w2; pos[ic*3+1]+=oy2*s*w2; pos[ic*3+2]+=oz2*s*w2; markContactApply(B,ic); if(pen>0.002)viscF[ic]=1; }
+        if(invMass[ia]){ pos[ia*3]+=ox2*s*w0; pos[ia*3+1]+=oy2*s*w0; pos[ia*3+2]+=oz2*s*w0; if(pen>0.002)viscF[ia]=1; }
+        if(invMass[ib]){ pos[ib*3]+=ox2*s*w1; pos[ib*3+1]+=oy2*s*w1; pos[ib*3+2]+=oz2*s*w1; if(pen>0.002)viscF[ib]=1; }
+        if(invMass[ic]){ pos[ic*3]+=ox2*s*w2; pos[ic*3+1]+=oy2*s*w2; pos[ic*3+2]+=oz2*s*w2; if(pen>0.002)viscF[ic]=1; }
         if(pen>contactDepth) contactDepth=pen;
       }
     }
   }
 }
-// v5接触パッチを継続または新規作成する。
-// 戻り値は静止面に対する法線押し込み量p。球底座標・現在面を目標には使わない(吸引の構造的排除)。
-function ensureContactPatchV5(B, k, cx, cy, cz, Rc){
-  const S=contactV5StateOf(B);
-  const qi=k*3;
-  const previousActive=S.patchActive[k]!==0;
-
-  if(previousActive){
-    const radiusChanged=Math.abs(Rc-S.patchColR[k])>Math.max(0.002,Rc*0.25);
-    let jumped=false;
-    if(Number.isFinite(S.patchLastX[k])){
-      const jx=colX[k]-S.patchLastX[k];
-      const jy=colY[k]-S.patchLastY[k];
-      const jz=colZ[k]-S.patchLastZ[k];
-      jumped=jx*jx+jy*jy+jz*jz>Math.max(0.08,Rc*4)*Math.max(0.08,Rc*4);
-    }
-    if(radiusChanged || jumped) S.patchActive[k]=0;
-  }
-
-  if(S.patchActive[k]){
-    const qx=S.patchQ[qi], qy=S.patchQ[qi+1], qz=S.patchQ[qi+2];
-    const nx=S.patchN[qi], ny=S.patchN[qi+1], nz=S.patchN[qi+2];
-    const vx=cx-qx, vy=cy-qy, vz=cz-qz;
-    const vn=vx*nx+vy*ny+vz*nz;
-    const tx=vx-nx*vn, ty=vy-ny*vn, tz=vz-nz*vn;
-    const lat2=tx*tx+ty*ty+tz*tz;
-    const patchR=S.patchRadius[k];
-    const p=Rc+vn;
-    if(p>0 && lat2<=patchR*patchR*0.36){   // 横ずれ0.6patchRで作り直し(v5 rev4: 大きく出てから作り直すと段差が大きい)
-      S.patchSeen[k]=1;
-      return p;
-    }
-    S.patchActive[k]=0;   // 横へ出た/離れた→パッチ作り直し(基準の逃げ・尾引きを防ぐ)
-  }
-
-  if(B.colNear && !B.colNear[k]) return 0;
-
-  const Rs=Rc+TUNE.stickRange;
-  const Rs2=Rs*Rs;
-  let bestD2=Infinity;
-  let bestType=0;
-  let bestI=-1;
-  let bestTri=-1;
-  let bestW0=1, bestW1=0, bestW2=0;
-
-  // 点候補。面候補と同じ距離尺度で比較し、最終的に最も近い接触開始点だけを採用する。
-  for(let i=0;i<N;i++){
-    if(invMass[i]===0) continue;
-    const dx=pos[i*3]-cx, dy=pos[i*3+1]-cy, dz=pos[i*3+2]-cz;
-    const d2=dx*dx+dy*dy+dz*dz;
-    if(d2<bestD2){
-      bestD2=d2;
-      bestType=0;
-      bestI=i;
-      bestTri=-1;
-      bestW0=1;
-      bestW1=0;
-      bestW2=0;
-    }
-  }
-
-  // 面候補。CAND_MAXと距離順候補選定はbuildFaceCandidatesの既存結果をそのまま使う。
-  if(TUNE.faceCollide && B.candTri){
-    const cn=B.candN[k], base=k*CAND_MAX;
-    for(let ci=0;ci<cn;ci++){
-      const t=B.candTri[base+ci];
-      const ia=tri[t*3], ib=tri[t*3+1], ic=tri[t*3+2];
-      if(invMass[ia]===0 && invMass[ib]===0 && invMass[ic]===0) continue;
-      const d2=closestBary(cx,cy,cz,
-        pos[ia*3],pos[ia*3+1],pos[ia*3+2],
-        pos[ib*3],pos[ib*3+1],pos[ib*3+2],
-        pos[ic*3],pos[ic*3+1],pos[ic*3+2],_bw);
-      if(d2<bestD2){
-        bestD2=d2;
-        bestType=1;
-        bestI=-1;
-        bestTri=t;
-        bestW0=_bw[0];
-        bestW1=_bw[1];
-        bestW2=_bw[2];
-      }
-    }
-  }
-
-  if(bestD2>Rs2) return 0;
-
-  let qx, qy, qz;
-  if(bestType===1){
-    const ia=tri[bestTri*3], ib=tri[bestTri*3+1], ic=tri[bestTri*3+2];
-    qx=bestW0*B.tgt[ia*3]+bestW1*B.tgt[ib*3]+bestW2*B.tgt[ic*3];
-    qy=bestW0*B.tgt[ia*3+1]+bestW1*B.tgt[ib*3+1]+bestW2*B.tgt[ic*3+1];
-    qz=bestW0*B.tgt[ia*3+2]+bestW1*B.tgt[ib*3+2]+bestW2*B.tgt[ic*3+2];
-  }else{
-    if(bestI<0) return 0;
-    qx=B.tgt[bestI*3];
-    qy=B.tgt[bestI*3+1];
-    qz=B.tgt[bestI*3+2];
-  }
-
-  let nx=B.anchorW[0]-qx;
-  let ny=B.anchorW[1]-qy;
-  let nz=B.anchorW[2]-qz;
-  const nl=Math.hypot(nx,ny,nz);
-  if(nl<1e-9) return 0;
-  nx/=nl;
-  ny/=nl;
-  nz/=nl;
-
-  const p=Rc+(cx-qx)*nx+(cy-qy)*ny+(cz-qz)*nz;
-  if(p<=0) return 0;
-
-  // 平頂カーネル(v5 rev4): rCore以内はw=1(複数粒が同じ最大変位=1点スパイクと所有権切替の折れの根治)、
-  // そこからpatchRまでsmoothstepで0へ。最大値正規化は不要になったので廃止。
-  // 半径上限=min(contactPatchMaxR, 0.65R)(コントローラ球で胸全体を覆わない)。向きゲートで裏側の粒の混入も防ぐ
-  const patchR=Math.min(
-    TUNE.contactPatchMaxR,
-    0.65*R,
-    Math.max(TUNE.contactPatchMinR,Rc*TUNE.contactPatchScale)
-  );
-  const patchCoreR=0.5*patchR;
-  const patchFalloffW=patchR-patchCoreR;
-  const wb=k*N;
-  let memberN=0;
-
-  for(let i=0;i<N;i++){
-    let w=0;
-    if(invMass[i]){
-      const ni=i*3;
-      const nix=B.restNormal[ni], niy=B.restNormal[ni+1], niz=B.restNormal[ni+2];
-      if(nix*nx+niy*ny+niz*nz>0.30){
-        const dx=B.tgt[ni]-qx;
-        const dy=B.tgt[ni+1]-qy;
-        const dz=B.tgt[ni+2]-qz;
-        const r=Math.hypot(dx,dy,dz);
-        if(r<=patchCoreR){
-          w=1;
-        }else if(r<patchR){
-          let u=(r-patchCoreR)/patchFalloffW;
-          if(u<0) u=0; else if(u>1) u=1;
-          const smooth=u*u*(3-2*u);
-          w=1-smooth;
-        }
-      }
-    }
-    S.patchW[wb+i]=w;
-    if(w>0) memberN++;
-  }
-  if(memberN===0) return 0;
-
-  S.patchQ[qi]=qx;
-  S.patchQ[qi+1]=qy;
-  S.patchQ[qi+2]=qz;
-  S.patchN[qi]=nx;
-  S.patchN[qi+1]=ny;
-  S.patchN[qi+2]=nz;
-  S.patchRadius[k]=patchR;
-  S.patchColR[k]=Rc;
-  S.patchType[k]=bestType;
-  S.patchActive[k]=1;
-  S.patchSeen[k]=1;
-  S.patchAge[k]=0;   // 新パッチは立ち上がりランプ(数substepで強度を上げる=作り直しのポップ防止・v5 rev4)
-  return p;
-}
-
-function solveContactPatchesV5(B, sdt){
-  const S=contactV5StateOf(B);
-  const maxCorr=Math.max(0,TUNE.contactVMax*sdt);
-  const pHard=Math.max(1e-6,TUNE.contactPHard);
-
-  // v5 rev4: 補正方向は全パッチ共通の「粒固有の静止内向き法線」なので、
-  // 集約は目標深さ(スカラー)のmaxだけでよい。IDヒステリシスは補正決定から撤去
-  // (最大値は連続なスカラー場のmax=切替でも値が連続。旧・法線ベクトル切替の折れが根治)
-  S.bestDepth.fill(-1);
-
-  for(let k=0;k<colN;k++){
-    if(B.colNear && !B.colNear[k] && !S.patchActive[k]) continue;
-
-    const cx=eColX[k], cy=eColY[k], cz=eColZ[k], Rc=colR[k];
-    const p=ensureContactPatchV5(B,k,cx,cy,cz,Rc);
-    if(p<=0) continue;
-    if(p>contactDepth) contactDepth=p;
-
-    let u=p/pHard;
-    if(u<0) u=0;
-    else if(u>1) u=1;
-    const smooth=u*u*(3-2*u);
-    let strength=TUNE.contactSMin+(1-TUNE.contactSMin)*smooth;
-    const age=S.patchAge[k];
-    // 新パッチの立ち上がりランプ: 強さと「補正量の上限」の両方に掛ける。
-    // 強さだけだと誤差が大きい時に1フレームで7割詰めてしまい、パッチ作り直しのポップが消えない(実測)
-    const rampR = age<16 ? (age+1)/16 : 1;
-    strength*=rampR;
-    const rampMaxCorr=maxCorr*rampR;
-    const wb=k*N;
-
-    for(let i=0;i<N;i++){
-      const pw=S.patchW[wb+i];
-      if(pw<=0 || invMass[i]===0) continue;
-
-      const ci=i*3;
-      const nx=B.restNormal[ci];
-      const ny=B.restNormal[ci+1];
-      const nz=B.restNormal[ci+2];
-
-      viscF[i]=1;
-
-      const dr=B.drA ? B.drA[i] : drU[i]*R;
-      let dMax=Math.min(TUNE.dentCap,dr*TUNE.maxSquish);
-
-      // 胸壁(-1cm)の2mm手前を上限にする。補正方向である粒固有法線に対して評価
-      const surfD=(B.tgt[ci]-B.anchorW[0])*plateNx+
-                  (B.tgt[ci+1]-B.anchorW[1])*plateNy+
-                  (B.tgt[ci+2]-B.anchorW[2])*plateNz;
-      const towardWall=-(nx*plateNx+ny*plateNy+nz*plateNz);
-      if(towardWall>0.1){
-        const chestCap=(surfD+0.008)/towardWall;
-        if(chestCap<=0) continue;
-        if(chestCap<dMax) dMax=chestCap;
-      }
-      if(dMax<=1e-5) continue;
-      // P1: dMaxはdentDepthScaleで、浅部の追従はdentGainで別々にレバー連動(chestCapはスケールしない=安全上限)
-      const dMaxEff=Math.min(dMax*TUNE.dentDepthScale, dMax);
-      const fullDent=dMaxEff*Math.tanh(TUNE.dentGain*p/dMaxEff);
-      const targetDent=pw*fullDent;
-      const currentDent=(pos[ci]-B.tgt[ci])*nx+
-                        (pos[ci+1]-B.tgt[ci+1])*ny+
-                        (pos[ci+2]-B.tgt[ci+2])*nz;
-      const error=targetDent-currentDent;
-      if(error<=0) continue;
-
-      const corr=Math.min(error*strength,rampMaxCorr);
-      const previousTarget=S.bestDepth[i];
-
-      let choose=targetDent>previousTarget+1e-9;
-      if(!choose && Math.abs(targetDent-previousTarget)<=1e-9){
-        const oldX=S.bestCorr[ci];
-        const oldY=S.bestCorr[ci+1];
-        const oldZ=S.bestCorr[ci+2];
-        choose=corr*corr>oldX*oldX+oldY*oldY+oldZ*oldZ+1e-16;
-      }
-
-      if(choose){
-        S.bestDepth[i]=targetDent;
-        S.bestCorr[ci]=nx*corr;
-        S.bestCorr[ci+1]=ny*corr;
-        S.bestCorr[ci+2]=nz*corr;
-      }
-    }
-  }
-
-  for(let i=0;i<N;i++){
-    const ci=i*3;
-    const dx=S.bestCorr[ci];
-    const dy=S.bestCorr[ci+1];
-    const dz=S.bestCorr[ci+2];
-
-    if(S.bestDepth[i]>=0 && dx*dx+dy*dy+dz*dz>1e-16){
-      pos[ci]+=dx;
-      pos[ci+1]+=dy;
-      pos[ci+2]+=dz;
-      markContactApply(B,i);
-    }
-    S.prevBestK[i]=-1;
-  }
-}
-
-function solveColliders(B, sdt){
-  const S=contactV5StateOf(B);
-  S.applyCount.fill(0);
-  S.appliedN=0;
-  viscF.fill(0);
-  if(TUNE.contactV5) solveContactPatchesV5(B,sdt);
-  else solveCollidersLegacy(B);
-}
-
 function finalize(sdt){
   const inv=1/sdt;
   const vd = Math.max(0, 1 - TUNE.contactVisc*sdt);   // 触点の粘性(ねっとり)。触られている粒だけ余計に減衰
-  const speedMax=TUNE.maxParticleSpeed;
   for(let i=0;i<NT;i++){   // NT=外殻+中殻+芯(中殻・芯は当たり判定が無いのでviscFの対象外=常に素の速度)
     if(i<N && invMass[i]===0) continue;
     let vx=(pos[i*3]-prev[i*3])*inv, vy=(pos[i*3+1]-prev[i*3+1])*inv, vz=(pos[i*3+2]-prev[i*3+2])*inv;
     if(i<N && viscF[i]){ vx*=vd; vy*=vd; vz*=vd; }
-    if(TUNE.safetyFences && speedMax>0){   // v5安全柵: 射影→速度化の暴れの最終防波堤
-      const speed=Math.hypot(vx,vy,vz);
-      if(speed>speedMax){ const s=speedMax/speed; vx*=s; vy*=s; vz*=s; }
-    }
     vel[i*3]=vx; vel[i*3+1]=vy; vel[i*3+2]=vz;
   }
 }
@@ -2323,12 +1325,29 @@ function collectXRColliders(frame, ref){
   const ctrlColN = colN;   // ここまで＝コントローラ由来。マーカー(見える印)はこれだけに出す
   const session = renderer.xr.getSession();
   if(session && frame && ref){
-    updateNearBulges();   // ふくらみ2つの今の位置+半径(v6 rev5: nearに渡して、遠い間は手まるごとスキップ=待機コスト軽減)
     for(const src of session.inputSources){
       if(!src.hand) continue;
-      // 素手の当たり判定=共通部品(xr-hands/hands.js)の骨格コライダーに一本化(2026-07-20)。
-      // 骨リスト沿いに細い球を切れ目なく自動配置(旧: 25関節+自前中間点の手書き挿入は「でかすぎる」ため廃止)。
-      forEachHandBonePoint(src, frame, ref, (x,y,z,r)=>addCol(x,y,z,r), {minR: TUNE.handMinR, spacing: 1.4, near: nearBulge});
+      // Quest純正ハンドトラッキングの全25関節を、位置も半径もそのまま当たり判定にする
+      // （自前の選別・足し算・上限・中点の自作が実手とのズレの元だったため全部やめた）
+      const jp = [];   // 25関節ぶんの[x,y,z,r]を順番に控える(中間球の計算用)
+      for(const joint of src.hand.values()){
+        const p = frame.getJointPose(joint, ref);
+        if(!p){ jp.push(null); continue; }
+        const r = Math.max((p.radius && p.radius>0) ? p.radius : 0.008, TUNE.handMinR); // 位置は純正のまま。半径だけ下限（粒すり抜け防止）
+        addCol(p.transform.position.x, p.transform.position.y, p.transform.position.z, r);
+        jp.push([p.transform.position.x, p.transform.position.y, p.transform.position.z, r]);
+      }
+      // 中間球: 関節の球と球の"すき間"を埋める(すり抜け=「触ったら素通り」の主因)。
+      // 純正の関節位置は無加工のまま、隣り合う関節2つの中点に球を1個足すだけ(指を数珠→棒にする)。
+      // つなぐのは「同じ指の中」＋「手首→各指の付け根」(手のひらを埋める)。指またぎはつながない。
+      if(jp.length===25){
+        for(const [a,b] of HAND_BRIDGES){
+          const A=jp[a], B2=jp[b]; if(!A||!B2) continue;
+          const dx=B2[0]-A[0], dy=B2[1]-A[1], dz=B2[2]-A[2];
+          if(dx*dx+dy*dy+dz*dz > 0.0049) continue;   // 7cm超は追跡乱れとみなして橋を架けない
+          addCol((A[0]+B2[0])/2, (A[1]+B2[1])/2, (A[2]+B2[2])/2, Math.max((A[3]+B2[3])/2, TUNE.handMinR));
+        }
+      }
     }
   }
   // 素手にはマーカー(球)を描かない＝パススルーの本物の手をそのまま見る(自前の球はズレて見えて邪魔・実機③指摘)。
@@ -2461,7 +1480,6 @@ function setupPCInput(){
     else if(e.key==="ArrowUp"){ plateGroup.position.y += mv; }
     else if(e.key==="ArrowDown"){ plateGroup.position.y -= mv; }
     else if(e.key>="1" && e.key<="5"){ setSize(parseInt(e.key,10)-1); }
-    else if(e.key==="m"||e.key==="M"){ TUNE.engineC0=!TUNE.engineC0; log("エンジン切替: "+(TUNE.engineC0?"C0(直接変形)":"v5(粒子物理)")); }
     else if(e.key==="["){ TUNE.soft=Math.max(0,TUNE.soft-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key==="]"){ TUNE.soft=Math.min(1,TUNE.soft+0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key===","){ TUNE.keep=Math.max(0,TUNE.keep-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
@@ -2552,7 +1570,7 @@ function simulate(dt){
   }
   stepSoft(dt);
   handleContactFX();
-  const statLine = (TUNE.engineC0?"C0":"v5")+" / fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SIZES[sizeIdx].name+"・やわらかさ"+Math.round(TUNE.soft*100)+"%・ゆれのこり"+Math.round(TUNE.keep*100)+"%";
+  const statLine = "fps "+Math.round(fpsSmooth)+" / "+physMs.toFixed(1)+"ms / "+SIZES[sizeIdx].name+"・やわらかさ"+Math.round(TUNE.soft*100)+"%・ゆれのこり"+Math.round(TUNE.keep*100)+"%";
   $("stats").textContent = statLine;
   if(statLine !== panelStatus){ panelStatus = statLine; if(panel.visible) drawPanel(); }
 }
@@ -2592,215 +1610,6 @@ function tipIdx(){ let best=0,bz=-2; for(let i=0;i<N;i++){ if(rest[i*3+2]>bz){bz
 const TIP = tipIdx();
 function anyNaN(){ for(const B of busts){ for(let i=0;i<N*3;i++){ if(Number.isNaN(B.pos[i])) return true; } } return false; }
 function maxSpeedOf(B){ let m=0; for(let i=0;i<N;i++){ const s=Math.hypot(B.vel[i*3],B.vel[i*3+1],B.vel[i*3+2]); if(s>m)m=s; } return m; }
-// contactStats v2(v5 rev4): protected/excluded分離・signed area・辺比・殻間比・折れ辺。
-// 通常運転では明示呼び出しかstatsWorstActive中にしか計算されない(コスト増ゼロ)
-function contactStatsSnapshot(){
-  let invertedProtected=0;
-  let invertedExcluded=0;
-  let minSignedAreaRatio=Infinity;
-  let minSignedAreaRatioExcluded=Infinity;
-  let maxEdgeRatioProtected=0;
-  let maxEdgeRatioExcluded=0;
-  let minShellGapRatio=Infinity;
-  let shellMinDistance=Infinity;
-  let foldedEdge45=0;
-  let maxParticleSpeed=0;
-  let contactApplyMax=0;
-  let nan=false;
-
-  for(const B of busts){
-    const P=B.pos, T=B.tgt;
-    const S=contactV5StateOf(B);
-    if(S.lastFrameMaxApply>contactApplyMax) contactApplyMax=S.lastFrameMaxApply;
-
-    if(!B.statsFaceNow) B.statsFaceNow=new Float32Array(triN*3);
-    if(!B.statsFaceRest) B.statsFaceRest=new Float32Array(triN*3);
-    const faceNow=B.statsFaceNow;
-    const faceRest=B.statsFaceRest;
-    faceNow.fill(0);
-    faceRest.fill(0);
-
-    for(let t=0;t<triN;t++){
-      const ia=tri[t*3], ib=tri[t*3+1], ic=tri[t*3+2];
-
-      const rax=T[ia*3], ray=T[ia*3+1], raz=T[ia*3+2];
-      const rabx=T[ib*3]-rax, raby=T[ib*3+1]-ray, rabz=T[ib*3+2]-raz;
-      const racx=T[ic*3]-rax, racy=T[ic*3+1]-ray, racz=T[ic*3+2]-raz;
-      const rnx=raby*racz-rabz*racy;
-      const rny=rabz*racx-rabx*racz;
-      const rnz=rabx*racy-raby*racx;
-      const restArea2Sq=rnx*rnx+rny*rny+rnz*rnz;
-      const restArea2=Math.sqrt(restArea2Sq);
-      if(restArea2<1e-12) continue;
-
-      const ax=P[ia*3], ay=P[ia*3+1], az=P[ia*3+2];
-      const abx=P[ib*3]-ax, aby=P[ib*3+1]-ay, abz=P[ib*3+2]-az;
-      const acx=P[ic*3]-ax, acy=P[ic*3+1]-ay, acz=P[ic*3+2]-az;
-      const nx=aby*acz-abz*acy;
-      const ny=abz*acx-abx*acz;
-      const nz=abx*acy-aby*acx;
-      const nowArea2=Math.hypot(nx,ny,nz);
-      const signedRatio=(nx*rnx+ny*rny+nz*rnz)/restArea2Sq;   // 1=静止と同じ/0=線に潰れ/負=反転
-      const excluded=faceFenceExcluded(ia,ib,ic);
-
-      if(excluded){
-        if(signedRatio<minSignedAreaRatioExcluded) minSignedAreaRatioExcluded=signedRatio;
-        if(signedRatio<0) invertedExcluded++;
-      }else{
-        if(signedRatio<minSignedAreaRatio) minSignedAreaRatio=signedRatio;
-        if(signedRatio<0) invertedProtected++;
-      }
-
-      if(nowArea2>1e-12){
-        const ni=t*3;
-        faceNow[ni]=nx/nowArea2; faceNow[ni+1]=ny/nowArea2; faceNow[ni+2]=nz/nowArea2;
-        faceRest[ni]=rnx/restArea2; faceRest[ni+1]=rny/restArea2; faceRest[ni+2]=rnz/restArea2;
-      }
-    }
-
-    for(let e=0;e<edgeN;e++){
-      const ia=edge[e*2], ib=edge[e*2+1];
-      const restLen=edgeRestLengthFor(B,e);
-      if(!Number.isFinite(restLen) || restLen<=1e-12) continue;
-
-      const dx=P[ia*3]-P[ib*3];
-      const dy=P[ia*3+1]-P[ib*3+1];
-      const dz=P[ia*3+2]-P[ib*3+2];
-      const ratio=Math.hypot(dx,dy,dz)/restLen;
-
-      if(edgeFenceExcluded(restLen, ia, ib)){
-        if(ratio>maxEdgeRatioExcluded) maxEdgeRatioExcluded=ratio;
-      }else if(ratio>maxEdgeRatioProtected){
-        maxEdgeRatioProtected=ratio;
-      }
-
-      // 折れ辺: 隣接2面のなす角が静止時から45°超ずれた辺(ボコボコ=紙しわの検出)
-      const ta=edgeTriA[e], tb=edgeTriB[e];
-      if(ta>=0 && tb>=0){
-        const ai=ta*3, bi=tb*3;
-        const anx=faceNow[ai], any=faceNow[ai+1], anz=faceNow[ai+2];
-        const bnx=faceNow[bi], bny=faceNow[bi+1], bnz=faceNow[bi+2];
-        const arx=faceRest[ai], ary=faceRest[ai+1], arz=faceRest[ai+2];
-        const brx=faceRest[bi], bry=faceRest[bi+1], brz=faceRest[bi+2];
-        const nowValid=anx*anx+any*any+anz*anz>0.5 && bnx*bnx+bny*bny+bnz*bnz>0.5;
-        const restValid=arx*arx+ary*ary+arz*arz>0.5 && brx*brx+bry*bry+brz*brz>0.5;
-        if(nowValid && restValid){
-          let dotNow=anx*bnx+any*bny+anz*bnz;
-          let dotRest=arx*brx+ary*bry+arz*brz;
-          if(dotNow<-1) dotNow=-1; else if(dotNow>1) dotNow=1;
-          if(dotRest<-1) dotRest=-1; else if(dotRest>1) dotRest=1;
-          const delta=Math.abs(Math.acos(dotNow)-Math.acos(dotRest));
-          if(delta>Math.PI/4) foldedEdge45++;
-        }
-      }
-    }
-
-    for(let i=0;i<N;i++){
-      const j=N+mOf[i];
-      const restGap=shellRestGapFor(B,i);
-      if(!Number.isFinite(restGap) || restGap<=1e-12) continue;
-      const gap=Math.hypot(P[i*3]-P[j*3],P[i*3+1]-P[j*3+1],P[i*3+2]-P[j*3+2]);
-      const ratio=gap/restGap;
-      if(ratio<minShellGapRatio) minShellGapRatio=ratio;
-      if(gap<shellMinDistance) shellMinDistance=gap;
-    }
-
-    for(let i=0;i<NT;i++){
-      const px=P[i*3], py=P[i*3+1], pz=P[i*3+2];
-      const vx=B.vel[i*3], vy=B.vel[i*3+1], vz=B.vel[i*3+2];
-      if(!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz) ||
-         !Number.isFinite(vx) || !Number.isFinite(vy) || !Number.isFinite(vz)) nan=true;
-      const speed=Math.hypot(vx,vy,vz);
-      if(speed>maxParticleSpeed) maxParticleSpeed=speed;
-    }
-  }
-
-  if(minSignedAreaRatio===Infinity) minSignedAreaRatio=0;
-  if(minSignedAreaRatioExcluded===Infinity) minSignedAreaRatioExcluded=0;
-  if(minShellGapRatio===Infinity) minShellGapRatio=0;
-  if(shellMinDistance===Infinity) shellMinDistance=0;
-
-  const invertedFaces=invertedProtected+invertedExcluded;
-  const maxEdgeRatio=Math.max(maxEdgeRatioProtected,maxEdgeRatioExcluded);
-
-  return {
-    contactV5:!!TUNE.contactV5,
-    invertedProtected,
-    invertedExcluded,
-    invertedFaces,
-    minSignedAreaRatio:+minSignedAreaRatio.toFixed(4),
-    minSignedAreaRatioExcluded:+minSignedAreaRatioExcluded.toFixed(4),
-    maxEdgeRatioProtected:+maxEdgeRatioProtected.toFixed(4),
-    maxEdgeRatioExcluded:+maxEdgeRatioExcluded.toFixed(4),
-    maxEdgeRatio:+maxEdgeRatio.toFixed(4),
-    minShellGapRatio:+minShellGapRatio.toFixed(4),
-    shellMinDistance:+shellMinDistance.toFixed(5),
-    foldedEdge45,
-    maxParticleSpeed:+maxParticleSpeed.toFixed(3),
-    contactApplyMax,
-    nan
-  };
-}
-
-let statsWorstActive=false;
-let statsWorstState=null;
-
-function statsWorstReset(){
-  statsWorstState={
-    frames:0,
-    maxInvertedProtected:0,
-    maxInvertedExcluded:0,
-    minSignedAreaRatio:Infinity,
-    minSignedAreaRatioExcluded:Infinity,
-    maxEdgeRatioProtected:0,
-    maxEdgeRatioExcluded:0,
-    minShellGapRatio:Infinity,
-    maxFoldedEdge45:0,
-    maxParticleSpeed:0,
-    maxContactApply:0,
-    nan:false,
-    last:null
-  };
-}
-
-function updateStatsWorst(){
-  if(!statsWorstActive || !statsWorstState) return;
-  const s=contactStatsSnapshot();
-  const w=statsWorstState;
-  w.frames++;
-  if(s.invertedProtected>w.maxInvertedProtected) w.maxInvertedProtected=s.invertedProtected;
-  if(s.invertedExcluded>w.maxInvertedExcluded) w.maxInvertedExcluded=s.invertedExcluded;
-  if(s.minSignedAreaRatio<w.minSignedAreaRatio) w.minSignedAreaRatio=s.minSignedAreaRatio;
-  if(s.minSignedAreaRatioExcluded<w.minSignedAreaRatioExcluded) w.minSignedAreaRatioExcluded=s.minSignedAreaRatioExcluded;
-  if(s.maxEdgeRatioProtected>w.maxEdgeRatioProtected) w.maxEdgeRatioProtected=s.maxEdgeRatioProtected;
-  if(s.maxEdgeRatioExcluded>w.maxEdgeRatioExcluded) w.maxEdgeRatioExcluded=s.maxEdgeRatioExcluded;
-  if(s.minShellGapRatio<w.minShellGapRatio) w.minShellGapRatio=s.minShellGapRatio;
-  if(s.foldedEdge45>w.maxFoldedEdge45) w.maxFoldedEdge45=s.foldedEdge45;
-  if(s.maxParticleSpeed>w.maxParticleSpeed) w.maxParticleSpeed=s.maxParticleSpeed;
-  if(s.contactApplyMax>w.maxContactApply) w.maxContactApply=s.contactApplyMax;
-  if(s.nan) w.nan=true;
-  w.last=s;
-}
-
-function statsWorstResult(){
-  if(!statsWorstState) return null;
-  const w=statsWorstState;
-  return {
-    frames:w.frames,
-    maxInvertedProtected:w.maxInvertedProtected,
-    maxInvertedExcluded:w.maxInvertedExcluded,
-    minSignedAreaRatio:+(w.minSignedAreaRatio===Infinity?0:w.minSignedAreaRatio).toFixed(4),
-    minSignedAreaRatioExcluded:+(w.minSignedAreaRatioExcluded===Infinity?0:w.minSignedAreaRatioExcluded).toFixed(4),
-    maxEdgeRatioProtected:+w.maxEdgeRatioProtected.toFixed(4),
-    maxEdgeRatioExcluded:+w.maxEdgeRatioExcluded.toFixed(4),
-    minShellGapRatio:+(w.minShellGapRatio===Infinity?0:w.minShellGapRatio).toFixed(4),
-    maxFoldedEdge45:w.maxFoldedEdge45,
-    maxParticleSpeed:+w.maxParticleSpeed.toFixed(3),
-    maxContactApply:w.maxContactApply,
-    nan:w.nan,
-    last:w.last
-  };
-}
 
 window.__dbg = {
   state(){
@@ -2814,151 +1623,6 @@ window.__dbg = {
       soft:+TUNE.soft.toFixed(2), keep:+TUNE.keep.toFixed(2),
       fps:Math.round(fpsSmooth), physMs:+physMs.toFixed(2),
       nan: anyNaN(),
-    };
-  },
-  contactStats(){
-    return contactStatsSnapshot();
-  },
-  statsWorstBegin(){
-    statsWorstReset();
-    statsWorstActive=true;
-    updateStatsWorst();
-    return statsWorstResult();
-  },
-  statsWorstEnd(){
-    if(!statsWorstActive) return statsWorstResult();
-    updateStatsWorst();
-    statsWorstActive=false;
-    return statsWorstResult();
-  },
-  statsBaseline(sec){
-    this.spawn();
-    this.settle(sec===undefined?1.5:sec);
-    const s=contactStatsSnapshot();
-    return {
-      settleSec:sec===undefined?1.5:sec,
-      invertedProtected:s.invertedProtected,
-      invertedExcluded:s.invertedExcluded,
-      minSignedAreaRatio:s.minSignedAreaRatio,
-      minSignedAreaRatioExcluded:s.minSignedAreaRatioExcluded,
-      maxEdgeRatioProtected:s.maxEdgeRatioProtected,
-      maxEdgeRatioExcluded:s.maxEdgeRatioExcluded,
-      minShellGapRatio:s.minShellGapRatio,
-      foldedEdge45:s.foldedEdge45,
-      nan:s.nan,
-      full:s
-    };
-  },
-  // 多重カウント検証(v5設計4-2): a.完全重複(1球vs3球vs10球で結果同一) b.順序不変 c.関節チェーンで粒あたり適用1回
-  // ※Codex原案に「呼吸の位相ズレで各回の基準がずれ、許容1e-4を必ず超える」欠陥があったため、
-  //   テスト中は呼吸を止める(TUNE.breath退避→0→復元)修正を発注元(Claude)が追加
-  overlapTest(){
-    if(!bustReady) this.spawn();
-    const breathSave=TUNE.breath; TUNE.breath=0;
-
-    const maxPositionDiff=(a,b)=>{
-      let m=0;
-      for(let i=0;i<N*3;i++){
-        const d=Math.abs(a[i]-b[i]);
-        if(d>m) m=d;
-      }
-      return m;
-    };
-
-    const runSet=(offsets)=>{
-      this.spawn();
-      this.settle(1.0);   // 0.5だと直前の深い変形テストの残り火で初回だけ基準がずれることがあった
-
-      const B=busts[0];
-      usePtr(B);
-      const tipX=B.tgt[TIP*3], tipY=B.tgt[TIP*3+1], tipZ=B.tgt[TIP*3+2];
-      let ox=tipX-B.anchorW[0], oy=tipY-B.anchorW[1], oz=tipZ-B.anchorW[2];
-      const ol=Math.hypot(ox,oy,oz)||1;
-      ox/=ol;
-      oy/=ol;
-      oz/=ol;
-
-      let tx=-oy, ty=ox, tz=0;
-      let tl=Math.hypot(tx,ty,tz);
-      if(tl<1e-6){
-        tx=1;
-        ty=0;
-        tz=0;
-        tl=1;
-      }
-      tx/=tl;
-      ty/=tl;
-      tz/=tl;
-
-      let ux=oy*tz-oz*ty;
-      let uy=oz*tx-ox*tz;
-      let uz=ox*ty-oy*tx;
-      const ul=Math.hypot(ux,uy,uz)||1;
-      ux/=ul;
-      uy/=ul;
-      uz/=ul;
-
-      const rr=0.012;
-      const depth=0.025;
-      const steps=Math.max(1,Math.round(0.4/FIXED));
-      const inSteps=Math.max(1,Math.round(steps*0.5));
-      let applyMax=0;
-
-      for(let s=0;s<steps;s++){
-        const f=s<inSteps ? (s+1)/inSteps : 1;
-        colN=0;
-        for(let j=0;j<offsets.length;j++){
-          const a=offsets[j][0], b=offsets[j][1];
-          addCol(
-            tipX+tx*a+ux*b+ox*(rr-depth*f),
-            tipY+ty*a+uy*b+oy*(rr-depth*f),
-            tipZ+tz*a+uz*b+oz*(rr-depth*f),
-            rr
-          );
-        }
-        contactDepth=0;
-        softStep(FIXED);
-        const fm=contactV5StateOf(B).lastFrameMaxApply;
-        if(fm>applyMax) applyMax=fm;
-      }
-
-      const snapshot=new Float32Array(N*3);
-      snapshot.set(B.pos.subarray(0,N*3));
-      return { snapshot, applyMax };
-    };
-
-    const one=runSet([[0,0]]);
-    const three=runSet([[0,0],[0,0],[0,0]]);
-    const ten=runSet([[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0],[0,0]]);
-
-    const orderedOffsets=[[-0.005,0],[0,0],[0.005,0.001]];
-    const reversedOffsets=[[0.005,0.001],[0,0],[-0.005,0]];
-    const ordered=runSet(orderedOffsets);
-    const reversed=runSet(reversedOffsets);
-
-    const chain=runSet([[-0.014,0],[-0.007,0],[0,0],[0.007,0],[0.014,0]]);
-
-    const duplicate1v3=maxPositionDiff(one.snapshot,three.snapshot);
-    const duplicate1v10=maxPositionDiff(one.snapshot,ten.snapshot);
-    const orderDiff=maxPositionDiff(ordered.snapshot,reversed.snapshot);
-    const duplicatePass=duplicate1v3<1e-4 && duplicate1v10<1e-4;
-    const orderPass=orderDiff<1e-4;
-    const chainPass=chain.applyMax===1;
-
-    colN=0;
-    TUNE.breath=breathSave;
-    return {
-      contactV5: !!TUNE.contactV5,
-      faceCollide: !!TUNE.faceCollide,
-      duplicate1v3:+duplicate1v3.toFixed(6),
-      duplicate1v10:+duplicate1v10.toFixed(6),
-      orderDiff:+orderDiff.toFixed(6),
-      chainMaxApply:chain.applyMax,
-      duplicatePass,
-      orderPass,
-      chainPass,
-      pass:duplicatePass && orderPass && chainPass,
-      nan:anyNaN()
     };
   },
   spawn(){ arrangeBusts(); positionControlPanel(); plateHome.copy(plateGroup.position); return this.state(); },
@@ -3271,60 +1935,6 @@ window.__dbg = {
     }
     colN=0; this.settle(1.5);
     return { gapDent:+maxDent.toFixed(4), nan:anyNaN() };
-  },
-  // 横滑り検証(v5 rev4段階⑦): 球を一定深さで表面上を横に4cm滑らせ、「所有権切替のポップ」を動的に検出。
-  // 判定=毎フレームの表面粒の最大ジャンプ・トポロジworst・解除1.5s後の折れ辺(baseline相対)
-  lateralSweep(depth){
-    depth = depth || 0.02;
-    this.spawn(); this.settle(2.0);
-    const B=busts[0]; usePtr(B);
-    const blFold=contactStatsSnapshot().foldedEdge45;
-    const ax=B.anchorW[0], ay=B.anchorW[1], az=B.anchorW[2];
-    const tipX=B.tgt[TIP*3], tipY=B.tgt[TIP*3+1], tipZ=B.tgt[TIP*3+2];
-    let ox=tipX-ax, oy=tipY-ay, oz=tipZ-az; const ol=Math.hypot(ox,oy,oz)||1; ox/=ol; oy/=ol; oz/=ol;
-    let tx=-oy, ty=ox, tz=0; let tl=Math.hypot(tx,ty,tz); if(tl<1e-6){tx=1;ty=0;tz=0;tl=1;} tx/=tl; ty/=tl; tz/=tl;
-    const rr=0.012, steps=Math.round(1.0/FIXED), span=0.04;
-    const startLat=-span/2;
-    // 計測前に「ゆっくり押し込み(0.3s)→静置(0.2s)」——初撃の食い込み速度を滑りの計測に混ぜない
-    const inSteps=Math.round(0.3/FIXED);
-    for(let s=0;s<inSteps;s++){ const f=(s+1)/inSteps;
-      colN=0; addCol(tipX+tx*startLat+ox*(rr-depth*f), tipY+ty*startLat+oy*(rr-depth*f), tipZ+tz*startLat+oz*(rr-depth*f), rr);
-      contactDepth=0; softStep(FIXED); }
-    for(let s=0;s<Math.round(0.2/FIXED);s++){
-      colN=0; addCol(tipX+tx*startLat+ox*(rr-depth), tipY+ty*startLat+oy*(rr-depth), tipZ+tz*startLat+oz*(rr-depth), rr);
-      contactDepth=0; softStep(FIXED); }
-    const prevPos=new Float32Array(N*3); prevPos.set(B.pos.subarray(0,N*3));
-    let maxJump=0;
-    window.__dbg.statsWorstBegin();
-    for(let s=0;s<steps;s++){
-      const f=s/(steps-1);
-      const lat=-span/2+span*f;
-      colN=0;
-      addCol(tipX+tx*lat+ox*(rr-depth), tipY+ty*lat+oy*(rr-depth), tipZ+tz*lat+oz*(rr-depth), rr);
-      contactDepth=0; softStep(FIXED);
-      let jump=0;
-      for(let i=0;i<N;i++){
-        const dx=B.pos[i*3]-prevPos[i*3], dy=B.pos[i*3+1]-prevPos[i*3+1], dz=B.pos[i*3+2]-prevPos[i*3+2];
-        const d2=dx*dx+dy*dy+dz*dz; if(d2>jump) jump=d2;
-      }
-      jump=Math.sqrt(jump);
-      if(jump>maxJump) maxJump=jump;
-      prevPos.set(B.pos.subarray(0,N*3));
-    }
-    const worst=window.__dbg.statsWorstEnd();
-    colN=0; this.settle(1.5);
-    const after=contactStatsSnapshot();
-    return {
-      maxJumpPerFrame:+maxJump.toFixed(4),
-      worstInvP:worst.maxInvertedProtected,
-      worstEdgeP:worst.maxEdgeRatioProtected,
-      worstGap:worst.minShellGapRatio,
-      foldAfter15:after.foldedEdge45, foldBaseline:blFold,
-      // 合格線12mm: 滑走中の最大ジャンプ≈10mmは「離れた粒の弾性リバウンド(即9割戻り=実装済みの本物の性質)」で、
-      // 対策(パッチランプ・平頂化・粒固有法線)を全て入れても不変=物理由来と確認済み。病的な引っかかりの検出線として12mm
-      pass: maxJump<=0.012 && after.foldedEdge45<=blFold+3 && worst.maxEdgeRatioProtected<=1.55,
-      nan:anyNaN()
-    };
   },
   // 内部粒(中殻・芯)の健康診断: NaNの有無と、外殻に対する平均半径比(restの縮小率0.55/0.22と概ね一致していれば正常)
   innerState(){
