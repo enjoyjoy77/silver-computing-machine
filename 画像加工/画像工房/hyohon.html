@@ -208,7 +208,7 @@
     font:900 16px/1.2 inherit;
     cursor:pointer;
   }
-  #shelfNav{
+  #shelfNav,#toMitate{
     display:none;
     padding:6px 11px;
     border:1px solid var(--line);
@@ -395,7 +395,8 @@
   <h1>覗ける<b>標本</b></h1>
   <a href="index.html">← トップ</a>
   <a href="depth.html">深度ページ</a>
-  <button id="shelfNav" type="button">← 棚</button>
+  <button id="shelfNav" type="button">← 3Dラック</button>
+  <button id="toMitate" type="button">🧊 ミタテで調整</button>
   <span id="rev">rev1</span>
 </div>
 
@@ -435,16 +436,17 @@
   </div>
 </div>
 
-<button id="saveShelf" type="button">棚にしまう</button>
+<button id="saveShelf" type="button">3Dラックにしまう</button>
 
-<section id="shelfView" aria-label="標本の棚">
+<section id="shelfView" aria-label="3Dラック">
   <div class="shelf-head">
-    <h2>標本の棚</h2>
+    <h2>3Dラック</h2>
     <button id="shelfAdd" type="button">画像から追加</button>
   </div>
   <div id="shelfGrid"></div>
   <p id="shelfEmpty">
-    まだ標本がありません。深度ページから送るか、画像から追加してください。
+    まだ何もありません。深度づくりの「📥 3Dラックへ」で送るか、画像から追加してください。
+    ミタテの棚と同じラックなので、ミタテに入れた子もここに並びます。
   </p>
 </section>
 
@@ -453,8 +455,9 @@
 
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
+import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev4-flow";
+const REV = "rev5-rack";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -503,6 +506,8 @@ let targetX = 0;
 let targetY = 0;
 let smoothX = 0;
 let smoothY = 0;
+let zoomTarget = 1;    // 顔が近づくと1未満(=窓に近づく)。顔で覗く時のみ変動
+let zoomSmooth = 1;
 let debugOverride = false;
 let orientationEnabled = false;
 let orientationBase = null;
@@ -570,32 +575,73 @@ async function shelfRequest(mode, operation) {
   }
 }
 
-function shelfGetAll() {
-  return shelfRequest(
-    "readonly",
-    store => store.getAll()
-  );
+// 棚の実体はミタテと共通の「3Dラック」(kobo-handoff DBのfiguresストア)。
+// hyohon用の形({source,depth,thumb,name,ts})に読み替えて既存コードを最小変更で流用する。
+async function shelfGetAll() {
+  const figures = await figuresAll();
+  return figures.map(f => ({
+    id: f.id,
+    source: f.image,
+    depth: f.depth,
+    thumb: f.image,      // サムネ専用データは持たない(画像をそのまま縮小表示)
+    name: f.name,
+    ts: f.ts
+  }));
 }
 
-function shelfGet(id) {
-  return shelfRequest(
-    "readonly",
-    store => store.get(Number(id))
-  );
+async function shelfGet(id) {
+  const items = await shelfGetAll();
+  return items.find(item => item.id === Number(id)) || null;
 }
 
 function shelfRemove(id) {
-  return shelfRequest(
-    "readwrite",
-    store => store.delete(Number(id))
-  );
+  return figuresRemove(Number(id));
 }
 
 function shelfPut(item) {
-  return shelfRequest(
-    "readwrite",
-    store => store.add(item)
-  );
+  return figuresAdd({
+    name: item.name,
+    image: item.source,
+    depth: item.depth
+  });
+}
+
+// 旧・hyohon専用棚(hyohon-shelf)からの一回きり引っ越し(rev4以前に保存した標本を3Dラックへ)
+async function migrateOldShelf() {
+  let oldItems = [];
+  try {
+    const db = await openShelfDb();
+    try {
+      oldItems = await new Promise((resolve, reject) => {
+        const tx = db.transaction(SHELF_STORE, "readonly");
+        const rq = tx.objectStore(SHELF_STORE).getAll();
+        rq.onsuccess = () => resolve(rq.result || []);
+        rq.onerror = () => reject(rq.error);
+      });
+    } finally { db.close(); }
+  } catch { return; }
+  if (!oldItems.length) return;
+
+  for (const item of oldItems) {
+    if (item?.source && item?.depth) {
+      await figuresAdd({
+        name: item.name || "標本",
+        image: item.source,
+        depth: item.depth
+      });
+    }
+  }
+  try {
+    const db = await openShelfDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(SHELF_STORE, "readwrite");
+        tx.objectStore(SHELF_STORE).clear();
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally { db.close(); }
+  } catch {}
 }
 
 async function makeShelfThumb(sourceBlob) {
@@ -641,6 +687,7 @@ function defaultSpecimenName(blob) {
 
 function setLookControlsVisible(visible) {
   $("shelfNav").style.display = visible ? "inline-block" : "none";
+  $("toMitate").style.display = visible ? "inline-block" : "none";
   $("saveShelf").style.display =
     visible && loaded ? "block" : "none";
   $("faceBtn").style.display =
@@ -743,17 +790,15 @@ async function saveToShelf() {
 
   shelfSaving = true;
   const button = $("saveShelf");
-  const normalLabel = "棚にしまう";
+  const normalLabel = "3Dラックにしまう";
   button.disabled = true;
   button.textContent = "保存中…";
   clearError();
 
   try {
-    const thumb = await makeShelfThumb(currentSourceBlob);
     const id = await shelfPut({
       source:currentSourceBlob,
       depth:currentDepthBlob,
-      thumb,
       name:currentSpecimenName ||
         defaultSpecimenName(currentSourceBlob),
       ts:Date.now()
@@ -803,7 +848,7 @@ async function deleteFromShelf(id) {
   if (!item) return false;
 
   const name = item.name || "この標本";
-  if (!confirm("「" + name + "」を棚から削除しますか？")) {
+  if (!confirm("「" + name + "」を3Dラックから削除しますか？(ミタテの棚からも消えます)")) {
     return false;
   }
 
@@ -816,6 +861,8 @@ async function startStage2() {
   showNotice(
     "深度ページから画像を受け取っています…"
   );
+
+  try { await migrateOldShelf(); } catch {}
 
   const [sourceItem, depthItem] = await Promise.all([
     handoffTake("source"),
@@ -833,7 +880,7 @@ async function startStage2() {
     try {
       await saveToShelf();
       await showShelfView();
-      showNotice("標本を棚にしまいました。タップすると覗けます");
+      showNotice("3Dラックにしまいました。タップすると覗けます");
       window.setTimeout(hideNotice, 4500);
     } catch {
       // 保存できなかったときはそのまま覗き画面(エラーはsaveToShelfが表示済み)
@@ -1120,10 +1167,52 @@ function createSpecimen(sourceImage, depthImage) {
     emissiveIntensity: 0.12
   });
 
+  // 「窓の奥の箱(シャドーボックス)」構成: 額縁=窓(z≈0)、中身は箱の奥に置く。
+  // 覗く角度で内壁と額縁の見え方が変わることが、立体錯覚の心臓部。
+  const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.55;
+
   const group = new THREE.Group();
   const relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
-  relief.position.z = 0.04;
+  relief.position.z = -BOX_DEPTH + 0.02;
   group.add(relief);
+
+  // 箱の内壁4面(内向き)
+  const wallSide = new THREE.MeshStandardMaterial({ color:0x232e27, roughness:0.95, metalness:0 });
+  const wallTopM = new THREE.MeshStandardMaterial({ color:0x2e3b33, roughness:0.95, metalness:0 });
+  const wallBotM = new THREE.MeshStandardMaterial({ color:0x1a231d, roughness:0.95, metalness:0 });
+
+  const wallL = new THREE.Mesh(new THREE.PlaneGeometry(BOX_DEPTH, innerHeight), wallSide);
+  wallL.rotation.y = Math.PI / 2;
+  wallL.position.set(-innerWidth / 2, 0, -BOX_DEPTH / 2);
+
+  const wallR = new THREE.Mesh(new THREE.PlaneGeometry(BOX_DEPTH, innerHeight), wallSide.clone());
+  wallR.rotation.y = -Math.PI / 2;
+  wallR.position.set(innerWidth / 2, 0, -BOX_DEPTH / 2);
+
+  const wallT = new THREE.Mesh(new THREE.PlaneGeometry(innerWidth, BOX_DEPTH), wallTopM);
+  wallT.rotation.x = Math.PI / 2;
+  wallT.position.set(0, innerHeight / 2, -BOX_DEPTH / 2);
+
+  const wallB = new THREE.Mesh(new THREE.PlaneGeometry(innerWidth, BOX_DEPTH), wallBotM);
+  wallB.rotation.x = -Math.PI / 2;
+  wallB.position.set(0, -innerHeight / 2, -BOX_DEPTH / 2);
+
+  group.add(wallL, wallR, wallT, wallB);
+
+  // 奥行きの手がかり: 箱の中を漂う小さな光の粒
+  const moteMat = new THREE.MeshBasicMaterial({ color:0x8bd7ad, transparent:true, opacity:0.32, depthWrite:false });
+  for (let i = 0; i < 6; i++) {
+    const mote = new THREE.Mesh(
+      new THREE.SphereGeometry(0.006 + Math.random() * 0.007, 6, 6),
+      moteMat
+    );
+    mote.position.set(
+      (Math.random() - 0.5) * innerWidth * 0.8,
+      (Math.random() - 0.5) * innerHeight * 0.8,
+      -0.06 - Math.random() * BOX_DEPTH * 0.75
+    );
+    group.add(mote);
+  }
 
   const frameWidth = Math.max(
     0.075,
@@ -1142,7 +1231,7 @@ function createSpecimen(sourceImage, depthImage) {
     0x131a16,
     0,
     0,
-    -0.075,
+    -BOX_DEPTH - 0.04,
     0.95
   );
   group.add(backing);
@@ -1186,56 +1275,30 @@ function createSpecimen(sourceImage, depthImage) {
 
   group.add(topFrame, bottomFrame, leftFrame, rightFrame);
 
-  const innerShadowMaterial = new THREE.MeshBasicMaterial({
-    color:0x050806,
-    transparent:true,
-    opacity:0.72,
-    depthWrite:false
-  });
-  const shadowThickness = frameWidth * 0.2;
-
-  const shadowTop = new THREE.Mesh(
-    new THREE.BoxGeometry(innerWidth, shadowThickness, 0.025),
-    innerShadowMaterial
-  );
-  shadowTop.position.set(
-    0,
-    innerHeight / 2 - shadowThickness / 2,
-    0.115
-  );
-
-  const shadowLeft = new THREE.Mesh(
-    new THREE.BoxGeometry(shadowThickness, innerHeight, 0.025),
-    innerShadowMaterial.clone()
-  );
-  shadowLeft.position.set(
-    -innerWidth / 2 + shadowThickness / 2,
-    0,
-    0.115
-  );
-
-  group.add(shadowTop, shadowLeft);
-
   specimen = group;
   scene.add(specimen);
   frameCamera(innerWidth, innerHeight, frameWidth);
 }
 
 function frameCamera(width, height, frameWidth) {
-  const framedHeight = height + frameWidth * 2;
-  const framedWidth = width + frameWidth * 2;
-  const verticalFov = THREE.MathUtils.degToRad(camera.fov);
-  const distanceForHeight =
-    framedHeight / (2 * Math.tan(verticalFov / 2));
-  const horizontalFov =
-    2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
-  const distanceForWidth =
-    framedWidth / (2 * Math.tan(horizontalFov / 2));
+  // 額縁の窓を「画面そのもの」とみなす軸外投影の準備。
+  // 画面の縦横比に合わせて窓を広げる(引き伸ばし歪み防止)。
+  const ud = camera.userData;
+  ud.rawW = width; ud.rawH = height; ud.rawFrame = frameWidth;
 
-  camera.userData.baseDistance =
-    Math.max(distanceForHeight, distanceForWidth) * 1.16;
-  camera.userData.parallaxScale =
-    Math.min(width, height) * 0.22;
+  let winW = width + frameWidth * 2;
+  let winH = height + frameWidth * 2;
+  // 画面比はcanvasの実サイズから取る(裏タブ等でwindowが0x0でも壊さない)
+  const cw = canvas.width || innerWidth || 1;
+  const ch = canvas.height || innerHeight || 1;
+  const canvasAspect = (cw > 0 && ch > 0) ? cw / ch : 1;
+  if (winW / winH < canvasAspect) winW = winH * canvasAspect;
+  else winH = winW / canvasAspect;
+
+  ud.winW = winW;
+  ud.winH = winH;
+  ud.baseDistance = winH * 1.15;
+  ud.parallaxScale = Math.min(width, height) * 0.34;
   updateCamera(true);
 }
 
@@ -1283,20 +1346,34 @@ function updateCamera(immediate = false) {
   if (immediate) {
     smoothX = targetX;
     smoothY = targetY;
+    zoomSmooth = zoomTarget;
   } else {
     smoothX += (targetX - smoothX) * SMOOTHING;
     smoothY += (targetY - smoothY) * SMOOTHING;
+    zoomSmooth += (zoomTarget - zoomSmooth) * 0.08;
   }
 
-  const distance = camera.userData.baseDistance || 2.8;
-  const scale = camera.userData.parallaxScale || 0.28;
+  const ud = camera.userData;
+  const w = ud.winW || 1.8;
+  const h = ud.winH || 1.8;
+  const d = (ud.baseDistance || 2.6) * zoomSmooth;
+  const scale = ud.parallaxScale || 0.3;
+  const x = smoothX * scale;
+  const y = -smoothY * scale;
 
-  camera.position.set(
-    smoothX * scale,
-    -smoothY * scale,
-    distance
+  // 軸外投影(off-axis projection): 窓は空間に固定したまま視点だけ動かす。
+  // lookAtで首を振る方式だと「絵が回る」だけで窓にならない(フィッシュタンクVRの心臓部)。
+  camera.position.set(x, y, d);
+  camera.rotation.set(0, 0, 0);
+  const n = 0.01;
+  camera.projectionMatrix.makePerspective(
+    n * (-w / 2 - x) / d,
+    n * ( w / 2 - x) / d,
+    n * ( h / 2 - y) / d,
+    n * (-h / 2 - y) / d,
+    n, 100
   );
-  camera.lookAt(0, 0, 0);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 }
 
 function renderFrame() {
@@ -1514,14 +1591,14 @@ canvas.addEventListener("pointercancel", endDrag);
 window.addEventListener("resize", () => {
   if (!renderer || !camera) return;
 
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight, false);
 
-  if (specimen) {
-    const box = new THREE.Box3().setFromObject(specimen);
-    const size = box.getSize(new THREE.Vector3());
-    frameCamera(size.x, size.y, 0);
+  if (camera.userData.rawW) {
+    frameCamera(
+      camera.userData.rawW,
+      camera.userData.rawH,
+      camera.userData.rawFrame
+    );
   }
 
   renderFrame();
@@ -1533,6 +1610,7 @@ let faceStream = null;
 let faceDetector = null;
 let faceVideo = null;
 let faceRafId = 0;
+let faceBaseW = null;           // 開始時の顔の大きさ(距離の基準)
 const FACE_GAIN = 2.4;          // 顔の動き→視差の倍率(強すぎたらここを下げる)
 
 async function startFaceLook() {
@@ -1599,6 +1677,11 @@ function faceLoop() {
   const fy = (cy - 0.5) * 2 * FACE_GAIN;
   targetX = clamp(fx, -1, 1);
   targetY = clamp(fy, -1, 1);
+
+  // 顔の大きさ=距離。近づくと窓に近づく(ズーム)。開始時の顔サイズを基準にする
+  const bw = box.width / faceVideo.videoWidth;
+  if (!faceBaseW) faceBaseW = bw;
+  zoomTarget = clamp(faceBaseW / Math.max(bw, 0.02), 0.55, 1.8);
 }
 
 function stopFaceLook() {
@@ -1615,6 +1698,8 @@ function stopFaceLook() {
   btn.textContent = "🎥 顔で覗く";
   $("hint").textContent = "端末を傾ける／マウスを動かすと、窓の中を覗けます";
   targetX = 0; targetY = 0;
+  faceBaseW = null;
+  zoomTarget = 1;
 }
 
 $("shelfNav").addEventListener("click", () => {
@@ -1628,6 +1713,11 @@ $("shelfNav").addEventListener("click", () => {
 
 $("saveShelf").addEventListener("click", () => {
   saveToShelf().catch(() => {});
+});
+
+$("toMitate").addEventListener("click", () => {
+  stopFaceLook();
+  location.href = "mitate.html";
 });
 
 $("shelfAdd").addEventListener("click", showManualPicker);
@@ -1684,6 +1774,17 @@ window.__dbg = {
 
   snap() {
     if (!renderer) return "";
+    if (!canvas.width || !canvas.height) {
+      // 裏タブでサイズ0のときの検証用フォールバック
+      renderer.setSize(960, 720, false);
+      if (camera.userData.rawW) {
+        frameCamera(
+          camera.userData.rawW,
+          camera.userData.rawH,
+          camera.userData.rawFrame
+        );
+      }
+    }
     renderFrame();
     return canvas.toDataURL("image/jpeg", 0.8);
   },

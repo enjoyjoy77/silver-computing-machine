@@ -195,7 +195,8 @@
       <button class="shelf-control-btn" id="shelf-remove" type="button">🗑 削除</button>
     </div>
     <div style="font-size:12px;font-weight:700;color:var(--dim);letter-spacing:.06em;margin-bottom:8px">
-      🗂 棚のフィギュア <span id="shelf-count"></span>
+      🗂 3Dラックのフィギュア <span id="shelf-count"></span>
+      <button id="toHyohon" style="background:none;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:3px 9px;font:inherit;font-size:11px;cursor:pointer;margin-left:8px" onclick="location.href='hyohon.html?view=shelf'">👁 覗ける標本で見る</button>
       <button id="shelf-clear" style="float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:3px 9px;font:inherit;font-size:11px;cursor:pointer">棚を空に</button>
     </div>
     <div id="shelf" style="display:flex;gap:9px;overflow-x:auto;padding-bottom:4px"></div>
@@ -423,7 +424,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev30-lib";
+const REV = "v2 rev31-rack";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
