@@ -542,7 +542,10 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev11-eye";
+const REV = "rev12-near";
+// 近づいたときの吸い込まれ感(知覚ブースト)。0.0=物理に忠実(拡大しない)、0.6=既定
+const NEAR_BOOST = 0.6;
+const NEAR_REF_Z = 0.55;   // このZ(m)を等倍の基準にする
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -1508,7 +1511,9 @@ function createSpecimen(sourceImage, depthImage) {
   // 「画面そのものが窓」構成(VRChatのモニタ窓と同じ考え方):
   // 額縁や箱は描かない。絵は窓(=画面)の奥に置き、視点が最大まで動いても
   // 絵の端が画面に入らないよう大きめに拡大する(端が見えるとジャギつき+興ざめ)。
-  const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.6;
+  // rev12: 箱を浅く(0.6→0.35)。深すぎると「窓に近づくと奥の絵が相対的に縮む」
+  // 物理現象が強く出て、"近づいたのに遠ざかる"と感じる(2.5Dの±10-15°限界とも整合)
+  const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.35;
 
   const group = new THREE.Group();
   const relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
@@ -1578,6 +1583,8 @@ function frameCamera() {
   ud.parallaxScale = winH * 0.3;
   ud.unitScale = unitScale;
 
+  layoutNearLayer(winW, winH);
+
   if (specimen?.userData?.relief) {
     const D = specimen.userData.boxDepth * unitScale;
     const d0 = ud.baseDistance;
@@ -1631,6 +1638,63 @@ function frameCamera() {
   updateCamera(true);
 }
 
+// ---- 手前レイヤー(窓のすぐ奥の縁と粒。世界座標=画面実寸系) ----
+// 動くと手前の縁・粒が奥の絵を「隠したり現したり」して前後関係が確定する
+// (リサーチ: 動的遮蔽が奥行き錯覚の最優先手がかり)
+let nearLayer = null;
+const NEAR_MOTES = [];
+
+function buildNearLayer() {
+  if (nearLayer) return;
+  nearLayer = new THREE.Group();
+  scene.add(nearLayer);
+
+  const edgeMat = new THREE.MeshBasicMaterial({ color:0x070b09 });
+  for (const side of ["t", "b", "l", "r"]) {
+    const slat = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), edgeMat);
+    slat.userData.side = side;
+    nearLayer.add(slat);
+  }
+
+  const moteMat = new THREE.MeshBasicMaterial({
+    color:0x8bd7ad, transparent:true, opacity:0.45, depthWrite:false
+  });
+  for (let i = 0; i < 8; i++) {
+    const mote = new THREE.Mesh(new THREE.SphereGeometry(1, 6, 6), moteMat);
+    mote.userData.mote = {
+      x: Math.random() * 1.7 - 0.85,
+      y: Math.random() * 1.7 - 0.85,
+      z: 0.04 + Math.random() * 0.14,   // 窓のすぐ奥(winH比)
+      r: 0.005 + Math.random() * 0.005
+    };
+    NEAR_MOTES.push(mote);
+    nearLayer.add(mote);
+  }
+}
+
+function layoutNearLayer(winW, winH) {
+  if (!nearLayer) return;
+  const thickness = winH * 0.035;
+  const depth = -winH * 0.06;
+
+  for (const child of nearLayer.children) {
+    if (child.userData.side) {
+      const side = child.userData.side;
+      if (side === "t" || side === "b") {
+        child.scale.set(winW * 1.3, thickness, 1);
+        child.position.set(0, (side === "t" ? 1 : -1) * (winH / 2 - thickness * 0.25), depth);
+      } else {
+        child.scale.set(thickness, winH * 1.3, 1);
+        child.position.set((side === "r" ? 1 : -1) * (winW / 2 - thickness * 0.25), 0, depth);
+      }
+    } else if (child.userData.mote) {
+      const m = child.userData.mote;
+      child.scale.setScalar(m.r * winH);
+      child.position.set(m.x * winW / 2, m.y * winH / 2, -m.z * winH);
+    }
+  }
+}
+
 function initThree() {
   if (renderer) return;
 
@@ -1667,6 +1731,8 @@ function initThree() {
   const fill = new THREE.DirectionalLight(0xbbe8d0, 0.8);
   fill.position.set(3, -1, 2);
   scene.add(fill);
+
+  buildNearLayer();
 }
 
 function updateCamera(immediate = false) {
@@ -1698,7 +1764,16 @@ function updateCamera(immediate = false) {
     x = eyeX;
     y = eyeY;
     d = Math.max(eyeZ, 0.05);
+    // 近づきブースト: 窓に近づくと奥の絵が相対的に縮む物理現象を、
+    // わずかな拡大で打ち消して「吸い込まれる」体感にする(NEAR_BOOST=0で物理忠実)
+    if (specimen && ud.unitScale) {
+      const boost = clamp(Math.pow(NEAR_REF_Z / d, NEAR_BOOST), 0.9, 1.6);
+      specimen.scale.setScalar(ud.unitScale * boost);
+    }
   } else {
+    if (specimen && ud.unitScale) {
+      specimen.scale.setScalar(ud.unitScale);
+    }
     d = (ud.baseDistance || 2.6) * zoomSmooth;
     const scale = ud.parallaxScale || 0.3;
     x = smoothX * scale;
