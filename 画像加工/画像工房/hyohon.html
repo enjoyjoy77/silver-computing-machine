@@ -457,7 +457,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev7-window";
+const REV = "rev8-open";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -890,8 +890,23 @@ async function startStage2() {
 
   hideNotice();
 
-  // ?view=shelf で棚に直行(入口ページの「標本の棚」ボタン用。0件でも棚の案内を出す)
-  if (new URLSearchParams(location.search).get("view") === "shelf") {
+  const params = new URLSearchParams(location.search);
+
+  // ?open=<id> で3Dラックの特定の体を直接覗く(ミタテの「👁 標本で覗く」用)
+  const openId = params.get("open");
+  if (openId) {
+    try {
+      await openFromShelf(Number(openId));
+      return;
+    } catch {
+      showError("その体が見つからなかったため、3Dラックを開きます");
+      await showShelfView();
+      return;
+    }
+  }
+
+  // ?view=shelf で棚に直行(入口ページの「3Dラック」ボタン用。0件でも棚の案内を出す)
+  if (params.get("view") === "shelf") {
     await showShelfView();
     return;
   }

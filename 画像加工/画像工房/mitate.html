@@ -304,6 +304,7 @@
       <span class="val" id="puniKeepVal">55%</span>
     </div>
     <button class="btn" id="puniDeleteBtn">🗑 消す</button>
+    <button class="btn" id="puniUndoBtn" disabled>↩ 戻す</button>
   </div>
   <!-- 疑似3D用 -->
   <div class="row" id="pseudoRow" style="display:none">
@@ -323,6 +324,7 @@
     <button class="btn" id="recBtn">🎬 動画で保存（4秒）</button>
     <button class="btn" id="newBtn">📂 棚を選び直す</button>
     <button class="btn" id="toDepthBtn">⛰ 深度づくりへ</button>
+    <button class="btn" id="toHyohonBtn">👁 標本で覗く</button>
   </div>
   <div class="hint" id="hint"></div>
 </div>
@@ -424,7 +426,7 @@ import {
   buildHandoffBundle, parseHandoffBundle, sanitizePuffs,
 } from "./assets/common.js";
 
-const REV = "v2 rev31-rack";
+const REV = "v2 rev32-undo";
 document.getElementById("rev").textContent = REV;
 
 const $ = id => document.getElementById(id);
@@ -900,6 +902,14 @@ $('newBtn').onclick = async () => {
   await renderShelf();
 };
 $('toDepthBtn').onclick = async () => { if(xrSession) xrSession.end(); await flushPuffsSave(); location.href = 'depth.html'; };
+// 今調整している体を、覗ける標本(hyohon)でそのまま開く(体が無ければラック一覧へ)
+$('toHyohonBtn').onclick = async () => {
+  if(xrSession) xrSession.end();
+  await flushPuffsSave();
+  location.href = (activeItem && activeItem.id != null)
+    ? 'hyohon.html?open=' + activeItem.id
+    : 'hyohon.html?view=shelf';
+};
 
 // 受け渡し(深度づくりから)= 選択中の棚に1体追加
 (async () => {
@@ -2259,7 +2269,27 @@ $('puniKeepRange').addEventListener('input', ()=>{
 });
 $('puniSoftRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
 $('puniKeepRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
-$('puniDeleteBtn').onclick = ()=>{ if(!PUNI.selected) return; puniRemovePuff(PUNI.selected); toast('ぷるぷるを消しました'); };
+// 「消す」のやり直し用: 消したスポットの設定を控えておき「戻す」で復活させる
+const puniUndoStack = [];
+$('puniDeleteBtn').onclick = ()=>{
+  if(!PUNI.selected) return;
+  const p = PUNI.selected;
+  puniUndoStack.push({ item:p.item, u:p.u, v:p.v, r:p.r, h:p.h, soft:p.soft, keep:p.keep });
+  puniRemovePuff(p);
+  $('puniUndoBtn').disabled = false;
+  toast('ぷるぷるを消しました(「↩ 戻す」で復活できます)');
+};
+$('puniUndoBtn').onclick = ()=>{
+  const s = puniUndoStack.pop();
+  $('puniUndoBtn').disabled = puniUndoStack.length === 0;
+  if(!s) return;
+  if(!items.includes(s.item)){ toast('元の体が読み込まれていないため戻せません'); return; }
+  if(s.item !== activeItem){ setActive(s.item); refresh2DActive(); }
+  puniSpawn({ u:s.u, v:s.v, r:s.r, h:s.h, soft:s.soft, keep:s.keep });
+  schedulePuffsSave(s.item, 0);
+  puniSyncUI();
+  toast('消したぷるぷるを戻しました');
+};
 // スライダー操作終了時に設定を保存(操作中はinputハンドラが物理を再構築、確定はchangeで)
 $('puniRadiusRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
 $('puniHeightRange').addEventListener('change', () => { if (PUNI.selected?.item) schedulePuffsSave(PUNI.selected.item, 0); });
