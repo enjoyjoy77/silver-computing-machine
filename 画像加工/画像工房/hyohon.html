@@ -457,7 +457,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev9-guard";
+const REV = "rev10-fit";
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
@@ -1220,6 +1220,26 @@ function createSpecimen(sourceImage, depthImage) {
   group.userData.reliefStrength = reliefStrength;
   group.add(relief);
 
+  // 背景: 同じ写真のぼかし拡大版(縦長写真を横長画面で見ても、余白がぼかしで埋まる)
+  const blurCanvas = document.createElement("canvas");
+  blurCanvas.width = 48;
+  blurCanvas.height = 48;
+  const bg = blurCanvas.getContext("2d");
+  const cover = Math.max(48 / sourceImage.naturalWidth, 48 / sourceImage.naturalHeight);
+  const bw = sourceImage.naturalWidth * cover, bh = sourceImage.naturalHeight * cover;
+  bg.drawImage(sourceImage, (48 - bw) / 2, (48 - bh) / 2, bw, bh);
+  bg.fillStyle = "rgba(0,0,0,0.42)";           // 主役より暗くして奥に沈める
+  bg.fillRect(0, 0, 48, 48);
+  const blurTexture = new THREE.CanvasTexture(blurCanvas);
+  blurTexture.colorSpace = THREE.SRGBColorSpace;
+  const backdrop = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: blurTexture })
+  );
+  backdrop.position.z = -BOX_DEPTH - 0.12;
+  group.userData.backdrop = backdrop;
+  group.add(backdrop);
+
   // 奥行きの手がかり: 箱の中を漂う小さな光の粒
   const moteMat = new THREE.MeshBasicMaterial({ color:0x8bd7ad, transparent:true, opacity:0.32, depthWrite:false });
   for (let i = 0; i < 6; i++) {
@@ -1258,20 +1278,30 @@ function frameCamera() {
 
   if (specimen?.userData?.relief) {
     const D = specimen.userData.boxDepth;
-    const dMin = ud.baseDistance * 0.55;   // 顔を最接近させた時でも端が見えない前提で計算
+    const d0 = ud.baseDistance;
+    const dMin = d0 * 0.55;   // 顔を最接近させた時の距離
     const xMax = ud.parallaxScale;
-    const needW = winW * (dMin + D) / dMin + 2 * xMax * D / dMin;
-    const needH = winH * (dMin + D) / dMin + 2 * xMax * D / dMin;
-    const s = Math.max(
-      needW / specimen.userData.reliefW,
-      needH / specimen.userData.reliefH
-    ) * 1.05;
+
+    // 主役の写真: 窓に「収まる」大きさ(縦長でも切れない。少しだけ余裕を持たせる)
+    const worldW = winW * (d0 + D) / d0;
+    const worldH = winH * (d0 + D) / d0;
+    const s = Math.min(
+      worldW / specimen.userData.reliefW,
+      worldH / specimen.userData.reliefH
+    ) * 1.08;
     // 奥行き方向は「盛り上がりが窓から飛び出さない」上限に別途スケール
     const sz = (BOXZ => Math.max(0.5, Math.min(BOXZ, 4)))(
-      (specimen.userData.boxDepth * 0.6) /
-      Math.max(specimen.userData.reliefStrength, 0.001)
+      (D * 0.6) / Math.max(specimen.userData.reliefStrength, 0.001)
     );
     specimen.userData.relief.scale.set(s, s, sz);
+
+    // 背景のぼかし版: 最接近+最大視差でも画面を覆い切る大きさ
+    if (specimen.userData.backdrop) {
+      const Db = D + 0.12;
+      const needW = winW * (dMin + Db) / dMin + 2 * xMax * Db / dMin;
+      const needH = winH * (dMin + Db) / dMin + 2 * xMax * Db / dMin;
+      specimen.userData.backdrop.scale.set(needW * 1.05, needH * 1.05, 1);
+    }
   }
   updateCamera(true);
 }
