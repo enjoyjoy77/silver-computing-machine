@@ -1710,8 +1710,8 @@ for(let i=0;i<xrButtonLabels.length;i++){
     new THREE.MeshBasicMaterial({
       map:makeButtonTexture(xrButtonLabels[i],false),
       side:THREE.DoubleSide,
-      transparent:true,
-      depthTest:false
+      transparent:true
+      // depthTest は既定ON: 手がボタンの手前に来たら手が見える(前は常にUIが手の上に描かれていた)
     })
   );
   mesh.userData.texOff=mesh.material.map;
@@ -1721,7 +1721,6 @@ for(let i=0;i<xrButtonLabels.length;i++){
   mesh.position.x=(column-1.5)*.100;   // 間隔を .071→.100 に拡大(誤タッチ対策)
   mesh.position.y=-row*.050;           // 段間も拡大
   mesh.userData.action=i;
-  mesh.renderOrder=31;
   xrUI.add(mesh);
   xrButtons.push(mesh);
 }
