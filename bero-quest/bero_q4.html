@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q4 rev4</div>
+<div id="rev">MR版 q4 rev5</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -202,18 +202,28 @@ body.xr-active #hint{
   </div>
 
   <div class="caption">サイズ <span class="val" id="size_label">7：標準 12.5cm</span></div>
-  <div class="size-buttons" id="size_buttons">
-    <button data-size="1">1</button>
-    <button data-size="2">2</button>
-    <button data-size="3">3</button>
-    <button data-size="4">4</button>
-    <button data-size="5" class="on">5</button>
-    <button data-size="6">6</button>
-    <button data-size="7">7</button>
-    <button data-size="8">8</button>
-    <button data-size="9">9</button>
-    <button data-size="10">10</button>
-  </div>
+  <div class="size-buttons" id="size_buttons"></div>
+  <div class="caption">ふとさ 1〜10</div>
+  <div class="size-buttons" id="thick_buttons"></div>
+  <script>
+    // ながさ20個・ふとさ10個のボタンを生成(モジュール読込前に用意)
+    (function(){
+      const s=document.getElementById("size_buttons");
+      for(let n=1;n<=20;n++){
+        const b=document.createElement("button");
+        b.dataset.size=n; b.textContent=n;
+        if(n===8)b.className="on";
+        s.appendChild(b);
+      }
+      const t=document.getElementById("thick_buttons");
+      for(let n=1;n<=10;n++){
+        const b=document.createElement("button");
+        b.dataset.thick=n; b.textContent=n;
+        if(n===5)b.className="on";
+        t.appendChild(b);
+      }
+    })();
+  </script>
 
   <div class="buttons">
     <button id="b_pero">ぺろぺろ</button>
@@ -464,26 +474,30 @@ function makeRoughnessMap(){
   return texture;
 }
 
-/* サイズ10段階 = 「長さ」の段階(実機フィードバック2回目で再設計)。
-   太さ・厚みは「ふつうの舌」のままほぼ一定で、長さだけが 1=ちょこん(2cm) 〜 10=エイリアン(20cm) と変わる */
-const SIZES=[
-  null,
-  {name:"ちょこん",length:.020,width:.0170,height:.0100,tip:.50},
-  {name:"みじかい",length:.035,width:.0175,height:.0102,tip:.58},
-  {name:"みじかめ",length:.050,width:.0180,height:.0104,tip:.64},
-  {name:"ふつう−",length:.065,width:.0182,height:.0106,tip:.68},
-  {name:"ふつう",length:.080,width:.0185,height:.0108,tip:.72},
-  {name:"ながめ",length:.100,width:.0188,height:.0110,tip:.75},
-  {name:"ながい",length:.120,width:.0190,height:.0112,tip:.77},
-  {name:"かなりながい",length:.145,width:.0193,height:.0114,tip:.79},
-  {name:"すごくながい",length:.170,width:.0196,height:.0116,tip:.81},
-  {name:"エイリアン",length:.200,width:.0200,height:.0118,tip:.82}
-];
+/* ながさ=1〜20段階(2cm〜20cm)。ふとさ=別軸の1〜10段階(既定5=ふつうの舌の太さ)。
+   実機フィードバック: 長さと大きさ(太さ)は別のステータスとして持つ */
+function sizeName(n){
+  if(n<=2)return "ちょこん";
+  if(n<=5)return "みじかい";
+  if(n<=8)return "ふつう";
+  if(n<=12)return "ながめ";
+  if(n<=16)return "ながい";
+  if(n<=19)return "すごくながい";
+  return "エイリアン";
+}
+const SIZES=[null];
+for(let n=1;n<=20;n++){
+  const t=(n-1)/19;
+  SIZES.push({name:sizeName(n),length:.02+.18*t,tip:.50+.32*t});
+}
+const BASE_W=.0185, BASE_H=.0108;      // ふとさ5のときの半幅・半厚(ふつうの舌)
+let thickLevel=5;
+function thickMul(){return .4+.12*thickLevel;} // 1=52% 〜 5=100% 〜 10=160%
 
-let sizeLevel=5;
+let sizeLevel=8;
 let L0=SIZES[sizeLevel].length;
-let W0=SIZES[sizeLevel].width;
-let H0=SIZES[sizeLevel].height;
+let W0=BASE_W*thickMul();
+let H0=BASE_H*thickMul();
 let tipRound=SIZES[sizeLevel].tip;
 let SEG_LEN=L0/12;
 
@@ -1249,7 +1263,7 @@ function resetCommands(){
 function updateSizeUI(){
   const spec=SIZES[sizeLevel];
   document.getElementById("size_label").textContent=
-    `${sizeLevel}：${spec.name} ${(spec.length*100).toFixed(1)}cm`;
+    `ながさ${sizeLevel}：${spec.name} ${(spec.length*100).toFixed(1)}cm ／ ふとさ${thickLevel}`;
 
   for(const button of document.querySelectorAll("[data-size]")){
     button.classList.toggle(
@@ -1257,16 +1271,19 @@ function updateSizeUI(){
       Number(button.dataset.size)===sizeLevel
     );
   }
+  for(const button of document.querySelectorAll("[data-thick]")){
+    button.classList.toggle(
+      "on",
+      Number(button.dataset.thick)===thickLevel
+    );
+  }
 }
 
-function setSize(level){
-  const next=Math.max(1,Math.min(10,Math.round(Number(level)||5)));
-  sizeLevel=next;
-
+function rebuildFromSpecs(){
   const spec=SIZES[sizeLevel];
   L0=spec.length;
-  W0=spec.width;
-  H0=spec.height;
+  W0=BASE_W*thickMul();
+  H0=BASE_H*thickMul();
   tipRound=spec.tip;
   SEG_LEN=L0/(SECTIONS-1);
 
@@ -1283,8 +1300,20 @@ function setSize(level){
   updateVisualMesh();
   updateSkeleton();
   updateSizeUI();
-  logJapanese(`サイズを${sizeLevel}に変更しました。`);
+}
+
+function setSize(level){
+  sizeLevel=Math.max(1,Math.min(20,Math.round(Number(level)||8)));
+  rebuildFromSpecs();
+  logJapanese(`ながさを${sizeLevel}(${SIZES[sizeLevel].name}・${(SIZES[sizeLevel].length*100).toFixed(1)}cm)にしました。`);
   return sizeLevel;
+}
+
+function setThickness(level){
+  thickLevel=Math.max(1,Math.min(10,Math.round(Number(level)||5)));
+  rebuildFromSpecs();
+  logJapanese(`ふとさを${thickLevel}にしました。`);
+  return thickLevel;
 }
 
 for(let n=0;n<commandNames.length;n++){
@@ -1303,6 +1332,10 @@ for(let n=0;n<commandNames.length;n++){
 document.getElementById("size_buttons").addEventListener("click",event=>{
   const button=event.target.closest("[data-size]");
   if(button)setSize(button.dataset.size);
+});
+document.getElementById("thick_buttons").addEventListener("click",event=>{
+  const button=event.target.closest("[data-thick]");
+  if(button)setThickness(button.dataset.thick);
 });
 
 document.getElementById("b_pero").addEventListener("click",event=>{
@@ -1698,7 +1731,7 @@ xrUI.visible=false;
 scene.add(xrUI);
 
 // XRボタン(実機UI改修: 大きく・間隔を空け・押した反応と状態表示つき)
-const xrButtonLabels=["ぺろぺろ","サイズ −","サイズ +","装着","手で操る","録体 REC","録体 保存","録体 再生"];
+const xrButtonLabels=["ぺろぺろ","ながさ −","ながさ +","ふとさ −","ふとさ +","装着","手で操る","録体 REC","録体 保存","録体 再生"];
 const xrButtons=[];
 const xrButtonPressedUntil=new Float64Array(xrButtonLabels.length);
 const xrButtonOnState=new Uint8Array(xrButtonLabels.length);
@@ -1728,10 +1761,10 @@ for(let i=0;i<xrButtonLabels.length;i++){
 // トグル系ボタンのON/OFF表示と、押した瞬間の反応(縮む+ひかる)
 function refreshXRButtonStates(){
   xrButtonOnState[0]=automatic==="pero"?1:0;
-  xrButtonOnState[3]=tongueMounted?1:0;
-  xrButtonOnState[4]=handGestures.enabled?1:0;
-  xrButtonOnState[5]=rokutai.recording?1:0;
-  xrButtonOnState[7]=rokutai.playing?1:0;
+  xrButtonOnState[5]=tongueMounted?1:0;
+  xrButtonOnState[6]=handGestures.enabled?1:0;
+  xrButtonOnState[7]=rokutai.recording?1:0;
+  xrButtonOnState[9]=rokutai.playing?1:0;
   for(let b=0;b<xrButtons.length;b++){
     const mesh=xrButtons[b];
     const on=xrButtonOnState[b]===1;
@@ -1771,24 +1804,26 @@ function triggerXRButton(action,controllerIndex){
     logJapanese(enable?"ぺろぺろを開始しました。":"ぺろぺろを停止しました。");
   }else if(action===1){
     setSize(sizeLevel-1);
-    logJapanese(`サイズ ${sizeLevel}(${SIZES[sizeLevel].name}・${(SIZES[sizeLevel].length*100).toFixed(1)}cm)`);
   }else if(action===2){
     setSize(sizeLevel+1);
-    logJapanese(`サイズ ${sizeLevel}(${SIZES[sizeLevel].name}・${(SIZES[sizeLevel].length*100).toFixed(1)}cm)`);
   }else if(action===3){
-    setTongueMounted(!tongueMounted);
+    setThickness(thickLevel-1);
   }else if(action===4){
+    setThickness(thickLevel+1);
+  }else if(action===5){
+    setTongueMounted(!tongueMounted);
+  }else if(action===6){
     const enable=!handGestures.enabled;
     handGestures.setEnabled(enable);
     if(!enable)resetCommands();
     logJapanese(enable
       ?"手で操るモードON: 手を動かすと舌が動きます(前後=伸縮/上下左右=曲げ/手首ひねり=ねじれ/つまむ=カール)。"
       :"手で操るモードOFF。");
-  }else if(action===5){
-    toggleRokutaiRecord();
-  }else if(action===6){
-    saveRokutai();
   }else if(action===7){
+    toggleRokutaiRecord();
+  }else if(action===8){
+    saveRokutai();
+  }else if(action===9){
     toggleRokutaiPlayback();
   }
 
@@ -2416,6 +2451,10 @@ window.__dbg={
     command[name]=Math.max(-1,Math.min(1,Number(value)||0));
     syncControls();
     return true;
+  },
+
+  setThickness(level){
+    return setThickness(level);
   },
 
   setSize(level){

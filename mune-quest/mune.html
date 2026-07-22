@@ -169,7 +169,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v7 rev6";   // rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
+const REV = "v7 rev7";   // rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -261,6 +261,9 @@ const TUNE = {
   engineC0: true,        // true=C0直接変形 / false=v5粒子物理
   c0PatchR: 0.042,       // 凹みカーネル半径(m)。中心50%は平頂
   c0MaxDent: 0.026,      // 最大凹み(m)。やわらかさレバーで18〜30mm(applyFeel)
+  c0RimOuter: 1.70,      // C2: 盛り上がり帯の外径=c0PatchR×この値
+  c0RimGain: 0.10,       // C2: 盛り上がり頂点=押し込み深さの10%(設計レンジ5〜15%)
+  c0RimMax: 0.0035,      // C2: 盛り上がり絶対上限(m)。深押し時も過剰な輪を作らない
   c0TauIn: 0.08,         // 押し込みの追従時定数(s)。一次遅れ=オーバーシュートが存在しない
   c0TauOut: 0.18,        // 戻りの時定数(s)。ゆれのこりレバーで120〜250ms(applyFeel)
   c0Start: 0.004,        // 接触開始のしきい値(m)=この深さ以上の明確な侵入で開始(Schmitt)
@@ -1629,9 +1632,14 @@ function c0Step(h){
       if(S.act[k] && S.p[k]>contactDepth) contactDepth=S.p[k];   // 音・振動用
     }
 
-    // --- 凹みターゲット: 複数接触はmax(加算しない)。平頂カーネル ---
+    // --- C0/C2: 凹み+縁の盛り上がりターゲット ---
+    // d>0は静止法線方向への凹み、d<0は反対方向への盛り上がり(v7 rev7)。
+    // 凹みの外側に0→頂点→0の独立した帯を置く。凹み量を入力へフィードバックしないため
+    // C0の「自己振動しない」性質は維持される。複数接触は凹み=最大、盛り上がり=最小、重なりは凹み優先。
     const T=S.tgtD; T.fill(0);
     const PR=TUNE.c0PatchR, core=PR*0.5, fall=PR-core;
+    const rimOuter=PR*Math.max(1.01,TUNE.c0RimOuter);
+    const rimWidth=rimOuter-PR;
     for(let k=0;k<colN;k++){
       if(!S.act[k]) continue;
       const qi=S.q[k]*3;
@@ -1642,11 +1650,19 @@ function c0Step(h){
         if(invMass[i]===0) continue;
         const dx=B.tgt[i*3]-qx, dy=B.tgt[i*3+1]-qy, dz=B.tgt[i*3+2]-qz;
         const r=Math.hypot(dx,dy,dz);
-        if(r>=PR) continue;
-        let w=1;
-        if(r>core){ const u=(r-core)/fall; w=1-u*u*(3-2*u); }
-        const t=depth*w;
-        if(t>T[i]) T[i]=t;
+        if(r<PR){
+          let w=1;
+          if(r>core){ const u=(r-core)/fall; w=1-u*u*(3-2*u); }
+          const t=depth*w;
+          if(t>T[i]) T[i]=t;
+        }else if(r<rimOuter && T[i]<=0){
+          // sin²(πu): 両端で値と傾きが0。輪郭に折れ・段差を作らない。
+          const u=(r-PR)/rimWidth;
+          const sw=Math.sin(Math.PI*u);
+          const bulge=Math.min(TUNE.c0RimMax,depth*TUNE.c0RimGain)*sw*sw;
+          const t=-bulge;
+          if(t<T[i]) T[i]=t;
+        }
       }
     }
 
@@ -1656,8 +1672,10 @@ function c0Step(h){
     for(let i=0;i<N;i++){
       const t=T[i];
       let d=S.d[i];
-      d += (t-d) * (t>d ? aIn : aOut);
-      if(t<=0 && d<0.0003) d=0;   // 放置すると"完全に"止まる(常時ジッターの根絶)
+      // 同符号で絶対量が減る時だけ戻り時定数。それ以外は入力追従(v7 rev7: 盛り上がり=負値に対応)。
+      const relaxing=t===0 || (t*d>0 && Math.abs(t)<Math.abs(d));
+      d += (t-d) * (relaxing ? aOut : aIn);
+      if(t===0 && Math.abs(d)<0.0003) d=0;   // 放置すると"完全に"止まる(盛り上がり側もゼロスナップ)
       S.d[i]=d;
     }
 
