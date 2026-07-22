@@ -625,18 +625,23 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev18-show";
+const REV = "rev19-wide";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
   lightZ:0.5,
   idleDelayS:8,
-  idleAmpX:0.55,
-  idleAmpY:0.3,
+  idleAmpX:0.95,
+  idleAmpY:0.55,
   idleSpeed:0.5,
   recordS:6,
   fadeS:0.5
 };
+
+// 顔トラッキングの角度誇張: 実寸1:1だと写真1枚では動きが平坦に感じる
+// (2.5Dは本物の視点変化ほど絵が変わらないため)。目の横位置をこの倍率で
+// 増幅して「首を振った分ちゃんと動く」体感に寄せる。1.0で物理忠実
+const EYE_GAIN = 1.8;
 // スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
 // ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
 // 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
@@ -3195,7 +3200,7 @@ function frameCamera() {
   ud.winW = winW;
   ud.winH = winH;
   ud.baseDistance = winH * 1.05;
-  ud.parallaxScale = winH * 0.3;
+  ud.parallaxScale = winH * 0.55;
   ud.unitScale = unitScale;
 
   layoutNearLayer(winW, winH);
@@ -3377,8 +3382,8 @@ function updateCamera(immediate = false) {
   if (physicalEyeActive) {
     // 実寸モード: 目の実位置(m)をそのままカメラに(窓=画面の物理サイズと1:1)
     // スマホでジャイロ併用時は、傾きの速い成分を上乗せ(フュージョン)
-    x = eyeX + (orientationEnabled ? fusionX : 0);
-    y = eyeY + (orientationEnabled ? fusionY : 0);
+    x = (eyeX + (orientationEnabled ? fusionX : 0)) * EYE_GAIN;
+    y = (eyeY + (orientationEnabled ? fusionY : 0)) * EYE_GAIN;
     d = Math.max(eyeZ, 0.05);
     // 近づきブースト: 窓に近づくと奥の絵が相対的に縮む物理現象を、
     // わずかな拡大で打ち消して「吸い込まれる」体感にする(NEAR_BOOST=0で物理忠実)
@@ -4024,6 +4029,24 @@ let recordStartTs = 0;
 let recordDurationS = SHOW_TUNE.recordS;
 let recordTimerId = 0;
 let activeRecorder = null;
+let pendingShowVideo = null;   // 録画済みでまだ保存していない動画 {blob, ext}
+
+function saveShowVideo() {
+  if (!pendingShowVideo) return;
+
+  const url = URL.createObjectURL(pendingShowVideo.blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download =
+    "3d-rack-" + Date.now() + pendingShowVideo.ext;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  pendingShowVideo = null;
+  syncRecordButton();
+}
 
 function noteShowInput() {
   lastInputTs = performance.now();
@@ -4118,7 +4141,9 @@ function syncRecordButton() {
   if (!recording) {
     button.disabled = false;
     button.classList.remove("recording");
-    button.textContent = "🎬 動画にする";
+    button.textContent = pendingShowVideo
+      ? "💾 動画を保存"
+      : "🎬 動画にする";
     return;
   }
 
@@ -4223,17 +4248,12 @@ function startShowRecord(seconds = SHOW_TUNE.recordS) {
       return;
     }
 
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download =
-      "3d-rack-" +
-      Date.now() +
-      recordingExtension(actualMime);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // 自動保存はしない: 「💾 動画を保存」ボタンを押したときだけ保存する
+    pendingShowVideo = {
+      blob,
+      ext:recordingExtension(actualMime)
+    };
+    syncRecordButton();
   };
 
   try {
@@ -4276,6 +4296,11 @@ updateMeasuredEye = function(...args) {
 const baseSetLookControlsVisible = setLookControlsVisible;
 setLookControlsVisible = function(visible) {
   baseSetLookControlsVisible(visible);
+  if (!visible && pendingShowVideo) {
+    // 覗き画面を離れたら未保存の録画は破棄(次に来たとき混乱しないように)
+    pendingShowVideo = null;
+    syncRecordButton();
+  }
   $("recordShow").style.display =
     visible && loaded ? "block" : "none";
 };
@@ -4312,6 +4337,11 @@ renderFrame = function() {
 };
 
 $("recordShow").addEventListener("click", () => {
+  if (recording) return;
+  if (pendingShowVideo) {
+    saveShowVideo();
+    return;
+  }
   startShowRecord(SHOW_TUNE.recordS);
 });
 
