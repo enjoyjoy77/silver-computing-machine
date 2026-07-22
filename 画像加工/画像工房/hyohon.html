@@ -600,7 +600,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev16-person";
+const REV = "rev17-layers";
 // スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
 // ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
 // 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
@@ -635,6 +635,13 @@ const PERSON_TUNE = {
   bgPush:0.75,
   faceBlend:0.65,
   borderFeather:2
+};
+
+const LAYER_TUNE = {
+  alphaCut:0.3,
+  alphaTest:0.35,
+  maskGamma:1.5,
+  texMax:1024
 };
 
 let personSegmenter = null;
@@ -2387,32 +2394,571 @@ function makeSourceTexture(image) {
   return texture;
 }
 
+function pushPullFillCanvas(
+  sourceImage,
+  holeMaskGrid,
+  gw,
+  gh,
+  texW,
+  texH
+) {
+  if (
+    !holeMaskGrid ||
+    holeMaskGrid.length !== gw * gh ||
+    gw < 1 ||
+    gh < 1 ||
+    texW < 1 ||
+    texH < 1
+  ) {
+    throw new Error("背景画像の穴埋め入力が正しくありません");
+  }
+
+  const resizedMask = resizeProbabilityMask(
+    holeMaskGrid,
+    gw,
+    gh,
+    texW,
+    texH
+  );
+  const base = document.createElement("canvas");
+  base.width = texW;
+  base.height = texH;
+
+  const baseContext = base.getContext("2d", {
+    willReadFrequently:true
+  });
+  if (!baseContext) {
+    throw new Error("背景画像の穴埋め用canvasを作成できません");
+  }
+
+  baseContext.drawImage(sourceImage, 0, 0, texW, texH);
+  const pixels = baseContext.getImageData(0, 0, texW, texH);
+  let validPixels = 0;
+
+  for (let index = 0; index < resizedMask.length; index++) {
+    const alphaOffset = index * 4 + 3;
+
+    if (resizedMask[index] > 0.5) {
+      pixels.data[alphaOffset] = 0;
+    } else {
+      pixels.data[alphaOffset] = 255;
+      validPixels++;
+    }
+  }
+
+  if (!validPixels) {
+    throw new Error("背景画像として使える領域がありません");
+  }
+
+  baseContext.putImageData(pixels, 0, 0);
+
+  const levels = [base];
+  let width = texW;
+  let height = texH;
+
+  while (width > 1 || height > 1) {
+    const nextWidth = Math.max(1, Math.ceil(width / 2));
+    const nextHeight = Math.max(1, Math.ceil(height / 2));
+    const next = document.createElement("canvas");
+    next.width = nextWidth;
+    next.height = nextHeight;
+
+    const context = next.getContext("2d");
+    if (!context) {
+      throw new Error("背景画像の縮小用canvasを作成できません");
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(
+      levels[levels.length - 1],
+      0,
+      0,
+      nextWidth,
+      nextHeight
+    );
+
+    levels.push(next);
+    width = nextWidth;
+    height = nextHeight;
+  }
+
+  for (let level = levels.length - 2; level >= 0; level--) {
+    const target = levels[level];
+    const context = target.getContext("2d");
+    if (!context) {
+      throw new Error("背景画像の拡大用canvasを作成できません");
+    }
+
+    context.save();
+    context.globalCompositeOperation = "destination-over";
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(
+      levels[level + 1],
+      0,
+      0,
+      target.width,
+      target.height
+    );
+    context.restore();
+  }
+
+  const resultContext = base.getContext("2d", {
+    willReadFrequently:true
+  });
+  const result = resultContext.getImageData(0, 0, texW, texH);
+
+  for (let offset = 3; offset < result.data.length; offset += 4) {
+    result.data[offset] = 255;
+  }
+
+  resultContext.putImageData(result, 0, 0);
+  return base;
+}
+
+function pushPullFillFloat(data, holeMask, w, h) {
+  if (
+    !data ||
+    !holeMask ||
+    data.length !== w * h ||
+    holeMask.length !== w * h ||
+    w < 1 ||
+    h < 1
+  ) {
+    throw new Error("背景深度の穴埋め入力が正しくありません");
+  }
+
+  const values = new Float32Array(data.length);
+  const weights = new Float32Array(data.length);
+  let validPixels = 0;
+
+  for (let index = 0; index < data.length; index++) {
+    if (holeMask[index] > 0.5) continue;
+
+    values[index] = data[index];
+    weights[index] = 1;
+    validPixels++;
+  }
+
+  if (!validPixels) {
+    throw new Error("背景深度として使える領域がありません");
+  }
+
+  const levels = [{values, weights, w, h}];
+
+  while (w > 1 || h > 1) {
+    const previous = levels[levels.length - 1];
+    const nextW = Math.max(1, Math.ceil(w / 2));
+    const nextH = Math.max(1, Math.ceil(h / 2));
+    const nextValues = new Float32Array(nextW * nextH);
+    const nextWeights = new Float32Array(nextW * nextH);
+
+    for (let y = 0; y < nextH; y++) {
+      for (let x = 0; x < nextW; x++) {
+        let weightedSum = 0;
+        let weightSum = 0;
+
+        for (let dy = 0; dy < 2; dy++) {
+          const sourceY = y * 2 + dy;
+          if (sourceY >= previous.h) continue;
+
+          for (let dx = 0; dx < 2; dx++) {
+            const sourceX = x * 2 + dx;
+            if (sourceX >= previous.w) continue;
+
+            const sourceIndex = sourceY * previous.w + sourceX;
+            const weight = previous.weights[sourceIndex];
+            weightedSum += previous.values[sourceIndex] * weight;
+            weightSum += weight;
+          }
+        }
+
+        const targetIndex = y * nextW + x;
+        if (weightSum > 0) {
+          nextValues[targetIndex] = weightedSum / weightSum;
+          nextWeights[targetIndex] = Math.min(1, weightSum / 4);
+        }
+      }
+    }
+
+    levels.push({
+      values:nextValues,
+      weights:nextWeights,
+      w:nextW,
+      h:nextH
+    });
+    w = nextW;
+    h = nextH;
+  }
+
+  for (let level = levels.length - 2; level >= 0; level--) {
+    const target = levels[level];
+    const parent = levels[level + 1];
+
+    for (let y = 0; y < target.h; y++) {
+      const parentY = Math.min(
+        parent.h - 1,
+        Math.floor(y * parent.h / target.h)
+      );
+
+      for (let x = 0; x < target.w; x++) {
+        const targetIndex = y * target.w + x;
+        const currentWeight = target.weights[targetIndex];
+        if (currentWeight >= 1) continue;
+
+        const parentX = Math.min(
+          parent.w - 1,
+          Math.floor(x * parent.w / target.w)
+        );
+        const parentIndex = parentY * parent.w + parentX;
+        const parentWeight = parent.weights[parentIndex];
+        if (parentWeight <= 0) continue;
+
+        const fillWeight = 1 - currentWeight;
+        target.values[targetIndex] =
+          target.values[targetIndex] * currentWeight +
+          parent.values[parentIndex] * fillWeight;
+        target.weights[targetIndex] = 1;
+      }
+    }
+  }
+
+  return levels[0].values;
+}
+
+function buildLayerGeometry(
+  depthData,
+  gw,
+  gh,
+  innerWidth,
+  innerHeight,
+  reliefStrength
+) {
+  if (!depthData || depthData.length !== gw * gh) {
+    throw new Error("層メッシュの深度サイズが一致しません");
+  }
+
+  const segmentsX = gw - 1;
+  const segmentsY = gh - 1;
+  const geometry = new THREE.PlaneGeometry(
+    innerWidth,
+    innerHeight,
+    segmentsX,
+    segmentsY
+  );
+  const positions = geometry.attributes.position;
+
+  for (let y = 0; y <= segmentsY; y++) {
+    for (let x = 0; x <= segmentsX; x++) {
+      const vertex = y * gw + x;
+      const depth =
+        depthData[vertex] + (Math.random() - 0.5) / 255;
+      const edgeX = Math.min(
+        x / segmentsX,
+        1 - x / segmentsX
+      );
+      const edgeY = Math.min(
+        y / segmentsY,
+        1 - y / segmentsY
+      );
+      const edgeFade = THREE.MathUtils.smoothstep(
+        Math.min(edgeX, edgeY),
+        0,
+        0.075
+      );
+
+      positions.setZ(
+        vertex,
+        depth * reliefStrength * edgeFade
+      );
+    }
+  }
+
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function buildLayeredRelief(
+  sourceImage,
+  depthData,
+  person,
+  gw,
+  gh,
+  innerWidth,
+  innerHeight,
+  reliefStrength,
+  BOX_DEPTH
+) {
+  if (
+    !person?.personMask ||
+    person.personMask.length !== gw * gh
+  ) {
+    throw new Error("人物マスクのサイズが一致しません");
+  }
+
+  const sourceWidth = sourceImage.naturalWidth || sourceImage.width;
+  const sourceHeight = sourceImage.naturalHeight || sourceImage.height;
+  const textureScale = Math.min(
+    1,
+    LAYER_TUNE.texMax /
+      Math.max(sourceWidth, sourceHeight)
+  );
+  const texW = Math.max(
+    1,
+    Math.round(sourceWidth * textureScale)
+  );
+  const texH = Math.max(
+    1,
+    Math.round(sourceHeight * textureScale)
+  );
+  const holeMask = new Float32Array(gw * gh);
+
+  for (let index = 0; index < holeMask.length; index++) {
+    holeMask[index] =
+      person.personMask[index] > 0.5 ? 1 : 0;
+  }
+
+  const layerGroup = new THREE.Group();
+  layerGroup.position.z = -BOX_DEPTH;
+
+  try {
+    const backgroundCanvas = pushPullFillCanvas(
+      sourceImage,
+      person.personMask,
+      gw,
+      gh,
+      texW,
+      texH
+    );
+    const backgroundDepth = pushPullFillFloat(
+      depthData,
+      holeMask,
+      gw,
+      gh
+    );
+    const backgroundTexture =
+      new THREE.CanvasTexture(backgroundCanvas);
+    backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+    backgroundTexture.minFilter = THREE.LinearFilter;
+    backgroundTexture.magFilter = THREE.LinearFilter;
+    backgroundTexture.wrapS = THREE.ClampToEdgeWrapping;
+    backgroundTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const backgroundGeometry = buildLayerGeometry(
+      backgroundDepth,
+      gw,
+      gh,
+      innerWidth,
+      innerHeight,
+      reliefStrength
+    );
+    const backgroundMaterial =
+      new THREE.MeshStandardMaterial({
+        map:backgroundTexture,
+        transparent:false,
+        side:THREE.DoubleSide,
+        roughness:0.78,
+        metalness:0,
+        emissive:0xffffff,
+        emissiveMap:backgroundTexture,
+        emissiveIntensity:0.12
+      });
+    const backgroundMesh = new THREE.Mesh(
+      backgroundGeometry,
+      backgroundMaterial
+    );
+    backgroundMesh.position.z = 0;
+    layerGroup.add(backgroundMesh);
+
+    const personCanvas = document.createElement("canvas");
+    personCanvas.width = texW;
+    personCanvas.height = texH;
+    const personContext = personCanvas.getContext("2d", {
+      willReadFrequently:true
+    });
+
+    if (!personContext) {
+      throw new Error("人物層のテクスチャを作成できません");
+    }
+
+    personContext.drawImage(sourceImage, 0, 0, texW, texH);
+    const personPixels =
+      personContext.getImageData(0, 0, texW, texH);
+    const textureMask = resizeProbabilityMask(
+      person.personMask,
+      gw,
+      gh,
+      texW,
+      texH
+    );
+
+    for (let index = 0; index < textureMask.length; index++) {
+      personPixels.data[index * 4 + 3] = Math.round(
+        Math.pow(
+          clamp(textureMask[index], 0, 1),
+          LAYER_TUNE.maskGamma
+        ) * 255
+      );
+    }
+
+    personContext.putImageData(personPixels, 0, 0);
+
+    const personTexture = new THREE.CanvasTexture(personCanvas);
+    personTexture.colorSpace = THREE.SRGBColorSpace;
+    personTexture.minFilter = THREE.LinearFilter;
+    personTexture.magFilter = THREE.LinearFilter;
+    personTexture.wrapS = THREE.ClampToEdgeWrapping;
+    personTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const personGeometry = buildLayerGeometry(
+      depthData,
+      gw,
+      gh,
+      innerWidth,
+      innerHeight,
+      reliefStrength
+    );
+    const sourceIndex = personGeometry.index?.array;
+
+    if (!sourceIndex) {
+      throw new Error("人物層の三角形インデックスを取得できません");
+    }
+
+    const keptIndices = [];
+    let cutTriangles = 0;
+    const totalTriangles = sourceIndex.length / 3;
+
+    for (let offset = 0; offset < sourceIndex.length; offset += 3) {
+      const a = sourceIndex[offset];
+      const b = sourceIndex[offset + 1];
+      const c = sourceIndex[offset + 2];
+
+      if (
+        person.personMask[a] < LAYER_TUNE.alphaCut &&
+        person.personMask[b] < LAYER_TUNE.alphaCut &&
+        person.personMask[c] < LAYER_TUNE.alphaCut
+      ) {
+        cutTriangles++;
+        continue;
+      }
+
+      keptIndices.push(a, b, c);
+    }
+
+    personGeometry.setIndex(
+      new THREE.BufferAttribute(
+        new Uint32Array(keptIndices),
+        1
+      )
+    );
+    personGeometry.computeBoundingSphere();
+
+    const personMaterial = new THREE.MeshStandardMaterial({
+      map:personTexture,
+      transparent:true,
+      alphaTest:LAYER_TUNE.alphaTest,
+      depthWrite:true,
+      side:THREE.DoubleSide,
+      roughness:0.78,
+      metalness:0,
+      emissive:0xffffff,
+      emissiveMap:personTexture,
+      emissiveIntensity:0.12
+    });
+    const personMesh = new THREE.Mesh(
+      personGeometry,
+      personMaterial
+    );
+    personMesh.position.z = 0.01;
+    layerGroup.add(personMesh);
+
+    layerGroup.userData.layerInfo = {
+      layered:true,
+      cutTriangles,
+      totalTriangles,
+      texW,
+      texH
+    };
+
+    return layerGroup;
+  } catch (error) {
+    const disposedTextures = new Set();
+
+    layerGroup.traverse(object => {
+      object.geometry?.dispose?.();
+
+      const materials = object.material
+        ? (
+          Array.isArray(object.material)
+            ? object.material
+            : [object.material]
+        )
+        : [];
+
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (
+            value?.isTexture &&
+            !disposedTextures.has(value)
+          ) {
+            value.dispose();
+            disposedTextures.add(value);
+          }
+        }
+        material.dispose?.();
+      }
+    });
+
+    throw error;
+  }
+}
+
 function disposeSpecimen() {
   if (specimen && scene) {
     scene.remove(specimen);
   }
-  if (reliefGeometry) {
-    reliefGeometry.dispose();
-    reliefGeometry = null;
-  }
-  if (sourceTexture) {
-    sourceTexture.dispose();
-    sourceTexture = null;
-  }
+
+  const disposedTextures = new Set();
+
   if (specimen) {
     specimen.traverse(object => {
-      if (!object.material) return;
-      const materials = Array.isArray(object.material)
-        ? object.material
-        : [object.material];
+      object.geometry?.dispose?.();
+
+      const materials = object.material
+        ? (
+          Array.isArray(object.material)
+            ? object.material
+            : [object.material]
+        )
+        : [];
+
       for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (
+            value?.isTexture &&
+            !disposedTextures.has(value)
+          ) {
+            value.dispose();
+            disposedTextures.add(value);
+          }
+        }
         material.dispose?.();
-      }
-      if (object.geometry && object.geometry !== reliefGeometry) {
-        object.geometry.dispose?.();
       }
     });
   }
+
+  if (
+    sourceTexture &&
+    !disposedTextures.has(sourceTexture)
+  ) {
+    sourceTexture.dispose();
+  }
+
+  reliefGeometry = null;
+  sourceTexture = null;
   specimen = null;
   meshVerts = 0;
 }
@@ -2449,13 +2995,6 @@ function createSpecimen(sourceImage, depthImage, person = null) {
   segmentsX = clamp(segmentsX, 8, MAX_SEGMENTS);
   segmentsY = clamp(segmentsY, 8, MAX_SEGMENTS);
 
-  reliefGeometry = new THREE.PlaneGeometry(
-    innerWidth,
-    innerHeight,
-    segmentsX,
-    segmentsY
-  );
-
   const depthWidth = segmentsX + 1;
   const depthHeight = segmentsY + 1;
   let depthMap;
@@ -2490,44 +3029,8 @@ function createSpecimen(sourceImage, depthImage, person = null) {
     );
     showError("深度の後処理に失敗したため簡易表示にしています: " + (error?.message || error));
   }
-  const positions = reliefGeometry.attributes.position;
+
   const reliefStrength = Math.min(innerWidth, innerHeight) * 0.24;
-
-  for (let y = 0; y <= segmentsY; y++) {
-    for (let x = 0; x <= segmentsX; x++) {
-      const vertex = y * (segmentsX + 1) + x;
-      // ディザ: 8bit深度の階段(banding)が視差移動時の断層に見えるのを防ぐ
-      const depth =
-        depthMap[vertex] + (Math.random() - 0.5) / 255;
-      const edgeX = Math.min(x / segmentsX, 1 - x / segmentsX);
-      const edgeY = Math.min(y / segmentsY, 1 - y / segmentsY);
-      const edgeFade = THREE.MathUtils.smoothstep(
-        Math.min(edgeX, edgeY),
-        0,
-        0.075
-      );
-      positions.setZ(vertex, depth * reliefStrength * edgeFade);
-    }
-  }
-
-  positions.needsUpdate = true;
-  reliefGeometry.computeVertexNormals();
-  reliefGeometry.computeBoundingSphere();
-  meshVerts = positions.count;
-
-  sourceTexture = makeSourceTexture(sourceImage);
-
-  const reliefMaterial = new THREE.MeshStandardMaterial({
-    map: sourceTexture,
-    transparent: true,
-    alphaTest: 0.04,
-    side: THREE.DoubleSide,
-    roughness: 0.78,
-    metalness: 0,
-    emissive: 0xffffff,
-    emissiveMap: sourceTexture,
-    emissiveIntensity: 0.12
-  });
 
   // 「画面そのものが窓」構成(VRChatのモニタ窓と同じ考え方):
   // 額縁や箱は描かない。絵は窓(=画面)の奥に置き、視点が最大まで動いても
@@ -2537,8 +3040,63 @@ function createSpecimen(sourceImage, depthImage, person = null) {
   const BOX_DEPTH = Math.min(innerWidth, innerHeight) * 0.35;
 
   const group = new THREE.Group();
-  const relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
-  relief.position.z = -BOX_DEPTH;
+  let relief = null;
+
+  if (
+    lastDepthStats?.personDetected &&
+    person?.personMask
+  ) {
+    try {
+      relief = buildLayeredRelief(
+        sourceImage,
+        depthMap,
+        person,
+        depthWidth,
+        depthHeight,
+        innerWidth,
+        innerHeight,
+        reliefStrength,
+        BOX_DEPTH
+      );
+      reliefGeometry = null;
+      sourceTexture = null;
+      meshVerts = depthWidth * depthHeight * 2;
+    } catch (error) {
+      showError(
+        "多層表示に失敗したため単層で表示しています: " +
+        (error?.message || error)
+      );
+    }
+  }
+
+  if (!relief) {
+    reliefGeometry = buildLayerGeometry(
+      depthMap,
+      depthWidth,
+      depthHeight,
+      innerWidth,
+      innerHeight,
+      reliefStrength
+    );
+    meshVerts = reliefGeometry.attributes.position.count;
+    sourceTexture = makeSourceTexture(sourceImage);
+
+    const reliefMaterial = new THREE.MeshStandardMaterial({
+      map: sourceTexture,
+      transparent: true,
+      alphaTest: 0.04,
+      side: THREE.DoubleSide,
+      roughness: 0.78,
+      metalness: 0,
+      emissive: 0xffffff,
+      emissiveMap: sourceTexture,
+      emissiveIntensity: 0.12
+    });
+
+    relief = new THREE.Mesh(reliefGeometry, reliefMaterial);
+    relief.position.z = -BOX_DEPTH;
+  }
+
   group.userData.relief = relief;
   group.userData.reliefW = innerWidth;
   group.userData.reliefH = innerHeight;
@@ -3366,6 +3924,10 @@ window.__dbg = {
     };
   },
 
+  layerStats() {
+    return specimen?.userData?.relief?.userData?.layerInfo ||
+      {layered:false};
+  },
   snap() {
     if (!renderer) return "";
     if (!canvas.width || !canvas.height) {
