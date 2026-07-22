@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q4 rev5</div>
+<div id="rev">MR版 q4 rev6</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -492,7 +492,9 @@ for(let n=1;n<=20;n++){
 }
 const BASE_W=.0185, BASE_H=.0108;      // ふとさ5のときの半幅・半厚(ふつうの舌)
 let thickLevel=5;
-function thickMul(){return .4+.12*thickLevel;} // 1=52% 〜 5=100% 〜 10=160%
+function thickMul(){ // 1=52% 〜 5=100% 〜 10=210%(上限拡大。下限は据え置き)
+  return thickLevel<=5 ? .4+.12*thickLevel : 1+.22*(thickLevel-5);
+}
 
 let sizeLevel=8;
 let L0=SIZES[sizeLevel].length;
@@ -726,9 +728,10 @@ function buildMuscleTargets(){
     const tip=t<.55?0:Math.pow((t-.55)/.45,2);
 
     if(s>0){
-      const pitch=-(activation.ud*.095*env+activation.cl*.29*tip);
-      const yaw=activation.lr*.095*env;
-      const roll=activation.tw*.13*(.1+.9*t);
+      // 曲げの強さ(実機FB「ヨッシーみたいに自在に」→約1.7倍に増強)
+      const pitch=-(activation.ud*.16*env+activation.cl*.34*tip);
+      const yaw=activation.lr*.16*env;
+      const roll=activation.tw*.18*(.1+.9*t);
 
       euler.set(pitch,yaw,roll,"XYZ");
       deltaQ.setFromEuler(euler);
@@ -899,7 +902,7 @@ function physicsStep(dt){
 
   for(let iteration=0;iteration<ITERATIONS;iteration++){
     solveRootAttachment();
-    solveMuscles(iteration<3?.035:.012);
+    solveMuscles(iteration<3?.09:.032); // 筋肉の引き込みを強化(キビキビ追従=ヨッシー感)
 
     for(const c of constraints)solveDistance(c);
 
@@ -1886,6 +1889,9 @@ const grips=[
 const inputSources=[null,null];
 const sourceIsHand=new Uint8Array(2);
 
+// 装着モードの状態(宣言はここ=ジェスチャー初期化より前に必要。TDZ対策)
+let tongueMounted=false;
+
 // 手ジェスチャー操作(lib/gesture.js)。既定OFF、XR内3Dボタン[手で操る]でON/OFF
 const handGestures=createHandGestureController(THREE,{
   onCommand(values){
@@ -1893,6 +1899,12 @@ const handGestures=createHandGestureController(THREE,{
     for(let n=0;n<commandNames.length;n++){
       const name=commandNames[n];
       command[name]=values[name];
+    }
+    // 浮遊中は舌がこちらを向いている=左右・ねじれが鏡写しになるので反転する
+    // (装着中は自分の舌と同じ向きなのでそのまま)
+    if(!tongueMounted){
+      command.lr=-command.lr;
+      command.tw=-command.tw;
     }
     syncControls();
   },
@@ -2021,7 +2033,7 @@ const tempScale=new THREE.Vector3();
 
 // ===== 装着モード(舌を口元に付けて頭に追従させる) =====
 // ※ xrCameraPosition/xrCameraQuaternion/xrForward/yawFlip は既存の宣言(上)を流用する
-let tongueMounted=false;
+// ※ tongueMounted の宣言はジェスチャー初期化の手前(上の方)に移動済み
 
 function syncTongueMountButton(){
   const button=document.getElementById("b_attach");

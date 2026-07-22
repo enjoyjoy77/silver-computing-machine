@@ -315,7 +315,7 @@ export function createHandGestureController(THREE, options = {}) {
       controlHand.handedness === "left" ? -1 : 1;
     target.tw = clamp(roll / 0.9 * handednessSign, -1, 1);
 
-    const gain = 1 - Math.exp(-dt / 0.075);
+    const gain = 1 - Math.exp(-dt / 0.05); // 反応を速く(ヨッシー感)
 
     for (const name of Object.keys(command)) {
       command[name] = lerp(command[name], target[name], gain);
