@@ -600,7 +600,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev14-splat";
+const REV = "rev15-depth";
 // スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
 // ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
 // 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
@@ -618,6 +618,16 @@ const DB_VERSION = 2;
 const STORE = "slots";
 const MAX_SEGMENTS = 256;
 const SMOOTHING = 0.15;
+
+// 深度後処理のレバー(設計書_深度後処理パック.md)
+const DEPTH_TUNE = {
+  qLow:0.02,
+  qHigh:0.98,
+  guidedR:8,
+  guidedEps:1e-3,
+  kMin:2.5,
+  kMax:6.0
+};
 
 const IRIS_DIAMETER_M = 0.0117;
 const DEFAULT_HFOV_RAD = Math.PI / 3;
@@ -879,6 +889,7 @@ let errorText = "";
 let sourceFile = null;
 let depthFile = null;
 let meshVerts = 0;
+let lastDepthStats = null;
 
 let targetX = 0;
 let targetY = 0;
@@ -1634,6 +1645,237 @@ function blobToImage(blob, label) {
   });
 }
 
+// ---- 深度後処理パック(rev15): 分位点正規化→Guided Filter→S字リマップ ----
+function computeLuma(imageData) {
+  const pixels = imageData.data;
+  const luma = new Float32Array(imageData.width * imageData.height);
+
+  for (let index = 0; index < luma.length; index++) {
+    const offset = index * 4;
+    luma[index] = (
+      pixels[offset] * 0.2126 +
+      pixels[offset + 1] * 0.7152 +
+      pixels[offset + 2] * 0.0722
+    ) / 255;
+  }
+
+  return luma;
+}
+
+function boxFilterMean(src, w, h, r) {
+  if (src.length !== w * h) {
+    throw new Error("box filterの入力サイズが一致しません");
+  }
+
+  const stride = w + 1;
+  const integral = new Float64Array((w + 1) * (h + 1));
+  const output = new Float32Array(w * h);
+
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    const sourceRow = y * w;
+    const integralRow = (y + 1) * stride;
+    const previousRow = y * stride;
+
+    for (let x = 0; x < w; x++) {
+      rowSum += src[sourceRow + x];
+      integral[integralRow + x + 1] =
+        integral[previousRow + x + 1] + rowSum;
+    }
+  }
+
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r);
+    const y1 = Math.min(h - 1, y + r);
+
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w - 1, x + r);
+      const sum =
+        integral[(y1 + 1) * stride + x1 + 1] -
+        integral[y0 * stride + x1 + 1] -
+        integral[(y1 + 1) * stride + x0] +
+        integral[y0 * stride + x0];
+      output[y * w + x] =
+        sum / ((x1 - x0 + 1) * (y1 - y0 + 1));
+    }
+  }
+
+  return output;
+}
+
+function guidedFilterGray(guide, src, w, h, r, eps) {
+  if (guide.length !== w * h || src.length !== w * h) {
+    throw new Error("Guided Filterの入力サイズが一致しません");
+  }
+
+  const count = w * h;
+  const guideSquared = new Float32Array(count);
+  const guideSource = new Float32Array(count);
+
+  for (let index = 0; index < count; index++) {
+    guideSquared[index] = guide[index] * guide[index];
+    guideSource[index] = guide[index] * src[index];
+  }
+
+  const meanI = boxFilterMean(guide, w, h, r);
+  const meanP = boxFilterMean(src, w, h, r);
+  const corrI = boxFilterMean(guideSquared, w, h, r);
+  const corrIP = boxFilterMean(guideSource, w, h, r);
+  const a = new Float32Array(count);
+  const b = new Float32Array(count);
+
+  for (let index = 0; index < count; index++) {
+    const varianceI =
+      corrI[index] - meanI[index] * meanI[index];
+    const covarianceIP =
+      corrIP[index] - meanI[index] * meanP[index];
+
+    a[index] = covarianceIP / (varianceI + eps);
+    b[index] = meanP[index] - a[index] * meanI[index];
+  }
+
+  const meanA = boxFilterMean(a, w, h, r);
+  const meanB = boxFilterMean(b, w, h, r);
+  const output = new Float32Array(count);
+
+  for (let index = 0; index < count; index++) {
+    output[index] =
+      meanA[index] * guide[index] + meanB[index];
+  }
+
+  return output;
+}
+
+function preprocessDepth(
+  srcImageData,
+  depthImageData,
+  w,
+  h
+) {
+  const count = w * h;
+
+  if (
+    srcImageData.width !== w ||
+    srcImageData.height !== h ||
+    depthImageData.width !== w ||
+    depthImageData.height !== h
+  ) {
+    throw new Error("深度前処理の画像サイズが一致しません");
+  }
+
+  const guide = computeLuma(srcImageData);
+  const rawDepth = computeLuma(depthImageData);
+
+  if (rawDepth.length !== count || count === 0) {
+    throw new Error("深度前処理の入力が空です");
+  }
+
+  function quantile(sorted, q) {
+    const position = (sorted.length - 1) * q;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    const fraction = position - lower;
+
+    return sorted[lower] * (1 - fraction) +
+      sorted[upper] * fraction;
+  }
+
+  const sortedRaw = Float32Array.from(rawDepth);
+  sortedRaw.sort();
+
+  const q02 = quantile(sortedRaw, DEPTH_TUNE.qLow);
+  const q98 = quantile(sortedRaw, DEPTH_TUNE.qHigh);
+  const range = Math.max(q98 - q02, 1e-6);
+  const normalized = new Float32Array(count);
+
+  for (let index = 0; index < count; index++) {
+    normalized[index] = clamp(
+      (rawDepth[index] - q02) / range,
+      0,
+      1
+    );
+  }
+
+  const guided = guidedFilterGray(
+    guide,
+    normalized,
+    w,
+    h,
+    DEPTH_TUNE.guidedR,
+    DEPTH_TUNE.guidedEps
+  );
+  const filtered = new Float32Array(count);
+  const histogram = new Uint32Array(64);
+
+  for (let index = 0; index < count; index++) {
+    const value = clamp(guided[index], 0, 1);
+    filtered[index] = value;
+    histogram[Math.min(63, Math.floor(value * 64))]++;
+  }
+
+  let peakBin = 0;
+  for (let bin = 1; bin < histogram.length; bin++) {
+    if (histogram[bin] > histogram[peakBin]) {
+      peakBin = bin;
+    }
+  }
+
+  const d0 = (peakBin + 0.5) / histogram.length;
+  const sortedFiltered = Float32Array.from(filtered);
+  sortedFiltered.sort();
+
+  const q25 = quantile(sortedFiltered, 0.25);
+  const q75 = quantile(sortedFiltered, 0.75);
+  const iqr = q75 - q25;
+  const k = clamp(
+    1.2 / Math.max(iqr, 0.05),
+    DEPTH_TUNE.kMin,
+    DEPTH_TUNE.kMax
+  );
+  const denominator = Math.tanh(
+    k * Math.max(d0, 1 - d0)
+  );
+
+  if (!Number.isFinite(denominator) || denominator === 0) {
+    throw new Error("深度のS字リマップを計算できません");
+  }
+
+  const output = new Float32Array(count);
+
+  for (let index = 0; index < count; index++) {
+    output[index] = clamp(
+      0.5 +
+      0.5 * Math.tanh(k * (filtered[index] - d0)) /
+      denominator,
+      0,
+      1
+    );
+  }
+
+  return {
+    data:output,
+    stats:{q02, q98, peak:d0, iqr, k}
+  };
+}
+
+function imageToImageData(image, width, height) {
+  const work = document.createElement("canvas");
+  work.width = width;
+  work.height = height;
+
+  const context = work.getContext("2d", {
+    willReadFrequently:true
+  });
+
+  if (!context) {
+    throw new Error("画像処理用canvasを作成できません");
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  return context.getImageData(0, 0, width, height);
+}
+
 function imageToDepthMap(image, width, height) {
   const work = document.createElement("canvas");
   work.width = width;
@@ -1740,18 +1982,48 @@ function createSpecimen(sourceImage, depthImage) {
     segmentsY
   );
 
-  const depthMap = imageToDepthMap(
-    depthImage,
-    segmentsX + 1,
-    segmentsY + 1
-  );
+  const depthWidth = segmentsX + 1;
+  const depthHeight = segmentsY + 1;
+  let depthMap;
+
+  try {
+    const sourceImageData = imageToImageData(
+      sourceImage,
+      depthWidth,
+      depthHeight
+    );
+    const depthImageData = imageToImageData(
+      depthImage,
+      depthWidth,
+      depthHeight
+    );
+    const processedDepth = preprocessDepth(
+      sourceImageData,
+      depthImageData,
+      depthWidth,
+      depthHeight
+    );
+
+    depthMap = processedDepth.data;
+    lastDepthStats = processedDepth.stats;
+  } catch (error) {
+    lastDepthStats = null;
+    depthMap = imageToDepthMap(
+      depthImage,
+      depthWidth,
+      depthHeight
+    );
+    showError("深度の後処理に失敗したため簡易表示にしています: " + (error?.message || error));
+  }
   const positions = reliefGeometry.attributes.position;
   const reliefStrength = Math.min(innerWidth, innerHeight) * 0.24;
 
   for (let y = 0; y <= segmentsY; y++) {
     for (let x = 0; x <= segmentsX; x++) {
       const vertex = y * (segmentsX + 1) + x;
-      const depth = depthMap[vertex];
+      // ディザ: 8bit深度の階段(banding)が視差移動時の断層に見えるのを防ぐ
+      const depth =
+        depthMap[vertex] + (Math.random() - 0.5) / 255;
       const edgeX = Math.min(x / segmentsX, 1 - x / segmentsX);
       const edgeY = Math.min(y / segmentsY, 1 - y / segmentsY);
       const edgeFade = THREE.MathUtils.smoothstep(
@@ -2562,6 +2834,12 @@ window.__dbg = {
       shelfSaved,
       err:errorText
     };
+  },
+
+  depthStats() {
+    return lastDepthStats
+      ? {...lastDepthStats}
+      : null;
   },
 
   snap() {
