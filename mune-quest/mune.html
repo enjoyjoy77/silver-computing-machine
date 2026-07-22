@@ -48,6 +48,34 @@
     display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
     padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
     max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+
+  /* Webカメラ映像は既定で隠し、利用者が明示した時だけ小さく表示する。 */
+  #wcTools{position:fixed;right:12px;bottom:12px;z-index:44;display:none;
+    flex-direction:column;align-items:flex-end;gap:7px;pointer-events:auto;}
+  #wcPip{width:min(28vw,240px);max-height:180px;display:none;border-radius:12px;
+    border:1px solid var(--line);background:#000;object-fit:cover;
+    transform:scaleX(-1);box-shadow:0 5px 18px rgba(0,0,0,.4);}
+  #wcToolRow{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+  .wcSmallBtn{border:1px solid #e0719c;border-radius:9px;padding:6px 10px;
+    font:inherit;font-size:11px;background:rgba(20,29,38,.92);color:#ffd3dd;cursor:pointer;}
+  .wcSmallBtn:disabled{opacity:.4;cursor:default;}
+  #wcWarn{display:none;background:rgba(58,20,20,.92);border:1px solid #8a2e2e;
+    color:#ffdada;border-radius:9px;padding:6px 10px;font-size:11px;}
+  #wcPrompt{position:fixed;inset:0;z-index:80;display:none;align-items:center;
+    justify-content:center;background:rgba(6,10,14,.78);padding:22px;}
+  #wcPromptBox{width:min(92vw,460px);background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:22px;box-shadow:0 10px 34px rgba(0,0,0,.5);}
+  #wcPromptBox p{margin:0 0 18px;line-height:1.9;font-size:14px;}
+  #wcPromptButtons{display:flex;justify-content:center;gap:12px;}
+  #wcPromptButtons button{border-radius:11px;padding:10px 22px;font:inherit;
+    font-weight:700;cursor:pointer;}
+  #wcPromptOK{border:none;background:var(--accent);color:#3a0f1c;}
+  #wcPromptCancel{border:1px solid var(--line);background:transparent;color:var(--ink);}
+  #wcCursorLayer{position:fixed;inset:0;z-index:34;pointer-events:none;display:none;}
+  .wcCursor{position:absolute;width:12px;height:12px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.9);background:#f0a8b8;
+    box-shadow:0 0 10px rgba(240,168,184,.8);
+    transform:translate(-50%,-50%);will-change:left,top,transform,background;}
 </style>
 </head>
 <body>
@@ -72,6 +100,9 @@
     <button onclick="location.href='mune_v4.html'" style="border:1px solid #b98;border-radius:9px;padding:6px 12px;font:inherit;font-size:13px;background:transparent;color:#b98;cursor:pointer;">v4</button>
   </div>
   <button id="goBtn" disabled>じゅんび中…</button>
+  <button id="wcStartBtn" disabled style="display:none;border:2px solid #e0719c;border-radius:16px;
+    padding:14px 30px;font:inherit;font-size:16px;font-weight:900;background:transparent;
+    color:#e0719c;cursor:pointer;">カメラで手（PC）</button>
   <div id="note">
     <b>英語の画面が出たら</b><br>
     ボタンを押すと英語の確認が出ることがあります。<br>
@@ -91,6 +122,34 @@
 
 <div id="err"></div>
 
+<!-- 表示映像は既定OFF。推論用videoはwebcam_hand.jsが生成し、開始後にここへ接続する。 -->
+<div id="wcTools">
+  <video id="wcPip" playsinline muted></video>
+  <div id="wcWarn">手が画面外</div>
+  <div id="wcToolRow">
+    <button class="wcSmallBtn" id="wcPipBtn">カメラ映像を表示</button>
+    <button class="wcSmallBtn" id="wcRecalBtn">手の位置を再調整</button>
+    <button class="wcSmallBtn" id="wcStopBtn">カメラを止める</button>
+  </div>
+</div>
+
+<div id="wcCursorLayer" aria-hidden="true">
+  <span class="wcCursor"></span><span class="wcCursor"></span>
+  <span class="wcCursor"></span><span class="wcCursor"></span>
+  <span class="wcCursor"></span><span class="wcCursor"></span>
+  <span class="wcCursor"></span><span class="wcCursor"></span>
+</div>
+
+<div id="wcPrompt" role="dialog" aria-modal="true" aria-labelledby="wcPromptText">
+  <div id="wcPromptBox">
+    <p id="wcPromptText">カメラの映像はお使いのパソコンの中だけで処理されます。どこかに送信・保存されることはありません。</p>
+    <div id="wcPromptButtons">
+      <button id="wcPromptOK">OK</button>
+      <button id="wcPromptCancel">やめる</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { XRHandModelFactory } from "./lib/XRHandModelFactory.js";   // 本物の手モデル(three公式・MIT・オフライン同梱)
@@ -98,7 +157,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v6 rev7";   // C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加。ふくらみ(bustMat)はUV無し生成メッシュのため従来の単色のまま / rev7=開始画面に過去版ボタン(v1〜v4=公開Git履歴から発掘した実物をmune_v1〜v4.htmlとして同梱)
+const REV = "v7 rev2";   // rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -164,6 +223,12 @@ const TUNE = {
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
   handMinR: 0.006,       // 手の骨格コライダの下限半径(m)。位置は純正のまま。
+  pinchClose: 0.022,     // 親指先―人差し指先がこの距離未満でピンチ開始(m)
+  pinchOpen: 0.038,      // この距離を超えたら解放(m)。ヒステリシスで境界のバタつきを防ぐ
+  pinchReach: 0.030,     // ピンチ中点から表面まで、この距離以内なら掴める(m)
+  pinchPatchR: 0.035,    // 掴んだ中心と一緒に動かす表面パッチ半径(m)
+  pinchFollow: 0.55,     // 1サブステップ当たりの追従率。1だと硬い洗濯ばさみ感になる
+  pinchMaxCorr: 0.004,   // 1サブステップ・1粒の最大追従量(m)。追跡飛びによる爆発を防ぐ
                          // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
                          // v6 rev4で0.009→0.006: 共通部品forEachHandBonePointへ一本化、自前の太らせ・中間点挿入を廃止(「でかすぎる」対策)。
                          // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
@@ -179,6 +244,18 @@ const TUNE = {
   c0Release: 0.010,      // 接触維持の余裕(m)=この距離まで離れても維持(Schmitt)
   c0Hold: 0.12,          // 接触消失の猶予(s)=遮蔽・推定飛びの1〜2フレームで切らない
   c0Smooth: 0.35,        // コライダ位置のEMA平滑係数/フレーム(トラッキングノイズを物理に入れない)
+
+  // ===== v6 rev8: PC Webカメラ手認識 =====
+  // 単眼の絶対zは使わず、キャリブ時からの画像上骨長比を押し込み意図へ変換する。
+  wcMinCutoff: 1.0,      // One Euroの低速時カットオフ(Hz)
+  wcBeta: 0.01,          // One Euroの速度追従量
+  wcPressOnRatio: 0.08,  // 基準より8%接近相当で押し込み意図ON
+  wcPressOffRatio: 0.03, // 3%未満へ戻ったら押し込み意図OFF
+  wcPressFullRatio: 0.35,// 35%接近相当で最大押し込み
+  wcHold: 0.10,          // 手消失時に最後の固定8点を保持する時間(s)
+  wcPressDepthMax: 0.05, // 仮想球をREST面から法線内側へ進める最大量(m)
+  wcColR: 0.014,         // C0はパッチ半径共通なので8点すべて同じ球半径にする
+  wcInferHz: 24,         // 同期detectForVideoの上限頻度。重ければ自動で15Hzへ落とす
   chestWall: true,       // 胸壁(v4 rev7): 粒が板の裏へ回る=殻の裏返り(9cm貫きで残留)の物理的禁止。falseでA/B比較用
   safetyFences: true,    // v5: 過伸長・面潰れ/反転・殻間潰れ・異常速度を禁止。falseでA/B比較用
   edgeStretchMax: 1.50,  // v5: 外殻辺の最大長/静止長
@@ -268,10 +345,14 @@ try{
 // 開始画面のエンジン選択ボタン: 選択状態の見た目を同期し、TUNE.engineC0を切り替える
 function syncEngineButtons(){
   const c0=document.getElementById("engC0"), v5=document.getElementById("engV5");
+  const wcBtn=document.getElementById("wcStartBtn");
   if(!c0||!v5) return;
   const on=(b)=>{ b.style.background="#e0719c"; b.style.color="#fff"; };
   const off=(b)=>{ b.style.background="transparent"; b.style.color="#e0719c"; };
   if(TUNE.engineC0){ on(c0); off(v5); } else { on(v5); off(c0); }
+
+  // v5はPCカメラ入力の対象外。カメラ稼働中の切替でも次フレームから注入を止める。
+  if(wcBtn) wcBtn.disabled = !TUNE.engineC0;
 }
 document.getElementById("engC0").addEventListener("click", ()=>{ TUNE.engineC0=true; syncEngineButtons(); });
 document.getElementById("engV5").addEventListener("click", ()=>{ TUNE.engineC0=false; syncEngineButtons(); });
@@ -890,6 +971,295 @@ function updateNearBulges(){
   }
 }
 function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+
+/* --- v6 rev8: PC Webカメラ入力。colNの所有者はcollectActiveColliders()だけが選ぶ。 --- */
+let wcHand = null;
+let wcHandStarting = false;
+let wcHandActive = false;
+let wcHandError = false;
+let wcPipVisible = false;
+let wcLowScoreSince = 0;
+let wcLightHintShown = false;
+let wcFakeSample = null;
+let wcLastSample = null;
+let wcLastInvalidReason = "未開始";
+const wcCursorEls = Array.from(document.querySelectorAll("#wcCursorLayer .wcCursor"));
+const wcMapPoint = new THREE.Vector3();
+const wcMapNormal = new THREE.Vector3();
+const wcMapLocal = new THREE.Vector3();
+
+function wcHideCursors(){
+  $("wcCursorLayer").style.display = "none";
+  $("wcWarn").style.display = wcHandActive ? "block" : "none";
+  for(const e of wcCursorEls) e.style.display = "none";
+}
+
+function wcShowCursors(sample){
+  if(!sample || !sample.valid || sample.points.length!==8){
+    wcHideCursors();
+    return;
+  }
+  $("wcCursorLayer").style.display = "block";
+  $("wcWarn").style.display = "none";
+  const scale = 1 + sample.press*0.75;
+  const r = Math.round(240 + sample.press*15);
+  const g = Math.round(168 - sample.press*55);
+  const b = Math.round(184 - sample.press*45);
+  for(let i=0;i<8;i++){
+    const p=sample.points[i], e=wcCursorEls[i];
+    e.style.display="block";
+    e.style.left=(p.x*100)+"%";
+    e.style.top=(p.y*100)+"%";
+    e.style.background=`rgb(${r},${g},${b})`;
+    e.style.transform=`translate(-50%,-50%) scale(${scale})`;
+  }
+}
+
+/*
+ * 画面座標に最も近いREST粒を選ぶ。
+ * B.fit/restは板ローカルなので、サイズ変更や板移動後も接触位置が追従する。
+ */
+function wcFindRestSurface(u, v, outPoint, outNormal){
+  if(!bustReady || busts.length===0) return false;
+
+  const lx=(u-0.5)*0.30;
+  const ly=(0.5-v)*0.28;
+  let bestB=null, bestI=-1, best=Infinity;
+
+  for(const B of busts){
+    const F=B.fit;
+    for(let i=0;i<N;i++){
+      if(invMass[i]===0) continue;
+      const px=F ? F[i*3] : (B.mount.x + rest[i*3]*R*WX);
+      const py=F ? F[i*3+1] : (B.mount.y + rest[i*3+1]*R*WX);
+      const dx=px-lx, dy=py-ly;
+      const d2=dx*dx+dy*dy;
+      if(d2<best){ best=d2; bestB=B; bestI=i; }
+    }
+  }
+
+  if(!bestB || bestI<0) return false;
+  const ci=bestI*3;
+  outPoint.set(bestB.tgt[ci],bestB.tgt[ci+1],bestB.tgt[ci+2]);
+  outNormal.set(
+    bestB.restNormal[ci],
+    bestB.restNormal[ci+1],
+    bestB.restNormal[ci+2]
+  ).normalize();
+  return true;
+}
+
+function wcCurrentSample(){
+  if(wcFakeSample) return wcFakeSample;
+  return wcHand ? wcHand.getSample() : null;
+}
+
+function wcAppendColliders(now){
+  // wcFakeSample=検証専用の合成サンプル。自動テストは背面タブでも回すため非表示チェックを免除する
+  if(!wcHandActive || !TUNE.engineC0 || (document.hidden && !wcFakeSample) || wcHandError){
+    wcLastInvalidReason = !TUNE.engineC0 ? "v5選択中" :
+      document.hidden ? "画面非表示" :
+      wcHandError ? "カメラエラー" : "カメラ停止";
+    wcHideCursors();
+    return;
+  }
+
+  const sample=wcCurrentSample();
+  wcLastSample=sample;
+  if(!sample || !sample.valid || sample.points.length!==8){
+    wcLastInvalidReason = sample ? sample.state : "サンプルなし";
+    wcHideCursors();
+    return;
+  }
+  if(now-sample.timestamp>150){
+    wcLastInvalidReason="結果が150ms超古い";
+    wcHideCursors();
+    return;
+  }
+
+  /*
+   * C0が参照するB.tgt/restNormalを現在の板姿勢へ更新してから、
+   * REST面の外側8mm+球半径へ球中心を置く。
+   */
+  for(const B of busts) computeTargets(B);
+
+  const before=colN;
+  for(let i=0;i<8;i++){
+    const p=sample.points[i];
+    if(!wcFindRestSurface(p.x,p.y,wcMapPoint,wcMapNormal)){
+      colN=before;
+      wcLastInvalidReason="REST面を取得できない";
+      wcHideCursors();
+      return;
+    }
+
+    const outside=TUNE.wcColR+0.008;
+    const depth=sample.press*TUNE.wcPressDepthMax;
+    wcMapPoint.addScaledVector(wcMapNormal,outside-depth);
+    addCol(wcMapPoint.x,wcMapPoint.y,wcMapPoint.z,TUNE.wcColR);
+  }
+
+  if(colN-before!==8){
+    colN=before;
+    wcLastInvalidReason="固定8点を注入できない";
+    wcHideCursors();
+    return;
+  }
+
+  wcLastInvalidReason="";
+  wcShowCursors(sample);
+
+  if(sample.score<0.58){
+    if(!wcLowScoreSince) wcLowScoreSince=now;
+    if(!wcLightHintShown && now-wcLowScoreSince>2500){
+      wcLightHintShown=true;
+      log("部屋を明るくすると手認識が安定します");
+    }
+  }else{
+    wcLowScoreSince=0;
+  }
+}
+
+function wcAppendPokeCollider(){
+  if(!pokeAnim) return;
+  const B=pokeAnim.B;
+  const f=Math.min(1,pokeAnim.t/pokeAnim.dur);
+  bustCenter(B,_v3);
+  const depth=Math.sin(f*Math.PI)*TUNE.fingerR*0.9;
+  const d=R+TUNE.fingerR-depth;
+  addCol(_v3.x+pokeAnim.dx*d,_v3.y+pokeAnim.dy*d,_v3.z+pokeAnim.dz*d,TUNE.fingerR);
+  for(let i=0;i<colN;i++){
+    markers[i].visible=true;
+    markers[i].position.set(colX[i],colY[i],colZ[i]);
+    markers[i].scale.setScalar(colR[i]);
+  }
+}
+
+/*
+ * 毎描画フレームのコライダ所有者をここだけで排他的に決める。
+ * 手がない時は必ずcolN=0からC0へ入り、幽霊コライダを残さない。
+ */
+function collectActiveColliders(frame,ref,now){
+  colN=0;
+
+  if(frame && renderer.xr.isPresenting){
+    collectXRColliders(frame,ref);
+    return;
+  }
+
+  for(const m of markers) m.visible=false;
+
+  if(wcHandActive && TUNE.engineC0){
+    wcAppendColliders(now);
+    return;
+  }
+
+  wcHideCursors();
+  wcAppendPokeCollider();
+}
+
+/* --- 片手ピンチ掴み(v7 rev1) ---
+   0=左手、1=右手。開始時に最寄りの可動表面粒と、その周囲のパッチを捕捉する。
+   毎フレーム配列を作らず、確保はピンチ開始時だけに限定する。 */
+const pinchGrab = [
+  {active:false, seen:false, B:null, ids:null, weights:null, rel:null, x:0, y:0, z:0, offX:0, offY:0, offZ:0},
+  {active:false, seen:false, B:null, ids:null, weights:null, rel:null, x:0, y:0, z:0, offX:0, offY:0, offZ:0},
+];
+
+function releasePinch(g){
+  g.active=false; g.B=null; g.ids=null; g.weights=null; g.rel=null;
+}
+
+function beginPinch(g, x, y, z){
+  if(!bustReady) return false;
+
+  let bestB=null, bestI=-1, bestD2=TUNE.pinchReach*TUNE.pinchReach;
+  for(const B of busts){
+    for(let i=0;i<N;i++){
+      if(invMass[i]===0) continue;
+      const dx=B.pos[i*3]-x, dy=B.pos[i*3+1]-y, dz=B.pos[i*3+2]-z;
+      const d2=dx*dx+dy*dy+dz*dz;
+      if(d2<bestD2){ bestD2=d2; bestB=B; bestI=i; }
+    }
+  }
+  if(bestI<0) return false;
+
+  const q=bestI*3;
+  const qx=bestB.pos[q], qy=bestB.pos[q+1], qz=bestB.pos[q+2];
+  const ids=[], weights=[], rel=[];
+  const pr=TUNE.pinchPatchR;
+
+  for(let i=0;i<N;i++){
+    if(invMass[i]===0) continue;
+    const ci=i*3;
+    const dx=bestB.pos[ci]-qx, dy=bestB.pos[ci+1]-qy, dz=bestB.pos[ci+2]-qz;
+    const d=Math.hypot(dx,dy,dz);
+    if(d>=pr) continue;
+
+    const u=d/pr;
+    const w=1-u*u*(3-2*u);   // 中心1→外周0の滑らかなパッチ
+    ids.push(i);
+    weights.push(w);
+    rel.push(dx,dy,dz);
+  }
+
+  g.active=true; g.B=bestB;
+  g.ids=ids; g.weights=weights; g.rel=rel;
+  // 指の中点と表面の初期ずれを保つので、開始瞬間に粒が指へ飛ばない
+  g.offX=qx-x; g.offY=qy-y; g.offZ=qz-z;
+  g.x=x+g.offX; g.y=y+g.offY; g.z=z+g.offZ;
+  return true;
+}
+
+function updatePinchHand(slot, src, frame, ref){
+  const g=pinchGrab[slot];
+  g.seen=true;
+
+  const thumb=src.hand.get("thumb-tip");
+  const index=src.hand.get("index-finger-tip");
+  if(!thumb || !index){ releasePinch(g); return; }
+
+  const tp=frame.getJointPose(thumb, ref);
+  const ip=frame.getJointPose(index, ref);
+  if(!tp || !ip){ releasePinch(g); return; }
+
+  const tx=tp.transform.position.x, ty=tp.transform.position.y, tz=tp.transform.position.z;
+  const ix=ip.transform.position.x, iy=ip.transform.position.y, iz=ip.transform.position.z;
+  const gap=Math.hypot(tx-ix,ty-iy,tz-iz);
+  const mx=(tx+ix)*0.5, my=(ty+iy)*0.5, mz=(tz+iz)*0.5;
+
+  if(g.active){
+    if(gap>TUNE.pinchOpen){ releasePinch(g); return; }
+    g.x=mx+g.offX; g.y=my+g.offY; g.z=mz+g.offZ;
+  }else if(gap<TUNE.pinchClose){
+    beginPinch(g,mx,my,mz);
+  }
+}
+
+function solvePinchGrabs(B){
+  for(const g of pinchGrab){
+    if(!g.active || g.B!==B || !g.ids) continue;
+
+    for(let n=0;n<g.ids.length;n++){
+      const i=g.ids[n], ci=i*3, ri=n*3;
+      if(invMass[i]===0) continue;
+
+      const w=g.weights[n]*TUNE.pinchFollow;
+      let dx=(g.x+g.rel[ri]  -B.pos[ci])  *w;
+      let dy=(g.y+g.rel[ri+1]-B.pos[ci+1])*w;
+      let dz=(g.z+g.rel[ri+2]-B.pos[ci+2])*w;
+      const d=Math.hypot(dx,dy,dz);
+
+      if(d>TUNE.pinchMaxCorr && d>1e-9){
+        const s=TUNE.pinchMaxCorr/d;
+        dx*=s; dy*=s; dz*=s;
+      }
+
+      B.pos[ci]+=dx; B.pos[ci+1]+=dy; B.pos[ci+2]+=dz;
+    }
+  }
+}
+
 // CCD(貫通防止): 手の位置は1フレームに1回しか取れないが、物理はサブステップで回る。
 // 前フレーム位置→今フレーム位置を補間した「通り道」で当てると、速い手が粒を飛び越えて中に入るのを防げる。
 const pColX=new Float32Array(MAXCOL), pColY=new Float32Array(MAXCOL), pColZ=new Float32Array(MAXCOL); let pColN=0;
@@ -1131,6 +1501,20 @@ function c0Step(h){
       B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
       B.vel[ci]=0; B.vel[ci+1]=0; B.vel[ci+2]=0;
     }
+    // C0はこの直前で静止法線変形を直書きするため、最後にピンチパッチを重ねる。
+    // C0は毎フレーム形を直書き=補正が蓄積しないので、複数回回して1フレーム内で目標へ収束させる
+    // (1回あたりpinchMaxCorr=4mmクランプ×8回=最大32mm/フレームの追従能力)。
+    // prevも同期し、C0中の追跡移動を速度として蓄積しない。
+    for(let it=0; it<8; it++) solvePinchGrabs(B);
+    if(TUNE.engineC0){
+      for(const g of pinchGrab){
+        if(!g.active || g.B!==B || !g.ids) continue;
+        for(const i of g.ids){
+          const ci=i*3;
+          B.prev[ci]=B.pos[ci]; B.prev[ci+1]=B.pos[ci+1]; B.prev[ci+2]=B.pos[ci+2];
+        }
+      }
+    }
     B.curVol=B.restVol||restVolU*R*R*R;
   }
 }
@@ -1166,6 +1550,7 @@ function softStep(h){
       solveVolume(B, sdt);
       solveCore(B);
       solveColliders(B, sdt);   // contactV5=trueならrest基準パッチ、falseならv4旧経路
+      solvePinchGrabs(B);       // 押し接触を解いた後、掴んだ表面パッチを指の中点へ追従(v7 rev1)
       applyChestWall(B);   // 胸壁の後にv5安全柵を通し、最後に速度へ変換する
       if(s===sub-1) applySafetyFences(B);   // 最終substepは辺・面・殻間を全面検査
       else applyDirtyFaceFences(B);        // それ以前は接触適用粒の1-ring面だけを早期検査(v5 rev4)
@@ -2316,7 +2701,8 @@ function setupControllers(){
   }
 }
 function collectXRColliders(frame, ref){
-  colN = 0;
+  // colNの初期化は所有者を決めるcollectActiveColliders()だけが行う。
+  pinchGrab[0].seen=false; pinchGrab[1].seen=false;
   for(let i=0;i<2;i++){
     if(controllers[i] && ctrlOn[i] && !ctrlIsHand[i]){ controllers[i].getWorldPosition(_v1); addCol(_v1.x,_v1.y,_v1.z, TUNE.ctrlR); }   // 素手のときは"コントローラの球"を出さない（=ピンク玉1個の正体だった偽コントローラ球の廃止）
   }
@@ -2326,11 +2712,19 @@ function collectXRColliders(frame, ref){
     updateNearBulges();   // ふくらみ2つの今の位置+半径(v6 rev5: nearに渡して、遠い間は手まるごとスキップ=待機コスト軽減)
     for(const src of session.inputSources){
       if(!src.hand) continue;
+      // handednessを固定スロットへ割り当て、片手ずつ独立してピンチ状態を持つ(v7 rev1)。
+      // Questではleft/rightが入る。unknownは左スロットを優先する。
+      const slot=src.handedness==="right" ? 1 : 0;
+      updatePinchHand(slot,src,frame,ref);
+
       // 素手の当たり判定=共通部品(xr-hands/hands.js)の骨格コライダーに一本化(2026-07-20)。
       // 骨リスト沿いに細い球を切れ目なく自動配置(旧: 25関節+自前中間点の手書き挿入は「でかすぎる」ため廃止)。
       forEachHandBonePoint(src, frame, ref, (x,y,z,r)=>addCol(x,y,z,r), {minR: TUNE.handMinR, spacing: 1.4, near: nearBulge});
     }
   }
+  // 手がフレームから消えた場合は幽霊掴みを残さない(v7 rev1)。
+  for(const g of pinchGrab) if(!g.seen) releasePinch(g);
+
   // 素手にはマーカー(球)を描かない＝パススルーの本物の手をそのまま見る(自前の球はズレて見えて邪魔・実機③指摘)。
   // 当たり判定そのものは colX/colY/colZ に全部残っている(見えないだけで押せる)。
   for(let i=0;i<MAXCOL;i++){
@@ -2367,6 +2761,7 @@ async function startAR(){
       xrSession = null; for(const B of busts) B.mesh.visible=false; plateGroup.visible=false; bustReady = false; panel.visible = false;
       for(const m of markers) m.visible = false;
       ctrlGroup.visible = false; grab.lever=-1; grab.ctrl=-1; plateHold[0]=null; plateHold[1]=null;
+      releasePinch(pinchGrab[0]); releasePinch(pinchGrab[1]);
       scene.background = null;
       $("start").style.display = "flex"; $("goBtn").textContent = "もう一度ためす"; $("goBtn").disabled = false;
       log("ARを終了しました");
@@ -2421,6 +2816,92 @@ function startSway(axis){
   plateHome.copy(plateGroup.position);
   swayAnim = { t:0, dur:1.2, amp: axis==="y" ? 0.045 : 0.05, axis: axis };
 }
+
+function wcSetPipVisible(show){
+  wcPipVisible=!!show;
+  $("wcPip").style.display=wcPipVisible ? "block" : "none";
+  $("wcPipBtn").textContent=wcPipVisible ? "カメラ映像を隠す" : "カメラ映像を表示";
+}
+
+function wcAttachPipVideo(){
+  if(!wcHand) return;
+  const source=wcHand.getVideo();
+  const pip=$("wcPip");
+  if(source && source.srcObject){
+    pip.srcObject=source.srcObject;
+    pip.play().catch(()=>{});
+  }
+}
+
+async function wcStopCamera(){
+  wcHandActive=false;
+  wcHandError=false;
+  wcFakeSample=null;
+  colN=0;
+  wcHideCursors();
+  $("wcTools").style.display="none";
+  $("wcPip").srcObject=null;
+  wcSetPipVisible(false);
+  if(wcHand){
+    try{ await wcHand.stop(); }
+    catch(e){ log("カメラ終了処理で問題が発生: "+(e&&e.message||e),true); }
+  }
+  log("PCカメラを停止しました");
+}
+
+async function wcStartCamera(){
+  if(wcHandStarting || wcHandActive) return;
+  if(!TUNE.engineC0){
+    log("PCカメラはC0エンジンで利用してください",true);
+    return;
+  }
+
+  wcHandStarting=true;
+  wcHandError=false;
+  $("wcStartBtn").disabled=true;
+
+  try{
+    if(!pcMode) startPC();
+
+    if(!wcHand){
+      /*
+       * MediaPipe関連に問題があっても通常のQuest/PC起動を巻き込まないよう、
+       * カメラ許可後にだけローカルモジュールを読み込む。
+       */
+      const wcModule=await import("./lib/webcam_hand.js");
+      wcHand=wcModule.createWebcamHand({
+        mediapipeDir:"./lib/mediapipe",
+        tune:TUNE,
+        onStatus:(msg)=>{ log(msg); },
+        onError:(msg)=>{
+          wcHandError=true;
+          wcHandActive=false;
+          colN=0;
+          wcHideCursors();
+          showErr(msg);
+        }
+      });
+    }
+
+    await wcHand.start();
+    wcHandActive=true;
+    wcHandError=false;
+    $("wcTools").style.display="flex";
+    wcAttachPipVideo();
+    wcSetPipVisible(false);
+    checkpoint("webcam","PC Webカメラ手認識を開始した");
+  }catch(e){
+    wcHandActive=false;
+    wcHandError=true;
+    colN=0;
+    wcHideCursors();
+    showErr("PCカメラを開始できませんでした："+(e&&e.message||e));
+  }finally{
+    wcHandStarting=false;
+    $("wcStartBtn").disabled=!TUNE.engineC0;
+  }
+}
+
 function startPC(){
   init3D(); ensureAudio();
   pcMode = true;
@@ -2461,7 +2942,12 @@ function setupPCInput(){
     else if(e.key==="ArrowUp"){ plateGroup.position.y += mv; }
     else if(e.key==="ArrowDown"){ plateGroup.position.y -= mv; }
     else if(e.key>="1" && e.key<="5"){ setSize(parseInt(e.key,10)-1); }
-    else if(e.key==="m"||e.key==="M"){ TUNE.engineC0=!TUNE.engineC0; log("エンジン切替: "+(TUNE.engineC0?"C0(直接変形)":"v5(粒子物理)")); }
+    else if(e.key==="m"||e.key==="M"){
+      TUNE.engineC0=!TUNE.engineC0;
+      syncEngineButtons();
+      if(!TUNE.engineC0){ colN=0; wcHideCursors(); }
+      log("エンジン切替: "+(TUNE.engineC0?"C0(直接変形)":"v5(粒子物理)"));
+    }
     else if(e.key==="["){ TUNE.soft=Math.max(0,TUNE.soft-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key==="]"){ TUNE.soft=Math.min(1,TUNE.soft+0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
     else if(e.key===","){ TUNE.keep=Math.max(0,TUNE.keep-0.05); applyFeel(); updateLeverHandles(); drawUILabels(); }
@@ -2500,10 +2986,55 @@ function bustCenter(B, out){ let cx=0,cy=0,cz=0; for(let i=0;i<N;i++){cx+=B.pos[
    ============================================================ */
 let arSupported = false;
 $("goBtn").addEventListener("click", ()=>{ if(arSupported) startAR(); else startPC(); });
+
+const wcCameraCapable=!!(
+  window.isSecureContext &&
+  navigator.mediaDevices &&
+  navigator.mediaDevices.getUserMedia
+);
+if(wcCameraCapable){
+  $("wcStartBtn").style.display="block";
+  $("wcStartBtn").disabled=!TUNE.engineC0;
+}else{
+  $("wcStartBtn").style.display="none";
+}
+
+$("wcStartBtn").addEventListener("click",()=>{
+  if(!TUNE.engineC0) return;
+  $("wcPrompt").style.display="flex";
+});
+$("wcPromptCancel").addEventListener("click",()=>{
+  $("wcPrompt").style.display="none";
+});
+$("wcPromptOK").addEventListener("click",()=>{
+  $("wcPrompt").style.display="none";
+  wcStartCamera();
+});
+$("wcPipBtn").addEventListener("click",()=>{
+  wcSetPipVisible(!wcPipVisible);
+});
+$("wcRecalBtn").addEventListener("click",()=>{
+  if(wcHand){
+    wcHand.recalibrate();
+    colN=0;
+    wcHideCursors();
+  }
+});
+$("wcStopBtn").addEventListener("click",()=>{
+  wcStopCamera();
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    colN=0;
+    wcHideCursors();
+  }
+});
+
 function enableButton(){
   $("goBtn").disabled=false;
   $("goBtn").textContent = arSupported ? "はじめる" : "PCでためす（マウス）";
-  log(arSupported ? "準備OK。「はじめる」を押せます" : "この端末はMR非対応。PC確認モードで動きだけ試せます（手ざわり・見え方はQuestで確認）");
+  if(wcCameraCapable) $("wcStartBtn").disabled=!TUNE.engineC0;
+  log(arSupported ? "準備OK。「はじめる」を押せます" : "この端末はMR非対応。PC確認モードでマウスまたはWebカメラを利用できます");
 }
 if(navigator.xr && navigator.xr.isSessionSupported){
   navigator.xr.isSessionSupported("immersive-ar").then(ok=>{ arSupported=!!ok; enableButton(); }).catch(()=>{ arSupported=false; enableButton(); });
@@ -2532,16 +3063,7 @@ function simulate(dt){
   contactDepth = 0;
   if(pokeAnim){
     pokeAnim.t += dt;
-    const f = pokeAnim.t/pokeAnim.dur;
-    if(f>=1){ pokeAnim=null; colN=0; }
-    else{
-      const B = pokeAnim.B;
-      bustCenter(B, _v3);
-      const depth = Math.sin(f*Math.PI)*TUNE.fingerR*0.9;
-      const d = R + TUNE.fingerR - depth;
-      colN=0; addCol(_v3.x+pokeAnim.dx*d, _v3.y+pokeAnim.dy*d, _v3.z+pokeAnim.dz*d, TUNE.fingerR);
-      for(let i=0;i<colN;i++){ markers[i].visible=true; markers[i].position.set(colX[i],colY[i],colZ[i]); markers[i].scale.setScalar(colR[i]); }
-    }
+    if(pokeAnim.t>=pokeAnim.dur) pokeAnim=null;
   }
   if(swayAnim){
     swayAnim.t += dt;
@@ -2561,12 +3083,18 @@ function renderLoop(t, frame){
   const nowMs = performance.now();
   const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
   fpsSmooth = fpsSmooth ? fpsSmooth*0.9 + (1/Math.max(dt,1e-4))*0.1 : 1/Math.max(dt,1e-4);
+  let wcRef=null;
   if(frame && renderer.xr.isPresenting){
-    const ref = renderer.xr.getReferenceSpace();
+    wcRef=renderer.xr.getReferenceSpace();
     if(pendingSpawn){ pendingSpawn=false; respawnInFront(); placePanelInFront(); }
-    collectXRColliders(frame, ref);
     updateGrab();
   }
+
+  /*
+   * 物理ステップより前に、その描画フレームの唯一のコライダ所有者を決定する。
+   * PCで手がない場合はここで毎回colN=0になり、C0は厳密RESTへ戻る。
+   */
+  collectActiveColliders(frame,wcRef,nowMs);
   simulate(dt);
   renderer.render(scene, camera);
  }catch(err){
@@ -2576,6 +3104,9 @@ function renderLoop(t, frame){
 addEventListener("resize", ()=>{
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
   if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+addEventListener("pagehide",()=>{
+  if(wcHand) wcHand.stop().catch(()=>{});
 });
 
 /* ============================================================
@@ -2803,6 +3334,51 @@ function statsWorstResult(){
 }
 
 window.__dbg = {
+  pinchState(){
+    return pinchGrab.map((g,i)=>({
+      hand:i===0?"left":"right",
+      active:g.active,
+      particles:g.ids ? g.ids.length : 0,
+      bust:g.B ? busts.indexOf(g.B) : -1,
+      target:g.active ? [
+        +g.x.toFixed(3), +g.y.toFixed(3), +g.z.toFixed(3)
+      ] : null
+    }));
+  },
+  releasePinches(){
+    releasePinch(pinchGrab[0]); releasePinch(pinchGrab[1]);
+    return "ok";
+  },
+  pinchTest(liftCm=3, sec=1.2){
+    // PC検証: 仮想ピンチでふくらみ表面を掴み→持ち上げ→解放し、追従・残留・NaNを測る
+    if(!bustReady) return "spawn()してから";
+    const B=busts[0];
+    // ふくらみ正面(z最大)の自由粒を掴み位置にする
+    let topI=-1, topZ=-1e9;
+    for(let i=0;i<N;i++){ if(invMass[i]===0) continue; const z=B.pos[i*3+2]; if(z>topZ){ topZ=z; topI=i; } }
+    const sx=B.pos[topI*3], sy=B.pos[topI*3+1], sz=B.pos[topI*3+2];
+    const g=pinchGrab[0];
+    releasePinch(g);
+    if(!beginPinch(g, sx, sy, sz)) return "掴み失敗(pinchReach内に粒なし)";
+    const startY=B.pos[topI*3+1];
+    const lift=liftCm/100;
+    const steps=Math.round(sec*60);
+    let nan=false;
+    for(let s=0;s<steps;s++){
+      const t=Math.min(1, s/(steps*0.5));   // 前半で持ち上げ、後半は保持
+      g.y=sy+g.offY+lift*t;
+      __dbg.tick(1/60);
+      if(Number.isNaN(B.pos[topI*3+1])){ nan=true; break; }
+    }
+    const heldY=B.pos[topI*3+1];
+    const follow_mm=+((heldY-startY)*1000).toFixed(1);
+    const slipped=follow_mm < lift*1000*0.5;   // 目標の半分未満しか付いてこなければ滑り扱い
+    releasePinch(g);
+    for(let s=0;s<Math.round(1.5*60);s++) __dbg.tick(1/60);
+    const endY=B.pos[topI*3+1];
+    const residual_mm=+((endY-startY)*1000).toFixed(2);
+    return {follow_mm, slipped, residual_mm, nan};
+  },
   state(){
     const B=busts[0];
     return {
@@ -3383,6 +3959,180 @@ window.__dbg = {
       注記: "パススルー・実際の手応え・fps・見た目の説得力は実機確認が必要(このテストの対象外)",
     };
   },
+};
+
+/* v6 rev8: 既存__dbgを再宣言せず、Webカメラ検証窓口だけを追加する。 */
+window.__dbg.wcState=function(){
+  const real=wcHand ? wcHand.getState() : null;
+  const sample=wcCurrentSample();
+  return {
+    active:wcHandActive,
+    starting:wcHandStarting,
+    error:wcHandError,
+    fake:!!wcFakeSample,
+    state:sample ? sample.state : "NO_HAND",
+    valid:!!(sample&&sample.valid),
+    ageMs:sample&&sample.timestamp ? +(performance.now()-sample.timestamp).toFixed(1) : Infinity,
+    press:sample ? +sample.press.toFixed(4) : 0,
+    score:sample ? +sample.score.toFixed(3) : 0,
+    inferHz:sample ? sample.inferHz : TUNE.wcInferHz,
+    colN,
+    invalidReason:wcLastInvalidReason,
+    tracker:real
+  };
+};
+
+window.__dbg.fakeHand=function(scenario){
+  scenario=scenario||"pressRelease";
+  if(!bustReady) window.__dbg.spawn();
+
+  const wcSavedActive=wcHandActive;
+  const wcSavedError=wcHandError;
+  const wcSavedFake=wcFakeSample;
+  const wcSavedEngine=TUNE.engineC0;
+  const wcSavedPoke=pokeAnim;
+  const wcNow=performance.now();
+
+  TUNE.engineC0=true;
+  wcHandActive=true;
+  wcHandError=false;
+  pokeAnim=null;
+
+  const wcBasePoints=[
+    {id:0,x:0.34,y:0.42},{id:1,x:0.42,y:0.34},
+    {id:2,x:0.50,y:0.31},{id:3,x:0.58,y:0.35},
+    {id:4,x:0.66,y:0.43},{id:5,x:0.50,y:0.57},
+    {id:6,x:0.50,y:0.50},{id:7,x:0.50,y:0.61}
+  ];
+
+  function wcMakeFake(press,age,dx,dy,state){
+    return {
+      valid:true,
+      timestamp:performance.now()-(age||0),
+      points:wcBasePoints.map(p=>({
+        id:p.id,x:p.x+(dx||0),y:p.y+(dy||0)
+      })),
+      press,
+      state:state||"READY",
+      score:0.99,
+      inferHz:24
+    };
+  }
+
+  function wcStepFake(sample,steps){
+    wcFakeSample=sample;
+    let wcMaxDent=0;
+    for(let i=0;i<steps;i++){
+      collectActiveColliders(null,null,performance.now());
+      contactDepth=0;
+      softStep(FIXED);
+      for(const B of busts){
+        const e=shapeErrOf(B);
+        if(e>wcMaxDent) wcMaxDent=e;
+      }
+    }
+    return wcMaxDent;
+  }
+
+  let result;
+
+  try{
+    if(scenario==="pressRelease"){
+      window.__dbg.settle(1.5);
+      let maxDent=0;
+      for(let i=0;i<20;i++){
+        const p=i/19;
+        maxDent=Math.max(maxDent,wcStepFake(wcMakeFake(p,0,0,0),1));
+      }
+      for(let i=0;i<15;i++){
+        const p=1-i/14;
+        wcStepFake(wcMakeFake(p,0,0,0),1);
+      }
+      wcFakeSample=null;
+      colN=0;
+      for(let i=0;i<Math.round(2.0/FIXED);i++){
+        contactDepth=0;
+        softStep(FIXED);
+      }
+      let maxRestError=0;
+      for(const B of busts) maxRestError=Math.max(maxRestError,shapeErrOf(B));
+      result={
+        scenario,
+        pass:maxDent>0.001 && maxRestError===0,
+        maxDent:+maxDent.toFixed(6),
+        restError:maxRestError
+      };
+    }else if(scenario==="stale"){
+      wcFakeSample=wcMakeFake(0.8,151,0,0);
+      collectActiveColliders(null,null,performance.now());
+      result={
+        scenario,
+        pass:colN===0,
+        colN,
+        reason:wcLastInvalidReason
+      };
+    }else if(scenario==="xyOnly"){
+      const press=0.42;
+      let minPress=Infinity,maxPress=-Infinity,maxDent=0;
+      for(let i=0;i<30;i++){
+        const dx=-0.08+0.16*i/29;
+        const s=wcMakeFake(press,0,dx,0);
+        minPress=Math.min(minPress,s.press);
+        maxPress=Math.max(maxPress,s.press);
+        maxDent=Math.max(maxDent,wcStepFake(s,1));
+      }
+      result={
+        scenario,
+        pass:Math.abs(maxPress-minPress)<1e-12 && maxDent>0,
+        pressRange:+(maxPress-minPress).toFixed(8),
+        maxDent:+maxDent.toFixed(6)
+      };
+    }else if(scenario==="noisy"){
+      /*
+       * webcamHandと同じ0.08/0.03 Schmittへ閾値付近の系列を通し、
+       * 単純閾値なら連打になる入力が1回だけONになることを確認する。
+       */
+      const seq=[0.00,0.075,0.081,0.078,0.083,0.076,0.081,0.079,0.06,0.04,0.031,0.029];
+      let active=false,transitions=0,onCount=0,offCount=0;
+      for(const ratio of seq){
+        const before=active;
+        if(active){
+          if(ratio<TUNE.wcPressOffRatio) active=false;
+        }else if(ratio>TUNE.wcPressOnRatio){
+          active=true;
+        }
+        if(active!==before){
+          transitions++;
+          if(active) onCount++; else offCount++;
+        }
+        const press=active ? Math.max(0,Math.min(1,ratio/TUNE.wcPressFullRatio)) : 0;
+        wcStepFake(wcMakeFake(press,0,0,0),1);
+      }
+      result={
+        scenario,
+        pass:transitions===2 && onCount===1 && offCount===1,
+        transitions,onCount,offCount
+      };
+    }else{
+      result={
+        scenario,
+        pass:false,
+        error:"未知のシナリオです。pressRelease / stale / xyOnly / noisy を指定してください"
+      };
+    }
+  }finally{
+    wcFakeSample=wcSavedFake;
+    wcHandActive=wcSavedActive;
+    wcHandError=wcSavedError;
+    TUNE.engineC0=wcSavedEngine;
+    pokeAnim=wcSavedPoke;
+    colN=0;
+    wcHideCursors();
+    syncEngineButtons();
+    updateRenderMesh();
+  }
+
+  return result;
 };
 
 log("読み込みOK（版：" + REV + "）");
