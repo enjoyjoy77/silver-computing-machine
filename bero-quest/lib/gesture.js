@@ -152,14 +152,10 @@ export function createHandGestureController(THREE, options = {}) {
   }
 
   function chooseControlHand() {
+    // 操縦は右手だけに固定(旧: 右手を見失うと左手が操縦役に化けて、左手で触ると舌が乱れた)
     const valid = hands.filter(hand => hand.valid);
     if (!valid.length) return null;
-
-    return (
-      valid.find(hand => hand.handedness === "right") ||
-      valid.find(hand => hand.handedness === "left") ||
-      valid[0]
-    );
+    return valid.find(hand => hand.handedness === "right") || null;
   }
 
   function emitNeutral() {
@@ -251,8 +247,8 @@ export function createHandGestureController(THREE, options = {}) {
     readHand(inputSources && inputSources[1], frame, referenceSpace, 1);
 
     const controlHand = chooseControlHand();
-    updateSizeGesture(now);
-    updateResetGesture(controlHand, now);
+    // 両手間隔サイズ変更・握りこぶしリセットの隠しジェスチャーは撤去
+    // (左手で触ろうとしただけで暴発し「両手で操縦してる」感の原因になっていた)
 
     if (!controlHand) {
       missingFrames++;
