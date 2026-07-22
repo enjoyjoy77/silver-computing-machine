@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q4 rev2</div>
+<div id="rev">MR版 q4 rev3</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -207,22 +207,12 @@ body.xr-active #hint{
     <button data-size="2">2</button>
     <button data-size="3">3</button>
     <button data-size="4">4</button>
-    <button data-size="5">5</button>
+    <button data-size="5" class="on">5</button>
     <button data-size="6">6</button>
     <button data-size="7">7</button>
     <button data-size="8">8</button>
     <button data-size="9">9</button>
-    <button data-size="10" class="on">10</button>
-    <button data-size="11">11</button>
-    <button data-size="12">12</button>
-    <button data-size="13">13</button>
-    <button data-size="14">14</button>
-    <button data-size="15">15</button>
-    <button data-size="16">16</button>
-    <button data-size="17">17</button>
-    <button data-size="18">18</button>
-    <button data-size="19">19</button>
-    <button data-size="20">20</button>
+    <button data-size="10">10</button>
   </div>
 
   <div class="buttons">
@@ -474,32 +464,23 @@ function makeRoughnessMap(){
   return texture;
 }
 
-/* サイズ20段階(実機フィードバックで拡張: 旧1〜10は10〜19へ、1〜9はさらに短い方へ、20=最長) */
+/* サイズ10段階 = 「長さ」の段階(実機フィードバック2回目で再設計)。
+   太さ・厚みは「ふつうの舌」のままほぼ一定で、長さだけが 1=ちょこん(2cm) 〜 10=エイリアン(20cm) と変わる */
 const SIZES=[
   null,
-  {name:"まめ",length:.008,width:.0027,height:.0017,tip:.60},
-  {name:"まめ+",length:.0095,width:.0031,height:.0019,tip:.61},
-  {name:"ちょび",length:.011,width:.0035,height:.0021,tip:.62},
-  {name:"ちょび+",length:.0128,width:.0039,height:.0024,tip:.63},
-  {name:"小",length:.0148,width:.0043,height:.0027,tip:.64},
-  {name:"小+",length:.0168,width:.0047,height:.0029,tip:.65},
-  {name:"中小",length:.0185,width:.0051,height:.0031,tip:.655},
-  {name:"中小+",length:.020,width:.0054,height:.0033,tip:.66},
-  {name:"ほぼふつう",length:.0215,width:.0057,height:.0035,tip:.665},
-  {name:"ふつう",length:.023,width:.0060,height:.0037,tip:.67},
-  {name:"ふつう+",length:.031,width:.0074,height:.0045,tip:.69},
-  {name:"長め",length:.041,width:.0090,height:.0054,tip:.71},
-  {name:"長め+",length:.054,width:.0110,height:.0066,tip:.73},
-  {name:"長い",length:.070,width:.0135,height:.0080,tip:.75},
-  {name:"長い+",length:.095,width:.0180,height:.0108,tip:.77},
-  {name:"かなり長い",length:.125,width:.0230,height:.0140,tip:.79},
-  {name:"すごく長い",length:.145,width:.0250,height:.0150,tip:.80},
-  {name:"すごく長い+",length:.162,width:.0265,height:.0158,tip:.81},
-  {name:"エイリアン",length:.180,width:.0280,height:.0165,tip:.82},
-  {name:"エイリアン+",length:.200,width:.0292,height:.0172,tip:.83}
+  {name:"ちょこん",length:.020,width:.0170,height:.0100,tip:.50},
+  {name:"みじかい",length:.035,width:.0175,height:.0102,tip:.58},
+  {name:"みじかめ",length:.050,width:.0180,height:.0104,tip:.64},
+  {name:"ふつう−",length:.065,width:.0182,height:.0106,tip:.68},
+  {name:"ふつう",length:.080,width:.0185,height:.0108,tip:.72},
+  {name:"ながめ",length:.100,width:.0188,height:.0110,tip:.75},
+  {name:"ながい",length:.120,width:.0190,height:.0112,tip:.77},
+  {name:"かなりながい",length:.145,width:.0193,height:.0114,tip:.79},
+  {name:"すごくながい",length:.170,width:.0196,height:.0116,tip:.81},
+  {name:"エイリアン",length:.200,width:.0200,height:.0118,tip:.82}
 ];
 
-let sizeLevel=10;
+let sizeLevel=5;
 let L0=SIZES[sizeLevel].length;
 let W0=SIZES[sizeLevel].width;
 let H0=SIZES[sizeLevel].height;
@@ -1279,7 +1260,7 @@ function updateSizeUI(){
 }
 
 function setSize(level){
-  const next=Math.max(1,Math.min(20,Math.round(Number(level)||10)));
+  const next=Math.max(1,Math.min(10,Math.round(Number(level)||5)));
   sizeLevel=next;
 
   const spec=SIZES[sizeLevel];

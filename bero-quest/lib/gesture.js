@@ -198,7 +198,7 @@ export function createHandGestureController(THREE, options = {}) {
     if (!spanBase) spanBase = clamp(span, 0.16, 0.46);
 
     const normalized = clamp((span - 0.14) / 0.34, 0, 1);
-    const candidate = 1 + Math.round(normalized * 19); // サイズ20段階対応
+    const candidate = 1 + Math.round(normalized * 9); // サイズ10段階(長さの段階)
 
     if (candidate !== sizeCandidate) {
       sizeCandidate = candidate;

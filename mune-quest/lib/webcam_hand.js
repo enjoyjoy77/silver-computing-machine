@@ -357,9 +357,10 @@ export function createWebcamHand(opts) {
         },
         runningMode: "VIDEO",
         numHands: 1,
-        minHandDetectionConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
+        // v7 rev3: 0.55は厳しすぎて「一瞬しか認識しない」の一因だった。既定(0.5)より緩めに。
+        minHandDetectionConfidence: 0.35,
+        minHandPresenceConfidence: 0.35,
+        minTrackingConfidence: 0.35,
       });
 
       if (!wcRunning || generation !== wcGeneration) {
@@ -424,7 +425,7 @@ export function createWebcamHand(opts) {
 
   function wcHandleAcceptedLandmarks(rawLandmarks, score, now) {
     const scale = wcHandScale(rawLandmarks);
-    const edge = wcAtScreenEdge(rawLandmarks, 0.035);
+    const edge = wcAtScreenEdge(rawLandmarks, 0.012);
     const motion = wcLandmarkMotion(wcLastRawLandmarks, rawLandmarks);
     const scaleJump = wcLastScale > WC_EPS
       ? Math.abs(scale / wcLastScale - 1)
@@ -433,18 +434,22 @@ export function createWebcamHand(opts) {
     wcScore = score;
     wcLastSeenAt = now;
 
+    /*
+     * v7 rev3: 合格ラインを大幅に緩和。厳しすぎるゲートが正常フレームまで捨てて
+     * 「一瞬しか反応しない」を作っていた。異常はSchmitt+One Euro側が吸収する。
+     */
     const basicValid =
-      score >= 0.55 &&
+      score >= 0.30 &&
       Number.isFinite(scale) &&
-      scale > 0.015 &&
-      scale < 1.5 &&
+      scale > 0.010 &&
+      scale < 1.8 &&
       !edge &&
-      scaleJump < 0.28;
+      scaleJump < 0.45;
 
     if (!basicValid) {
       if (edge) wcLastRejectReason = "手が画面端です";
-      else if (score < 0.55) wcLastRejectReason = "認識スコア不足";
-      else if (scaleJump >= 0.28) wcLastRejectReason = "骨長が急変しました";
+      else if (score < 0.30) wcLastRejectReason = "認識スコア不足";
+      else if (scaleJump >= 0.45) wcLastRejectReason = "骨長が急変しました";
       else wcLastRejectReason = "手の大きさを取得できません";
 
       wcLastRawLandmarks = rawLandmarks;
@@ -471,11 +476,23 @@ export function createWebcamHand(opts) {
       wcCalibrationScales = [];
       wcPressActive = false;
       wcPress = 0;
-      wcSetState("ACQUIRING", now, "手を画面中央で構えてください");
+
+      /*
+       * v7 rev3: 一度キャリブレーション済み(wcL0あり)なら即READYへ復帰する。
+       * 旧実装は見失うたびに毎回1秒の再キャリブが走り、
+       * 「一瞬しか反応しない」体感の主犯だった。基準の取り直しは再調整ボタンで。
+       */
+      if (wcL0 > WC_EPS) {
+        wcSetState("READY", now, null);
+        wcResetFilters(wcFilters, rawLandmarks);
+        wcLastFilterAt = now;
+      } else {
+        wcSetState("ACQUIRING", now, "手を画面中央で構えてください");
+      }
     }
 
     if (wcState === "ACQUIRING") {
-      if (now - wcStateSince >= 400) {
+      if (now - wcStateSince >= 250) {
         wcCalibrationScales = [];
         wcSetState("CALIBRATING", now, "その位置で手を静かに構えてください");
       }
@@ -486,11 +503,11 @@ export function createWebcamHand(opts) {
        * キャリブレーション中だけは静止条件を厳しくする。
        * 動いているフレームを基準値へ混ぜると、押し始め位置がずれる。
        */
-      const stable = motion < 0.012 && scaleJump < 0.055;
+      const stable = motion < 0.022 && scaleJump < 0.10;   // v7 rev3: 静止条件も緩和(厳しすぎて永遠に終わらない環境があった)
       if (stable) wcCalibrationScales.push(scale);
 
       if (now - wcStateSince >= 600) {
-        if (wcCalibrationScales.length >= 6) {
+        if (wcCalibrationScales.length >= 4) {
           wcL0 = wcMedian(wcCalibrationScales);
           wcPressActive = false;
           wcPress = 0;
@@ -686,7 +703,7 @@ export function createWebcamHand(opts) {
           audio: false,
           video: {
             facingMode: "user",
-            width: { ideal: 960 },
+            width: { ideal: 1280 },   // v7 rev3: 960→1280。離れた手の認識率は解像度が効く
             height: { ideal: 720 },
             frameRate: { ideal: 30, max: 30 },
           },
@@ -839,6 +856,8 @@ export function createWebcamHand(opts) {
       rejectReason: wcLastRejectReason,
       error: wcLastError,
       videoReady: wcVideoUsable(),
+      videoW: wcVideo ? wcVideo.videoWidth : 0,   // カメラ性能の切り分け用(解像度が低いと遠い手が写らない)
+      videoH: wcVideo ? wcVideo.videoHeight : 0,
     };
   }
 
