@@ -2055,10 +2055,14 @@ function placeXRContent(){
   xrUI.position.addScaledVector(xrForward,.015);
   xrUI.updateMatrixWorld(true);
 
-  logPanel.position.copy(xrCameraPosition)     // ログはボタンよりさらに下+奥(重なり解消)
-    .addScaledVector(xrForward,.55);
-  logPanel.position.y-=.38;
+  // ログは左横へ完全分離(下に置くとボタンと視界で重なるため)。少しこちら向きに回す
+  xrRightVec.set(1,0,0).applyQuaternion(xrCameraQuaternion);
+  logPanel.position.copy(xrCameraPosition)
+    .addScaledVector(xrForward,.50)
+    .addScaledVector(xrRightVec,-.34);
+  logPanel.position.y-=.10;
   logPanel.quaternion.copy(xrCameraQuaternion);
+  logPanel.rotateY(.45);
   logPanel.updateMatrixWorld(true);
 
   xrPlaced=true;
