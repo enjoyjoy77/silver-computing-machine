@@ -169,7 +169,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v7 rev3";   // rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
+const REV = "v7 rev6";   // rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -239,8 +239,19 @@ const TUNE = {
   pinchOpen: 0.038,      // この距離を超えたら解放(m)。ヒステリシスで境界のバタつきを防ぐ
   pinchReach: 0.030,     // ピンチ中点から表面まで、この距離以内なら掴める(m)
   pinchPatchR: 0.035,    // 掴んだ中心と一緒に動かす表面パッチ半径(m)
-  pinchFollow: 0.55,     // 1サブステップ当たりの追従率。1だと硬い洗濯ばさみ感になる
+  pinchFollow: 0.55,     // 接線方向の基本追従率
+  pinchPullFollow: 0.70, // 段階2: 表面法線の外向き=引張。皮膚・靭帯が張るので強く追従
+  pinchPushFollow: 0.40, // 段階2: 表面法線の内向き=圧縮。脂肪が潰れるので引張より柔らかい
+  pinchSlipBase: 0.006,  // 段階2: 軽いピンチで保持できる接線ずれ(m)
+  pinchSlipGrip: 0.012,  // 段階2: 強く閉じたときに増える接線保持量(m)。最大保持=18mm
   pinchMaxCorr: 0.004,   // 1サブステップ・1粒の最大追従量(m)。追跡飛びによる爆発を防ぐ
+  pinchStrainOn: 0.72,   // 段階3: 摩擦上限に対する接線ずれ比。この値で限界接近音
+  pinchStrainOff: 0.50,  // 段階3: ここまで戻ったら限界接近音を再び鳴らせる
+  pinchSlipVolume: 0.045,// 段階3: 滑り連続音の最大音量
+  pinchBounceHz: 2.2,    // 段階4: 解放後の固有振動数。約1〜2回ぷるんとして収束(既存c0Release=Schmitt余裕とは別物)
+  pinchBounceZeta: 0.34, // 段階4: 減衰比。1未満のアンダーダンプだが常時振動はしない
+  pinchBounceMax: 0.012, // 段階4: 解放時に引き継ぐ法線変位の上限(m)
+  pinchBounceMin: 0.001, // 段階4: 微小な追跡揺れをぷるんへ変換しない下限(m)
                          // v4 rev4で0.016→0.009: すり抜け対策の"太らせ"は面あたりが入った今は不要。
                          // v6 rev4で0.009→0.006: 共通部品forEachHandBonePointへ一本化、自前の太らせ・中間点挿入を廃止(「でかすぎる」対策)。
                          // 太いままだと実際の指の2倍の影響範囲になり「手以上に押してしまう」(実機⑱指摘)
@@ -1170,16 +1181,41 @@ function collectActiveColliders(frame,ref,now){
   wcAppendPokeCollider();
 }
 
-/* --- 片手ピンチ掴み(v7 rev1) ---
+/* --- 片手ピンチ掴み(v7 rev4 段階2) ---
    0=左手、1=右手。開始時に最寄りの可動表面粒と、その周囲のパッチを捕捉する。
+
+   段階2:
+   ・接線方向はピンチの閉じ具合に応じた保持上限を持ち、超過分は手だけが滑る(クーロン摩擦の近似)。
+   ・表面法線の外向き(引張)は強く、内向き(圧縮)は柔らかく追従する(引張圧縮非対称)。
+   ・法線方向まで摩擦上限で切らないため、持ち上げ中に突然落ちる挙動にはしない。
+
    毎フレーム配列を作らず、確保はピンチ開始時だけに限定する。 */
 const pinchGrab = [
-  {active:false, seen:false, B:null, ids:null, weights:null, rel:null, x:0, y:0, z:0, offX:0, offY:0, offZ:0},
-  {active:false, seen:false, B:null, ids:null, weights:null, rel:null, x:0, y:0, z:0, offX:0, offY:0, offZ:0},
+  {
+    slot:0,
+    active:false, seen:false, B:null, centerI:-1,
+    ids:null, weights:null, rel:null,
+    x:0, y:0, z:0, offX:0, offY:0, offZ:0,
+    nx:0, ny:0, nz:1, grip:0, slipping:false, slipCount:0,
+    frictionLoad:0, strainArmed:true
+  },
+  {
+    slot:1,
+    active:false, seen:false, B:null, centerI:-1,
+    ids:null, weights:null, rel:null,
+    x:0, y:0, z:0, offX:0, offY:0, offZ:0,
+    nx:0, ny:0, nz:1, grip:0, slipping:false, slipCount:0,
+    frictionLoad:0, strainArmed:true
+  },
 ];
 
 function releasePinch(g){
-  g.active=false; g.B=null; g.ids=null; g.weights=null; g.rel=null;
+  stopPinchSlip(g.slot);
+  if(TUNE.engineC0 && g.active && g.B && g.ids) seedC0Release(g);
+  g.active=false; g.B=null; g.centerI=-1;
+  g.ids=null; g.weights=null; g.rel=null;
+  g.grip=0; g.slipping=false;
+  g.frictionLoad=0; g.strainArmed=true;
 }
 
 function beginPinch(g, x, y, z){
@@ -1215,8 +1251,23 @@ function beginPinch(g, x, y, z){
     rel.push(dx,dy,dz);
   }
 
-  g.active=true; g.B=bestB;
+  // 捕捉中心の外向き法線。曲面フィット後の実際の付け根位置を基準にする。
+  let nx=qx-bestB.anchorW[0];
+  let ny=qy-bestB.anchorW[1];
+  let nz=qz-bestB.anchorW[2];
+  const nl=Math.hypot(nx,ny,nz);
+  if(nl>1e-9){
+    nx/=nl; ny/=nl; nz/=nl;
+  }else{
+    nx=0; ny=0; nz=1;
+  }
+
+  g.active=true; g.B=bestB; g.centerI=bestI;
   g.ids=ids; g.weights=weights; g.rel=rel;
+  g.nx=nx; g.ny=ny; g.nz=nz;
+  g.grip=0; g.slipping=false; g.slipCount=0;
+  g.frictionLoad=0; g.strainArmed=true;
+
   // 指の中点と表面の初期ずれを保つので、開始瞬間に粒が指へ飛ばない
   g.offX=qx-x; g.offY=qy-y; g.offZ=qz-z;
   g.x=x+g.offX; g.y=y+g.offY; g.z=z+g.offZ;
@@ -1240,11 +1291,68 @@ function updatePinchHand(slot, src, frame, ref){
   const gap=Math.hypot(tx-ix,ty-iy,tz-iz);
   const mx=(tx+ix)*0.5, my=(ty+iy)*0.5, mz=(tz+iz)*0.5;
 
+  // open側=0、close側=1。強く閉じるほど摩擦上限が増える。
+  const den=Math.max(1e-6,TUNE.pinchOpen-TUNE.pinchClose);
+  g.grip=Math.max(0,Math.min(1,(TUNE.pinchOpen-gap)/den));
+
   if(g.active){
-    if(gap>TUNE.pinchOpen){ releasePinch(g); return; }
-    g.x=mx+g.offX; g.y=my+g.offY; g.z=mz+g.offZ;
+    if(gap>TUNE.pinchOpen){ playPinchCue("release",0.6); releasePinch(g); return; }
+
+    const B=g.B;
+    const ci=g.centerI*3;
+    if(!B || g.centerI<0 || !Number.isFinite(B.pos[ci])){
+      releasePinch(g);
+      return;
+    }
+
+    // 手が要求する位置。
+    const wantX=mx+g.offX;
+    const wantY=my+g.offY;
+    const wantZ=mz+g.offZ;
+
+    // 現在の捕捉中心から要求位置へのずれを法線/接線へ分離する。
+    const ex=wantX-B.pos[ci];
+    const ey=wantY-B.pos[ci+1];
+    const ez=wantZ-B.pos[ci+2];
+    const en=ex*g.nx+ey*g.ny+ez*g.nz;
+
+    const txe=ex-g.nx*en;
+    const tye=ey-g.ny*en;
+    const tze=ez-g.nz*en;
+    const tangent=Math.hypot(txe,tye,tze);
+
+    // 摩擦上限を超えた接線成分だけを捨てる。
+    // 法線成分は保持するので、持ち上げと押し込みは継続できる。
+    const stick=TUNE.pinchSlipBase+TUNE.pinchSlipGrip*g.grip;
+    let ts=1;
+    if(tangent>stick && tangent>1e-9) ts=stick/tangent;
+
+    // 段階3: frictionLoad=1で摩擦限界、1超で滑り中。
+    // 限界接近音はヒステリシスを持たせ、境界付近で連打しない。
+    g.frictionLoad=tangent/Math.max(1e-6,stick);
+    if(g.strainArmed && g.frictionLoad>=TUNE.pinchStrainOn){
+      playPinchCue("strain",Math.min(1,g.frictionLoad));
+      g.strainArmed=false;
+    }else if(!g.strainArmed && g.frictionLoad<=TUNE.pinchStrainOff){
+      g.strainArmed=true;
+    }
+
+    g.slipping=ts<1;
+    if(g.slipping){
+      g.slipCount++;
+      updatePinchSlip(slot,Math.min(1,(g.frictionLoad-1)*1.5));
+    }else{
+      stopPinchSlip(slot);
+    }
+
+    g.x=B.pos[ci]  +g.nx*en+txe*ts;
+    g.y=B.pos[ci+1]+g.ny*en+tye*ts;
+    g.z=B.pos[ci+2]+g.nz*en+tze*ts;
   }else if(gap<TUNE.pinchClose){
-    beginPinch(g,mx,my,mz);
+    if(beginPinch(g,mx,my,mz)){
+      g.grip=1;
+      playPinchCue("grab",1);
+    }
   }
 }
 
@@ -1256,10 +1364,24 @@ function solvePinchGrabs(B){
       const i=g.ids[n], ci=i*3, ri=n*3;
       if(invMass[i]===0) continue;
 
-      const w=g.weights[n]*TUNE.pinchFollow;
-      let dx=(g.x+g.rel[ri]  -B.pos[ci])  *w;
-      let dy=(g.y+g.rel[ri+1]-B.pos[ci+1])*w;
-      let dz=(g.z+g.rel[ri+2]-B.pos[ci+2])*w;
+      const ex=g.x+g.rel[ri]  -B.pos[ci];
+      const ey=g.y+g.rel[ri+1]-B.pos[ci+1];
+      const ez=g.z+g.rel[ri+2]-B.pos[ci+2];
+
+      // 捕捉面の法線に対する補正量。正=外向きの引張、負=内向きの圧縮。
+      const normal=ex*g.nx+ey*g.ny+ez*g.nz;
+      const tangentX=ex-g.nx*normal;
+      const tangentY=ey-g.ny*normal;
+      const tangentZ=ez-g.nz*normal;
+
+      const patchW=g.weights[n];
+      const normalFollow=normal>=0
+        ? TUNE.pinchPullFollow
+        : TUNE.pinchPushFollow;
+
+      let dx=patchW*(tangentX*TUNE.pinchFollow+g.nx*normal*normalFollow);
+      let dy=patchW*(tangentY*TUNE.pinchFollow+g.ny*normal*normalFollow);
+      let dz=patchW*(tangentZ*TUNE.pinchFollow+g.nz*normal*normalFollow);
       const d=Math.hypot(dx,dy,dz);
 
       if(d>TUNE.pinchMaxCorr && d>1e-9){
@@ -1267,7 +1389,9 @@ function solvePinchGrabs(B){
         dx*=s; dy*=s; dz*=s;
       }
 
-      B.pos[ci]+=dx; B.pos[ci+1]+=dy; B.pos[ci+2]+=dz;
+      B.pos[ci]+=dx;
+      B.pos[ci+1]+=dy;
+      B.pos[ci+2]+=dz;
     }
   }
 }
@@ -1416,8 +1540,47 @@ function c0StateOf(B){
   if(B.c0) return B.c0;
   B.c0={ d:new Float32Array(N), tgtD:new Float32Array(N),
          act:new Uint8Array(MAXCOL), hold:new Float32Array(MAXCOL),
-         q:new Int32Array(MAXCOL), p:new Float32Array(MAXCOL) };
+         q:new Int32Array(MAXCOL), p:new Float32Array(MAXCOL),
+         releaseX:new Float32Array(N), releaseV:new Float32Array(N) };
   return B.c0;
+}
+
+/* 段階4(v7 rev6): C0限定の解放時ぷるん。
+   掴み拘束が作った変位のうち、C0凹み場と同じ静止法線方向だけを取り出す。
+   接線ずれは引き継がないため、解放後に形が横へ流れたり残留したりしない。 */
+function seedC0Release(g){
+  const B=g.B, S=c0StateOf(B);
+  let peak=0;
+
+  for(const i of g.ids){
+    if(invMass[i]===0) continue;
+    const ci=i*3;
+    const baseX=B.tgt[ci]  +B.restNormal[ci]  *S.d[i];
+    const baseY=B.tgt[ci+1]+B.restNormal[ci+1]*S.d[i];
+    const baseZ=B.tgt[ci+2]+B.restNormal[ci+2]*S.d[i];
+    let x=(B.pos[ci]-baseX)*B.restNormal[ci]
+         +(B.pos[ci+1]-baseY)*B.restNormal[ci+1]
+         +(B.pos[ci+2]-baseZ)*B.restNormal[ci+2];
+    x=Math.max(-TUNE.pinchBounceMax, Math.min(TUNE.pinchBounceMax, x));
+    if(Math.abs(x)>peak) peak=Math.abs(x);
+  }
+
+  // 指のロストや境界揺れによる微小解放では発火させない。
+  if(peak<TUNE.pinchBounceMin) return;
+
+  for(const i of g.ids){
+    if(invMass[i]===0) continue;
+    const ci=i*3;
+    const baseX=B.tgt[ci]  +B.restNormal[ci]  *S.d[i];
+    const baseY=B.tgt[ci+1]+B.restNormal[ci+1]*S.d[i];
+    const baseZ=B.tgt[ci+2]+B.restNormal[ci+2]*S.d[i];
+    let x=(B.pos[ci]-baseX)*B.restNormal[ci]
+         +(B.pos[ci+1]-baseY)*B.restNormal[ci+1]
+         +(B.pos[ci+2]-baseZ)*B.restNormal[ci+2];
+    x=Math.max(-TUNE.pinchBounceMax, Math.min(TUNE.pinchBounceMax, x));
+    S.releaseX[i]=x;
+    S.releaseV[i]=0;
+  }
 }
 function c0Step(h){
   // コライダ位置のEMA平滑(トラッキングノイズを変形に入れない・会議結論の機序1位対策)
@@ -1498,9 +1661,38 @@ function c0Step(h){
       S.d[i]=d;
     }
 
-    // --- 位置の直書き: pos = 静止形 + 内向き法線×d。速度は常に0 ---
+    // --- 段階4(v7 rev6): 解放時だけの減衰振動 ---
+    // x'' + 2*zeta*w*x' + w^2*x = 0。入力や変形結果を戻さない独立状態なので自己励振しない。
+    // 半陰的Eulerを最大1/120秒に分割し、低fps時にも発散させない。
+    const bounceW=Math.PI*2*TUNE.pinchBounceHz;
+    const ringSteps=Math.max(1, Math.ceil(h*120));
+    const ringDt=h/ringSteps;
+    for(let s=0;s<ringSteps;s++){
+      for(let i=0;i<N;i++){
+        let x=S.releaseX[i], v=S.releaseV[i];
+        if(x===0 && v===0) continue;
+        v += (-bounceW*bounceW*x - 2*TUNE.pinchBounceZeta*bounceW*v)*ringDt;
+        x += v*ringDt;
+        if(Math.abs(x)<0.00008 && Math.abs(v)<0.001){
+          x=0; v=0;   // 完全収束スナップ=C0の静止誤差ゼロを守る
+        }
+        S.releaseX[i]=x;
+        S.releaseV[i]=v;
+      }
+    }
+
+    // 別の手が同じ場所を保持中なら、その粒では解放振動を即停止する。
+    for(const g of pinchGrab){
+      if(!g.active || g.B!==B || !g.ids) continue;
+      for(const i of g.ids){
+        S.releaseX[i]=0;
+        S.releaseV[i]=0;
+      }
+    }
+
+    // --- 位置の直書き: pos = 静止形 + 内向き法線×(凹み+解放振動)。速度は常に0 ---
     for(let i=0;i<N;i++){
-      const ci=i*3, d=S.d[i];
+      const ci=i*3, d=S.d[i]+S.releaseX[i];
       B.pos[ci]  =B.tgt[ci]  +B.restNormal[ci]  *d;
       B.pos[ci+1]=B.tgt[ci+1]+B.restNormal[ci+1]*d;
       B.pos[ci+2]=B.tgt[ci+2]+B.restNormal[ci+2]*d;
@@ -2533,6 +2725,126 @@ function playSquish(strength){
   o.start(now); o.stop(now+dur);
 }
 
+/* --- ピンチ掴み段階3(v7 rev5): 素手向けの音響フィードバック ---
+   1) 掴み成立: 短い低音 2) 摩擦限界接近: 少し高い張り音
+   3) 滑り中: 超過量に応じて強くなる帯域制限ノイズ 4) 解放: 低い下降音
+   AudioContextは既存のactxだけを共有する。滑り音は左右最大2本。 */
+const pinchSlipAudio=[null,null];
+let pinchNoiseBuffer=null;
+
+function playPinchCue(kind,strength=1){
+  if(!actx || voices>=6) return;
+
+  const now=actx.currentTime;
+  const strain=kind==="strain";
+  const dur=strain ? 0.09 : 0.075;
+  const f0=strain ? 310 : 145;
+  const f1=strain ? 390 : 105;
+
+  const o=actx.createOscillator();
+  o.type="sine";
+  o.frequency.setValueAtTime(f0,now);
+  o.frequency.exponentialRampToValueAtTime(f1,now+dur);
+
+  const lp=actx.createBiquadFilter();
+  lp.type="lowpass";
+  lp.frequency.value=strain ? 900 : 520;
+  lp.Q.value=0.7;
+
+  const gain=actx.createGain();
+  const vol=(strain ? 0.035 : 0.050)*Math.max(0.25,strength);
+  gain.gain.setValueAtTime(0.0001,now);
+  gain.gain.linearRampToValueAtTime(vol,now+0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+
+  o.connect(lp).connect(gain).connect(actx.destination);
+  voices++;
+  o.onended=()=>{
+    voices=Math.max(0,voices-1);
+    o.disconnect();
+    lp.disconnect();
+    gain.disconnect();
+  };
+  o.start(now);
+  o.stop(now+dur);
+}
+
+function ensurePinchNoiseBuffer(){
+  if(!actx || pinchNoiseBuffer) return pinchNoiseBuffer;
+
+  // 0.25秒をループする短いノイズ。生成はAudioContextごとに1回だけ。
+  const length=Math.max(1,Math.floor(actx.sampleRate*0.25));
+  const buffer=actx.createBuffer(1,length,actx.sampleRate);
+  const data=buffer.getChannelData(0);
+  let smooth=0;
+  for(let i=0;i<length;i++){
+    smooth=smooth*0.72+(Math.random()*2-1)*0.28;
+    data[i]=smooth;
+  }
+  pinchNoiseBuffer=buffer;
+  return buffer;
+}
+
+function updatePinchSlip(slot,amount){
+  if(!actx || slot<0 || slot>=pinchSlipAudio.length) return;
+  amount=Math.max(0,Math.min(1,amount));
+
+  let v=pinchSlipAudio[slot];
+  if(!v){
+    const src=actx.createBufferSource();
+    src.buffer=ensurePinchNoiseBuffer();
+    if(!src.buffer) return;
+    src.loop=true;
+
+    const bp=actx.createBiquadFilter();
+    bp.type="bandpass";
+    bp.frequency.value=650;
+    bp.Q.value=0.85;
+
+    const gain=actx.createGain();
+    gain.gain.value=0.0001;
+
+    src.connect(bp).connect(gain).connect(actx.destination);
+    v={src,bp,gain,stopping:false};
+    pinchSlipAudio[slot]=v;
+    src.start();
+  }
+
+  if(v.stopping) return;
+  const now=actx.currentTime;
+  v.bp.frequency.setTargetAtTime(520+amount*1050,now,0.025);
+  v.bp.Q.setTargetAtTime(0.7+amount*0.8,now,0.025);
+  v.gain.gain.setTargetAtTime(
+    0.008+TUNE.pinchSlipVolume*amount,
+    now,
+    0.018
+  );
+}
+
+function stopPinchSlip(slot){
+  if(slot<0 || slot>=pinchSlipAudio.length) return;
+  const v=pinchSlipAudio[slot];
+  if(!v || v.stopping) return;
+
+  v.stopping=true;
+  if(!actx){
+    pinchSlipAudio[slot]=null;
+    return;
+  }
+
+  const now=actx.currentTime;
+  v.gain.gain.cancelScheduledValues(now);
+  v.gain.gain.setTargetAtTime(0.0001,now,0.018);
+
+  try{ v.src.stop(now+0.08); }catch(_){}
+  v.src.onended=()=>{
+    v.src.disconnect();
+    v.bp.disconnect();
+    v.gain.disconnect();
+    if(pinchSlipAudio[slot]===v) pinchSlipAudio[slot]=null;
+  };
+}
+
 /* ============================================================
    5. 振動（コントローラのみ。素手は物理的に振動不可＝Quest仕様）
    ============================================================ */
@@ -3387,6 +3699,15 @@ window.__dbg = {
       active:g.active,
       particles:g.ids ? g.ids.length : 0,
       bust:g.B ? busts.indexOf(g.B) : -1,
+      grip:+g.grip.toFixed(3),
+      slipping:g.slipping,
+      slipCount:g.slipCount,
+      frictionLoad:+g.frictionLoad.toFixed(3),
+      audioStage:!g.active ? "off"
+        : g.slipping ? "slip"
+        : g.frictionLoad>=TUNE.pinchStrainOn ? "strain"
+        : "grab",
+      stickLimit:+(TUNE.pinchSlipBase+TUNE.pinchSlipGrip*g.grip).toFixed(4),
       target:g.active ? [
         +g.x.toFixed(3), +g.y.toFixed(3), +g.z.toFixed(3)
       ] : null
@@ -3395,6 +3716,39 @@ window.__dbg = {
   releasePinches(){
     releasePinch(pinchGrab[0]); releasePinch(pinchGrab[1]);
     return "ok";
+  },
+  bounceState(){
+    // C0の解放振動の残量(最大振幅mm)。0なら完全静止
+    return busts.map(B=>{
+      if(!B.c0) return 0;
+      let m=0;
+      for(let i=0;i<N;i++){ const a=Math.abs(B.c0.releaseX[i]); if(a>m) m=a; }
+      return +(m*1000).toFixed(2);
+    });
+  },
+  pinchBounceTest(depthCm=1.5){
+    // C0限定: 仮想つまみ→引っ張り→解放し、ぷるんの立ち上がりと完全収束を測る
+    if(!TUNE.engineC0) return "engineC0=trueで実行";
+    if(!bustReady) return "spawn()してから";
+    const B=busts[0];
+    let topI=-1, topZ=-1e9;
+    for(let i=0;i<N;i++){ if(invMass[i]===0) continue; const z=B.pos[i*3+2]; if(z>topZ){ topZ=z; topI=i; } }
+    const g=pinchGrab[0];
+    releasePinch(g);
+    if(!beginPinch(g, B.pos[topI*3], B.pos[topI*3+1], B.pos[topI*3+2])) return "掴み失敗";
+    // 法線方向へdepthCm引っ張って安定させる
+    const d=depthCm/100;
+    g.x+=g.nx*d; g.y+=g.ny*d; g.z+=g.nz*d;
+    for(let s=0;s<40;s++) __dbg.tick(1/60);
+    releasePinch(g);
+    __dbg.tick(1/60);
+    const a0=Math.max(...__dbg.bounceState());
+    __dbg.tick(1);
+    const a1=Math.max(...__dbg.bounceState());
+    __dbg.tick(1);
+    const a2=Math.max(...__dbg.bounceState());
+    const st=__dbg.state();
+    return {initial_mm:a0, after1s_mm:a1, after2s_mm:a2, shapeErr:st.shapeErr, nan:st.nan};
   },
   pinchTest(liftCm=3, sec=1.2){
     // PC検証: 仮想ピンチでふくらみ表面を掴み→持ち上げ→解放し、追従・残留・NaNを測る

@@ -299,9 +299,10 @@ export function createHandGestureController(THREE, options = {}) {
 
     temp.copy(filteredPosition).sub(anchor);
 
-    target.lr = clamp(temp.x / 0.13, -1, 1);
-    target.ud = clamp(temp.y / 0.13, -1, 1);
-    target.ext = clamp(-temp.z / 0.15, -1, 1);
+    // 可動範囲(実機FB「狭すぎる」→約2倍に拡大。この距離だけ手を動かすと指令が最大になる)
+    target.lr = clamp(temp.x / 0.24, -1, 1);
+    target.ud = clamp(temp.y / 0.24, -1, 1);
+    target.ext = clamp(-temp.z / 0.28, -1, 1);
     target.cl = clamp(controlHand.pinch, 0, 1);
 
     palmAcross
