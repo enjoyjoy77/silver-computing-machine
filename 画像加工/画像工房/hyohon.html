@@ -476,6 +476,30 @@
     border-color:var(--accent);
     color:var(--accent);
   }
+  #recordShow{
+    position:fixed;
+    z-index:25;
+    left:12px;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    display:none;
+    min-width:132px;
+    padding:10px 14px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--panel);
+    color:var(--ink);
+    font:800 12px/1.2 inherit;
+    cursor:pointer;
+  }
+  #recordShow.recording{
+    border-color:var(--accent);
+    background:var(--accent);
+    color:#0b1410;
+  }
+  #recordShow:disabled{
+    cursor:default;
+    opacity:.72;
+  }
   #hint{
     position:fixed;
     z-index:20;
@@ -593,6 +617,7 @@
   <button id="calibrateEye" type="button">📏 距離をあわせる（約60cmで押す）</button>
   <button id="closeEyeSettings" type="button">閉じる</button>
 </section>
+<button id="recordShow" type="button">🎬 動画にする</button>
 <div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
 
 <script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
@@ -600,7 +625,18 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev17-layers";
+const REV = "rev18-show";
+
+const SHOW_TUNE = {
+  lightIntensity:1.1,
+  lightZ:0.5,
+  idleDelayS:8,
+  idleAmpX:0.55,
+  idleAmpY:0.3,
+  idleSpeed:0.5,
+  recordS:6,
+  fadeS:0.5
+};
 // スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
 // ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
 // 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
@@ -3976,6 +4012,324 @@ window.__dbg = {
     };
   }
 };
+
+// ---- rev18-show: 視点追従ライト・アイドル運転・動画書き出し ----
+let showLight = null;
+let lastInputTs = performance.now();
+let lastShowFrameTs = lastInputTs;
+let idleWeight = 0;
+let idleActive = false;
+let recording = false;
+let recordStartTs = 0;
+let recordDurationS = SHOW_TUNE.recordS;
+let recordTimerId = 0;
+let activeRecorder = null;
+
+function noteShowInput() {
+  lastInputTs = performance.now();
+}
+
+function showOrbit(now) {
+  const elapsedS = recording
+    ? Math.max(0, (now - recordStartTs) / 1000)
+    : now / 1000;
+  const phase = elapsedS * SHOW_TUNE.idleSpeed;
+
+  return {
+    x:SHOW_TUNE.idleAmpX * Math.sin(phase),
+    y:SHOW_TUNE.idleAmpY * Math.sin(phase * 1.31 + 1.0)
+  };
+}
+
+function updateShowMotion(now) {
+  const dt = Math.min(
+    Math.max((now - lastShowFrameTs) / 1000, 0),
+    0.1
+  );
+  lastShowFrameTs = now;
+
+  const mayIdle =
+    !faceActive &&
+    !orientationEnabled &&
+    !recording &&
+    now - lastInputTs > SHOW_TUNE.idleDelayS * 1000;
+
+  const desiredWeight = recording || mayIdle ? 1 : 0;
+  const fadeStep = SHOW_TUNE.fadeS > 0
+    ? dt / SHOW_TUNE.fadeS
+    : 1;
+
+  if (desiredWeight > idleWeight) {
+    idleWeight = Math.min(desiredWeight, idleWeight + fadeStep);
+  } else {
+    idleWeight = Math.max(desiredWeight, idleWeight - fadeStep);
+  }
+
+  if (recording) idleWeight = 1;
+  idleActive = idleWeight > 0.0001;
+
+  return showOrbit(now);
+}
+
+function ensureShowLight() {
+  if (
+    showLight ||
+    !scene ||
+    SHOW_TUNE.lightIntensity <= 0
+  ) {
+    return;
+  }
+
+  showLight = new THREE.PointLight(
+    0xfff4df,
+    SHOW_TUNE.lightIntensity
+  );
+  scene.add(showLight);
+}
+
+function updateShowLight() {
+  ensureShowLight();
+  if (!showLight || !camera) return;
+
+  showLight.position.copy(camera.position);
+  showLight.position.z += SHOW_TUNE.lightZ;
+}
+
+function chooseRecordingMime() {
+  const candidates = [
+    "video/mp4",
+    "video/webm;codecs=vp9",
+    "video/webm"
+  ];
+
+  return candidates.find(type =>
+    MediaRecorder.isTypeSupported(type)
+  ) || "";
+}
+
+function recordingExtension(mime) {
+  return mime.startsWith("video/mp4") ? ".mp4" : ".webm";
+}
+
+function syncRecordButton() {
+  const button = $("recordShow");
+  if (!button) return;
+
+  if (!recording) {
+    button.disabled = false;
+    button.classList.remove("recording");
+    button.textContent = "🎬 動画にする";
+    return;
+  }
+
+  const elapsedS =
+    (performance.now() - recordStartTs) / 1000;
+  const remainingS = Math.max(
+    0,
+    Math.ceil(recordDurationS - elapsedS)
+  );
+
+  button.disabled = true;
+  button.classList.add("recording");
+  button.textContent =
+    `録画中… 残り${remainingS}秒`;
+}
+
+function stopRecordTimer() {
+  if (recordTimerId) {
+    clearInterval(recordTimerId);
+    recordTimerId = 0;
+  }
+}
+
+function startShowRecord(seconds = SHOW_TUNE.recordS) {
+  if (recording) return;
+
+  const duration = Number(seconds);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error("録画秒数には0より大きい数を指定してください");
+  }
+
+  if (
+    typeof MediaRecorder === "undefined" ||
+    typeof canvas.captureStream !== "function"
+  ) {
+    showError(
+      "このブラウザは動画の書き出しに対応していません"
+    );
+    return;
+  }
+
+  const mime = chooseRecordingMime();
+  const chunks = [];
+  let failed = false;
+  let recorder;
+
+  try {
+    const stream = canvas.captureStream(30);
+    recorder = mime
+      ? new MediaRecorder(stream, {mimeType:mime})
+      : new MediaRecorder(stream);
+  } catch (error) {
+    showError(
+      "動画の録画を開始できませんでした: " +
+      (error?.message || error)
+    );
+    return;
+  }
+
+  recording = true;
+  recordDurationS = duration;
+  recordStartTs = performance.now();
+  activeRecorder = recorder;
+  syncRecordButton();
+
+  recorder.ondataavailable = event => {
+    if (event.data?.size) chunks.push(event.data);
+  };
+
+  recorder.onerror = event => {
+    failed = true;
+    showError(
+      "動画の録画中にエラーが起きました: " +
+      (event?.error?.message || "不明")
+    );
+  };
+
+  recorder.onstop = () => {
+    stopRecordTimer();
+    recording = false;
+    activeRecorder = null;
+    noteShowInput();
+    syncRecordButton();
+
+    for (const track of recorder.stream?.getTracks?.() || []) {
+      track.stop();
+    }
+
+    const actualMime =
+      recorder.mimeType ||
+      mime ||
+      chunks[0]?.type ||
+      "video/webm";
+    const blob = new Blob(chunks, {type:actualMime});
+
+    if (failed || blob.size === 0) {
+      if (!failed) {
+        showError(
+          "動画データを作成できませんでした。別のブラウザでお試しください"
+        );
+      }
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download =
+      "3d-rack-" +
+      Date.now() +
+      recordingExtension(actualMime);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  try {
+    recorder.start(250);
+  } catch (error) {
+    recording = false;
+    activeRecorder = null;
+    syncRecordButton();
+    showError(
+      "動画の録画を開始できませんでした: " +
+      (error?.message || error)
+    );
+    return;
+  }
+
+  recordTimerId = setInterval(syncRecordButton, 200);
+
+  setTimeout(() => {
+    if (
+      activeRecorder === recorder &&
+      recorder.state !== "inactive"
+    ) {
+      recorder.stop();
+    }
+  }, duration * 1000);
+}
+
+const baseSetParallax = setParallax;
+setParallax = function(x, y) {
+  noteShowInput();
+  return baseSetParallax(x, y);
+};
+
+const baseUpdateMeasuredEye = updateMeasuredEye;
+updateMeasuredEye = function(...args) {
+  noteShowInput();
+  return baseUpdateMeasuredEye(...args);
+};
+
+const baseSetLookControlsVisible = setLookControlsVisible;
+setLookControlsVisible = function(visible) {
+  baseSetLookControlsVisible(visible);
+  $("recordShow").style.display =
+    visible && loaded ? "block" : "none";
+};
+
+renderFrame = function() {
+  const now = performance.now();
+  const orbit = updateShowMotion(now);
+  const savedTargetX = targetX;
+  const savedTargetY = targetY;
+  const savedFaceActive = faceActive;
+  const savedEyeOverride = eyeOverride;
+
+  targetX =
+    savedTargetX * (1 - idleWeight) +
+    orbit.x * idleWeight;
+  targetY =
+    savedTargetY * (1 - idleWeight) +
+    orbit.y * idleWeight;
+
+  if (recording) {
+    faceActive = false;
+    eyeOverride = false;
+  }
+
+  updateCamera(false);
+
+  faceActive = savedFaceActive;
+  eyeOverride = savedEyeOverride;
+  targetX = savedTargetX;
+  targetY = savedTargetY;
+
+  updateShowLight();
+  renderer?.render(scene, camera);
+};
+
+$("recordShow").addEventListener("click", () => {
+  startShowRecord(SHOW_TUNE.recordS);
+});
+
+Object.assign(window.__dbg, {
+  showStats() {
+    return {
+      idleActive,
+      idleWeight,
+      lightOn:!!showLight && showLight.intensity > 0,
+      recording
+    };
+  },
+
+  startRecord(seconds = SHOW_TUNE.recordS) {
+    startShowRecord(seconds);
+    return this.showStats();
+  }
+});
 
 initThree();
 animate();
