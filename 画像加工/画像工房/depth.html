@@ -137,11 +137,13 @@ import {
   shelvesAll, shelvesAdd, getTargetShelf, setTargetShelf,
 } from "./assets/common.js";
 
-const REV = "v2 rev11-gpu";
+const REV = "v2 rev12-gpu2";
 
-// ---- 深度GPUサーバー(このPCのRTX 4070 Ti)経由で開いた時だけ発動 ----
-// 公開サイトでは api/gpu/ping が404なので何も起きない(従来どおり)
+// ---- 深度GPUサーバー(このPCのRTX 4070 Ti)が見つかったら発動 ----
+// 探す場所: ①同じ配信元(2_gpu_site.batで開いた時) ②このPCの127.0.0.1:8977
+// (公開サイトを普通のPCで開いた時=サーバー無しなら、何も起きず従来どおり)
 let gpuMode = false;
+let gpuBase = "";
 // アプリ内ブラウザ等で保存機能(IndexedDB)が無い環境を起動時に検知して日本語で案内
 if (typeof indexedDB === "undefined") {
   setTimeout(() => setStatus("error",
@@ -477,10 +479,15 @@ $("btn-view-all").addEventListener("click", async () => {
 
 // GPUサーバー検知: 成功したらモデル準備なしで即使える
 (async () => {
+  const bases = ["", "http://127.0.0.1:8977/"];
+  for (const base of bases) {
+    try {
+      const r = await fetch(base + "api/gpu/ping", { cache: "no-store" });
+      if (r.ok) { gpuBase = base; gpuMode = true; break; }
+    } catch (e) { /* この候補には居ない。次へ */ }
+  }
   try {
-    const r = await fetch("api/gpu/ping", { cache: "no-store" });
-    if (!r.ok) return;
-    gpuMode = true;
+    if (!gpuMode) return;
     $("badge-backend").textContent = "⚡ PCのGPU(高画質モード)";
     $("prepare-wrap").classList.add("done");
     dropzone.classList.remove("disabled");
@@ -500,7 +507,7 @@ async function processOneGpu({ blob, name, card }) {
   workEl.textContent = "PCのGPUで奥行きを推定中…(初回だけモデル読み込みで1〜3分)";
 
   try {
-    const res = await fetch("api/gpu/depth", { method: "POST", body: blob });
+    const res = await fetch(gpuBase + "api/gpu/depth", { method: "POST", body: blob });
     if (!res.ok) {
       throw new Error(await res.text().catch(() => "サーバーエラー"));
     }
