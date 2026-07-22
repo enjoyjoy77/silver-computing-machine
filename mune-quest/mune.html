@@ -169,7 +169,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v7 rev7";   // rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
+const REV = "v7 rev8";   // rev8=C1「掌と指の接触範囲差」(掌は広く浅い面押し・指は局所の点押し。共通部品hands.jsから掌分類isPalmを受領) / rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -259,7 +259,10 @@ const TUNE = {
   // 物理シミュを主役から降ろし「静止面基準のスカラー凹み場+一次遅れ」。崩壊・裏返り・自己振動が"表現できない"設計。
   // URLに ?mode=v5 を付けると旧v5(粒子物理)で起動=Quest上のブックマーク2つでA/B可能
   engineC0: true,        // true=C0直接変形 / false=v5粒子物理
-  c0PatchR: 0.042,       // 凹みカーネル半径(m)。中心50%は平頂
+  c0PatchR: 0.042,       // C1: 指の凹みカーネル半径(m)。中心50%は平頂
+  c0PalmPatchR: 0.070,   // C1: 掌の接触範囲。指より広い面で押し、同じ深さでも面として沈む
+  c0PalmDepthGain: 0.82, // C1: 掌は圧力が分散するため、指より最大凹みを少し浅くする
+  c0PalmCoreRatio: 0.62, // C1: 掌は平頂部を広くし、点押しでなく面押しに見せる
   c0MaxDent: 0.026,      // 最大凹み(m)。やわらかさレバーで18〜30mm(applyFeel)
   c0RimOuter: 1.70,      // C2: 盛り上がり帯の外径=c0PatchR×この値
   c0RimGain: 0.10,       // C2: 盛り上がり頂点=押し込み深さの10%(設計レンジ5〜15%)
@@ -983,6 +986,7 @@ const HAND_BRIDGES = (()=>{ const b=[[1,2],[2,3],[3,4]];   // 親指
   b.push([0,1],[0,5],[0,10],[0,15],[0,20]);   // 手のひら(手首→付け根)
   return b; })();
 const colX = new Float32Array(MAXCOL), colY = new Float32Array(MAXCOL), colZ = new Float32Array(MAXCOL), colR = new Float32Array(MAXCOL);
+const colPalm = new Uint8Array(MAXCOL);   // C1: 0=指/汎用球、1=掌
 let colN = 0;
 let contactDepth = 0;
 // ふくらみ2つの「今の位置+半径」(素手の骨格コライダーをxr-hands共通部品のnearに渡す軽量化用/v6 rev5)。
@@ -996,7 +1000,7 @@ function updateNearBulges(){
     else { nb[0]=B.mount.x; nb[1]=B.mount.y; nb[2]=0; nb[3]=R*2.5 + 0.05; }   // 起動直後・未描画時のフォールバック
   }
 }
-function addCol(x,y,z,r){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colN++; }
+function addCol(x,y,z,r,isPalm){ if(colN>=MAXCOL) return; colX[colN]=x; colY[colN]=y; colZ[colN]=z; colR[colN]=r; colPalm[colN]=isPalm?1:0; colN++; }
 
 /* --- v6 rev8: PC Webカメラ入力。colNの所有者はcollectActiveColliders()だけが選ぶ。 --- */
 let wcHand = null;
@@ -1122,7 +1126,7 @@ function wcAppendColliders(now){
     const outside=TUNE.wcColR+0.008;
     const depth=sample.press*TUNE.wcPressDepthMax;
     wcMapPoint.addScaledVector(wcMapNormal,outside-depth);
-    addCol(wcMapPoint.x,wcMapPoint.y,wcMapPoint.z,TUNE.wcColR);
+    addCol(wcMapPoint.x,wcMapPoint.y,wcMapPoint.z,TUNE.wcColR,i>=5);   // C1: webcam_handの固定順は指先5点+掌3点
   }
 
   if(colN-before!==8){
@@ -1637,14 +1641,20 @@ function c0Step(h){
     // 凹みの外側に0→頂点→0の独立した帯を置く。凹み量を入力へフィードバックしないため
     // C0の「自己振動しない」性質は維持される。複数接触は凹み=最大、盛り上がり=最小、重なりは凹み優先。
     const T=S.tgtD; T.fill(0);
-    const PR=TUNE.c0PatchR, core=PR*0.5, fall=PR-core;
-    const rimOuter=PR*Math.max(1.01,TUNE.c0RimOuter);
-    const rimWidth=rimOuter-PR;
     for(let k=0;k<colN;k++){
       if(!S.act[k]) continue;
       const qi=S.q[k]*3;
       const qx=B.tgt[qi], qy=B.tgt[qi+1], qz=B.tgt[qi+2];
-      const depth=Math.min(TUNE.c0MaxDent, S.p[k]);
+      // C1(v7 rev8): 掌は広く浅い面押し・指は局所の点押し。カーネルをコライダ分類で切り替える
+      const palm=!!colPalm[k];
+      const PR=palm ? TUNE.c0PalmPatchR : TUNE.c0PatchR;
+      const coreRatio=palm ? TUNE.c0PalmCoreRatio : 0.5;
+      const core=PR*Math.max(0.05,Math.min(0.95,coreRatio));
+      const fall=PR-core;
+      const rimOuter=PR*Math.max(1.01,TUNE.c0RimOuter);
+      const rimWidth=rimOuter-PR;
+      const depthGain=palm ? TUNE.c0PalmDepthGain : 1;
+      const depth=Math.min(TUNE.c0MaxDent*depthGain, S.p[k]*depthGain);
       if(depth<=0) continue;
       for(let i=0;i<N;i++){
         if(invMass[i]===0) continue;
@@ -3061,7 +3071,8 @@ function collectXRColliders(frame, ref){
 
       // 素手の当たり判定=共通部品(xr-hands/hands.js)の骨格コライダーに一本化(2026-07-20)。
       // 骨リスト沿いに細い球を切れ目なく自動配置(旧: 25関節+自前中間点の手書き挿入は「でかすぎる」ため廃止)。
-      forEachHandBonePoint(src, frame, ref, (x,y,z,r)=>addCol(x,y,z,r), {minR: TUNE.handMinR, spacing: 1.4, near: nearBulge});
+      // C1: 共通部品から掌分類(isPalm)も受け取る。球半径は純正のまま=当たり判定を太らせる変更ではない
+      forEachHandBonePoint(src, frame, ref, (x,y,z,r,isPalm)=>addCol(x,y,z,r,isPalm), {minR: TUNE.handMinR, spacing: 1.4, near: nearBulge});
     }
   }
   // 手がフレームから消えた場合は幽霊掴みを残さない(v7 rev1)。

@@ -65,6 +65,17 @@ const HAND_BONES = [
   ["ring-finger-phalanx-proximal", "pinky-finger-phalanx-proximal", 1],
 ];
 
+// 掌分類(2026-07-22): 関節そのものにも骨中間点(bone[2])と同じ「掌/指」の区別を与える。
+// proximalより先は指、wrist/metacarpalは掌として扱う。cbの第5引数isPalmで受け取れる(従来の4引数cbはそのまま動く)。
+const PALM_JOINTS = new Set([
+  "wrist",
+  "thumb-metacarpal",
+  "index-finger-metacarpal",
+  "middle-finger-metacarpal",
+  "ring-finger-metacarpal",
+  "pinky-finger-metacarpal",
+]);
+
 const _joints = new Map();   // 使い回し(毎フレームnew禁止)
 
 // 判定球[x,y,z,r]が対象リストnearのどれかに近いか(marginは骨の長さぶんの余裕)
@@ -80,7 +91,8 @@ function _isNear(x, y, z, r, near, margin) {
 
 // 素手の骨格に沿って当たり判定の点を列挙する。
 //   src: XRInputSource(src.handがあること) / frame: XRFrame / ref: 参照空間
-//   cb(x, y, z, r): 点1つごとに呼ばれる(rはWebXR純正の関節半径ベース。太らせない)
+//   cb(x, y, z, r, isPalm): 点1つごとに呼ばれる(rはWebXR純正の関節半径ベース。太らせない)。
+//                           isPalm=trueは掌側の点、falseは指。従来の4引数cbとも互換。
 //   opts: {
 //     minR=0.006     半径の下限(m)
 //     spacing=1.4    指の点間隔=半径×この倍率(2未満なら切れ目なし)
@@ -106,13 +118,13 @@ export function forEachHandBonePoint(src, frame, ref, cb, opts) {
     if (!p) continue;
     const r = Math.max((p.radius && p.radius > 0) ? p.radius : 0.008, minR);
     const x = p.transform.position.x, y = p.transform.position.y, z = p.transform.position.z;
-    _joints.set(name, [x, y, z, r]);
+    _joints.set(name, [x, y, z, r, PALM_JOINTS.has(name)]);
     if (!anyNear && _isNear(x, y, z, r, near, MARGIN)) anyNear = true;
   }
   if (!_joints.size || !anyNear) return 0;   // 手が対象から遠い間は点ゼロ(待機コストゼロ)
   let n = 0;
   // まず全関節そのもの(骨の端点)
-  for (const a of _joints.values()) { cb(a[0], a[1], a[2], a[3]); n++; }
+  for (const a of _joints.values()) { cb(a[0], a[1], a[2], a[3], a[4]); n++; }
   // 次に骨ごとに中間点を埋める(間隔=細い方の半径×spacing → 球がつながって切れ目ゼロ)
   for (const bone of HAND_BONES) {
     const a = _joints.get(bone[0]), b = _joints.get(bone[1]);
@@ -124,7 +136,7 @@ export function forEachHandBonePoint(src, frame, ref, cb, opts) {
     const k = Math.ceil(len / step) - 1;          // 中間点の数(端点は置き済み)
     for (let i = 1; i <= k; i++) {
       const t = i / (k + 1);
-      cb(a[0] + dx * t, a[1] + dy * t, a[2] + dz * t, a[3] + (b[3] - a[3]) * t);
+      cb(a[0] + dx * t, a[1] + dy * t, a[2] + dz * t, a[3] + (b[3] - a[3]) * t, !!bone[2]);
       n++;
     }
   }
