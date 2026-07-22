@@ -137,7 +137,11 @@ import {
   shelvesAll, shelvesAdd, getTargetShelf, setTargetShelf,
 } from "./assets/common.js";
 
-const REV = "v2 rev10-guard";
+const REV = "v2 rev11-gpu";
+
+// ---- 深度GPUサーバー(このPCのRTX 4070 Ti)経由で開いた時だけ発動 ----
+// 公開サイトでは api/gpu/ping が404なので何も起きない(従来どおり)
+let gpuMode = false;
 // アプリ内ブラウザ等で保存機能(IndexedDB)が無い環境を起動時に検知して日本語で案内
 if (typeof indexedDB === "undefined") {
   setTimeout(() => setStatus("error",
@@ -471,12 +475,83 @@ $("btn-view-all").addEventListener("click", async () => {
   }
 });
 
+// GPUサーバー検知: 成功したらモデル準備なしで即使える
+(async () => {
+  try {
+    const r = await fetch("api/gpu/ping", { cache: "no-store" });
+    if (!r.ok) return;
+    gpuMode = true;
+    $("badge-backend").textContent = "⚡ PCのGPU(高画質モード)";
+    $("prepare-wrap").classList.add("done");
+    dropzone.classList.remove("disabled");
+    $("handoff-use").disabled = false;
+    setStatus("ready",
+      "⚡ GPUサーバーに接続しました。準備不要で高画質の深度が作れます。画像をドロップしてください。");
+    pump();
+  } catch (e) { /* 公開サイト=サーバーなし。従来どおり */ }
+})();
+
+// GPUサーバーで1枚処理(ブラウザ内AIは使わない)
+async function processOneGpu({ blob, name, card }) {
+  const statusEl = card.querySelector(".card-status");
+  const rightPane = card.querySelector(".pair .pane:last-child");
+  const workEl = rightPane.querySelector(".working");
+  statusEl.textContent = "推定中…";
+  workEl.textContent = "PCのGPUで奥行きを推定中…(初回だけモデル読み込みで1〜3分)";
+
+  try {
+    const res = await fetch("api/gpu/depth", { method: "POST", body: blob });
+    if (!res.ok) {
+      throw new Error(await res.text().catch(() => "サーバーエラー"));
+    }
+    const depthBlob = await res.blob();
+    const img = new Image();
+    const durl = URL.createObjectURL(depthBlob);
+    await new Promise((ok, ng) => {
+      img.onload = ok;
+      img.onerror = () => ng(new Error("深度画像を読み込めませんでした"));
+      img.src = durl;
+    });
+    const sw = Math.min(img.width, MAX_DEPTH_SIDE);
+    const sh = Math.round(img.height * sw / img.width);
+    const outCv = document.createElement("canvas");
+    outCv.width = sw; outCv.height = sh;
+    outCv.getContext("2d").drawImage(img, 0, 0, sw, sh);
+    URL.revokeObjectURL(durl);
+
+    workEl.replaceWith(outCv);
+    statusEl.textContent = "完了 ✓(GPU高画質)";
+    statusEl.classList.add("done");
+
+    const baseName = name.replace(/\.[^.]+$/, "");
+    card.querySelector(".btn-save-wrap").classList.add("show");
+    card.querySelector(".btn-save-depth").addEventListener("click", async () =>
+      saveBlob(await canvasToBlob(outCv), baseName + "_深度.png"));
+    card.querySelector(".btn-hyohon").addEventListener("click", async () => {
+      try {
+        await figuresAdd({ name: baseName, image: blob, depth: await canvasToBlob(outCv) });
+        location.href = "hyohon.html?view=shelf";
+      } catch (e) {
+        setStatus("error", "3Dラックへの保存に失敗しました: " + (e?.message || e));
+      }
+    });
+    doneCards.push({ name, blob, outCv, card });
+    card.querySelector(".view-chk").addEventListener("change", updateViewBar);
+    updateViewBar();
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = "エラー";
+    statusEl.classList.add("err");
+    workEl.textContent = "GPUでの処理に失敗しました：" + (e.message || e);
+  }
+}
+
 async function pump() {
-  if (busy || !pipe) return;
+  if (busy || (!pipe && !gpuMode)) return;
   const job = queue.shift();
   if (!job) return;
   busy = true;
-  await processOne(job).catch(console.error);
+  await (gpuMode ? processOneGpu(job) : processOne(job)).catch(console.error);
   busy = false;
   pump();
 }
