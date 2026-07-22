@@ -542,7 +542,16 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev12-near";
+const REV = "rev13-fusion";
+// スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
+// ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
+// 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
+const FUSION_DECAY_S = 1.2;
+const FUSION_SIGN_X = 1;
+const FUSION_SIGN_Y = 1;
+let fusionX = 0;
+let fusionY = 0;
+let lastOrientation = null;
 // 近づいたときの吸い込まれ感(知覚ブースト)。0.0=物理に忠実(拡大しない)、0.6=既定
 const NEAR_BOOST = 0.6;
 const NEAR_REF_Z = 0.55;   // このZ(m)を等倍の基準にする
@@ -1761,8 +1770,9 @@ function updateCamera(immediate = false) {
 
   if (physicalEyeActive) {
     // 実寸モード: 目の実位置(m)をそのままカメラに(窓=画面の物理サイズと1:1)
-    x = eyeX;
-    y = eyeY;
+    // スマホでジャイロ併用時は、傾きの速い成分を上乗せ(フュージョン)
+    x = eyeX + (orientationEnabled ? fusionX : 0);
+    y = eyeY + (orientationEnabled ? fusionY : 0);
     d = Math.max(eyeZ, 0.05);
     // 近づきブースト: 窓に近づくと奥の絵が相対的に縮む物理現象を、
     // わずかな拡大で打ち消して「吸い込まれる」体感にする(NEAR_BOOST=0で物理忠実)
@@ -1928,6 +1938,25 @@ function handleOrientation(event) {
   const dx = gamma - orientationBase.gamma;
   const dy = beta - orientationBase.beta;
   setParallax(dx / 28, dy / 28);
+
+  // 顔で覗く併用時: 傾きの「変化分」を目の位置に上乗せ(速さ担当)。
+  // 顔検出(正確さ担当)が遅れて追いつくまでの隙間をジャイロが埋める
+  if (faceActive) {
+    const t = performance.now();
+    if (lastOrientation) {
+      const dt = Math.min((t - lastOrientation.t) / 1000, 0.1);
+      const dg = (gamma - lastOrientation.gamma) * Math.PI / 180;
+      const db = (beta - lastOrientation.beta) * Math.PI / 180;
+      const decay = Math.exp(-dt / FUSION_DECAY_S);
+      fusionX = fusionX * decay + FUSION_SIGN_X * dg * eyeZ;
+      fusionY = fusionY * decay + FUSION_SIGN_Y * db * eyeZ;
+    }
+    lastOrientation = {gamma, beta, t};
+  } else {
+    lastOrientation = null;
+    fusionX = 0;
+    fusionY = 0;
+  }
 }
 
 $("startLook").addEventListener("click", async () => {
@@ -2066,7 +2095,9 @@ async function startFaceLook() {
     btn.disabled = false;
     btn.classList.add("on");
     btn.textContent = "🎥 顔で覗くのをやめる";
-    $("hint").textContent = "顔を動かすと、実際の位置から窓の中を覗けます";
+    $("hint").textContent = orientationEnabled
+      ? "傾き+顔の合わせ技。動かした通りに窓の中を覗けます"
+      : "顔を動かすと、実際の位置から窓の中を覗けます";
     faceLoop();
   } catch (e) {
     stopFaceLook();
@@ -2108,6 +2139,8 @@ function stopFaceLook() {
   resetEyeFilters();
   targetX = 0; targetY = 0;
   zoomTarget = 1;
+  fusionX = 0; fusionY = 0;
+  lastOrientation = null;
 }
 
 $("shelfNav").addEventListener("click", () => {
