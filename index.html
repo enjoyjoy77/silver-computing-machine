@@ -61,6 +61,12 @@
     border-radius: 999px; padding: 2px 10px;
   }
   .foot { margin-top: 48px; font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+  a.tool.stealth, a.tool.stealth * {
+    color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  a.tool.stealth .name::after { content: ""; }
 </style>
 </head>
 <body>
@@ -140,7 +146,7 @@
       <span class="desc">スライムを両手でぎゅーっと挟むと極限まで小さく潰れて、離すとぷるんっと勢いよく戻る（今は動作テスト版）</span>
       <span class="badge">Quest 3 専用</span>
     </a>
-    <a class="tool" href="mune-quest/mune.html">
+    <a class="tool stealth" href="mune-quest/mune.html">
       <span class="name">🥽 むねゆれ再現</span>
       <span class="desc">やわらかいふくらみを、押すと沈み、動かすと遅れてぷるんと揺れる。揺れ物理の実験（今は動作テスト版）</span>
       <span class="badge">Quest 3 専用</span>
@@ -183,6 +189,10 @@
     <a class="tool" href="業務効率化/QR共有/QR共有.html">
       <span class="name">QR共有</span>
       <span class="desc">パソコンの文章をQRコード化してスマホに一瞬で送る</span>
+    </a>
+    <a class="tool" href="業務効率化/テキスト同期/memo.html">
+      <span class="name">テキスト同期メモ</span>
+      <span class="desc">スマホで書いた文章をパソコンへ数秒で同期（合言葉でつなぐ）</span>
     </a>
   </div>
 

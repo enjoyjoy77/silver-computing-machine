@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ベロ Quest 3 MR q5 rev2</title>
+<style>
+:root{color-scheme:dark;--panel:rgba(20,20,28,.92);--accent:#ee7189;--accent2:#ffc0cb}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#18181e;color:#fff;font-family:"Yu Gothic UI","Meiryo",sans-serif}
+canvas{display:block;touch-action:none}
+#rev{position:fixed;right:12px;top:8px;z-index:30;color:#ddd;font-size:11px;letter-spacing:.1em;pointer-events:none}
+#ui{position:fixed;left:12px;top:12px;z-index:20;width:min(340px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid #ffffff24;border-radius:12px;box-shadow:0 8px 30px #0008}
+h1{font-size:16px;margin:0 0 8px;color:#ffdce3}
+.row{display:grid;grid-template-columns:80px 1fr 42px;gap:8px;align-items:center;margin:6px 0}
+.row output{text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.buttons{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}
+button{min-height:34px;border:1px solid #ffffff2b;border-radius:8px;color:#fff;background:#3a3340;font-weight:700;cursor:pointer}
+button:hover{background:#514555}
+button.on{background:#a9435c;border-color:#ffb3c1}
+#partner{background:#276d79}
+#partner.on{background:#a9435c}
+#kiss{background:#7b315f}
+#kiss.on{background:#d54278;border-color:#ffd0df}
+#log{min-height:38px;margin-top:8px;padding:7px;border-radius:7px;background:#08080d99;color:#ffcbd5;font-size:12px;line-height:1.45}
+#hint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:10;padding:7px 12px;border-radius:99px;background:#0009;color:#ddd;font-size:12px;pointer-events:none;white-space:nowrap}
+body.xr-active #ui,body.xr-active #hint,body.xr-active #rev{display:none}
+@media(max-width:520px){#ui{transform:scale(.86);transform-origin:left top;width:390px}}
+</style>
+</head>
+<body>
+<div id="rev">MR版 q5 rev2</div>
+<section id="ui">
+  <h1>ベロを2本にして絡ませる</h1>
+  <div class="row"><label for="ext">のばす</label><input id="ext" type="range" min="-100" max="100" value="0"><output id="o_ext">0</output></div>
+  <div class="row"><label for="ud">上下</label><input id="ud" type="range" min="-100" max="100" value="0"><output id="o_ud">0</output></div>
+  <div class="row"><label for="lr">左右</label><input id="lr" type="range" min="-100" max="100" value="0"><output id="o_lr">0</output></div>
+  <div class="row"><label for="tw">ねじる</label><input id="tw" type="range" min="-100" max="100" value="0"><output id="o_tw">0</output></div>
+  <div class="row"><label for="cl">巻く</label><input id="cl" type="range" min="-100" max="100" value="0"><output id="o_cl">0</output></div>
+  <div class="row"><label for="length">ながさ</label><input id="length" type="range" min="1" max="20" value="8"><output id="o_length">8</output></div>
+  <div class="row"><label for="thickness">ふとさ</label><input id="thickness" type="range" min="1" max="10" value="5"><output id="o_thickness">5</output></div>
+  <div class="buttons">
+    <button id="partner">相手を出す</button>
+    <button id="kiss">ディープキス</button>
+    <button id="gesture">手で操る</button>
+    <button id="attach">装着モード</button>
+    <button id="reset">指令を戻す</button>
+    <button id="record">録体 REC</button>
+    <button id="save">録体 保存</button>
+    <button id="play">録体 再生</button>
+    <button id="ar">Quest ARで見る</button>
+  </div>
+  <div id="log">ベロ1を選択中です。</div>
+</section>
+<div id="hint">クリックまたは手で触れたベロを選択します</div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import {setupHands,forEachHandBonePoint} from "./lib/hands.js";
+import {createHandGestureController} from "./lib/gesture.js";
+import {createRokutai} from "./lib/rokutai.js";
+
+/* ===== 定数と共有トポロジ ===== */
+const Q5_SECTIONS=13;
+const Q5_RING=8;
+const Q5_PER_SECTION=Q5_RING+1;
+const Q5_PARTICLES=Q5_SECTIONS*Q5_PER_SECTION;
+const Q5_FIXED_SECTIONS=2;
+const Q5_FIXED_DT=1/144;
+const Q5_ITERATIONS=10;
+const Q5_BASE_W=.0185;
+const Q5_BASE_H=.0108;
+const Q5_CONTACT_MARGIN=.003;
+const Q5_CONTACT_LIMIT=.30;
+const Q5_CONTACT_HALF=.50;
+const Q5_CAPSULE_SHARE=.35;
+const Q5_COMMAND_NAMES=["ext","ud","lr","tw","cl"];
+const Q5_MAX_HAND_COLLIDERS=240;
+const q5CenterIndex=s=>s*Q5_PER_SECTION;
+const q5RingIndex=(s,r)=>s*Q5_PER_SECTION+1+r;
+
+const q5SharedPairs=[];
+function q5AddSharedConstraint(a,b,stiffness,type){
+  q5SharedPairs.push({a,b,stiffness,type});
+}
+for(let s=0;s<Q5_SECTIONS;s++){
+  for(let r=0;r<Q5_RING;r++){
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s,(r+1)%Q5_RING),.78,"ring");
+    q5AddSharedConstraint(q5CenterIndex(s),q5RingIndex(s,r),.86,"spoke");
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s,(r+2)%Q5_RING),.38,"diameter");
+  }
+}
+for(let s=0;s<Q5_SECTIONS-1;s++){
+  q5AddSharedConstraint(q5CenterIndex(s),q5CenterIndex(s+1),.93,"axis");
+  for(let r=0;r<Q5_RING;r++){
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s+1,r),.82,"long");
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s+1,(r+1)%Q5_RING),.34,"shear");
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s+1,(r+Q5_RING-1)%Q5_RING),.34,"shear");
+  }
+}
+for(let s=0;s<Q5_SECTIONS-2;s++){
+  q5AddSharedConstraint(q5CenterIndex(s),q5CenterIndex(s+2),.48,"bend");
+  for(let r=0;r<Q5_RING;r++){
+    q5AddSharedConstraint(q5RingIndex(s,r),q5RingIndex(s+2,r),.22,"bend");
+  }
+}
+
+/* ===== Three.js ===== */
+const q5Renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:"high-performance"});
+q5Renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+q5Renderer.setSize(innerWidth,innerHeight);
+q5Renderer.outputColorSpace=THREE.SRGBColorSpace;
+q5Renderer.toneMapping=THREE.ACESFilmicToneMapping;
+q5Renderer.toneMappingExposure=1.08;
+q5Renderer.xr.enabled=true;
+document.body.appendChild(q5Renderer.domElement);
+
+const q5Scene=new THREE.Scene();
+q5Scene.background=new THREE.Color(0x18181e);
+const q5Camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.001,12);
+q5Camera.position.set(.25,.16,.32);
+q5Camera.lookAt(0,0,.08);
+
+q5Scene.add(new THREE.HemisphereLight(0xfff7f8,0x493743,1.8));
+const q5KeyLight=new THREE.DirectionalLight(0xffffff,3.2);
+q5KeyLight.position.set(.4,.7,.35);
+q5Scene.add(q5KeyLight);
+const q5RimLight=new THREE.DirectionalLight(0xff8099,1.5);
+q5RimLight.position.set(-.4,.1,-.35);
+q5Scene.add(q5RimLight);
+
+const q5Floor=new THREE.Mesh(
+  new THREE.CircleGeometry(1.5,64),
+  new THREE.MeshStandardMaterial({color:0x292730,roughness:.9,transparent:true,opacity:.55})
+);
+q5Floor.rotation.x=-Math.PI/2;
+q5Floor.position.y=-.075;
+q5Scene.add(q5Floor);
+
+const q5Tongues=[];
+let q5SelectedIndex=0;
+let q5PartnerVisible=false;
+let q5KissActive=false;
+let q5KissStartTime=0;
+let q5XRActive=false;
+let q5XRPlaced=false;
+let q5XRReferenceSpace=null;
+let q5Accumulator=0;
+let q5LastTime=performance.now();
+let q5DraggedTongue=-1;
+let q5DraggedParticle=-1;
+let q5PointerDown=false;
+let q5PointerMoved=0;
+let q5PointerX=0;
+let q5PointerY=0;
+
+/* solverが参照する現在ポインタ。個体を解く直前に差し替える。 */
+let q5Pos=null;
+let q5Prev=null;
+let q5Predicted=null;
+let q5RestPos=null;
+let q5Target=null;
+let q5InvMass=null;
+let q5ConstraintRest=null;
+let q5CurrentTongue=null;
+let q5CurrentLength=.08;
+let q5CurrentHalfWidth=Q5_BASE_W;
+let q5CurrentHalfHeight=Q5_BASE_H;
+
+const q5FrameQ=new THREE.Quaternion();
+const q5DeltaQ=new THREE.Quaternion();
+const q5Euler=new THREE.Euler();
+const q5FramePosition=new THREE.Vector3();
+const q5Right=new THREE.Vector3();
+const q5Up=new THREE.Vector3();
+const q5Forward=new THREE.Vector3();
+const q5LocalPoint=new THREE.Vector3();
+const q5WorldPoint=new THREE.Vector3();
+const q5OtherWorldPoint=new THREE.Vector3();
+const q5LocalMatrixInverse=new THREE.Matrix4();
+const q5OtherMatrixInverse=new THREE.Matrix4();
+const q5Raycaster=new THREE.Raycaster();
+const q5MouseNdc=new THREE.Vector2();
+const q5DragPlane=new THREE.Plane();
+const q5DragHit=new THREE.Vector3();
+const q5CameraDirection=new THREE.Vector3();
+const q5CameraPosition=new THREE.Vector3();
+const q5CameraQuaternion=new THREE.Quaternion();
+const q5XRForward=new THREE.Vector3();
+const q5XRRight=new THREE.Vector3();
+const q5YawFlip=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI);
+const q5ControllerPoint=new THREE.Vector3();
+const q5ButtonWorldPoint=new THREE.Vector3();
+
+/* 毎ステップ使い回すカプセル接触計算用。毎フレームnewしない。 */
+const q5ContactParticleWorld=new THREE.Vector3();
+const q5ContactCapsuleA=new THREE.Vector3();
+const q5ContactCapsuleB=new THREE.Vector3();
+const q5ContactClosest=new THREE.Vector3();
+const q5ContactSegment=new THREE.Vector3();
+const q5ContactNormalWorld=new THREE.Vector3();
+const q5ContactCorrectionWorld=new THREE.Vector3();
+const q5ContactCorrectionLocalA=new THREE.Vector3();
+const q5ContactCorrectionLocalB=new THREE.Vector3();
+const q5ContactDirectionPoint=new THREE.Vector3();
+const q5ContactDirectionCapsule=new THREE.Vector3();
+const q5ContactMatrixAInv=new THREE.Matrix4();
+const q5ContactMatrixBInv=new THREE.Matrix4();
+
+const q5ColliderData=new Float32Array(Q5_MAX_HAND_COLLIDERS*4);
+const q5ColliderOwner=new Int8Array(Q5_MAX_HAND_COLLIDERS);
+let q5ColliderCount=0;
+
+function q5LengthForLevel(level){
+  return .02+.18*((level-1)/19);
+}
+function q5ThicknessMultiplier(level){
+  return level<=5?.4+.12*level:1+.22*(level-5);
+}
+function q5Profile(t){
+  let width=1-.25*t*t;
+  let height=1-.22*t;
+  if(t>.58){
+    const k=(t-.58)/.42;
+    const rounded=Math.sqrt(Math.max(.018,1-k*k));
+    width*=rounded;
+    height*=rounded*(1-.15*k);
+  }
+  width*=1+.018*Math.sin(t*Math.PI*3.1)+.01*Math.sin(t*Math.PI*7.3+.8);
+  height*=1+.025*Math.sin(t*Math.PI*4.2+.4);
+  return {width,height};
+}
+function q5SectionTaper(t){
+  let width=1-.25*t*t;
+  let height=1-.22*t;
+  if(t>.58){
+    const k=(t-.58)/.42;
+    const rounded=Math.sqrt(Math.max(.018,1-k*k));
+    width*=rounded;
+    height*=rounded*(1-.15*k);
+  }
+  return Math.max(.08,Math.min(width,height));
+}
+
+function q5MakeTexture(hueShift){
+  const canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=512;
+  const context=canvas.getContext("2d");
+  const gradient=context.createLinearGradient(0,0,512,0);
+  gradient.addColorStop(0,hueShift?"#a84c75":"#bd4c61");
+  gradient.addColorStop(.45,hueShift?"#e783aa":"#ed8495");
+  gradient.addColorStop(1,hueShift?"#b74d78":"#c84e68");
+  context.fillStyle=gradient;
+  context.fillRect(0,0,512,512);
+  context.globalAlpha=.18;
+  context.fillStyle="#fff";
+  for(let y=8;y<512;y+=18){
+    for(let x=8;x<512;x+=18){
+      const offset=((x*17+y*31)%11)-5;
+      context.beginPath();
+      context.arc(x+offset,y,1.2+((x+y)%3)*.35,0,Math.PI*2);
+      context.fill();
+    }
+  }
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.colorSpace=THREE.SRGBColorSpace;
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  return texture;
+}
+const q5Textures=[q5MakeTexture(false),q5MakeTexture(true)];
+
+function q5CreateGeometry(){
+  const positions=new Float32Array(Q5_SECTIONS*Q5_RING*3);
+  const normals=new Float32Array(Q5_SECTIONS*Q5_RING*3);
+  const uvs=new Float32Array(Q5_SECTIONS*Q5_RING*2);
+  const indices=[];
+  for(let s=0;s<Q5_SECTIONS;s++){
+    for(let r=0;r<Q5_RING;r++){
+      const uv=(s*Q5_RING+r)*2;
+      uvs[uv]=r/Q5_RING;
+      uvs[uv+1]=s/(Q5_SECTIONS-1);
+    }
+  }
+  for(let s=0;s<Q5_SECTIONS-1;s++){
+    for(let r=0;r<Q5_RING;r++){
+      const n=(r+1)%Q5_RING;
+      const a=s*Q5_RING+r;
+      const b=s*Q5_RING+n;
+      const c=(s+1)*Q5_RING+r;
+      const d=(s+1)*Q5_RING+n;
+      indices.push(a,c,b,b,c,d);
+    }
+  }
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  geometry.setAttribute("normal",new THREE.BufferAttribute(normals,3));
+  geometry.setAttribute("uv",new THREE.BufferAttribute(uvs,2));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function q5UseTonguePointers(tongue){
+  q5CurrentTongue=tongue;
+  q5Pos=tongue.pos;
+  q5Prev=tongue.prev;
+  q5Predicted=tongue.predicted;
+  q5RestPos=tongue.restPos;
+  q5Target=tongue.target;
+  q5InvMass=tongue.invMass;
+  q5ConstraintRest=tongue.constraintRest;
+  q5CurrentLength=tongue.length;
+  q5CurrentHalfWidth=tongue.halfWidth;
+  q5CurrentHalfHeight=tongue.halfHeight;
+}
+
+function q5DistanceBetween(a,b,array){
+  const a3=a*3;
+  const b3=b*3;
+  return Math.hypot(
+    array[a3]-array[b3],
+    array[a3+1]-array[b3+1],
+    array[a3+2]-array[b3+2]
+  );
+}
+
+function q5InitializeTongueShape(tongue,keepPose){
+  q5UseTonguePointers(tongue);
+  const oldTipZ=q5Pos[q5CenterIndex(Q5_SECTIONS-1)*3+2]||tongue.length;
+  const grooveDepth=tongue.halfWidth*.10;
+
+  for(let s=0;s<Q5_SECTIONS;s++){
+    const t=s/(Q5_SECTIONS-1);
+    const z=t*tongue.length;
+    const center3=q5CenterIndex(s)*3;
+    const shape=q5Profile(t);
+    q5RestPos[center3]=0;
+    q5RestPos[center3+1]=0;
+    q5RestPos[center3+2]=z;
+
+    for(let r=0;r<Q5_RING;r++){
+      const theta=r/Q5_RING*Math.PI*2;
+      let x=Math.cos(theta)*tongue.halfWidth*shape.width;
+      let y=Math.sin(theta)*tongue.halfHeight*shape.height;
+      if(Math.sin(theta)>0){
+        const groove=Math.exp(-Math.pow(Math.cos(theta)/.34,2));
+        y-=groove*grooveDepth*Math.sin(theta)*(.22+.78*Math.sin(Math.PI*Math.min(1,t*1.15)));
+      }
+      if(y<0)y*=.84;
+      const ring3=q5RingIndex(s,r)*3;
+      q5RestPos[ring3]=x;
+      q5RestPos[ring3+1]=y;
+      q5RestPos[ring3+2]=z;
+    }
+  }
+
+  if(!keepPose){
+    for(let i=0;i<Q5_PARTICLES*3;i++){
+      q5Pos[i]=q5RestPos[i];
+      q5Prev[i]=q5RestPos[i];
+      q5Predicted[i]=q5RestPos[i];
+      q5Target[i]=q5RestPos[i];
+    }
+  }else{
+    const scaleZ=oldTipZ===0?1:Math.max(tongue.length,.001)/oldTipZ;
+    for(let i=0;i<Q5_PARTICLES;i++){
+      const i3=i*3;
+      q5Pos[i3+2]*=scaleZ;
+      q5Prev[i3+2]*=scaleZ;
+      q5Predicted[i3+2]*=scaleZ;
+    }
+  }
+
+  for(let i=0;i<Q5_PARTICLES;i++){
+    q5InvMass[i]=Math.floor(i/Q5_PER_SECTION)<Q5_FIXED_SECTIONS?0:1;
+  }
+  for(let c=0;c<q5SharedPairs.length;c++){
+    const pair=q5SharedPairs[c];
+    tongue.constraintBase[c]=q5DistanceBetween(pair.a,pair.b,q5RestPos);
+    tongue.constraintRest[c]=tongue.constraintBase[c];
+  }
+  tongue.contactSections.fill(0);
+  tongue.contactParticles.fill(0);
+}
+
+function q5CreateTongue(index){
+  const geometry=q5CreateGeometry();
+  const material=new THREE.MeshStandardMaterial({
+    color:index===0?0xf18a9b:0xdc79a2,
+    map:q5Textures[index],
+    roughness:.66,
+    metalness:0,
+    emissive:index===0?0x44121c:0x351026,
+    emissiveIntensity:0,
+    side:THREE.DoubleSide
+  });
+  const mesh=new THREE.Mesh(geometry,material);
+  mesh.frustumCulled=false;
+  mesh.userData.tongueIndex=index;
+
+  const root=new THREE.Group();
+  root.add(mesh);
+  q5Scene.add(root);
+
+  const command={ext:0,ud:0,lr:0,tw:0,cl:0};
+  const activation={ext:0,ud:0,lr:0,tw:0,cl:0};
+  const tongue={
+    index,
+    tongueRoot:root,
+    mesh,
+    geometry,
+    material,
+    pos:new Float32Array(Q5_PARTICLES*3),
+    prev:new Float32Array(Q5_PARTICLES*3),
+    predicted:new Float32Array(Q5_PARTICLES*3),
+    restPos:new Float32Array(Q5_PARTICLES*3),
+    target:new Float32Array(Q5_PARTICLES*3),
+    invMass:new Float32Array(Q5_PARTICLES),
+    constraintRest:new Float32Array(q5SharedPairs.length),
+    constraintBase:new Float32Array(q5SharedPairs.length),
+    contactSections:new Uint8Array(Q5_SECTIONS),
+    contactParticles:new Uint8Array(Q5_PARTICLES),
+    command,
+    activation,
+    lengthLevel:8,
+    thicknessLevel:5,
+    length:q5LengthForLevel(8),
+    halfWidth:Q5_BASE_W*q5ThicknessMultiplier(5),
+    halfHeight:Q5_BASE_H*q5ThicknessMultiplier(5),
+    mounted:false,
+    grabbedParticle:-1,
+    grabbedOwner:-1,
+    grabTarget:new THREE.Vector3(),
+    rokutai:null
+  };
+
+  tongue.rokutai=createRokutai({
+    names:Q5_COMMAND_NAMES,
+    storageKey:`bero-q5-rokutai-${index+1}`,
+    sampleIntervalMs:1000/30,
+    onApply(values){
+      if(q5KissActive)return;
+      for(const name of Q5_COMMAND_NAMES)tongue.command[name]=values[name];
+      if(q5SelectedIndex===index)q5SyncControls();
+    },
+    onStatus(message){
+      q5Log(`ベロ${index+1}: ${message}`);
+      q5SyncRokutaiButtons();
+    }
+  });
+
+  q5InitializeTongueShape(tongue,false);
+  return tongue;
+}
+
+q5Tongues.push(q5CreateTongue(0));
+q5Tongues.push(q5CreateTongue(1));
+q5Tongues[1].tongueRoot.visible=false;
+q5Tongues[0].tongueRoot.position.set(-.035,0,0);
+q5Tongues[1].tongueRoot.position.set(.035,0,0);
+
+/* ===== 個体の筋肉と形状拘束 ===== */
+function q5UpdateActivation(dt){
+  const command=q5CurrentTongue.command;
+  const activation=q5CurrentTongue.activation;
+  for(const name of Q5_COMMAND_NAMES){
+    const rising=Math.abs(command[name])>Math.abs(activation[name]);
+    const tau=rising?.08:.15;
+    activation[name]+=(command[name]-activation[name])*(1-Math.exp(-dt/tau));
+  }
+}
+
+function q5CurrentStretch(){
+  return .75+(q5CurrentTongue.activation.ext+1)*.2;
+}
+
+function q5UpdateConstraintRestLengths(){
+  const stretch=q5CurrentStretch();
+  const radiusScale=1/Math.sqrt(stretch);
+  for(let c=0;c<q5SharedPairs.length;c++){
+    const type=q5SharedPairs[c].type;
+    if(type==="axis"||type==="long"||type==="bend"){
+      q5ConstraintRest[c]=q5CurrentTongue.constraintBase[c]*stretch;
+    }else if(type==="ring"||type==="spoke"||type==="diameter"){
+      q5ConstraintRest[c]=q5CurrentTongue.constraintBase[c]*radiusScale;
+    }else{
+      q5ConstraintRest[c]=q5CurrentTongue.constraintBase[c]*
+        Math.sqrt((stretch*stretch+radiusScale*radiusScale)*.5);
+    }
+  }
+}
+
+function q5BuildMuscleTargets(){
+  const activation=q5CurrentTongue.activation;
+  const stretch=q5CurrentStretch();
+  const radiusScale=1/Math.sqrt(stretch);
+  const segmentLength=q5CurrentLength/(Q5_SECTIONS-1);
+
+  q5FrameQ.identity();
+  q5FramePosition.set(0,0,0);
+
+  for(let s=0;s<Q5_SECTIONS;s++){
+    const t=s/(Q5_SECTIONS-1);
+    const envelope=.15+.85*t;
+    const tip=t<.55?0:Math.pow((t-.55)/.45,2);
+
+    if(s>0){
+      q5Euler.set(
+        -(activation.ud*.16*envelope+activation.cl*.34*tip),
+        activation.lr*.16*envelope,
+        activation.tw*.18*(.1+.9*t),
+        "XYZ"
+      );
+      q5DeltaQ.setFromEuler(q5Euler);
+      q5FrameQ.multiply(q5DeltaQ).normalize();
+      q5Forward.set(0,0,1).applyQuaternion(q5FrameQ);
+      q5FramePosition.addScaledVector(q5Forward,segmentLength*stretch);
+    }
+
+    q5Right.set(1,0,0).applyQuaternion(q5FrameQ);
+    q5Up.set(0,1,0).applyQuaternion(q5FrameQ);
+    const center3=q5CenterIndex(s)*3;
+    q5Target[center3]=q5FramePosition.x;
+    q5Target[center3+1]=q5FramePosition.y;
+    q5Target[center3+2]=q5FramePosition.z;
+
+    for(let r=0;r<Q5_RING;r++){
+      const ring3=q5RingIndex(s,r)*3;
+      q5LocalPoint.set(q5RestPos[ring3]*radiusScale,q5RestPos[ring3+1]*radiusScale,0);
+      q5Target[ring3]=q5FramePosition.x+q5Right.x*q5LocalPoint.x+q5Up.x*q5LocalPoint.y;
+      q5Target[ring3+1]=q5FramePosition.y+q5Right.y*q5LocalPoint.x+q5Up.y*q5LocalPoint.y;
+      q5Target[ring3+2]=q5FramePosition.z+q5Right.z*q5LocalPoint.x+q5Up.z*q5LocalPoint.y;
+    }
+  }
+}
+
+function q5SolveDistance(constraintIndex){
+  const pair=q5SharedPairs[constraintIndex];
+  const a3=pair.a*3;
+  const b3=pair.b*3;
+  let dx=q5Predicted[b3]-q5Predicted[a3];
+  let dy=q5Predicted[b3+1]-q5Predicted[a3+1];
+  let dz=q5Predicted[b3+2]-q5Predicted[a3+2];
+  const length=Math.hypot(dx,dy,dz);
+  if(length<1e-9)return;
+  const wa=q5InvMass[pair.a];
+  const wb=q5InvMass[pair.b];
+  const mass=wa+wb;
+  if(mass===0)return;
+  const correction=(length-q5ConstraintRest[constraintIndex])/length*pair.stiffness;
+  dx*=correction;
+  dy*=correction;
+  dz*=correction;
+  const ra=wa/mass;
+  const rb=wb/mass;
+  q5Predicted[a3]+=dx*ra;
+  q5Predicted[a3+1]+=dy*ra;
+  q5Predicted[a3+2]+=dz*ra;
+  q5Predicted[b3]-=dx*rb;
+  q5Predicted[b3+1]-=dy*rb;
+  q5Predicted[b3+2]-=dz*rb;
+}
+
+function q5SolveRootAttachment(){
+  for(let s=0;s<Q5_FIXED_SECTIONS;s++){
+    for(let k=0;k<Q5_PER_SECTION;k++){
+      const i3=(s*Q5_PER_SECTION+k)*3;
+      q5Predicted[i3]=q5Target[i3];
+      q5Predicted[i3+1]=q5Target[i3+1];
+      q5Predicted[i3+2]=q5Target[i3+2];
+    }
+  }
+}
+
+function q5SectionHasRelaxedContact(tongue,section){
+  return tongue.contactSections[section]||
+    (section>0&&tongue.contactSections[section-1])||
+    (section<Q5_SECTIONS-1&&tongue.contactSections[section+1]);
+}
+
+function q5SolveMuscles(strength){
+  for(let i=0;i<Q5_PARTICLES;i++){
+    if(q5InvMass[i]===0)continue;
+    const i3=i*3;
+    const section=Math.floor(i/Q5_PER_SECTION);
+    const t=section/(Q5_SECTIONS-1);
+    const contactGain=q5SectionHasRelaxedContact(q5CurrentTongue,section)?.30:1;
+    const gain=strength*(.25+.75*t)*contactGain;
+    q5Predicted[i3]+=(q5Target[i3]-q5Predicted[i3])*gain;
+    q5Predicted[i3+1]+=(q5Target[i3+1]-q5Predicted[i3+1])*gain;
+    q5Predicted[i3+2]+=(q5Target[i3+2]-q5Predicted[i3+2])*gain;
+  }
+}
+
+function q5SolveHandColliders(){
+  for(let i=0;i<Q5_PARTICLES;i++){
+    if(q5InvMass[i]===0||i===q5CurrentTongue.grabbedParticle)continue;
+    const i3=i*3;
+    for(let c=0;c<q5ColliderCount;c++){
+      const c4=c*4;
+      q5WorldPoint.set(q5ColliderData[c4],q5ColliderData[c4+1],q5ColliderData[c4+2]);
+      q5LocalPoint.copy(q5WorldPoint).applyMatrix4(q5LocalMatrixInverse);
+      let dx=q5Predicted[i3]-q5LocalPoint.x;
+      let dy=q5Predicted[i3+1]-q5LocalPoint.y;
+      let dz=q5Predicted[i3+2]-q5LocalPoint.z;
+      const radius=q5ColliderData[c4+3];
+      const distanceSquared=dx*dx+dy*dy+dz*dz;
+      if(distanceSquared>=radius*radius)continue;
+      let distance=Math.sqrt(distanceSquared);
+      if(distance<1e-7){dx=0;dy=1;dz=0;distance=1}
+      const scale=radius/distance;
+      q5Predicted[i3]=q5LocalPoint.x+dx*scale;
+      q5Predicted[i3+1]=q5LocalPoint.y+dy*scale;
+      q5Predicted[i3+2]=q5LocalPoint.z+dz*scale;
+    }
+  }
+}
+
+/* ===== 対称・上限付きのベロ接触パス ===== */
+function q5MarkContact(tongue,particleIndex,section){
+  if(particleIndex>=0)tongue.contactParticles[particleIndex]=1;
+  if(section>=0&&section<Q5_SECTIONS)tongue.contactSections[section]=1;
+}
+
+/*
+ * カプセル半径はカプセルを所有する個体自身のhalfWidth/halfHeightと
+ * 断面テーパーから毎回求める。このため、ながさ20×ふとさ10と
+ * ながさ5×ふとさ3のように2本の長さ・太さが異なっても個体別に成立する。
+ */
+function q5ResolveParticleCapsules(pointTongue,capsuleTongue){
+  if(!pointTongue.tongueRoot.visible||!capsuleTongue.tongueRoot.visible)return;
+
+  pointTongue.tongueRoot.updateMatrixWorld(true);
+  capsuleTongue.tongueRoot.updateMatrixWorld(true);
+  q5ContactMatrixAInv.copy(pointTongue.tongueRoot.matrixWorld).invert();
+  q5ContactMatrixBInv.copy(capsuleTongue.tongueRoot.matrixWorld).invert();
+
+  for(let i=Q5_FIXED_SECTIONS*Q5_PER_SECTION;i<Q5_PARTICLES;i++){
+    const i3=i*3;
+    q5ContactParticleWorld.set(
+      pointTongue.predicted[i3],
+      pointTongue.predicted[i3+1],
+      pointTongue.predicted[i3+2]
+    ).applyMatrix4(pointTongue.tongueRoot.matrixWorld);
+
+    for(let s=Q5_FIXED_SECTIONS-1;s<Q5_SECTIONS-1;s++){
+      const a3=q5CenterIndex(s)*3;
+      const b3=q5CenterIndex(s+1)*3;
+      q5ContactCapsuleA.set(
+        capsuleTongue.predicted[a3],
+        capsuleTongue.predicted[a3+1],
+        capsuleTongue.predicted[a3+2]
+      ).applyMatrix4(capsuleTongue.tongueRoot.matrixWorld);
+      q5ContactCapsuleB.set(
+        capsuleTongue.predicted[b3],
+        capsuleTongue.predicted[b3+1],
+        capsuleTongue.predicted[b3+2]
+      ).applyMatrix4(capsuleTongue.tongueRoot.matrixWorld);
+
+      q5ContactSegment.subVectors(q5ContactCapsuleB,q5ContactCapsuleA);
+      const segmentLengthSquared=q5ContactSegment.lengthSq();
+      let along=0;
+      if(segmentLengthSquared>1e-12){
+        q5ContactDirectionPoint.subVectors(q5ContactParticleWorld,q5ContactCapsuleA);
+        along=THREE.MathUtils.clamp(
+          q5ContactDirectionPoint.dot(q5ContactSegment)/segmentLengthSquared,
+          0,1
+        );
+      }
+      q5ContactClosest.copy(q5ContactCapsuleA).addScaledVector(q5ContactSegment,along);
+
+      const sectionT=(s+along)/(Q5_SECTIONS-1);
+      const capsuleRadius=
+        Math.min(capsuleTongue.halfWidth,capsuleTongue.halfHeight)*
+        q5SectionTaper(sectionT)+Q5_CONTACT_MARGIN;
+
+      q5ContactNormalWorld.subVectors(q5ContactParticleWorld,q5ContactClosest);
+      const distanceSquared=q5ContactNormalWorld.lengthSq();
+      if(distanceSquared>=capsuleRadius*capsuleRadius)continue;
+
+      let distance=Math.sqrt(distanceSquared);
+      if(distance<1e-8){
+        q5ContactNormalWorld.set(
+          ((i+s)&1)?.001:-.001,
+          ((i+s)&2)?.001:-.001,
+          .0005
+        );
+        distance=q5ContactNormalWorld.length();
+      }
+      q5ContactNormalWorld.multiplyScalar(1/distance);
+
+      const penetration=capsuleRadius-distance;
+      const boundedCorrection=penetration*Q5_CONTACT_LIMIT;
+      const sideCorrection=boundedCorrection*Q5_CONTACT_HALF;
+      q5ContactCorrectionWorld.copy(q5ContactNormalWorld).multiplyScalar(sideCorrection);
+
+      /* 粒子側へ半分を直接与える。 */
+      q5ContactDirectionPoint.copy(q5ContactParticleWorld).add(q5ContactCorrectionWorld);
+      q5ContactDirectionPoint.applyMatrix4(q5ContactMatrixAInv);
+      pointTongue.predicted[i3]=q5ContactDirectionPoint.x;
+      pointTongue.predicted[i3+1]=q5ContactDirectionPoint.y;
+      pointTongue.predicted[i3+2]=q5ContactDirectionPoint.z;
+
+      /* カプセル側の半分は線分両端の断面全粒子へ弱く分配する。 */
+      q5ContactCorrectionWorld.multiplyScalar(-1);
+      q5ContactDirectionCapsule.set(0,0,0);
+      q5ContactDirectionCapsule.copy(q5ContactCorrectionWorld);
+      q5ContactDirectionCapsule.transformDirection(q5ContactMatrixBInv);
+
+      const weightA=(1-along)*Q5_CAPSULE_SHARE;
+      const weightB=along*Q5_CAPSULE_SHARE;
+      for(let k=0;k<Q5_PER_SECTION;k++){
+        const particleA=s*Q5_PER_SECTION+k;
+        const particleB=(s+1)*Q5_PER_SECTION+k;
+        const particleA3=particleA*3;
+        const particleB3=particleB*3;
+        if(capsuleTongue.invMass[particleA]>0){
+          capsuleTongue.predicted[particleA3]+=q5ContactDirectionCapsule.x*weightA;
+          capsuleTongue.predicted[particleA3+1]+=q5ContactDirectionCapsule.y*weightA;
+          capsuleTongue.predicted[particleA3+2]+=q5ContactDirectionCapsule.z*weightA;
+          q5MarkContact(capsuleTongue,particleA,s);
+        }
+        if(capsuleTongue.invMass[particleB]>0){
+          capsuleTongue.predicted[particleB3]+=q5ContactDirectionCapsule.x*weightB;
+          capsuleTongue.predicted[particleB3+1]+=q5ContactDirectionCapsule.y*weightB;
+          capsuleTongue.predicted[particleB3+2]+=q5ContactDirectionCapsule.z*weightB;
+          q5MarkContact(capsuleTongue,particleB,s+1);
+        }
+      }
+
+      q5MarkContact(pointTongue,i,Math.floor(i/Q5_PER_SECTION));
+      q5MarkContact(capsuleTongue,-1,s);
+      q5MarkContact(capsuleTongue,-1,s+1);
+
+      q5ContactParticleWorld.copy(q5ContactDirectionPoint)
+        .applyMatrix4(pointTongue.tongueRoot.matrixWorld);
+    }
+  }
+}
+
+function q5ClearContactFlags(){
+  for(const tongue of q5Tongues){
+    tongue.contactSections.fill(0);
+    tongue.contactParticles.fill(0);
+  }
+}
+
+function q5ApplyContactDamping(tongue){
+  for(let i=0;i<Q5_PARTICLES;i++){
+    if(!tongue.contactParticles[i])continue;
+    const i3=i*3;
+    /*
+     * 通常の.993で作った予測速度を.90相当に縮める。
+     * 接触補正そのものは残し、前ステップ由来のブルブルだけを抑える。
+     */
+    const ratio=.90/.993;
+    tongue.predicted[i3]=tongue.pos[i3]+
+      (tongue.predicted[i3]-tongue.pos[i3])*ratio;
+    tongue.predicted[i3+1]=tongue.pos[i3+1]+
+      (tongue.predicted[i3+1]-tongue.pos[i3+1])*ratio;
+    tongue.predicted[i3+2]=tongue.pos[i3+2]+
+      (tongue.predicted[i3+2]-tongue.pos[i3+2])*ratio;
+  }
+}
+
+function q5RunContactResolutionPass(){
+  if(!q5PartnerVisible||
+     !q5Tongues[0].tongueRoot.visible||
+     !q5Tongues[1].tongueRoot.visible)return;
+  q5ResolveParticleCapsules(q5Tongues[0],q5Tongues[1]);
+  q5ResolveParticleCapsules(q5Tongues[1],q5Tongues[0]);
+  q5ApplyContactDamping(q5Tongues[0]);
+  q5ApplyContactDamping(q5Tongues[1]);
+}
+
+/* ===== 2本を予測してから接触を一度だけ解き、その後に各物理を解く ===== */
+function q5PreparePhysics(dt,tongue){
+  if(!tongue.tongueRoot.visible)return;
+  q5UseTonguePointers(tongue);
+  q5UpdateActivation(dt);
+  q5UpdateConstraintRestLengths();
+  q5BuildMuscleTargets();
+
+  const maxSpeed=Math.max(q5CurrentLength*.064,.0012);
+  for(let i=0;i<Q5_PARTICLES;i++){
+    const i3=i*3;
+    if(q5InvMass[i]===0){
+      q5Predicted[i3]=q5Pos[i3];
+      q5Predicted[i3+1]=q5Pos[i3+1];
+      q5Predicted[i3+2]=q5Pos[i3+2];
+      continue;
+    }
+    let vx=(q5Pos[i3]-q5Prev[i3])*.993;
+    let vy=(q5Pos[i3+1]-q5Prev[i3+1])*.993;
+    let vz=(q5Pos[i3+2]-q5Prev[i3+2])*.993;
+    const speed=Math.hypot(vx,vy,vz);
+    if(speed>maxSpeed){
+      const scale=maxSpeed/speed;
+      vx*=scale;
+      vy*=scale;
+      vz*=scale;
+    }
+    q5Predicted[i3]=q5Pos[i3]+vx;
+    q5Predicted[i3+1]=q5Pos[i3+1]+vy-(q5XRActive?0:2.1)*dt*dt;
+    q5Predicted[i3+2]=q5Pos[i3+2]+vz;
+  }
+}
+
+function q5SolvePreparedPhysics(tongue){
+  if(!tongue.tongueRoot.visible)return;
+  q5UseTonguePointers(tongue);
+  tongue.tongueRoot.updateMatrixWorld(true);
+  q5LocalMatrixInverse.copy(tongue.tongueRoot.matrixWorld).invert();
+
+  for(let iteration=0;iteration<Q5_ITERATIONS;iteration++){
+    q5SolveRootAttachment();
+    q5SolveMuscles(iteration<3?.09:.032);
+    for(let c=0;c<q5SharedPairs.length;c++)q5SolveDistance(c);
+    q5SolveHandColliders();
+
+    if(tongue.grabbedParticle>=0){
+      const grabbed3=tongue.grabbedParticle*3;
+      q5Predicted[grabbed3]=tongue.grabTarget.x;
+      q5Predicted[grabbed3+1]=tongue.grabTarget.y;
+      q5Predicted[grabbed3+2]=tongue.grabTarget.z;
+    }
+  }
+
+  const floorY=-q5CurrentHalfHeight*3.08;
+  for(let i=0;i<Q5_PARTICLES;i++){
+    const i3=i*3;
+    if(!q5XRActive&&q5Predicted[i3+1]<floorY)q5Predicted[i3+1]=floorY;
+
+    if(!Number.isFinite(q5Predicted[i3])||
+       !Number.isFinite(q5Predicted[i3+1])||
+       !Number.isFinite(q5Predicted[i3+2])){
+      q5Predicted[i3]=q5RestPos[i3];
+      q5Predicted[i3+1]=q5RestPos[i3+1];
+      q5Predicted[i3+2]=q5RestPos[i3+2];
+    }
+
+    q5Prev[i3]=q5Pos[i3];
+    q5Prev[i3+1]=q5Pos[i3+1];
+    q5Prev[i3+2]=q5Pos[i3+2];
+    q5Pos[i3]=q5Predicted[i3];
+    q5Pos[i3+1]=q5Predicted[i3+1];
+    q5Pos[i3+2]=q5Predicted[i3+2];
+  }
+}
+
+function q5PhysicsStepAll(dt){
+  q5ClearContactFlags();
+  q5PreparePhysics(dt,q5Tongues[0]);
+  q5PreparePhysics(dt,q5Tongues[1]);
+  q5RunContactResolutionPass();
+  q5SolvePreparedPhysics(q5Tongues[0]);
+  q5SolvePreparedPhysics(q5Tongues[1]);
+}
+
+function q5UpdateMesh(tongue){
+  const positions=tongue.geometry.attributes.position.array;
+  for(let s=0;s<Q5_SECTIONS;s++){
+    for(let r=0;r<Q5_RING;r++){
+      const source3=q5RingIndex(s,r)*3;
+      const destination3=(s*Q5_RING+r)*3;
+      positions[destination3]=tongue.pos[source3];
+      positions[destination3+1]=tongue.pos[source3+1];
+      positions[destination3+2]=tongue.pos[source3+2];
+    }
+  }
+  tongue.geometry.attributes.position.needsUpdate=true;
+  tongue.geometry.computeVertexNormals();
+  tongue.geometry.computeBoundingSphere();
+}
+
+/* ===== 選択・UI・録体 ===== */
+function q5Log(message){
+  document.getElementById("log").textContent=message;
+}
+
+function selectTongue(index){
+  const numeric=Math.max(0,Math.min(q5Tongues.length-1,Math.floor(Number(index)||0)));
+  if(!q5Tongues[numeric].tongueRoot.visible)return false;
+  const changed=q5SelectedIndex!==numeric;
+  q5SelectedIndex=numeric;
+  for(let i=0;i<q5Tongues.length;i++){
+    q5Tongues[i].material.emissiveIntensity=i===numeric?.48:0;
+  }
+  q5SyncControls();
+  q5SyncRokutaiButtons();
+  if(changed)q5Log(`ベロ${numeric+1}を選択しました。操作はこのベロだけに効きます。`);
+  return true;
+}
+
+function q5SyncControls(){
+  const tongue=q5Tongues[q5SelectedIndex];
+  for(const name of Q5_COMMAND_NAMES){
+    const slider=document.getElementById(name);
+    slider.value=Math.round(tongue.command[name]*100);
+    document.getElementById(`o_${name}`).value=slider.value;
+  }
+  document.getElementById("length").value=tongue.lengthLevel;
+  document.getElementById("o_length").value=tongue.lengthLevel;
+  document.getElementById("thickness").value=tongue.thicknessLevel;
+  document.getElementById("o_thickness").value=tongue.thicknessLevel;
+  document.getElementById("attach").classList.toggle("on",tongue.mounted);
+  document.getElementById("attach").textContent=tongue.mounted?"引き抜く":"装着モード";
+}
+
+function q5SyncRokutaiButtons(){
+  const rokutai=q5Tongues[q5SelectedIndex].rokutai;
+  document.getElementById("record").classList.toggle("on",rokutai.recording);
+  document.getElementById("record").textContent=rokutai.recording?"録体 停止":"録体 REC";
+  document.getElementById("play").classList.toggle("on",rokutai.playing);
+  document.getElementById("play").textContent=rokutai.playing?"録体 停止":"録体 再生";
+}
+
+for(const name of Q5_COMMAND_NAMES){
+  document.getElementById(name).addEventListener("input",event=>{
+    if(q5KissActive)return;
+    const tongue=q5Tongues[q5SelectedIndex];
+    tongue.command[name]=Number(event.target.value)/100;
+    document.getElementById(`o_${name}`).value=event.target.value;
+  });
+}
+
+document.getElementById("length").addEventListener("input",event=>{
+  const tongue=q5Tongues[q5SelectedIndex];
+  tongue.lengthLevel=Math.max(1,Math.min(20,Number(event.target.value)));
+  tongue.length=q5LengthForLevel(tongue.lengthLevel);
+  q5InitializeTongueShape(tongue,true);
+  document.getElementById("o_length").value=tongue.lengthLevel;
+  q5Log(`ベロ${q5SelectedIndex+1}のながさを${tongue.lengthLevel}にしました。`);
+});
+
+document.getElementById("thickness").addEventListener("input",event=>{
+  const tongue=q5Tongues[q5SelectedIndex];
+  tongue.thicknessLevel=Math.max(1,Math.min(10,Number(event.target.value)));
+  const multiplier=q5ThicknessMultiplier(tongue.thicknessLevel);
+  tongue.halfWidth=Q5_BASE_W*multiplier;
+  tongue.halfHeight=Q5_BASE_H*multiplier;
+  q5InitializeTongueShape(tongue,true);
+  document.getElementById("o_thickness").value=tongue.thicknessLevel;
+  q5Log(`ベロ${q5SelectedIndex+1}のふとさを${tongue.thicknessLevel}にしました。`);
+});
+
+document.getElementById("reset").addEventListener("click",()=>{
+  if(q5KissActive)q5ToggleKiss(false);
+  const tongue=q5Tongues[q5SelectedIndex];
+  for(const name of Q5_COMMAND_NAMES)tongue.command[name]=0;
+  q5SyncControls();
+  q5Log(`ベロ${q5SelectedIndex+1}の指令を戻しました。`);
+});
+
+document.getElementById("record").addEventListener("click",()=>{
+  if(q5KissActive){
+    q5Log("ディープキス中は録体の指令入力を停止しています。");
+    return;
+  }
+  const tongue=q5Tongues[q5SelectedIndex];
+  if(tongue.rokutai.playing)tongue.rokutai.stopPlayback(false);
+  tongue.rokutai.toggleRecord(performance.now(),tongue.command);
+  q5SyncRokutaiButtons();
+});
+
+document.getElementById("save").addEventListener("click",()=>{
+  q5Tongues[q5SelectedIndex].rokutai.save();
+  q5SyncRokutaiButtons();
+});
+
+document.getElementById("play").addEventListener("click",()=>{
+  if(q5KissActive){
+    q5Log("ディープキス中は録体の指令入力を停止しています。");
+    return;
+  }
+  const tongue=q5Tongues[q5SelectedIndex];
+  tongue.rokutai.togglePlayback(performance.now());
+  q5SyncRokutaiButtons();
+});
+
+function q5SetPartnerVisible(visible){
+  const next=Boolean(visible);
+  if(q5PartnerVisible===next)return q5PartnerVisible;
+  q5PartnerVisible=next;
+  const partner=q5Tongues[1];
+  partner.tongueRoot.visible=next;
+  document.getElementById("partner").classList.toggle("on",next);
+
+  if(next){
+    if(q5XRActive){
+      q5PlaceXRPartner();
+    }else{
+      q5Tongues[0].tongueRoot.position.set(-.035,0,0);
+      q5Tongues[0].tongueRoot.quaternion.identity();
+      partner.tongueRoot.position.set(.035,0,0);
+      partner.tongueRoot.quaternion.identity();
+    }
+    q5InitializeTongueShape(partner,false);
+    q5Log("相手のベロを出しました。PCでは横に並びます。");
+  }else{
+    if(q5KissActive)q5ToggleKiss(false);
+    if(q5SelectedIndex===1)selectTongue(0);
+    q5Tongues[0].tongueRoot.position.x=q5XRActive?q5Tongues[0].tongueRoot.position.x:0;
+    q5Log("相手のベロを消しました。");
+  }
+  q5UpdateXRButtonAppearance();
+  return q5PartnerVisible;
+}
+
+function spawnPartner(){
+  return q5SetPartnerVisible(!q5PartnerVisible);
+}
+document.getElementById("partner").addEventListener("click",spawnPartner);
+
+/* ===== 定型ディープキスモーション ===== */
+function q5SetAllCommandsZero(){
+  for(const tongue of q5Tongues){
+    for(const name of Q5_COMMAND_NAMES)tongue.command[name]=0;
+  }
+}
+
+function q5UpdateKissCommands(time){
+  if(!q5KissActive)return;
+  const t=(time-q5KissStartTime)/1000;
+  const a=q5Tongues[0].command;
+  const b=q5Tongues[1].command;
+
+  a.ext=.45+.15*Math.sin(t*1.4);
+  a.ud=.25*Math.sin(t*.9);
+  a.lr=.5*Math.sin(t*.7);
+  a.tw=.85*Math.sin(t*.5);
+  a.cl=.3+.2*Math.sin(t*1.1);
+
+  b.ext=.45+.15*Math.sin(t*1.4+Math.PI);
+  b.ud=.25*Math.sin(t*.9+Math.PI);
+  b.lr=-.5*Math.sin(t*.7+Math.PI);
+  b.tw=-.85*Math.sin(t*.5+Math.PI);
+  b.cl=.3+.2*Math.sin(t*1.1+Math.PI);
+
+  q5SyncControls();
+}
+
+function q5ToggleKiss(force){
+  const next=typeof force==="boolean"?force:!q5KissActive;
+  if(next===q5KissActive)return q5KissActive;
+
+  if(next&&!q5PartnerVisible)q5SetPartnerVisible(true);
+
+  q5KissActive=next;
+  document.getElementById("kiss").classList.toggle("on",q5KissActive);
+  document.getElementById("kiss").textContent=q5KissActive?"ディープキス停止":"ディープキス";
+
+  if(q5KissActive){
+    q5KissStartTime=performance.now();
+    for(const tongue of q5Tongues){
+      if(tongue.rokutai.playing)tongue.rokutai.stopPlayback(false);
+    }
+    q5UpdateKissCommands(q5KissStartTime);
+    q5Log("2本の定型ディープキスモーションを開始しました。");
+  }else{
+    q5SetAllCommandsZero();
+    q5SyncControls();
+    q5Log("ディープキスを停止し、両方の指令を0へ戻しました。");
+  }
+
+  q5SyncRokutaiButtons();
+  q5UpdateXRButtonAppearance();
+  return q5KissActive;
+}
+document.getElementById("kiss").addEventListener("click",()=>q5ToggleKiss());
+
+/* ===== 装着は選択中だけ ===== */
+function q5ApplyMountedPose(tongue){
+  if(!q5XRActive||!tongue.mounted)return;
+  const xrCamera=q5Renderer.xr.getCamera(q5Camera);
+  xrCamera.getWorldPosition(q5CameraPosition);
+  xrCamera.getWorldQuaternion(q5CameraQuaternion);
+  q5XRForward.set(0,0,-1).applyQuaternion(q5CameraQuaternion);
+  q5XRRight.set(1,0,0).applyQuaternion(q5CameraQuaternion);
+  tongue.tongueRoot.position.copy(q5CameraPosition)
+    .addScaledVector(q5XRForward,.075)
+    .addScaledVector(q5XRRight,tongue.index===0?.018:-.018);
+  tongue.tongueRoot.position.y-=.12;
+  tongue.tongueRoot.quaternion.copy(q5CameraQuaternion).multiply(q5YawFlip);
+}
+
+document.getElementById("attach").addEventListener("click",()=>{
+  if(!q5XRActive){
+    q5Log("装着モードはQuestのAR中だけ使えます。");
+    return;
+  }
+  const tongue=q5Tongues[q5SelectedIndex];
+  tongue.mounted=!tongue.mounted;
+  if(tongue.mounted)q5ApplyMountedPose(tongue);
+  q5SyncControls();
+  q5Log(tongue.mounted
+    ?`ベロ${q5SelectedIndex+1}を口元に装着しました。`
+    :`ベロ${q5SelectedIndex+1}を引き抜きました。`);
+});
+
+/* ===== ジェスチャーは選択中へ送る。キス中は流し込まない ===== */
+const q5GestureController=createHandGestureController(THREE,{
+  onCommand(values){
+    if(q5KissActive)return;
+    const tongue=q5Tongues[q5SelectedIndex];
+    for(const name of Q5_COMMAND_NAMES)tongue.command[name]=values[name];
+    if(!tongue.mounted){
+      tongue.command.lr=-tongue.command.lr;
+      tongue.command.tw=-tongue.command.tw;
+    }
+    q5SyncControls();
+  },
+  onSize(level){
+    const tongue=q5Tongues[q5SelectedIndex];
+    tongue.lengthLevel=Math.max(1,Math.min(20,level));
+    tongue.length=q5LengthForLevel(tongue.lengthLevel);
+    q5InitializeTongueShape(tongue,true);
+    q5SyncControls();
+  },
+  onReset(){
+    if(q5KissActive)return;
+    const tongue=q5Tongues[q5SelectedIndex];
+    for(const name of Q5_COMMAND_NAMES)tongue.command[name]=0;
+    q5SyncControls();
+  },
+  onStatus(message){q5Log(message)}
+});
+q5GestureController.setEnabled(false);
+
+document.getElementById("gesture").addEventListener("click",()=>{
+  q5GestureController.setEnabled(!q5GestureController.enabled);
+  document.getElementById("gesture").classList.toggle("on",q5GestureController.enabled);
+  q5Log(q5GestureController.enabled
+    ?"右手ジェスチャーを有効にしました。"
+    :"右手ジェスチャーを止めました。");
+});
+
+/* ===== PCのクリック選択とドラッグ ===== */
+function q5SetPointerRay(clientX,clientY){
+  q5MouseNdc.x=clientX/innerWidth*2-1;
+  q5MouseNdc.y=-(clientY/innerHeight)*2+1;
+  q5Raycaster.setFromCamera(q5MouseNdc,q5Camera);
+}
+
+function q5PickTongue(clientX,clientY){
+  q5SetPointerRay(clientX,clientY);
+  const visibleMeshes=[];
+  for(const tongue of q5Tongues)if(tongue.tongueRoot.visible)visibleMeshes.push(tongue.mesh);
+  const hits=q5Raycaster.intersectObjects(visibleMeshes,false);
+  if(hits.length===0)return null;
+  return q5Tongues[hits[0].object.userData.tongueIndex];
+}
+
+q5Renderer.domElement.addEventListener("pointerdown",event=>{
+  q5PointerDown=true;
+  q5PointerMoved=0;
+  q5PointerX=event.clientX;
+  q5PointerY=event.clientY;
+  const tongue=q5PickTongue(event.clientX,event.clientY);
+  if(!tongue)return;
+  selectTongue(tongue.index);
+  q5SetPointerRay(event.clientX,event.clientY);
+
+  let bestParticle=Q5_FIXED_SECTIONS*Q5_PER_SECTION;
+  let bestDistance=Infinity;
+  tongue.tongueRoot.updateMatrixWorld(true);
+  for(let i=Q5_FIXED_SECTIONS*Q5_PER_SECTION;i<Q5_PARTICLES;i++){
+    const i3=i*3;
+    q5WorldPoint.set(tongue.pos[i3],tongue.pos[i3+1],tongue.pos[i3+2])
+      .applyMatrix4(tongue.tongueRoot.matrixWorld);
+    const distance=q5Raycaster.ray.distanceToPoint(q5WorldPoint);
+    if(distance<bestDistance){
+      bestDistance=distance;
+      bestParticle=i;
+    }
+  }
+  if(bestDistance<.035){
+    q5DraggedTongue=tongue.index;
+    q5DraggedParticle=bestParticle;
+    tongue.grabbedParticle=bestParticle;
+    q5Camera.getWorldDirection(q5CameraDirection);
+    q5WorldPoint.set(
+      tongue.pos[bestParticle*3],
+      tongue.pos[bestParticle*3+1],
+      tongue.pos[bestParticle*3+2]
+    ).applyMatrix4(tongue.tongueRoot.matrixWorld);
+    q5DragPlane.setFromNormalAndCoplanarPoint(q5CameraDirection,q5WorldPoint);
+  }
+});
+
+addEventListener("pointermove",event=>{
+  if(!q5PointerDown)return;
+  q5PointerMoved+=Math.hypot(event.clientX-q5PointerX,event.clientY-q5PointerY);
+  q5PointerX=event.clientX;
+  q5PointerY=event.clientY;
+  if(q5DraggedTongue<0)return;
+  const tongue=q5Tongues[q5DraggedTongue];
+  q5SetPointerRay(event.clientX,event.clientY);
+  if(q5Raycaster.ray.intersectPlane(q5DragPlane,q5DragHit)){
+    q5LocalMatrixInverse.copy(tongue.tongueRoot.matrixWorld).invert();
+    tongue.grabTarget.copy(q5DragHit).applyMatrix4(q5LocalMatrixInverse);
+  }
+});
+
+addEventListener("pointerup",()=>{
+  q5PointerDown=false;
+  if(q5DraggedTongue>=0)q5Tongues[q5DraggedTongue].grabbedParticle=-1;
+  q5DraggedTongue=-1;
+  q5DraggedParticle=-1;
+});
+
+/* ===== XR用3Dボタン ===== */
+function q5MakeButtonTexture(label,color){
+  const canvas=document.createElement("canvas");
+  canvas.width=512;
+  canvas.height=160;
+  const context=canvas.getContext("2d");
+  context.fillStyle=color;
+  context.fillRect(0,0,512,160);
+  context.strokeStyle="#ffd6e3";
+  context.lineWidth=8;
+  context.strokeRect(4,4,504,152);
+  context.fillStyle="#fff";
+  context.font="bold 48px sans-serif";
+  context.textAlign="center";
+  context.textBaseline="middle";
+  context.fillText(label,256,80);
+  return new THREE.CanvasTexture(canvas);
+}
+
+const q5XRPartnerMaterial=new THREE.MeshBasicMaterial({
+  map:q5MakeButtonTexture("相手を出す","#236c79"),
+  transparent:true
+});
+const q5XRKissMaterial=new THREE.MeshBasicMaterial({
+  map:q5MakeButtonTexture("ディープキス","#7b315f"),
+  transparent:true
+});
+const q5XRPartnerButton=new THREE.Mesh(
+  new THREE.PlaneGeometry(.20,.062),
+  q5XRPartnerMaterial
+);
+const q5XRKissButton=new THREE.Mesh(
+  new THREE.PlaneGeometry(.20,.062),
+  q5XRKissMaterial
+);
+q5XRPartnerButton.visible=false;
+q5XRKissButton.visible=false;
+q5Scene.add(q5XRPartnerButton);
+q5Scene.add(q5XRKissButton);
+
+function q5UpdateXRButtonAppearance(){
+  q5XRPartnerMaterial.color.setHex(q5PartnerVisible?0xff829c:0xffffff);
+  q5XRKissMaterial.color.setHex(q5KissActive?0xff6f9f:0xffffff);
+}
+
+function q5PlaceXRPartner(){
+  if(!q5XRActive||!q5XRPlaced)return;
+  const first=q5Tongues[0];
+  const partner=q5Tongues[1];
+  first.tongueRoot.updateMatrixWorld(true);
+  first.tongueRoot.getWorldPosition(q5WorldPoint);
+  first.tongueRoot.getWorldQuaternion(q5CameraQuaternion);
+
+  /* 根元同士は向かい合わせ、相手は1本目へ伸びる。 */
+  q5Forward.set(0,0,1).applyQuaternion(q5CameraQuaternion);
+  partner.tongueRoot.position.copy(q5WorldPoint).addScaledVector(q5Forward,.16);
+  partner.tongueRoot.position.y=q5WorldPoint.y;
+  partner.tongueRoot.quaternion.copy(q5CameraQuaternion).multiply(q5YawFlip);
+  partner.tongueRoot.updateMatrixWorld(true);
+}
+
+function q5PlaceXRContent(){
+  const xrCamera=q5Renderer.xr.getCamera(q5Camera);
+  xrCamera.getWorldPosition(q5CameraPosition);
+  xrCamera.getWorldQuaternion(q5CameraQuaternion);
+  q5XRForward.set(0,0,-1).applyQuaternion(q5CameraQuaternion);
+  q5XRRight.set(1,0,0).applyQuaternion(q5CameraQuaternion);
+
+  const first=q5Tongues[0];
+  first.tongueRoot.position.copy(q5CameraPosition).addScaledVector(q5XRForward,.42);
+  first.tongueRoot.position.y-=.12;
+  first.tongueRoot.quaternion.copy(q5CameraQuaternion).multiply(q5YawFlip);
+  first.tongueRoot.updateMatrixWorld(true);
+
+  q5XRPartnerButton.position.copy(q5CameraPosition)
+    .addScaledVector(q5XRForward,.43)
+    .addScaledVector(q5XRRight,.19);
+  q5XRPartnerButton.position.y+=.015;
+  q5XRPartnerButton.quaternion.copy(q5CameraQuaternion);
+  q5XRPartnerButton.visible=true;
+
+  q5XRKissButton.position.copy(q5CameraPosition)
+    .addScaledVector(q5XRForward,.43)
+    .addScaledVector(q5XRRight,.19);
+  q5XRKissButton.position.y-=.065;
+  q5XRKissButton.quaternion.copy(q5CameraQuaternion);
+  q5XRKissButton.visible=true;
+
+  q5XRPlaced=true;
+  if(q5PartnerVisible)q5PlaceXRPartner();
+}
+
+/* ===== XR入力：手がめり込んだ個体を選択 ===== */
+const q5Controllers=[
+  q5Renderer.xr.getController(0),
+  q5Renderer.xr.getController(1)
+];
+const q5Grips=[
+  q5Renderer.xr.getControllerGrip(0),
+  q5Renderer.xr.getControllerGrip(1)
+];
+const q5InputSources=[null,null];
+setupHands(q5Renderer,q5Scene);
+
+function q5AppendWorldCollider(x,y,z,radius,owner){
+  if(q5ColliderCount>=Q5_MAX_HAND_COLLIDERS)return;
+  const c4=q5ColliderCount*4;
+  q5ColliderData[c4]=x;
+  q5ColliderData[c4+1]=y;
+  q5ColliderData[c4+2]=z;
+  q5ColliderData[c4+3]=Math.max(.006,radius);
+  q5ColliderOwner[q5ColliderCount]=owner;
+  q5ColliderCount++;
+}
+
+function q5FindTouchedTongue(x,y,z,radius){
+  let touched=-1;
+  let best=Infinity;
+  q5WorldPoint.set(x,y,z);
+  for(let t=0;t<q5Tongues.length;t++){
+    const tongue=q5Tongues[t];
+    if(!tongue.tongueRoot.visible)continue;
+    q5LocalMatrixInverse.copy(tongue.tongueRoot.matrixWorld).invert();
+    q5LocalPoint.copy(q5WorldPoint).applyMatrix4(q5LocalMatrixInverse);
+    const touchRadius=radius+tongue.halfWidth;
+    for(let i=0;i<Q5_PARTICLES;i++){
+      const i3=i*3;
+      const dx=tongue.pos[i3]-q5LocalPoint.x;
+      const dy=tongue.pos[i3+1]-q5LocalPoint.y;
+      const dz=tongue.pos[i3+2]-q5LocalPoint.z;
+      const distanceSquared=dx*dx+dy*dy+dz*dz;
+      if(distanceSquared<touchRadius*touchRadius&&distanceSquared<best){
+        best=distanceSquared;
+        touched=t;
+      }
+    }
+  }
+  return touched;
+}
+
+function q5WorldPointTouchesButton(x,y,z,button,threshold){
+  q5WorldPoint.set(x,y,z);
+  button.getWorldPosition(q5ButtonWorldPoint);
+  return q5WorldPoint.distanceToSquared(q5ButtonWorldPoint)<threshold;
+}
+
+function q5PressXRButton(button,action){
+  if(button.userData.pressed)return;
+  button.userData.pressed=true;
+  action();
+}
+
+function q5UpdateXRInputs(frame){
+  q5ColliderCount=0;
+  if(!frame||!q5XRReferenceSpace||!q5XRPlaced)return;
+
+  let touchedTongue=-1;
+  for(let side=0;side<2;side++){
+    const source=q5InputSources[side];
+    if(!source)continue;
+
+    if(source.hand){
+      if(q5GestureController.enabled&&source.handedness==="right")continue;
+      forEachHandBonePoint(source,frame,q5XRReferenceSpace,(x,y,z,radius)=>{
+        q5AppendWorldCollider(x,y,z,radius,side);
+        const touched=q5FindTouchedTongue(x,y,z,radius);
+        if(touched>=0)touchedTongue=touched;
+
+        if(q5WorldPointTouchesButton(x,y,z,q5XRPartnerButton,.0016)){
+          q5PressXRButton(q5XRPartnerButton,spawnPartner);
+        }
+        if(q5WorldPointTouchesButton(x,y,z,q5XRKissButton,.0016)){
+          q5PressXRButton(q5XRKissButton,()=>q5ToggleKiss());
+        }
+      },{minR:.006,spacing:1.4});
+    }else{
+      q5Controllers[side].getWorldPosition(q5ControllerPoint);
+      q5AppendWorldCollider(
+        q5ControllerPoint.x,
+        q5ControllerPoint.y,
+        q5ControllerPoint.z,
+        .014,
+        side
+      );
+      const touched=q5FindTouchedTongue(
+        q5ControllerPoint.x,
+        q5ControllerPoint.y,
+        q5ControllerPoint.z,
+        .014
+      );
+      if(touched>=0)touchedTongue=touched;
+    }
+  }
+
+  if(touchedTongue>=0)selectTongue(touchedTongue);
+
+  let partnerStillPressed=false;
+  let kissStillPressed=false;
+  for(let c=0;c<q5ColliderCount;c++){
+    const c4=c*4;
+    if(q5WorldPointTouchesButton(
+      q5ColliderData[c4],
+      q5ColliderData[c4+1],
+      q5ColliderData[c4+2],
+      q5XRPartnerButton,
+      .0025
+    ))partnerStillPressed=true;
+    if(q5WorldPointTouchesButton(
+      q5ColliderData[c4],
+      q5ColliderData[c4+1],
+      q5ColliderData[c4+2],
+      q5XRKissButton,
+      .0025
+    ))kissStillPressed=true;
+  }
+  if(!partnerStillPressed)q5XRPartnerButton.userData.pressed=false;
+  if(!kissStillPressed)q5XRKissButton.userData.pressed=false;
+}
+
+function q5BeginXRGrab(side){
+  q5Controllers[side].getWorldPosition(q5ControllerPoint);
+  q5XRPartnerButton.getWorldPosition(q5ButtonWorldPoint);
+  if(q5ControllerPoint.distanceTo(q5ButtonWorldPoint)<.065){
+    spawnPartner();
+    return;
+  }
+  q5XRKissButton.getWorldPosition(q5ButtonWorldPoint);
+  if(q5ControllerPoint.distanceTo(q5ButtonWorldPoint)<.065){
+    q5ToggleKiss();
+    return;
+  }
+
+  let bestTongue=-1;
+  let bestParticle=-1;
+  let bestDistance=.055;
+  for(let t=0;t<q5Tongues.length;t++){
+    const tongue=q5Tongues[t];
+    if(!tongue.tongueRoot.visible)continue;
+    q5LocalMatrixInverse.copy(tongue.tongueRoot.matrixWorld).invert();
+    q5LocalPoint.copy(q5ControllerPoint).applyMatrix4(q5LocalMatrixInverse);
+    for(let i=Q5_FIXED_SECTIONS*Q5_PER_SECTION;i<Q5_PARTICLES;i++){
+      const i3=i*3;
+      const distance=Math.hypot(
+        tongue.pos[i3]-q5LocalPoint.x,
+        tongue.pos[i3+1]-q5LocalPoint.y,
+        tongue.pos[i3+2]-q5LocalPoint.z
+      );
+      if(distance<bestDistance){
+        bestDistance=distance;
+        bestTongue=t;
+        bestParticle=i;
+      }
+    }
+  }
+
+  if(bestTongue>=0){
+    selectTongue(bestTongue);
+    const tongue=q5Tongues[bestTongue];
+    tongue.grabbedParticle=bestParticle;
+    tongue.grabbedOwner=side;
+    tongue.grabTarget.copy(q5LocalPoint);
+  }
+}
+
+for(let side=0;side<2;side++){
+  q5Scene.add(q5Controllers[side]);
+  q5Scene.add(q5Grips[side]);
+
+  q5Controllers[side].addEventListener("connected",event=>{
+    q5InputSources[side]=event.data;
+  });
+  q5Controllers[side].addEventListener("disconnected",()=>{
+    q5InputSources[side]=null;
+    for(const tongue of q5Tongues){
+      if(tongue.grabbedOwner===side){
+        tongue.grabbedOwner=-1;
+        tongue.grabbedParticle=-1;
+      }
+    }
+  });
+  q5Controllers[side].addEventListener("selectstart",()=>q5BeginXRGrab(side));
+  q5Controllers[side].addEventListener("selectend",()=>{
+    for(const tongue of q5Tongues){
+      if(tongue.grabbedOwner===side){
+        tongue.grabbedOwner=-1;
+        tongue.grabbedParticle=-1;
+      }
+    }
+  });
+}
+
+function q5UpdateXRGrabTargets(){
+  for(const tongue of q5Tongues){
+    if(tongue.grabbedOwner<0)continue;
+    q5Controllers[tongue.grabbedOwner].getWorldPosition(q5ControllerPoint);
+    q5LocalMatrixInverse.copy(tongue.tongueRoot.matrixWorld).invert();
+    tongue.grabTarget.copy(q5ControllerPoint).applyMatrix4(q5LocalMatrixInverse);
+  }
+}
+
+/* ===== ARセッション ===== */
+async function q5StartXR(){
+  if(!navigator.xr){
+    q5Log("このブラウザーはWebXRに対応していません。");
+    return;
+  }
+  try{
+    const session=await navigator.xr.requestSession("immersive-ar",{
+      requiredFeatures:["local-floor"],
+      optionalFeatures:["hand-tracking","dom-overlay"],
+      domOverlay:{root:document.body}
+    });
+    q5Renderer.xr.setReferenceSpaceType("local-floor");
+    await q5Renderer.xr.setSession(session);
+    q5XRReferenceSpace=await session.requestReferenceSpace("local-floor");
+    q5XRActive=true;
+    q5XRPlaced=false;
+    document.body.classList.add("xr-active");
+    q5Scene.background=null;
+    q5Floor.visible=false;
+
+    session.addEventListener("end",()=>{
+      q5XRActive=false;
+      q5XRPlaced=false;
+      q5XRReferenceSpace=null;
+      q5XRPartnerButton.visible=false;
+      q5XRKissButton.visible=false;
+      document.body.classList.remove("xr-active");
+      q5Scene.background=new THREE.Color(0x18181e);
+      q5Floor.visible=true;
+      q5Tongues[0].mounted=false;
+      q5Tongues[1].mounted=false;
+      q5Tongues[0].tongueRoot.position.set(q5PartnerVisible?-.035:0,0,0);
+      q5Tongues[0].tongueRoot.quaternion.identity();
+      q5Tongues[1].tongueRoot.position.set(.035,0,0);
+      q5Tongues[1].tongueRoot.quaternion.identity();
+      q5SyncControls();
+    },{once:true});
+  }catch(error){
+    q5Log(`ARを開始できませんでした: ${error.message}`);
+  }
+}
+document.getElementById("ar").addEventListener("click",q5StartXR);
+
+/* ===== 描画ループ ===== */
+function q5Animate(time,frame){
+  const elapsed=Math.min(.05,Math.max(0,(time-q5LastTime)/1000));
+  q5LastTime=time;
+  q5Accumulator+=elapsed;
+
+  if(q5XRActive&&!q5XRPlaced)q5PlaceXRContent();
+  if(q5XRActive){
+    q5UpdateXRInputs(frame);
+    q5UpdateXRGrabTargets();
+    for(const tongue of q5Tongues)if(tongue.mounted)q5ApplyMountedPose(tongue);
+  }else{
+    q5ColliderCount=0;
+  }
+
+  while(q5Accumulator>=Q5_FIXED_DT){
+    if(q5KissActive)q5UpdateKissCommands(time);
+
+    /*
+     * 両方を予測し、接触解決パスを一度だけ実行してから、
+     * 各ベロの筋肉・距離拘束を解く。
+     */
+    q5PhysicsStepAll(Q5_FIXED_DT);
+
+    if(!q5KissActive){
+      for(const tongue of q5Tongues){
+        tongue.rokutai.update(time,tongue.command);
+      }
+    }
+    q5Accumulator-=Q5_FIXED_DT;
+  }
+
+  for(const tongue of q5Tongues){
+    if(tongue.tongueRoot.visible)q5UpdateMesh(tongue);
+  }
+  q5Renderer.render(q5Scene,q5Camera);
+}
+q5Renderer.setAnimationLoop(q5Animate);
+
+addEventListener("resize",()=>{
+  q5Camera.aspect=innerWidth/innerHeight;
+  q5Camera.updateProjectionMatrix();
+  q5Renderer.setSize(innerWidth,innerHeight);
+});
+
+/* ===== 検証窓口 ===== */
+function q5FiniteTongue(tongue){
+  for(let i=0;i<tongue.pos.length;i++){
+    if(!Number.isFinite(tongue.pos[i]))return false;
+  }
+  return true;
+}
+
+window.__dbg={
+  get selected(){return q5SelectedIndex},
+  get partnerVisible(){return q5PartnerVisible},
+  get kissActive(){return q5KissActive},
+  particlesPerTongue:Q5_PARTICLES,
+  totalParticles(){return q5PartnerVisible?Q5_PARTICLES*2:Q5_PARTICLES},
+  constraintsPerTongue:q5SharedPairs.length,
+  selectTongue,
+  spawnPartner,
+  tongues:q5Tongues,
+  kiss(force){
+    return q5ToggleKiss(typeof force==="boolean"?force:undefined);
+  },
+  set(name,value,index=q5SelectedIndex){
+    if(!Q5_COMMAND_NAMES.includes(name)||q5KissActive)return false;
+    const tongue=q5Tongues[index];
+    if(!tongue)return false;
+    tongue.command[name]=Math.max(-1,Math.min(1,Number(value)||0));
+    if(index===q5SelectedIndex)q5SyncControls();
+    return true;
+  },
+  setSize(level,index=q5SelectedIndex){
+    const tongue=q5Tongues[index];
+    if(!tongue)return false;
+    tongue.lengthLevel=Math.max(1,Math.min(20,Math.round(Number(level)||1)));
+    tongue.length=q5LengthForLevel(tongue.lengthLevel);
+    q5InitializeTongueShape(tongue,true);
+    if(index===q5SelectedIndex)q5SyncControls();
+    return tongue.lengthLevel;
+  },
+  setThickness(level,index=q5SelectedIndex){
+    const tongue=q5Tongues[index];
+    if(!tongue)return false;
+    tongue.thicknessLevel=Math.max(1,Math.min(10,Math.round(Number(level)||1)));
+    const multiplier=q5ThicknessMultiplier(tongue.thicknessLevel);
+    tongue.halfWidth=Q5_BASE_W*multiplier;
+    tongue.halfHeight=Q5_BASE_H*multiplier;
+    q5InitializeTongueShape(tongue,true);
+    if(index===q5SelectedIndex)q5SyncControls();
+    return tongue.thicknessLevel;
+  },
+  step(count=1){
+    const steps=Math.max(1,Math.min(20000,Math.floor(Number(count)||1)));
+    for(let step=0;step<steps;step++){
+      if(q5KissActive){
+        q5UpdateKissCommands(q5KissStartTime+step*Q5_FIXED_DT*1000);
+      }
+      q5PhysicsStepAll(Q5_FIXED_DT);
+    }
+    for(const tongue of q5Tongues){
+      if(tongue.tongueRoot.visible)q5UpdateMesh(tongue);
+    }
+    q5Renderer.render(q5Scene,q5Camera);
+    return this.state();
+  },
+  state(){
+    return {
+      revision:"MR版 q5 rev2",
+      selected:q5SelectedIndex,
+      partnerVisible:q5PartnerVisible,
+      kissActive:q5KissActive,
+      particles:q5PartnerVisible?Q5_PARTICLES*2:Q5_PARTICLES,
+      constraints:q5SharedPairs.length*(q5PartnerVisible?2:1),
+      finite:q5Tongues.every(q5FiniteTongue),
+      tongues:q5Tongues.map(tongue=>({
+        visible:tongue.tongueRoot.visible,
+        lengthLevel:tongue.lengthLevel,
+        thicknessLevel:tongue.thicknessLevel,
+        command:{...tongue.command},
+        activation:{...tongue.activation},
+        contactSections:Array.from(tongue.contactSections),
+        contactParticleCount:tongue.contactParticles.reduce(
+          (sum,value)=>sum+(value?1:0),0
+        ),
+        mounted:tongue.mounted,
+        recording:tongue.rokutai.recording,
+        playing:tongue.rokutai.playing
+      }))
+    };
+  }
+};
+
+selectTongue(0);
+q5SyncControls();
+q5SyncRokutaiButtons();
+q5UpdateXRButtonAppearance();
+</script>
+</body>
+</html>
