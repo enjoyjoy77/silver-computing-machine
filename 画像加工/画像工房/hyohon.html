@@ -657,7 +657,13 @@ const NEAR_REF_Z = 0.55;   // このZ(m)を等倍の基準にする
 const DB_NAME = "kobo-handoff";
 const DB_VERSION = 2;
 const STORE = "slots";
-const MAX_SEGMENTS = 256;
+// ミタテの「粗い」と同じ細かさ。細かくすると深度のアラがそのまま形に出るので、
+// 粗いほうがかえって自然に見える(実機で確認)
+const MAX_SEGMENTS = 180;
+// ホイールの拡大縮小(1未満=窓に近づく)
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 1.8;
+const ZOOM_STEP = 0.08;
 const SMOOTHING = 0.15;
 
 // 深度後処理のレバー(設計書_深度後処理パック.md)
@@ -4371,6 +4377,15 @@ function endDrag(event) {
   canvas.classList.remove("dragging");
   canvas.releasePointerCapture?.(event.pointerId);
 }
+
+// ホイールで拡大縮小(顔で覗いている間は顔の距離が優先されるので効かない)
+canvas.addEventListener("wheel", event => {
+  if (!loaded) return;
+  event.preventDefault();
+
+  const step = 1 + Math.sign(event.deltaY) * ZOOM_STEP;
+  zoomTarget = clamp(zoomTarget * step, ZOOM_MIN, ZOOM_MAX);
+}, {passive:false});
 
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);

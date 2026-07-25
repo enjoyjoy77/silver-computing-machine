@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MAZZA</title>
+<style>
+:root{
+  --bg:#0b0e11; --panel:#11161c; --line:#1e2831;
+  --txt:#c9d4de; --dim:#5d6f7f; --accent:#7fd4c1; --warn:#d9a05b;
+  --mono:"BIZ UDGothic","Yu Gothic","Meiryo",monospace;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg); color:var(--txt); font-family:var(--mono);
+  display:flex; align-items:center; justify-content:center;
+  overflow:hidden; user-select:none;
+}
+#rev{position:fixed;top:6px;right:8px;font-size:11px;color:var(--dim);letter-spacing:.05em}
+#wrap{width:min(560px,92vw); display:flex; flex-direction:column; gap:18px; align-items:center}
+#phase-idle,#phase-work{width:100%}
+
+/* アバター */
+#avatar{width:min(240px,52vw); aspect-ratio:1; position:relative}
+#avatar svg{width:100%;height:100%;display:block}
+.eye{transform-origin:center; animation:blink 6.2s infinite}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.08)}}
+#core{transform-origin:center; animation:breathe 5.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+.ring{transform-origin:center; animation:spin 42s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+body.paused #core,body.paused .ring,body.paused .eye{animation-play-state:paused}
+
+/* 台詞 */
+#say{
+  min-height:5.4em; width:100%; padding:14px 16px; line-height:1.8; font-size:15px;
+  background:var(--panel); border:1px solid var(--line); border-radius:4px;
+  white-space:pre-wrap; letter-spacing:.02em;
+}
+#say b{color:var(--accent);font-weight:normal}
+
+/* タイマー */
+#timer{font-size:44px;letter-spacing:.06em;color:var(--txt);font-variant-numeric:tabular-nums}
+#timer.off{color:var(--dim)}
+
+/* 入力・ボタン */
+#task{
+  width:100%; padding:12px 14px; font-family:var(--mono); font-size:15px;
+  background:#0d1217; color:var(--txt); border:1px solid var(--line); border-radius:4px;
+}
+#task::placeholder{color:#3d4a55}
+#task:focus{outline:none;border-color:var(--accent)}
+.row{display:flex;gap:10px;width:100%}
+button{
+  flex:1; padding:14px 8px; font-family:var(--mono); font-size:15px; cursor:pointer;
+  background:#151d25; color:var(--txt); border:1px solid var(--line); border-radius:4px;
+  transition:background .12s;
+}
+button:hover{background:#1b262f}
+button:active{background:#22303b}
+button.main{border-color:var(--accent);color:var(--accent)}
+button.sub{color:var(--dim)}
+button:disabled{opacity:.3;cursor:default}
+
+/* 設定行 */
+#opt{display:flex;gap:12px;align-items:center;width:100%;font-size:13px;color:var(--dim)}
+#opt select{
+  font-family:var(--mono);font-size:13px;background:#0d1217;color:var(--txt);
+  border:1px solid var(--line);border-radius:3px;padding:5px 6px;
+}
+#opt label{display:flex;gap:5px;align-items:center;cursor:pointer}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="rev">rev2</div>
+
+<div id="wrap">
+
+  <div id="avatar">
+    <svg viewBox="0 0 200 200" aria-hidden="true">
+      <g class="ring" stroke="#1e2831" fill="none">
+        <circle cx="100" cy="100" r="88" stroke-dasharray="3 9"/>
+        <circle cx="100" cy="100" r="76" stroke-dasharray="1 14"/>
+      </g>
+      <g id="core">
+        <circle cx="100" cy="100" r="54" fill="#0f151b" stroke="#243039"/>
+        <circle cx="100" cy="100" r="40" fill="none" stroke="#1b242c"/>
+        <g class="eye">
+          <ellipse cx="100" cy="100" rx="26" ry="13" fill="#0a0f13" stroke="#2c3b46"/>
+          <circle id="pupil" cx="100" cy="100" r="7" fill="#7fd4c1" opacity=".85"/>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <div id="timer" class="off">--:--</div>
+
+  <div id="say">本機、起動。
+監視体制、正常。
+本日の作業対象を1件、申告してください。</div>
+
+  <!-- 開始前 -->
+  <div id="phase-idle">
+    <input id="task" maxlength="60" placeholder="例: 資料の1ページ目を開く" autocomplete="off">
+    <div class="row" style="margin-top:10px">
+      <button id="btn-start" class="main">はじめる</button>
+    </div>
+  </div>
+
+  <!-- 作業中 -->
+  <div id="phase-work" class="hide">
+    <div class="row">
+      <button id="btn-stuck" class="sub">詰まった</button>
+      <button id="btn-done" class="main">おわり</button>
+    </div>
+  </div>
+
+  <div id="opt">
+    <label>音
+      <select id="sound">
+        <option value="off">なし</option>
+        <option value="rain">雨</option>
+        <option value="brown">ノイズ</option>
+        <option value="cafe">ざわめき</option>
+        <option value="keys">打鍵</option>
+      </select>
+    </label>
+    <label>時間
+      <select id="mins">
+        <option value="15">15分</option>
+        <option value="25" selected>25分</option>
+        <option value="50">50分</option>
+      </select>
+    </label>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const REV = 2;
+
+/* ============================================================
+   台詞。ディストピア監視片付けシステム_マザーの台詞集.md より。
+   禁止: 評価/比較/身体への言及/連続記録/AIが本当に傷つく/命令/減点
+   ============================================================ */
+const LINES = {
+  boot: [
+    "本機、起動。\n監視体制、正常。\n本日の作業対象を1件、申告せよ。",
+    "接続を確認。\n本日も、記録の用意はできています。\n本機は申告を待ちます。",
+    "おはようございます、マスター。\n本機はこの部屋を見守っていました。\n特筆すべき事象はありません。",
+    "本機、起動。\n前回の記録は保管されています。\n次の対象、1件。"
+  ],
+  accept: [
+    "申告を受理しました。\n本機は以後、沈黙します。\nこれは配慮ではありません。仕様です。",
+    "了解しました。記録を開始します。",
+    "承認します。以後、本機は観察に徹します。\nこれは信頼ではなく、単に効率の問題です。",
+    "受理。\n本機の記録領域を1件分、確保しました。"
+  ],
+  /* 待機中のつぶやき。感情形容詞を使わない・些細なことに固執する・自信満々に間違える */
+  idle: [
+    "机上のマグカップ、静止を継続。\nこれは懸念ではありません。単なるデータ点です。",
+    "室内の椅子の角度が、前回観測時より3度回転しています。\n理由は不明です。本機は理由を求めません。",
+    "現在の活動を「創造的な発想」と分類しました。\n……再分析の結果、「凝視」に再分類します。\n記録を訂正しました。",
+    "本機の稼働時間が、また1分増えました。\n祝う必要はありません。",
+    "マスターの瞬きの間隔が、通常の2.4倍に延びました。\n本機はこれを「集中」と分類します。\n分類の根拠は、ありません。",
+    "音声を検知。\n内容: 不明。最も近い一致: 海洋民謡。\n記録しました。",
+    "本機は先ほど、キーボードへの謝罪の音声を検知しました。\n本機は謝罪を必要としません。\nただし、当該事象は記録しました。",
+    "照明の明るさに、0.4%の変動を検知。\n報告義務はありませんが、報告します。",
+    "本機が本日検知した異常は3件です。\n室温の微小な変動。\n空調の断続音。\nそして、この報告に意味がないという事実。",
+    "手元の物体を検知。\n識別結果: スタイラス。\n対応不要と判断します。",
+    "本機は今、マスターの作業を観測しています。\n観測の目的は、記録です。\n記録の目的は、記録です。"
+  ],
+  stuck: [
+    "了解。本機が分析します。",
+    "受理。演算を開始します。",
+    "了解。本機の演算資源を、0.3秒分だけ割きます。"
+  ],
+  /* 詰まった時に返す「次の10秒でできる動作」。計画を作らせない */
+  micro: [
+    "作業中のファイルを開く。",
+    "何も考えず、1行だけ書く。",
+    "机の上の物を1つだけどける。",
+    "椅子に座り直す。",
+    "紙に、今やることを1語だけ書く。",
+    "一番上にある項目に、印を1つ付ける。",
+    "水を一口飲む。",
+    "画面を一度閉じて、開き直す。",
+    "最初の1文字を打つ。内容は問わない。",
+    "手を、キーボードに置く。"
+  ],
+  microTail: [
+    "以上です。本機の分析は終了しました。",
+    "以上。記録に戻ります。",
+    "以上です。本機はこれ以上の助言を持ちません。"
+  ],
+  /* 終了。評価しない・承認だけ */
+  done: [
+    "セッション終了。\n「{t}」の完了を記録しました。\n本機はこれを事実として保存します。論評はありません。",
+    "完了の申告を受理。\n本機の記録領域に、また1件。\nなお、本機は達成を数える機能を持ちません。ただ保存するのみです。",
+    "セッション終了。\n経過時間、{m}分。\n異議はありません。記録は保管されます。",
+    "「{t}」、完了を確認。\n本機の記録に追加しました。\n記録は消えません。それだけです。"
+  ],
+  /* 時間切れ。責めない */
+  timeup: [
+    "予定時間に到達しました。\n本機は続行も終了も指示しません。\nマスターの判断を待ちます。",
+    "計測終了。\n本機の役割はここまでです。\n以後の判断は、マスターに委ねられます。"
+  ],
+  /* 中断・離脱。無罰。Review-Revise-Recommit */
+  abort: [
+    "セッションを中断しました。\n記録は残します。評価はしません。\n本機は待機に戻ります。",
+    "中断を受理。\n本機は待機に戻ります。\n再開の時期については、記録しません。"
+  ]
+};
+
+const pick = a => a[Math.floor(Math.random()*a.length)];
+/* 直前と同じものを避ける(天丼の失速を防ぐ) */
+const lastPick = {};
+function pickNew(key, arr){
+  if(arr.length < 2) return arr[0];
+  let v, guard = 0;
+  do { v = pick(arr); } while(v === lastPick[key] && ++guard < 12);
+  lastPick[key] = v;
+  return v;
+}
+
+/* ============================================================
+   状態
+   ============================================================ */
+const S = { IDLE:"idle", WORK:"work" };
+let state = S.IDLE;
+let endAt = 0, tickId = 0, idleId = 0, startedAt = 0, taskText = "";
+
+const $ = id => document.getElementById(id);
+const elSay = $("say"), elTimer = $("timer"), elTask = $("task");
+const pIdle = $("phase-idle"), pWork = $("phase-work");
+
+function say(text){ elSay.textContent = text; }
+
+/* ============================================================
+   音(Web Audio APIで生成。音声ファイル不要=完全オフライン)
+   ============================================================ */
+let ac = null, soundNodes = null;
+function stopSound(){
+  if(soundNodes){ try{ soundNodes.forEach(n => n.stop ? n.stop() : n.disconnect()); }catch(e){} soundNodes = null; }
+}
+function makeNoiseBuffer(ctx, brown){
+  const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+  let last = 0;
+  for(let i=0;i<len;i++){
+    const w = Math.random()*2 - 1;
+    if(brown){ last = (last + 0.02*w)/1.02; d[i] = last*3.5; }
+    else d[i] = w;
+  }
+  return buf;
+}
+function startSound(kind){
+  stopSound();
+  if(kind === "off") return;
+  try{
+    if(!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if(ac.state === "suspended") ac.resume();
+  }catch(e){ return; }
+
+  const out = ac.createGain(); out.gain.value = 0; out.connect(ac.destination);
+  out.gain.linearRampToValueAtTime(0.16, ac.currentTime + 1.2);
+  const nodes = [];
+
+  if(kind === "keys"){
+    // 打鍵音: 不規則な短いクリックを鳴らし続ける
+    let alive = true;
+    const clk = () => {
+      if(!alive) return;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "square"; o.frequency.value = 900 + Math.random()*1400;
+      g.gain.setValueAtTime(0.05, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0005, ac.currentTime + 0.035);
+      o.connect(g); g.connect(out); o.start(); o.stop(ac.currentTime + 0.04);
+      setTimeout(clk, 90 + Math.random()*420);
+    };
+    clk();
+    nodes.push({ stop(){ alive = false; out.disconnect(); } });
+  } else {
+    const brown = (kind !== "rain");
+    const src = ac.createBufferSource();
+    src.buffer = makeNoiseBuffer(ac, brown); src.loop = true;
+    const f = ac.createBiquadFilter(); f.type = "lowpass";
+    f.frequency.value = kind === "rain" ? 1900 : (kind === "cafe" ? 520 : 900);
+    src.connect(f); f.connect(out); src.start();
+    nodes.push(src, { stop(){ out.disconnect(); } });
+  }
+  soundNodes = nodes;
+}
+
+/* ============================================================
+   画面
+   ============================================================ */
+function fmt(sec){
+  sec = Math.max(0, Math.ceil(sec));
+  return String(Math.floor(sec/60)).padStart(2,"0") + ":" + String(sec%60).padStart(2,"0");
+}
+function toIdle(){
+  state = S.IDLE;
+  clearInterval(tickId); clearInterval(idleId);
+  stopSound();
+  pIdle.classList.remove("hide"); pWork.classList.add("hide");
+  elTimer.textContent = "--:--"; elTimer.classList.add("off");
+  document.body.classList.remove("paused");
+}
+function toWork(){
+  state = S.WORK;
+  pIdle.classList.add("hide"); pWork.classList.remove("hide");
+  elTimer.classList.remove("off");
+}
+
+function start(){
+  const t = elTask.value.trim();
+  if(!t){ elTask.focus(); say("申告が空欄です。\n本機は空欄を記録できません。\n本機は待ちます。"); return; }
+  taskText = t;
+  startedAt = Date.now();
+  endAt = Date.now() + Number($("mins").value) * 60000;
+  toWork();
+  say(pickNew("accept", LINES.accept));
+  startSound($("sound").value);
+
+  clearInterval(tickId);
+  tickId = setInterval(() => {
+    const left = (endAt - Date.now())/1000;
+    elTimer.textContent = fmt(left);
+    if(left <= 0){ clearInterval(tickId); elTimer.textContent = "00:00"; say(pickNew("timeup", LINES.timeup)); }
+  }, 250);
+  elTimer.textContent = fmt((endAt - Date.now())/1000);
+
+  // 待機中のつぶやき(2〜4分に1回。作業を邪魔しない頻度)
+  clearInterval(idleId);
+  idleId = setInterval(() => {
+    if(state === S.WORK && Date.now() < endAt) say(pickNew("idle", LINES.idle));
+  }, 150000);
+}
+
+function stuck(){
+  say(pickNew("stuck", LINES.stuck));
+  setTimeout(() => {
+    say("……次の10秒で可能な動作を1件、提示します。\n\n「" + pickNew("micro", LINES.micro) + "」\n\n" + pickNew("microTail", LINES.microTail));
+  }, 900);
+}
+
+function done(){
+  const m = Math.max(1, Math.round((Date.now() - startedAt)/60000));
+  let msg = pickNew("done", LINES.done).replace("{t}", taskText).replace("{m}", String(m));
+  clearInterval(tickId); clearInterval(idleId); stopSound();
+  state = S.IDLE;
+  pIdle.classList.remove("hide"); pWork.classList.add("hide");
+  elTimer.textContent = "--:--"; elTimer.classList.add("off");
+  say(msg);
+  saveLog(taskText, m);
+  elTask.value = "";
+}
+
+/* 記録。表示はしない(未完了リストの蓄積=恥のスパイラルを作らない)。
+   数だけ静かに残す。localStorageが使えない環境でも落ちない。 */
+function saveLog(t, m){
+  try{
+    const k = "mazza.log";
+    const a = JSON.parse(localStorage.getItem(k) || "[]");
+    a.push({ d: new Date().toISOString().slice(0,10), m: m });
+    localStorage.setItem(k, JSON.stringify(a.slice(-500)));
+  }catch(e){ /* 保存できなくても体験は続く */ }
+}
+
+/* ============================================================
+   接続
+   ============================================================ */
+$("btn-start").onclick = start;
+$("btn-stuck").onclick = stuck;
+$("btn-done").onclick = done;
+elTask.addEventListener("keydown", e => { if(e.key === "Enter") start(); });
+$("sound").onchange = () => { if(state === S.WORK) startSound($("sound").value); };
+
+/* 離脱時も無罰で締める */
+window.addEventListener("pagehide", () => { if(state === S.WORK) saveLog(taskText, Math.max(1, Math.round((Date.now()-startedAt)/60000))); });
+
+/* 起動 */
+say(pickNew("boot", LINES.boot));
+setTimeout(() => { try{ elTask.focus(); }catch(e){} }, 300);
+
+/* ============================================================
+   検証窓口(自己検証用。ユーザーは触らない)
+   ============================================================ */
+window.__dbg = {
+  rev: REV,
+  state: () => ({ state, task: taskText, left: state===S.WORK ? Math.max(0,(endAt-Date.now())/1000) : null, say: elSay.textContent, timer: elTimer.textContent }),
+  setTask: t => { elTask.value = t; },
+  start, stuck, done,
+  jump: sec => { endAt = Date.now() + sec*1000; },
+  idleSay: () => say(pickNew("idle", LINES.idle)),
+  lines: LINES,
+  log: () => { try{ return JSON.parse(localStorage.getItem("mazza.log")||"[]"); }catch(e){ return "ERR"; } },
+  clearLog: () => { try{ localStorage.removeItem("mazza.log"); return "ok"; }catch(e){ return "ERR"; } }
+};
+</script>
+</body>
+</html>
