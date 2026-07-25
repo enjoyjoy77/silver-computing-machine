@@ -625,7 +625,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev23-drag";
+const REV = "rev24-soft";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -694,6 +694,8 @@ const GAZE_TUNE = {
   roomKeep:0.96,     // まぶたの型からどれだけはみ出させないか(下げると大きく動くが縁で切られる)
   lidDilate:0.10,    // まぶたの型を虹彩半径の何倍広げるか(狭いと虹彩が四角く切れる)
   lidBlur:0.12,      // 型の縁のぼかし。硬いと切り口が線になる
+  irisFeather:0.18,  // 虹彩を切り出す円のぼかし幅(半径比)。小さいと縁が線として見える
+  alphaTest:0.02,    // 0に近いほどぼかしが活きる。上げるとそこで硬く切れる
   minIrisPx:6,       // 虹彩半径がこれ未満なら発動しない
   maxYawDeg:25,      // 元写真の顔がこれ以上横向きなら発動しない
   irisCut:1.12,      // 虹彩の外周(黒い輪)まで含めて切り出す倍率。切り出しと消しで同じ値を使う
@@ -3257,7 +3259,8 @@ function buildGazeSprites(
     // 消した範囲と同じ大きさで切り出す(ずれると白い輪が残る)
     const irisR =
       eye.r * GAZE_TUNE.irisCut * (scaleX + scaleY) * 0.5;
-    const feather = Math.min(2, Math.max(1, irisR * 0.25));
+    // ぼかし幅は虹彩の大きさに比例させる(固定pxだと大きい写真で縁が線に見える)
+    const feather = Math.max(1, irisR * GAZE_TUNE.irisFeather);
     const irisMask = mapContext.createRadialGradient(
       irisX, irisY, Math.max(0, irisR - feather),
       irisX, irisY, irisR
@@ -3410,7 +3413,7 @@ function buildGazeSprites(
       map:mapTexture,
       alphaMap:maskTexture,
       transparent:true,
-      alphaTest:0.15,
+      alphaTest:GAZE_TUNE.alphaTest,
       depthWrite:false,
       side:THREE.FrontSide,
       roughness:0.78,
