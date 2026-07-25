@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev2</div>
+<div id="rev">MR版 q6 rev3</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -1248,6 +1248,7 @@ function toggleKiss(){
     stopAutomatic();
     handGestures.setEnabled(false);
     rokutai.stopPlayback&&rokutai.stopPlayback(false);
+    kissBegin(); // 振り付けを最初(さぐり)から
     logJapanese("ディープキス開始。もう一度押すと止まります。");
   }else{
     entangleActive=false;
@@ -1262,26 +1263,98 @@ function toggleKiss(){
 
 /* キス/絡みの振り付け: 互い違いの位相で絡む(lr/twは相手側で符号反転)。
    指令は-1..1の正規化値なので、ながさ・ふとさが2本で違っても同じ振り付けが成立する */
-function updateKiss(seconds){
+/* ディープキスの振り付け(4段階の状態機械)。
+   0=さぐり(先っぽで小さく触れ合う) → 1=まきつき(逆ねじりで巻き付く)
+   → 2=しぼり(巻いたまま脈打つ) → 3=ほどき(ゆっくりほどけて一息) → 0へ。
+   各段階の長さは毎回ランダム、複数の周波数のゆらぎを重ねて機械っぽさを消す。
+   相手は0.35秒遅れて応え、lr/twは常に逆符号(互い違いに巻く)。
+   指令は-1..1の正規化値なので、ながさ・ふとさが2本で違ってもそのまま成立する。 */
+let kissPhase=0, kissPhaseT=0, kissPhaseDur=2, kissSeed=12345;
+function kissRand(){ kissSeed=(kissSeed*1664525+1013904223)>>>0; return kissSeed/4294967296; }
+function setKissPhase(p){
+  kissPhase=p; kissPhaseT=0;
+  kissPhaseDur = p===0 ? 1.8+kissRand()*1.5
+               : p===1 ? 2.2+kissRand()*1.6
+               : p===2 ? 2.5+kissRand()*2.5
+               :         1.3+kissRand()*.9;
+}
+function kissBegin(){ kissSeed=(performance.now()|0)>>>0; setKissPhase(0); }
+function ksmooth(u){ return u*u*(3-2*u); }
+
+function updateKiss(seconds,dt){
   if(!kissActive&&!entangleActive)return;
+  kissPhaseT+=dt;
+  if(kissPhaseT>=kissPhaseDur)setKissPhase((kissPhase+1)%4);
   const t=seconds;
-  command.ext=.45+.15*Math.sin(t*1.4);
-  command.ud=.25*Math.sin(t*.9);
-  command.lr=.5*Math.sin(t*.7);
-  command.tw=.85*Math.sin(t*.5);
-  command.cl=.3+.2*Math.sin(t*1.1);
-  const u=t+2.2; // 半周期ずらし
-  partnerCommand.ext=.45+.15*Math.sin(u*1.4);
-  partnerCommand.ud=.25*Math.sin(u*.9);
-  partnerCommand.lr=-.5*Math.sin(u*.7);
-  partnerCommand.tw=-.85*Math.sin(u*.5);
-  partnerCommand.cl=.3+.2*Math.sin(u*1.1);
+  const u=Math.min(1,kissPhaseT/kissPhaseDur);
+  const ss=ksmooth(u);
+  // ゆらぎ(周期の合わない正弦を重ねる=生き物っぽさ)
+  const n1=.5*Math.sin(t*1.7)+.3*Math.sin(t*2.9+1.3)+.2*Math.sin(t*4.3+.5);
+  const n2=.5*Math.sin(t*1.3+2.1)+.5*Math.sin(t*3.7+.8);
+  const td=t-.35; // 相手の反応遅れ
+  let e,ud,lr,tw,cl, pe,pud,plr,ptw,pcl;
+
+  if(kissPhase===0){ // さぐり
+    e=.25+.15*Math.sin(t*2.2)+.05*n1;
+    ud=.12*Math.sin(t*1.6)+.06*n2;
+    lr=.22*Math.sin(t*1.1)+.08*n1;
+    tw=.15*Math.sin(t*.8);
+    cl=.15+.12*Math.max(0,Math.sin(t*2.6));
+    pe=.22+.15*Math.sin(td*2.2)+.04*n2;
+    pud=-.10*Math.sin(td*1.6);
+    plr=-.20*Math.sin(td*1.1)-.06*n2;
+    ptw=-.12*Math.sin(td*.8);
+    pcl=.12+.10*Math.max(0,Math.sin(td*2.6));
+  }else if(kissPhase===1){ // まきつき
+    e=.5+.15*ss+.05*n1;
+    ud=.15*Math.sin(t*.9);
+    lr=.35*Math.sin(t*.6+1);
+    tw=.95*ss+.05*n2;
+    cl=.3+.2*ss;
+    pe=.5+.15*ss+.04*n2;
+    pud=-.12*Math.sin(td*.9+.4);
+    plr=-.33*Math.sin(td*.6+1.3);
+    ptw=-.95*ss-.05*n1;
+    pcl=.3+.2*ss;
+  }else if(kissPhase===2){ // しぼり(脈打ち。相手とは逆位相で押し合う)
+    const pulse=.5+.5*Math.sin(t*3.1);
+    e=.55+.12*pulse+.04*n1;
+    ud=.10*n2;
+    lr=.25*Math.sin(t*.5+1);
+    tw=Math.min(1,.9+.08*Math.sin(t*2.3));
+    cl=.35+.15*pulse;
+    pe=.55+.12*(1-pulse)+.04*n2;
+    pud=-.08*n1;
+    plr=-.24*Math.sin(td*.5+1.4);
+    ptw=-Math.min(1,.9+.08*Math.sin(t*2.3+1));
+    pcl=.35+.15*(1-pulse);
+  }else{ // ほどき
+    const r=(1-u)*(1-u);
+    e=.3+.2*r;
+    ud=.08*n2;
+    lr=.2*r*Math.sin(t*.7);
+    tw=.9*r;
+    cl=.2*r;
+    pe=.3+.2*r;
+    pud=-.06*n1;
+    plr=-.2*r*Math.sin(td*.7+.5);
+    ptw=-.9*r;
+    pcl=.2*r;
+  }
+
+  // ときどき舌先がピッと動くフリック(ゆっくりした窓×速い揺れ=稀に出る)
+  const flick=.25*Math.max(0,Math.sin(t*7.3))*Math.max(0,Math.sin(t*.23));
+  cl=Math.min(1,cl+flick);
+  pcl=Math.min(1,pcl+.25*Math.max(0,Math.sin(td*7.3))*Math.max(0,Math.sin(td*.23)));
+
+  command.ext=e; command.ud=ud; command.lr=lr; command.tw=tw; command.cl=cl;
+  partnerCommand.ext=pe; partnerCommand.ud=pud; partnerCommand.lr=plr; partnerCommand.tw=ptw; partnerCommand.cl=pcl;
   syncControls();
 }
 
 /* 相手の指令→なめらかな筋肉値(自分側のactivationと同じ時定数) */
 function updatePartnerFrame(seconds,dt){
-  updateKiss(seconds);
+  updateKiss(seconds,dt);
   if(!partnerActive)return;
   if(!xrActive)colliderCount=0; // PC/ヘッドレスでは相手コライダを毎回積み直す(XRは手が積んだ後に足す)
   for(const name of commandNames){
@@ -1323,6 +1396,7 @@ function updatePartnerFrame(seconds,dt){
       entangleContactTimer+=dt; entangleSepTimer=0;
       if(!entangleActive&&!kissActive&&entangleContactTimer>.25){
         entangleActive=true;
+        kissBegin(); // 振り付けを最初(さぐり)から
         logJapanese("舌が触れ合いました。絡みモーション発動。離すと自然に止まります。");
       }
     }else{
