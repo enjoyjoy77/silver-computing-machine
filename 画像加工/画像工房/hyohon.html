@@ -3281,6 +3281,45 @@ function buildGazeSprites(
     maskContext.drawImage(polygonCanvas, 0, 0);
     maskContext.restore();
 
+    // まぶたの型からはみ出さずに動かせる量を、目ごとに実測する。
+    // 実写は目の開きに対して虹彩が大きく、少し動かすと縁で切られて四角く見えるため
+    const maskData = maskContext.getImageData(
+      0, 0, canvasW, canvasH
+    ).data;
+    const insideAt = (px, py) => {
+      const xi = Math.round(px);
+      const yi = Math.round(py);
+      if (xi < 0 || yi < 0 || xi >= canvasW || yi >= canvasH) return 0;
+      return maskData[(yi * canvasW + xi) * 4 + 1] > 128 ? 1 : 0;
+    };
+    const discCoverage = (ox, oy) => {
+      const step = Math.max(1, Math.round(irisR / 7));
+      let inside = 0;
+      let total = 0;
+      for (let y = -irisR; y <= irisR; y += step) {
+        for (let x = -irisR; x <= irisR; x += step) {
+          if (x * x + y * y > irisR * irisR) continue;
+          total++;
+          inside += insideAt(irisX + x + ox, irisY + y + oy);
+        }
+      }
+      return total ? inside / total : 0;
+    };
+    const baseCoverage = discCoverage(0, 0);
+    const findRoom = (dirX, dirY) => {
+      let room = 0;
+      for (let s = 1; s <= irisR * 1.2; s++) {
+        if (discCoverage(dirX * s, dirY * s) < baseCoverage * 0.97) break;
+        room = s;
+      }
+      return room;
+    };
+    const irisPxUnit = Math.max(1e-6, eye.r * scaleX);
+    const roomX = Math.min(findRoom(-1, 0), findRoom(1, 0)) / irisPxUnit;
+    const roomY =
+      Math.min(findRoom(0, -1), findRoom(0, 1)) /
+      Math.max(1e-6, eye.r * scaleY);
+
     const mapTexture = new THREE.CanvasTexture(mapCanvas);
     mapTexture.colorSpace = THREE.SRGBColorSpace;
     mapTexture.minFilter = THREE.LinearFilter;
@@ -3339,7 +3378,8 @@ function buildGazeSprites(
     );
     mesh.userData.gaze = {
       irisR_uv:{x:eye.r / lidW, y:eye.r / lidH},
-      quadPx:{w:lidW, h:lidH}
+      quadPx:{w:lidW, h:lidH},
+      room:{x:roomX, y:roomY}
     };
     meshes.push(mesh);
   }

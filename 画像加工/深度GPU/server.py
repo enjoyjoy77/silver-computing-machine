@@ -59,11 +59,17 @@ def make_depth_png(image_bytes):
     depth = np.asarray(prediction.depth, dtype=np.float32)
     if depth.ndim == 3:
         depth = depth[0]
-    lo, hi = np.percentile(depth, [2, 98])
+    # 距離→視差(1/距離)に変換: 人物内の凹凸が距離差に食われて
+    # ぺったんこになるのを防ぐ(ブラウザ版AIと同じ形式。実機の教訓)
+    disp = 1.0 / np.maximum(depth, 1e-6)
+    lo, hi = np.percentile(disp, [2, 98])
     if hi - lo < 1e-9:
         raise RuntimeError("深度が平坦です")
-    norm = np.clip((depth - lo) / (hi - lo), 0, 1)
-    gray = ((1.0 - norm) * 255.0).round().astype("uint8")
+    norm = np.clip((disp - lo) / (hi - lo), 0, 1)
+    # ソフトニー: 人物内の凹凸に階調を割き直す(depth_gpu.pyと同じ式)
+    norm = np.where(norm < 0.5, norm * 0.5,
+                    0.25 + (norm - 0.5) * 1.5)
+    gray = (norm * 255.0).round().astype("uint8")
 
     out = Image.fromarray(gray, mode="L").resize(src_size, Image.BILINEAR)
     buf = io.BytesIO()
@@ -164,7 +170,12 @@ def main():
         say("[!] GPU(CUDA)が見つかりません。中止します。")
         return 1
 
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    except OSError:
+        # 既に起動済み(自動起動と手動起動の二重など)。静かに終わってよい
+        say("既に別のサーバーが動いています。このまま使えます。")
+        return 0
     say("")
     say("=== 深度GPUサーバー起動 ===")
     say(f"このPCで開く:   http://localhost:{PORT}/depth.html")

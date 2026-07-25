@@ -76,13 +76,21 @@ def main():
             if depth.ndim == 3:
                 depth = depth[0]
 
-            # DA3の深度は「奥ほど大きい」。標本側は「手前ほど白」なので反転し、
-            # 2〜98%の範囲で0-255に伸ばす(外れ値で全体が薄まるのを防ぐ)
-            lo, hi = np.percentile(depth, [2, 98])
+            # DA3は「距離」(奥ほど大きい)を返す。そのまま使うと人物と背景の
+            # 距離差が支配して人物内の凹凸がぺったんこになる(実機で発生)。
+            # ブラウザ版AIと同じ「視差=1/距離」(近い所の差ほど大きく出る)に
+            # 変換してから、2〜98%の範囲で0-255に伸ばす(手前=白は自動で成立)
+            disp = 1.0 / np.maximum(depth, 1e-6)
+            lo, hi = np.percentile(disp, [2, 98])
             if hi - lo < 1e-9:
                 raise RuntimeError("深度が平坦です(画像が真っ白/真っ黒でないか確認)")
-            norm = np.clip((depth - lo) / (hi - lo), 0, 1)
-            gray = ((1.0 - norm) * 255.0).round().astype(np.uint8)
+            norm = np.clip((disp - lo) / (hi - lo), 0, 1)
+            # ソフトニー: 階調の大半が「人物と背景の段差」に食われて人物内の
+            # 凹凸がぺったんこになるのを防ぐ(下半分=主に背景を0-0.25に圧縮、
+            # 上半分=人物内を0.25-1.0へ1.5倍に拡大。実機の「ぺったんこ」対策)
+            norm = np.where(norm < 0.5, norm * 0.5,
+                            0.25 + (norm - 0.5) * 1.5)
+            gray = (norm * 255.0).round().astype(np.uint8)
 
             img = Image.open(src)
             depth_img = Image.fromarray(gray, mode="L").resize(
