@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev4</div>
+<div id="rev">MR版 q6 rev5</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -814,6 +814,7 @@ const nearList=[[0,0,0,0]];
 const _tongueLocalCenter=new THREE.Vector3();
 const _tongueWorldCenter=new THREE.Vector3();
 
+const contactFlags=new Uint8Array(PARTICLES); // 前ステップに押された粒(接触減衰用)
 function solveColliders(){
   for(let i=0;i<PARTICLES;i++){
     if(invMass[i]===0||i===grabbedParticle)continue;
@@ -837,10 +838,14 @@ function solveColliders(){
         distance=1;
       }
 
-      const scale=radius/distance;
-      predicted[i3]=colliderData[c4]+dx*scale;
-      predicted[i3+1]=colliderData[c4+1]+dy*scale;
-      predicted[i3+2]=colliderData[c4+2]+dz*scale;
+      // ソフト接触(しわしわ対策): めり込みを一気に全量戻さず、1反復あたり5割だけ戻す。
+      // 反復10回で実質ほぼ密着しつつ、表面リングが座屈してシワになるのを防ぐ。
+      const push=(radius-distance)*.5;
+      const inv=1/distance;
+      predicted[i3]+=dx*inv*push;
+      predicted[i3+1]+=dy*inv*push;
+      predicted[i3+2]+=dz*inv*push;
+      contactFlags[i]=1;
 
       const v3=c*3;
       prev[i3]-=colliderVelocity[v3];
@@ -855,11 +860,13 @@ function physicsStep(dt){
   updateConstraintRestLengths();
   buildMuscleTargets();
 
-  const damping=.993;
   const maxSpeed=Math.max(L0*.064,.0012);
 
   for(let i=0;i<PARTICLES;i++){
     const i3=i*3;
+    // 接触した粒は揺れを強めに減衰(絡み中のブルブル・シワの暴れを抑える)
+    const damping=contactFlags[i]?.94:.993;
+    contactFlags[i]=0;
 
     if(invMass[i]===0){
       predicted[i3]=pos[i3];
@@ -1025,7 +1032,7 @@ const material=new THREE.MeshPhysicalMaterial({
   roughnessMap:makeRoughnessMap(),
   roughness:.92,
   clearcoat:1,
-  clearcoatRoughness:.18,
+  clearcoatRoughness:.06,  // 濡れツヤ強化(唾液感)
   sheen:.48,
   sheenColor:new THREE.Color(0xff9cab),
   side:THREE.DoubleSide
@@ -1165,7 +1172,7 @@ function rebuildPartner(){
       partnerCenters[colSlot*3]=_pPos.x;
       partnerCenters[colSlot*3+1]=_pPos.y;
       partnerCenters[colSlot*3+2]=_pPos.z;
-      partnerRadii[colSlot]=Math.min(halfW,halfH)+.004;
+      partnerRadii[colSlot]=Math.min(halfW,halfH)+.0015; // 余白を減らして密着
       colSlot++;
     }
     if(s===0){
@@ -1271,8 +1278,13 @@ function toggleKiss(){
    指令は-1..1の正規化値なので、ながさ・ふとさが2本で違ってもそのまま成立する。 */
 let kissPhase=0, kissPhaseT=0, kissPhaseDur=2, kissSeed=12345;
 function kissRand(){ kissSeed=(kissSeed*1664525+1013904223)>>>0; return kissSeed/4294967296; }
+let kissStyle=0; // 絡みのスタイル(0=標準の編み込み/1=しなだれ/2=激しめ)。周回ごとにランダム
 function setKissPhase(p){
   kissPhase=p; kissPhaseT=0;
+  if(p===0){
+    kissStyle=Math.floor(kissRand()*3);
+    logJapanese(["絡み: 標準の編み込み","絡み: しなだれ(ゆったり)","絡み: 激しめ"][kissStyle]);
+  }
   kissPhaseDur = p===0 ? 1.8+kissRand()*1.5
                : p===1 ? 2.2+kissRand()*1.6
                : p===2 ? 2.5+kissRand()*2.5
@@ -1280,6 +1292,75 @@ function setKissPhase(p){
 }
 function kissBegin(){ kissSeed=(performance.now()|0)>>>0; braidAngle=0; setKissPhase(0); }
 function ksmooth(u){ return u*u*(3-2*u); }
+
+/* ===== 唾液の糸(粘性の見た目) =====
+   2本の舌先の間に半透明の糸を張る。触れている間はたるんで揺れ、
+   離れると伸びて細くなり、限界でプツッと切れて少し後にまた張る。 */
+const SALIVA_N=4;
+const salivaMat=new THREE.MeshPhysicalMaterial({
+  color:0xf4f9ff,transparent:true,opacity:.42,
+  roughness:.05,clearcoat:1,clearcoatRoughness:.05,depthWrite:false
+});
+const salivaStrands=[];
+{
+  const sg=new THREE.CylinderGeometry(1,1,1,6,1,true);
+  sg.translate(0,.5,0); // 根元を原点に、+y方向へ長さ1
+  for(let i=0;i<SALIVA_N;i++){
+    const m1=new THREE.Mesh(sg,salivaMat), m2=new THREE.Mesh(sg,salivaMat);
+    m1.visible=false;m2.visible=false;
+    m1.frustumCulled=false;m2.frustumCulled=false;
+    m1.renderOrder=20;m2.renderOrder=20;
+    scene.add(m1);scene.add(m2);
+    salivaStrands.push({m1,m2,active:false,restLen:0,cool:i*.4,
+      offA:new THREE.Vector3(),offB:new THREE.Vector3()});
+  }
+}
+const _sA=new THREE.Vector3(),_sB=new THREE.Vector3(),_sMid=new THREE.Vector3(),_sDir=new THREE.Vector3();
+const _sUpAxis=new THREE.Vector3(0,1,0),_sQ=new THREE.Quaternion();
+const _pTipWorld=new THREE.Vector3();
+
+function orientSalivaSeg(mesh,from,to,r){
+  _sDir.copy(to).sub(from);
+  const len=Math.max(1e-4,_sDir.length());
+  mesh.position.copy(from);
+  _sQ.setFromUnitVectors(_sUpAxis,_sDir.normalize());
+  mesh.quaternion.copy(_sQ);
+  mesh.scale.set(r,len,r);
+  mesh.visible=true;
+}
+function hideSaliva(){
+  for(const s of salivaStrands){s.active=false;s.m1.visible=false;s.m2.visible=false;}
+}
+function updateSaliva(dt,tipA,tipB,touching){
+  for(const s of salivaStrands){
+    if(!s.active){
+      s.cool-=dt;
+      if(touching&&s.cool<=0){
+        s.active=true;
+        s.restLen=tipA.distanceTo(tipB)+.005;
+        s.offA.set((Math.random()-.5)*.02,(Math.random()-.5)*.012,(Math.random()-.5)*.02);
+        s.offB.set((Math.random()-.5)*.02,(Math.random()-.5)*.012,(Math.random()-.5)*.02);
+      }
+      continue;
+    }
+    _sA.copy(tipA).add(s.offA);
+    _sB.copy(tipB).add(s.offB);
+    const len=_sA.distanceTo(_sB);
+    const maxLen=.10+s.restLen;
+    if(len>maxLen){ // 伸びきってプツッ
+      s.active=false;s.m1.visible=false;s.m2.visible=false;
+      s.cool=.5+Math.random()*.8;
+      continue;
+    }
+    const stretch=Math.min(1,len/maxLen);
+    _sMid.copy(_sA).add(_sB).multiplyScalar(.5);
+    _sMid.y-=(1-stretch)*.02+.004;              // たるみ=粘性の垂れ
+    const r=.0016*(1-.7*stretch)+.0004;         // 伸びるほど細く
+    orientSalivaSeg(s.m1,_sA,_sMid,r);
+    orientSalivaSeg(s.m2,_sMid,_sB,r);
+    if(touching)s.restLen=Math.min(s.restLen,len+.01); // 触れている間は張り直す
+  }
+}
 
 /* ===== デュエット絡みエンジン(rev4で刷新) =====
    振り付けは「ペアの1つの踊り」として定義する。2本の根元位置・長さから毎フレーム
@@ -1350,7 +1431,7 @@ function updateKiss(seconds,dt){
     spin=2.6;
     twAmp=.9*ss; clT=.3+.2*ss;
   }else if(kissPhase===2){  // しぼり: 密着して脈打つ(押し合いは本物=extを互い違いに)
-    orbitR=.014;
+    orbitR=.008; // 密着を深く
     spin=1.3;
     twAmp=Math.min(1,.9+.08*Math.sin(t*2.6));
     pushPull=.12*Math.sin(t*3.1);
@@ -1359,6 +1440,13 @@ function updateKiss(seconds,dt){
     orbitR=.02+.03*ss;
     spin=-1.8;
     twAmp=.9*(1-ss); clT=.2*(1-ss); retreat=.06*ss;
+  }
+  // スタイルによる味付け(周回ごとにランダムに変わる)
+  if(kissStyle===1){        // しなだれ: ゆっくり・大きめの輪・下がり気味
+    spin*=.55; orbitR*=1.35; twAmp*=.7;
+    _dM.y-=.018+.010*Math.sin(t*.8);
+  }else if(kissStyle===2){  // 激しめ: 速く・輪が脈打つ・押し合い強め
+    spin*=1.6; orbitR*=(1+.25*Math.sin(t*4.2)); pushPull*=1.6;
   }
   braidAngle+=spin*dt;
 
@@ -1396,7 +1484,7 @@ function updateKiss(seconds,dt){
 /* 相手の指令→なめらかな筋肉値(自分側のactivationと同じ時定数) */
 function updatePartnerFrame(seconds,dt){
   updateKiss(seconds,dt);
-  if(!partnerActive)return;
+  if(!partnerActive){hideSaliva();return;}
   if(!xrActive)colliderCount=0; // PC/ヘッドレスでは相手コライダを毎回積み直す(XRは手が積んだ後に足す)
   for(const name of commandNames){
     const rising=Math.abs(partnerCommand[name])>Math.abs(partnerAct[name]);
@@ -1433,6 +1521,14 @@ function updatePartnerFrame(seconds,dt){
         .applyMatrix4(partnerRoot.matrixWorld);
       if(_pWorld.distanceTo(_ownTipWorld)<partnerRadii[s]+H0+.02){touching=true;break;}
     }
+    // 唾液の糸: 相手の舌先の世界座標を出して更新
+    {
+      const pl=(P_SECTIONS_COL-1)*3;
+      _pTipWorld.set(partnerCenters[pl],partnerCenters[pl+1],partnerCenters[pl+2])
+        .applyMatrix4(partnerRoot.matrixWorld);
+      updateSaliva(dt,_ownTipWorld,_pTipWorld,touching);
+    }
+
     if(touching){
       entangleContactTimer+=dt; entangleSepTimer=0;
       if(!entangleActive&&!kissActive&&entangleContactTimer>.25){
