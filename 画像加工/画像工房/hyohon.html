@@ -263,6 +263,23 @@
     margin:0;
     font-size:20px;
   }
+  .shelf-links{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+  .shelf-link{
+    padding:10px 13px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--panel);
+    color:var(--ink);
+    font:800 12px/1.2 inherit;
+    text-decoration:none;
+    white-space:nowrap;
+  }
   #shelfAdd{
     padding:10px 14px;
     border:1px solid var(--accent);
@@ -271,6 +288,7 @@
     color:var(--accent);
     font:800 12px/1.2 inherit;
     cursor:pointer;
+    white-space:nowrap;
   }
   #shelfGrid{
     display:grid;
@@ -596,7 +614,12 @@
 <section id="shelfView" aria-label="3Dラック">
   <div class="shelf-head">
     <h2>3Dラック</h2>
-    <button id="shelfAdd" type="button">画像から追加</button>
+    <div class="shelf-links">
+      <a class="shelf-link" href="index.html">🏠 トップ</a>
+      <a class="shelf-link" href="depth.html">⛰ 深度づくり</a>
+      <a class="shelf-link" href="mitate.html">🧊 ミタテ</a>
+      <button id="shelfAdd" type="button">画像から追加</button>
+    </div>
   </div>
   <div id="shelfGrid"></div>
   <p id="shelfEmpty">
@@ -618,14 +641,14 @@
   <button id="closeEyeSettings" type="button">閉じる</button>
 </section>
 <button id="recordShow" type="button">🎬 動画にする</button>
-<div id="hint">端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと、標本ごと回せます</div>
+<div id="hint">端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと標本ごと回せます。ホイールで拡大縮小</div>
 
 <script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev26-drag2";
+const REV = "rev27-zoom";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -660,10 +683,13 @@ const STORE = "slots";
 // ミタテの「粗い」と同じ細かさ。細かくすると深度のアラがそのまま形に出るので、
 // 粗いほうがかえって自然に見える(実機で確認)
 const MAX_SEGMENTS = 180;
-// ホイールの拡大縮小(1未満=窓に近づく)
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 1.8;
-const ZOOM_STEP = 0.08;
+// ホイールの拡大縮小。標本そのものの大きさを変える(1=標準・大きいほど拡大)。
+// 「窓に近づく」方式は、近づくほど絵が小さく見えて直感に合わないので使わない
+const ZOOM_MIN = 0.55;
+const ZOOM_MAX = 3.0;
+const ZOOM_STEP = 0.1;
+let userZoomTarget = 1;
+let userZoomSmooth = 1;
 const SMOOTHING = 0.15;
 
 // 深度後処理のレバー(設計書_深度後処理パック.md)
@@ -3502,6 +3528,8 @@ function disposeSpecimen() {
   gazeUpdateFailed = false;
   manualYaw = 0;
   manualPitch = 0;
+  userZoomTarget = 1;
+  userZoomSmooth = 1;
 
   if (specimen && scene) {
     scene.remove(specimen);
@@ -4026,6 +4054,13 @@ function updateCamera(immediate = false) {
 
   const physicalEyeActive = faceActive || eyeOverride;
 
+  // ホイールの拡大縮小は、顔で覗いていても効くよう常に更新する
+  if (immediate) {
+    userZoomSmooth = userZoomTarget;
+  } else {
+    userZoomSmooth += (userZoomTarget - userZoomSmooth) * 0.2;
+  }
+
   if (!physicalEyeActive) {
     if (immediate) {
       smoothX = targetX;
@@ -4055,11 +4090,11 @@ function updateCamera(immediate = false) {
     // わずかな拡大で打ち消して「吸い込まれる」体感にする(NEAR_BOOST=0で物理忠実)
     if (specimen && ud.unitScale) {
       const boost = clamp(Math.pow(NEAR_REF_Z / d, NEAR_BOOST), 0.9, 1.6);
-      specimen.scale.setScalar(ud.unitScale * boost);
+      specimen.scale.setScalar(ud.unitScale * boost * userZoomSmooth);
     }
   } else {
     if (specimen && ud.unitScale) {
-      specimen.scale.setScalar(ud.unitScale);
+      specimen.scale.setScalar(ud.unitScale * userZoomSmooth);
     }
     d = (ud.baseDistance || 2.6) * zoomSmooth;
     const scale = ud.parallaxScale || 0.3;
@@ -4383,8 +4418,9 @@ canvas.addEventListener("wheel", event => {
   if (!loaded) return;
   event.preventDefault();
 
-  const step = 1 + Math.sign(event.deltaY) * ZOOM_STEP;
-  zoomTarget = clamp(zoomTarget * step, ZOOM_MIN, ZOOM_MAX);
+  // 手前に回す(deltaY<0)と拡大
+  const step = 1 - Math.sign(event.deltaY) * ZOOM_STEP;
+  userZoomTarget = clamp(userZoomTarget * step, ZOOM_MIN, ZOOM_MAX);
 }, {passive:false});
 
 canvas.addEventListener("pointerup", endDrag);
@@ -4488,7 +4524,7 @@ function stopFaceLook() {
   btn.disabled = false;
   btn.classList.remove("on");
   btn.textContent = "🎥 顔で覗く";
-  $("hint").textContent = "端末を傾ける／マウスを動かすと、窓の中を覗けます";
+  $("hint").textContent = "端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと標本ごと回せます。ホイールで拡大縮小";
   resetEyeFilters();
   targetX = 0; targetY = 0;
   zoomTarget = 1;
@@ -4632,6 +4668,8 @@ window.__dbg = {
       camX:camera ? camera.position.x : 0,
       camY:camera ? camera.position.y : 0,
       meshVerts,
+      zoom:userZoomSmooth,
+      zoomTarget:userZoomTarget,
       faceActive,
       view:currentView,
       shelfSaved,
