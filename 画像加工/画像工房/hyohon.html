@@ -625,7 +625,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev25-warp";
+const REV = "rev26-drag2";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -715,7 +715,7 @@ const WOLLASTON = {
 // 左ボタン長押しの強制操作: 普段の視点の限界(±1)を超えて押し込むと、
 // はみ出した分だけ標本そのものが回る。離すと自然に正面へ戻る
 const DRAG_TURN = {
-  degPerUnit:45,   // 限界を1.0ぶん超えて押したとき何度回すか
+  degPerUnit:80,   // 限界を1.0ぶん超えて押したとき何度回すか
   maxTurnDeg:40,   // 回せる上限
   decay:0.90,      // 離してから戻る速さ(1に近いほどゆっくり。1で戻らない)
   signX:1,
@@ -4337,10 +4337,11 @@ canvas.addEventListener("pointerdown", event => {
 canvas.addEventListener("pointermove", event => {
   if (!dragging || !loaded) return;
 
-  const dx =
-    (event.clientX - dragStartX) / Math.max(innerWidth, 1) * 2;
-  const dy =
-    (event.clientY - dragStartY) / Math.max(innerHeight, 1) * 2;
+  // 横も縦も「同じ基準の長さ」で換算する。画面の幅と高さで別々に割ると、
+  // 横長の画面では横方向だけ倍の距離を引かないと動かない(=上下しか動かない)
+  const dragRef = Math.max(1, Math.min(innerWidth, innerHeight));
+  const dx = (event.clientX - dragStartX) / dragRef * 2;
+  const dy = (event.clientY - dragStartY) / dragRef * 2;
 
   const rawX = dragOriginX + dx;
   const rawY = dragOriginY + dy;
