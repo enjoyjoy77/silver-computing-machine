@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev3</div>
+<div id="rev">MR版 q6 rev4</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -1278,77 +1278,118 @@ function setKissPhase(p){
                : p===2 ? 2.5+kissRand()*2.5
                :         1.3+kissRand()*.9;
 }
-function kissBegin(){ kissSeed=(performance.now()|0)>>>0; setKissPhase(0); }
+function kissBegin(){ kissSeed=(performance.now()|0)>>>0; braidAngle=0; setKissPhase(0); }
 function ksmooth(u){ return u*u*(3-2*u); }
+
+/* ===== デュエット絡みエンジン(rev4で刷新) =====
+   振り付けは「ペアの1つの踊り」として定義する。2本の根元位置・長さから毎フレーム
+   「出会いの点M」「絡み軸」「編み込みの回転」を計算し、両ベロは同じ目標を追いかける
+   (自分は位相0、相手は位相180度=常に反対側から巻き込む)。
+   各ベロの指令はサーボ制御(舌先を目標へ少しずつ寄せる)で決まるので、
+   ながさ・ふとさ・相手の置き場所の**全組み合わせで、その場に合った専用の絡み**になる。 */
+let braidAngle=0; // 編み込みの回転位相
+const KISS_LR_SIGN=1; // 左右指令の符号(実測較正用。逆に曲がる場合は-1)
+const _dRoot1=new THREE.Vector3(), _dRoot2=new THREE.Vector3();
+const _dAxis=new THREE.Vector3(), _dU=new THREE.Vector3(), _dV=new THREE.Vector3();
+const _dM=new THREE.Vector3(), _dT1=new THREE.Vector3(), _dT2=new THREE.Vector3();
+const _dTip1=new THREE.Vector3(), _dTip2=new THREE.Vector3();
+const _dErr=new THREE.Vector3(), _dTgtL=new THREE.Vector3(), _dInvQ=new THREE.Quaternion();
+
+function clamp1(v){ return Math.max(-1,Math.min(1,v)); }
+
+/* 舌先を世界座標の目標targetへ寄せる指令をサーボで作る(ext/ud/lrを更新) */
+function steerTongue(cmdObj,rootPos,rootQuat,tipWorld,target,maxLen,dt){
+  _dInvQ.copy(rootQuat).invert();
+  _dTgtL.copy(target).sub(rootPos).applyQuaternion(_dInvQ);  // 目標(根元ローカル)
+  _dErr.copy(tipWorld).sub(rootPos).applyQuaternion(_dInvQ); // 今の舌先(ローカル)
+  // 伸縮: 目標までの距離が届くように
+  const wantExt=clamp1((_dTgtL.length()/Math.max(.02,maxLen))*2-1);
+  cmdObj.ext+= (wantExt-cmdObj.ext)*Math.min(1,6*dt);
+  // 上下・左右: 方向のズレを比例で寄せる
+  const curLen=Math.max(.02,_dErr.length()), tgtLen=Math.max(.02,_dTgtL.length());
+  const errUp=(_dTgtL.y/tgtLen)-(_dErr.y/curLen);
+  const errSide=(_dTgtL.x/tgtLen)-(_dErr.x/curLen);
+  cmdObj.ud=clamp1(cmdObj.ud+errUp*4.5*dt);
+  cmdObj.lr=clamp1(cmdObj.lr+errSide*4.5*dt*KISS_LR_SIGN);
+}
 
 function updateKiss(seconds,dt){
   if(!kissActive&&!entangleActive)return;
+  if(!partnerActive)return;
   kissPhaseT+=dt;
   if(kissPhaseT>=kissPhaseDur)setKissPhase((kissPhase+1)%4);
   const t=seconds;
   const u=Math.min(1,kissPhaseT/kissPhaseDur);
   const ss=ksmooth(u);
-  // ゆらぎ(周期の合わない正弦を重ねる=生き物っぽさ)
-  const n1=.5*Math.sin(t*1.7)+.3*Math.sin(t*2.9+1.3)+.2*Math.sin(t*4.3+.5);
-  const n2=.5*Math.sin(t*1.3+2.1)+.5*Math.sin(t*3.7+.8);
-  const td=t-.35; // 相手の反応遅れ
-  let e,ud,lr,tw,cl, pe,pud,plr,ptw,pcl;
 
-  if(kissPhase===0){ // さぐり
-    e=.25+.15*Math.sin(t*2.2)+.05*n1;
-    ud=.12*Math.sin(t*1.6)+.06*n2;
-    lr=.22*Math.sin(t*1.1)+.08*n1;
-    tw=.15*Math.sin(t*.8);
-    cl=.15+.12*Math.max(0,Math.sin(t*2.6));
-    pe=.22+.15*Math.sin(td*2.2)+.04*n2;
-    pud=-.10*Math.sin(td*1.6);
-    plr=-.20*Math.sin(td*1.1)-.06*n2;
-    ptw=-.12*Math.sin(td*.8);
-    pcl=.12+.10*Math.max(0,Math.sin(td*2.6));
-  }else if(kissPhase===1){ // まきつき
-    e=.5+.15*ss+.05*n1;
-    ud=.15*Math.sin(t*.9);
-    lr=.35*Math.sin(t*.6+1);
-    tw=.95*ss+.05*n2;
-    cl=.3+.2*ss;
-    pe=.5+.15*ss+.04*n2;
-    pud=-.12*Math.sin(td*.9+.4);
-    plr=-.33*Math.sin(td*.6+1.3);
-    ptw=-.95*ss-.05*n1;
-    pcl=.3+.2*ss;
-  }else if(kissPhase===2){ // しぼり(脈打ち。相手とは逆位相で押し合う)
-    const pulse=.5+.5*Math.sin(t*3.1);
-    e=.55+.12*pulse+.04*n1;
-    ud=.10*n2;
-    lr=.25*Math.sin(t*.5+1);
-    tw=Math.min(1,.9+.08*Math.sin(t*2.3));
-    cl=.35+.15*pulse;
-    pe=.55+.12*(1-pulse)+.04*n2;
-    pud=-.08*n1;
-    plr=-.24*Math.sin(td*.5+1.4);
-    ptw=-Math.min(1,.9+.08*Math.sin(t*2.3+1));
-    pcl=.35+.15*(1-pulse);
-  }else{ // ほどき
-    const r=(1-u)*(1-u);
-    e=.3+.2*r;
-    ud=.08*n2;
-    lr=.2*r*Math.sin(t*.7);
-    tw=.9*r;
-    cl=.2*r;
-    pe=.3+.2*r;
-    pud=-.06*n1;
-    plr=-.2*r*Math.sin(td*.7+.5);
-    ptw=-.9*r;
-    pcl=.2*r;
+  // ペアの形: 根元2点・出会いの点M(短い方に寄る)・絡み軸と直交基底
+  tongueRoot.updateMatrixWorld(true); partnerRoot.updateMatrixWorld(true);
+  tongueRoot.getWorldPosition(_dRoot1);
+  partnerRoot.getWorldPosition(_dRoot2);
+  const L1=SIZES[sizeLevel].length*1.12;
+  const L2=SIZES[partnerSizeLevel].length*1.12;
+  _dAxis.copy(_dRoot2).sub(_dRoot1);
+  const D=Math.max(.001,_dAxis.length());
+  _dAxis.divideScalar(D);
+  const f=Math.max(.15,Math.min(.85,L1/(L1+L2)));
+  _dM.copy(_dRoot1).addScaledVector(_dAxis,D*f);
+  _dM.y+=.012*Math.sin(t*1.3)+.006*Math.sin(t*2.9+1); // ゆらぎ
+  _dU.set(0,1,0);
+  if(Math.abs(_dAxis.y)>.9)_dU.set(1,0,0);
+  _dV.crossVectors(_dAxis,_dU).normalize();
+  _dU.crossVectors(_dV,_dAxis).normalize();
+
+  // 段階ごとの「ペアの踊り」パラメータ
+  let orbitR, spin, twAmp, clT, pushPull=0, retreat=0;
+  if(kissPhase===0){        // さぐり: 出会いの点のまわりを小さく、ためらいがちに
+    orbitR=.030+.010*Math.sin(t*2.1);
+    spin=1.1+.3*Math.sin(t*.7);
+    twAmp=.15; clT=.15+.10*Math.max(0,Math.sin(t*2.5));
+  }else if(kissPhase===1){  // まきつき: 回転を速め、半径を絞りながら編み込む
+    orbitR=.05-(0.05-0.018)*ss;
+    spin=2.6;
+    twAmp=.9*ss; clT=.3+.2*ss;
+  }else if(kissPhase===2){  // しぼり: 密着して脈打つ(押し合いは本物=extを互い違いに)
+    orbitR=.014;
+    spin=1.3;
+    twAmp=Math.min(1,.9+.08*Math.sin(t*2.6));
+    pushPull=.12*Math.sin(t*3.1);
+    clT=.35+.15*Math.max(0,Math.sin(t*3.1));
+  }else{                    // ほどき: 逆回転でゆっくりほどけ、少し身を引く
+    orbitR=.02+.03*ss;
+    spin=-1.8;
+    twAmp=.9*(1-ss); clT=.2*(1-ss); retreat=.06*ss;
   }
+  braidAngle+=spin*dt;
 
-  // ときどき舌先がピッと動くフリック(ゆっくりした窓×速い揺れ=稀に出る)
-  const flick=.25*Math.max(0,Math.sin(t*7.3))*Math.max(0,Math.sin(t*.23));
-  cl=Math.min(1,cl+flick);
-  pcl=Math.min(1,pcl+.25*Math.max(0,Math.sin(td*7.3))*Math.max(0,Math.sin(td*.23)));
+  // 2本の目標: 同じ円周上の正反対の位置(=互いに相手の隙間へ入る)
+  const ca=Math.cos(braidAngle), sa=Math.sin(braidAngle);
+  _dT1.copy(_dM).addScaledVector(_dU,ca*orbitR).addScaledVector(_dV,sa*orbitR)
+      .addScaledVector(_dAxis,-retreat);
+  _dT2.copy(_dM).addScaledVector(_dU,-ca*orbitR).addScaledVector(_dV,-sa*orbitR)
+      .addScaledVector(_dAxis,retreat);
 
-  command.ext=e; command.ud=ud; command.lr=lr; command.tw=tw; command.cl=cl;
-  partnerCommand.ext=pe; partnerCommand.ud=pud; partnerCommand.lr=plr; partnerCommand.tw=ptw; partnerCommand.cl=pcl;
+  // いまの舌先(世界座標)
+  const tipI=centerIndex(SECTIONS-1)*3;
+  _dTip1.set(pos[tipI],pos[tipI+1],pos[tipI+2]).applyMatrix4(tongueRoot.matrixWorld);
+  const pl=(P_SECTIONS_COL-1)*3;
+  _dTip2.set(partnerCenters[pl],partnerCenters[pl+1],partnerCenters[pl+2]).applyMatrix4(partnerRoot.matrixWorld);
+
+  // サーボで追わせる(ext/ud/lr)
+  steerTongue(command,_dRoot1,tongueRoot.quaternion,_dTip1,_dT1,L1,dt);
+  steerTongue(partnerCommand,_dRoot2,partnerRoot.quaternion,_dTip2,_dT2,L2,dt);
+
+  // ねじれ: 逆巻き同士(絡みの核)。押し合い: extに互い違いの脈動を足す
+  command.tw+= ( twAmp-command.tw)*Math.min(1,4*dt);
+  partnerCommand.tw+= (-twAmp-partnerCommand.tw)*Math.min(1,4*dt);
+  command.ext=clamp1(command.ext+pushPull);
+  partnerCommand.ext=clamp1(partnerCommand.ext-pushPull);
+
+  // 舌先カール+たまのフリック
+  const flick=.22*Math.max(0,Math.sin(t*7.3))*Math.max(0,Math.sin(t*.23));
+  command.cl+= (Math.min(1,clT+flick)-command.cl)*Math.min(1,5*dt);
+  partnerCommand.cl+= (Math.min(1,clT)-partnerCommand.cl)*Math.min(1,5*dt);
+
   syncControls();
 }
 
@@ -2904,6 +2945,7 @@ window.__dbg={
   },
 
   partner(){return togglePartner()},
+  tipLocal(){const i=centerIndex(SECTIONS-1)*3;return [pos[i],pos[i+1],pos[i+2]];},
   kiss(){return toggleKiss()},
   operate(){return toggleOperateTarget()},
   setPartnerCmd(name,value){
