@@ -625,7 +625,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev21-gazefix";
+const REV = "rev22-turn";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -701,6 +701,15 @@ const GAZE_TUNE = {
   signX:1,           // 動く向きが逆なら-1にする
   signY:1
 };
+
+// Wollaston補正(設計書_視線追従.md 段階3): 視線の知覚は「顔の向き」に
+// 最大20度引っ張られる。絵の面をごくわずかに視点へ向けると被視感が上がる。
+// 引き換えに窓の視差を打ち消すので小さく。gain:0で完全無効
+const WOLLASTON = {
+  gain:0.15,
+  maxTurnDeg:4
+};
+let lastTurn = {on:false, yawDeg:0, pitchDeg:0};
 
 let personSegmenter = null;
 let personFaceLandmarker = null;
@@ -3458,6 +3467,41 @@ function updateGazeSprites() {
         GAZE_TUNE.signY * sy * gaze.irisR_uv.y
       );
     }
+
+    // Wollaston補正: 絵の面をごくわずかに視点へ向ける。
+    // 虹彩の板はreliefの子なので一緒に回り、ズレない。
+    // ここは顔が見つかったとき(板がある)しか通らないので、風景写真は回らない
+    const relief = specimen?.userData?.relief;
+
+    if (relief && camera) {
+      if (WOLLASTON.gain > 0) {
+        relief.getWorldPosition(worldPosition);
+        direction.copy(camera.position).sub(worldPosition);
+
+        const depth = Math.max(Math.abs(direction.z), 1e-6);
+        const limit = WOLLASTON.maxTurnDeg * Math.PI / 180;
+        const yaw = clamp(
+          Math.atan2(direction.x, depth) * WOLLASTON.gain,
+          -limit,
+          limit
+        );
+        const pitch = clamp(
+          -Math.atan2(direction.y, depth) * WOLLASTON.gain,
+          -limit,
+          limit
+        );
+
+        relief.rotation.set(pitch, yaw, 0);
+        lastTurn = {
+          on:true,
+          yawDeg:yaw * 180 / Math.PI,
+          pitchDeg:pitch * 180 / Math.PI
+        };
+      } else if (lastTurn.on) {
+        relief.rotation.set(0, 0, 0);
+        lastTurn = {on:false, yawDeg:0, pitchDeg:0};
+      }
+    }
   } catch (error) {
     gazeUpdateFailed = true;
     console.warn("視線追従の更新に失敗したため停止します", error);
@@ -4992,6 +5036,14 @@ $("recordShow").addEventListener("click", () => {
 Object.assign(window.__dbg, {
   gazeTune() {
     return GAZE_TUNE;
+  },
+
+  wollaston() {
+    return WOLLASTON;
+  },
+
+  turnStats() {
+    return {...lastTurn};
   },
 
   // 虹彩の板の中身を取り出す(見た目の不具合を調べるための検証用)
