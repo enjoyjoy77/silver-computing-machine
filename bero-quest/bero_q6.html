@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev5</div>
+<div id="rev">MR版 q6 rev6</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -282,6 +282,50 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.05;
 renderer.xr.enabled=true;
 document.body.appendChild(renderer.domElement);
+
+// 舌と唾液だけに使う簡易スタジオ環境。ARのscene.environmentには設定しない
+function makeWetEnvironmentMap(){
+  const wetCanvas=document.createElement("canvas");
+  wetCanvas.width=64;
+  wetCanvas.height=32;
+  const wetContext=wetCanvas.getContext("2d");
+
+  const wetVertical=wetContext.createLinearGradient(0,0,0,wetCanvas.height);
+  wetVertical.addColorStop(0,"#ffffff");
+  wetVertical.addColorStop(.22,"#e9e3e5");
+  wetVertical.addColorStop(.56,"#71666c");
+  wetVertical.addColorStop(1,"#17151a");
+  wetContext.fillStyle=wetVertical;
+  wetContext.fillRect(0,0,wetCanvas.width,wetCanvas.height);
+
+  const wetLeft=wetContext.createLinearGradient(7,0,17,0);
+  wetLeft.addColorStop(0,"rgba(255,255,255,0)");
+  wetLeft.addColorStop(.5,"rgba(255,236,241,.72)");
+  wetLeft.addColorStop(1,"rgba(255,255,255,0)");
+  wetContext.fillStyle=wetLeft;
+  wetContext.fillRect(7,0,10,wetCanvas.height);
+
+  const wetRight=wetContext.createLinearGradient(45,0,57,0);
+  wetRight.addColorStop(0,"rgba(255,255,255,0)");
+  wetRight.addColorStop(.5,"rgba(225,238,255,.58)");
+  wetRight.addColorStop(1,"rgba(255,255,255,0)");
+  wetContext.fillStyle=wetRight;
+  wetContext.fillRect(45,0,12,wetCanvas.height);
+
+  const wetEquirectangular=new THREE.CanvasTexture(wetCanvas);
+  wetEquirectangular.colorSpace=THREE.SRGBColorSpace;
+  wetEquirectangular.mapping=THREE.EquirectangularReflectionMapping;
+  wetEquirectangular.needsUpdate=true;
+
+  const wetPmrem=new THREE.PMREMGenerator(renderer);
+  wetPmrem.compileEquirectangularShader();
+  const wetRenderTarget=wetPmrem.fromEquirectangular(wetEquirectangular);
+  const wetEnvironment=wetRenderTarget.texture;
+
+  wetPmrem.dispose();
+  wetEquirectangular.dispose();
+  return wetEnvironment;
+}
 
 const scene=new THREE.Scene();
 const pcBackground=new THREE.Color(0x18181e);
@@ -917,6 +961,7 @@ function physicsStep(dt){
     for(const c of constraints)solveDistance(c);
 
     solveColliders();
+    solvePartnerCapsules(iteration===0);
 
     if(grabbedParticle>=0){
       const i=grabbedParticle*3;
@@ -1027,6 +1072,7 @@ geometry.setAttribute(
   new THREE.BufferAttribute(visualUVs,2)
 );
 
+const wetEnvironmentMap=makeWetEnvironmentMap();
 const material=new THREE.MeshPhysicalMaterial({
   map:makeTongueTexture(),
   roughnessMap:makeRoughnessMap(),
@@ -1035,7 +1081,9 @@ const material=new THREE.MeshPhysicalMaterial({
   clearcoatRoughness:.06,  // 濡れツヤ強化(唾液感)
   sheen:.48,
   sheenColor:new THREE.Color(0xff9cab),
-  side:THREE.DoubleSide
+  side:THREE.DoubleSide,
+  envMap:wetEnvironmentMap,
+  envMapIntensity:1.0
 });
 
 const tongue=new THREE.Mesh(geometry,material);
@@ -1094,6 +1142,18 @@ const partnerAct={ext:0,ud:0,lr:0,tw:0,cl:0};
 const P_SECTIONS_COL=13;                       // コライダ用の断面中心
 const partnerCenters=new Float32Array(P_SECTIONS_COL*3);
 const partnerRadii=new Float32Array(P_SECTIONS_COL);
+// 相手舌カプセルの自分ローカル座標キャッシュ。毎フレームnewしない
+const PARTNER_CAPSULE_COUNT=P_SECTIONS_COL-1;
+const partnerCapsuleCentersLocal=new Float32Array(P_SECTIONS_COL*3);
+const partnerCapsuleWorldToOwn=new THREE.Matrix4();
+const partnerCapsuleCachePoint=new THREE.Vector3();
+
+// 唾液を生やす接触候補。1物理ステップにつき最大8件を使い回す
+const SALIVA_CONTACT_MAX=8;
+const salivaContactOwn=new Int16Array(SALIVA_CONTACT_MAX);
+const salivaContactPartner=new Int8Array(SALIVA_CONTACT_MAX);
+const salivaContactLocal=new Float32Array(SALIVA_CONTACT_MAX*3);
+let salivaContactCount=0;
 const _pQ=new THREE.Quaternion();
 const _pDQ=new THREE.Quaternion();
 const _pE=new THREE.Euler();
@@ -1192,15 +1252,166 @@ function rebuildPartner(){
   partnerGeometry.computeBoundingSphere();
 }
 
-function appendPartnerColliders(){
+// 相手舌を12本の連続カプセルとして解き、断面境界の押し出し方向の食い違い(シワの原因)をなくす
+function solvePartnerCapsules(refreshPartnerCapsuleCache){
+  if(refreshPartnerCapsuleCache){
+    salivaContactCount=0;
+    if(!partnerActive)return;
+
+    tongueRoot.updateMatrixWorld(true);
+    partnerRoot.updateMatrixWorld(true);
+    partnerCapsuleWorldToOwn.copy(tongueRoot.matrixWorld).invert();
+
+    // partnerCentersを相手ローカル→ワールド→自分ローカルへ1物理ステップに一度変換
+    for(let partnerCacheSection=0;partnerCacheSection<P_SECTIONS_COL;partnerCacheSection++){
+      const partnerCache3=partnerCacheSection*3;
+      partnerCapsuleCachePoint.set(
+        partnerCenters[partnerCache3],
+        partnerCenters[partnerCache3+1],
+        partnerCenters[partnerCache3+2]
+      ).applyMatrix4(partnerRoot.matrixWorld)
+       .applyMatrix4(partnerCapsuleWorldToOwn);
+
+      partnerCapsuleCentersLocal[partnerCache3]=partnerCapsuleCachePoint.x;
+      partnerCapsuleCentersLocal[partnerCache3+1]=partnerCapsuleCachePoint.y;
+      partnerCapsuleCentersLocal[partnerCache3+2]=partnerCapsuleCachePoint.z;
+    }
+  }
+
   if(!partnerActive)return;
-  tongueRoot.updateMatrixWorld(true);
-  localMatrixInverse.copy(tongueRoot.matrixWorld).invert();
-  partnerRoot.updateMatrixWorld(true);
-  for(let s=0;s<P_SECTIONS_COL;s++){
-    _pWorld.set(partnerCenters[s*3],partnerCenters[s*3+1],partnerCenters[s*3+2])
-      .applyMatrix4(partnerRoot.matrixWorld);
-    appendColliderWorld(_pWorld.x,_pWorld.y,_pWorld.z,partnerRadii[s],false);
+
+  for(let partnerParticle=0;partnerParticle<PARTICLES;partnerParticle++){
+    if(invMass[partnerParticle]===0||partnerParticle===grabbedParticle)continue;
+
+    const partnerParticle3=partnerParticle*3;
+    const partnerParticleX=predicted[partnerParticle3];
+    const partnerParticleY=predicted[partnerParticle3+1];
+    const partnerParticleZ=predicted[partnerParticle3+2];
+
+    let partnerBestDistance2=Infinity;
+    let partnerBestX=0;
+    let partnerBestY=0;
+    let partnerBestZ=0;
+    let partnerBestRadius=0;
+    let partnerBestSection=0;
+
+    for(let partnerSegment=0;partnerSegment<PARTNER_CAPSULE_COUNT;partnerSegment++){
+      const partnerA3=partnerSegment*3;
+      const partnerB3=partnerA3+3;
+      const partnerAX=partnerCapsuleCentersLocal[partnerA3];
+      const partnerAY=partnerCapsuleCentersLocal[partnerA3+1];
+      const partnerAZ=partnerCapsuleCentersLocal[partnerA3+2];
+      const partnerABX=partnerCapsuleCentersLocal[partnerB3]-partnerAX;
+      const partnerABY=partnerCapsuleCentersLocal[partnerB3+1]-partnerAY;
+      const partnerABZ=partnerCapsuleCentersLocal[partnerB3+2]-partnerAZ;
+      const partnerAB2=partnerABX*partnerABX+partnerABY*partnerABY+partnerABZ*partnerABZ;
+
+      let partnerSegmentT=partnerAB2>1e-12
+        ? ((partnerParticleX-partnerAX)*partnerABX+
+           (partnerParticleY-partnerAY)*partnerABY+
+           (partnerParticleZ-partnerAZ)*partnerABZ)/partnerAB2
+        : 0;
+      partnerSegmentT=Math.max(0,Math.min(1,partnerSegmentT));
+
+      const partnerClosestX=partnerAX+partnerABX*partnerSegmentT;
+      const partnerClosestY=partnerAY+partnerABY*partnerSegmentT;
+      const partnerClosestZ=partnerAZ+partnerABZ*partnerSegmentT;
+      const partnerDeltaX=partnerParticleX-partnerClosestX;
+      const partnerDeltaY=partnerParticleY-partnerClosestY;
+      const partnerDeltaZ=partnerParticleZ-partnerClosestZ;
+      const partnerDistance2=
+        partnerDeltaX*partnerDeltaX+
+        partnerDeltaY*partnerDeltaY+
+        partnerDeltaZ*partnerDeltaZ;
+
+      if(partnerDistance2<partnerBestDistance2){
+        partnerBestDistance2=partnerDistance2;
+        partnerBestX=partnerClosestX;
+        partnerBestY=partnerClosestY;
+        partnerBestZ=partnerClosestZ;
+        partnerBestRadius=
+          partnerRadii[partnerSegment]+
+          (partnerRadii[partnerSegment+1]-partnerRadii[partnerSegment])*partnerSegmentT+
+          .0015;
+        // 唾液の相手アンカーは近い方の実断面へ所属させる
+        partnerBestSection=partnerSegmentT<.5?partnerSegment:partnerSegment+1;
+      }
+    }
+
+    if(partnerBestDistance2>=partnerBestRadius*partnerBestRadius)continue;
+
+    let partnerPushX=partnerParticleX-partnerBestX;
+    let partnerPushY=partnerParticleY-partnerBestY;
+    let partnerPushZ=partnerParticleZ-partnerBestZ;
+    let partnerDistance=Math.sqrt(partnerBestDistance2);
+
+    // 中心線上でもfiniteを維持できる固定フォールバック方向
+    if(partnerDistance<1e-7){
+      const partnerFallback3=partnerBestSection*3;
+      const partnerFallbackNext3=
+        Math.min(P_SECTIONS_COL-1,partnerBestSection+1)*3;
+      const partnerFallbackX=
+        partnerCapsuleCentersLocal[partnerFallbackNext3]-
+        partnerCapsuleCentersLocal[partnerFallback3];
+      const partnerFallbackY=
+        partnerCapsuleCentersLocal[partnerFallbackNext3+1]-
+        partnerCapsuleCentersLocal[partnerFallback3+1];
+
+      partnerPushX=-partnerFallbackY;
+      partnerPushY=partnerFallbackX;
+      partnerPushZ=0;
+
+      const partnerFallbackLength=Math.hypot(
+        partnerPushX,partnerPushY,partnerPushZ
+      );
+      if(partnerFallbackLength<1e-7){
+        partnerPushX=0;
+        partnerPushY=1;
+        partnerPushZ=0;
+      }else{
+        partnerPushX/=partnerFallbackLength;
+        partnerPushY/=partnerFallbackLength;
+      }
+      partnerDistance=1;
+    }
+
+    const partnerPushAmount=(partnerBestRadius-Math.sqrt(partnerBestDistance2))*.5;
+    const partnerPushInverse=1/partnerDistance;
+    predicted[partnerParticle3]+=partnerPushX*partnerPushInverse*partnerPushAmount;
+    predicted[partnerParticle3+1]+=partnerPushY*partnerPushInverse*partnerPushAmount;
+    predicted[partnerParticle3+2]+=partnerPushZ*partnerPushInverse*partnerPushAmount;
+    contactFlags[partnerParticle]=1;
+
+    // 同じ物理ステップ内で2cm未満の近接候補は重複登録しない
+    let partnerContactNear=false;
+    for(let partnerContactIndex=0;
+        partnerContactIndex<salivaContactCount;
+        partnerContactIndex++){
+      const partnerContact3=partnerContactIndex*3;
+      const partnerContactDX=
+        predicted[partnerParticle3]-salivaContactLocal[partnerContact3];
+      const partnerContactDY=
+        predicted[partnerParticle3+1]-salivaContactLocal[partnerContact3+1];
+      const partnerContactDZ=
+        predicted[partnerParticle3+2]-salivaContactLocal[partnerContact3+2];
+
+      if(partnerContactDX*partnerContactDX+
+         partnerContactDY*partnerContactDY+
+         partnerContactDZ*partnerContactDZ<.0004){
+        partnerContactNear=true;
+        break;
+      }
+    }
+
+    if(!partnerContactNear&&salivaContactCount<SALIVA_CONTACT_MAX){
+      const partnerContactSlot=salivaContactCount++;
+      const partnerContactSlot3=partnerContactSlot*3;
+      salivaContactOwn[partnerContactSlot]=partnerParticle;
+      salivaContactPartner[partnerContactSlot]=partnerBestSection;
+      salivaContactLocal[partnerContactSlot3]=predicted[partnerParticle3];
+      salivaContactLocal[partnerContactSlot3+1]=predicted[partnerParticle3+1];
+      salivaContactLocal[partnerContactSlot3+2]=predicted[partnerParticle3+2];
+    }
   }
 }
 
@@ -1296,28 +1507,42 @@ function ksmooth(u){ return u*u*(3-2*u); }
 /* ===== 唾液の糸(粘性の見た目) =====
    2本の舌先の間に半透明の糸を張る。触れている間はたるんで揺れ、
    離れると伸びて細くなり、限界でプツッと切れて少し後にまた張る。 */
-const SALIVA_N=4;
+const SALIVA_N=6;
 const salivaMat=new THREE.MeshPhysicalMaterial({
   color:0xf4f9ff,transparent:true,opacity:.42,
-  roughness:.05,clearcoat:1,clearcoatRoughness:.05,depthWrite:false
+  roughness:.05,clearcoat:1,clearcoatRoughness:.05,depthWrite:false,
+  envMap:wetEnvironmentMap,envMapIntensity:1.5
 });
 const salivaStrands=[];
 {
   const sg=new THREE.CylinderGeometry(1,1,1,6,1,true);
   sg.translate(0,.5,0); // 根元を原点に、+y方向へ長さ1
   for(let i=0;i<SALIVA_N;i++){
-    const m1=new THREE.Mesh(sg,salivaMat), m2=new THREE.Mesh(sg,salivaMat);
-    m1.visible=false;m2.visible=false;
-    m1.frustumCulled=false;m2.frustumCulled=false;
-    m1.renderOrder=20;m2.renderOrder=20;
-    scene.add(m1);scene.add(m2);
-    salivaStrands.push({m1,m2,active:false,restLen:0,cool:i*.4,
-      offA:new THREE.Vector3(),offB:new THREE.Vector3()});
+    const m1=new THREE.Mesh(sg,salivaMat);
+    const m2=new THREE.Mesh(sg,salivaMat);
+    const m3=new THREE.Mesh(sg,salivaMat);
+    m1.visible=false;m2.visible=false;m3.visible=false;
+    m1.frustumCulled=false;m2.frustumCulled=false;m3.frustumCulled=false;
+    m1.renderOrder=20;m2.renderOrder=20;m3.renderOrder=20;
+    scene.add(m1);scene.add(m2);scene.add(m3);
+    salivaStrands.push({
+      m1,m2,m3,
+      active:false,
+      restLen:0,
+      cool:i*.4,
+      ownParticle:-1,
+      partnerSection:-1,
+      breakLen:.08,
+      thicknessMul:1
+    });
   }
 }
-const _sA=new THREE.Vector3(),_sB=new THREE.Vector3(),_sMid=new THREE.Vector3(),_sDir=new THREE.Vector3();
+const _sA=new THREE.Vector3(),_sB=new THREE.Vector3();
+const _sMid1=new THREE.Vector3(),_sMid2=new THREE.Vector3();
+const _sDir=new THREE.Vector3(),_sPartnerCenter=new THREE.Vector3();
 const _sUpAxis=new THREE.Vector3(0,1,0),_sQ=new THREE.Quaternion();
 const _pTipWorld=new THREE.Vector3();
+let salivaActiveCount=0;
 
 function orientSalivaSeg(mesh,from,to,r){
   _sDir.copy(to).sub(from);
@@ -1329,36 +1554,144 @@ function orientSalivaSeg(mesh,from,to,r){
   mesh.visible=true;
 }
 function hideSaliva(){
-  for(const s of salivaStrands){s.active=false;s.m1.visible=false;s.m2.visible=false;}
+  for(const salivaStrand of salivaStrands){
+    salivaStrand.active=false;
+    salivaStrand.m1.visible=false;
+    salivaStrand.m2.visible=false;
+    salivaStrand.m3.visible=false;
+  }
+  salivaActiveCount=0;
 }
-function updateSaliva(dt,tipA,tipB,touching){
-  for(const s of salivaStrands){
-    if(!s.active){
-      s.cool-=dt;
-      if(touching&&s.cool<=0){
-        s.active=true;
-        s.restLen=tipA.distanceTo(tipB)+.005;
-        s.offA.set((Math.random()-.5)*.02,(Math.random()-.5)*.012,(Math.random()-.5)*.02);
-        s.offB.set((Math.random()-.5)*.02,(Math.random()-.5)*.012,(Math.random()-.5)*.02);
+
+// 接触候補へ所属した糸を、毎フレーム現在の粒子・相手断面から張り直す
+function updateSaliva(dt){
+  salivaActiveCount=0;
+  tongueRoot.updateMatrixWorld(true);
+  partnerRoot.updateMatrixWorld(true);
+
+  for(const salivaStrand of salivaStrands){
+    if(!salivaStrand.active){
+      salivaStrand.cool-=dt;
+      if(partnerActive&&salivaContactCount>0&&salivaStrand.cool<=0){
+        const salivaChoice=Math.min(
+          salivaContactCount-1,
+          Math.floor(Math.random()*salivaContactCount)
+        );
+
+        salivaStrand.active=true;
+        salivaStrand.ownParticle=salivaContactOwn[salivaChoice];
+        salivaStrand.partnerSection=salivaContactPartner[salivaChoice];
+        salivaStrand.breakLen=.08+Math.random()*.05;
+        salivaStrand.thicknessMul=.8+Math.random()*.5;
+
+        const salivaOwn3=salivaStrand.ownParticle*3;
+        _sA.set(
+          pos[salivaOwn3],
+          pos[salivaOwn3+1],
+          pos[salivaOwn3+2]
+        ).applyMatrix4(tongueRoot.matrixWorld);
+
+        const salivaPartner3=salivaStrand.partnerSection*3;
+        _sPartnerCenter.set(
+          partnerCenters[salivaPartner3],
+          partnerCenters[salivaPartner3+1],
+          partnerCenters[salivaPartner3+2]
+        ).applyMatrix4(partnerRoot.matrixWorld);
+
+        _sDir.copy(_sA).sub(_sPartnerCenter);
+        if(_sDir.lengthSq()<1e-12)_sDir.set(0,1,0);
+        _sB.copy(_sPartnerCenter).addScaledVector(
+          _sDir.normalize(),
+          partnerRadii[salivaStrand.partnerSection]
+        );
+        salivaStrand.restLen=_sA.distanceTo(_sB)+.005;
       }
+      if(!salivaStrand.active)continue;
+    }
+
+    if(!partnerActive||
+       salivaStrand.ownParticle<0||
+       salivaStrand.ownParticle>=PARTICLES||
+       salivaStrand.partnerSection<0||
+       salivaStrand.partnerSection>=P_SECTIONS_COL){
+      salivaStrand.active=false;
+      salivaStrand.m1.visible=false;
+      salivaStrand.m2.visible=false;
+      salivaStrand.m3.visible=false;
+      salivaStrand.cool=.5+Math.random()*.8;
       continue;
     }
-    _sA.copy(tipA).add(s.offA);
-    _sB.copy(tipB).add(s.offB);
-    const len=_sA.distanceTo(_sB);
-    const maxLen=.10+s.restLen;
-    if(len>maxLen){ // 伸びきってプツッ
-      s.active=false;s.m1.visible=false;s.m2.visible=false;
-      s.cool=.5+Math.random()*.8;
+
+    const salivaOwn3=salivaStrand.ownParticle*3;
+    _sA.set(
+      pos[salivaOwn3],
+      pos[salivaOwn3+1],
+      pos[salivaOwn3+2]
+    ).applyMatrix4(tongueRoot.matrixWorld);
+
+    const salivaPartner3=salivaStrand.partnerSection*3;
+    _sPartnerCenter.set(
+      partnerCenters[salivaPartner3],
+      partnerCenters[salivaPartner3+1],
+      partnerCenters[salivaPartner3+2]
+    ).applyMatrix4(partnerRoot.matrixWorld);
+
+    // 相手中心から自分アンカー方向へ半径分寄せ、相手表面を終点にする
+    _sDir.copy(_sA).sub(_sPartnerCenter);
+    if(_sDir.lengthSq()<1e-12)_sDir.set(0,1,0);
+    _sB.copy(_sPartnerCenter).addScaledVector(
+      _sDir.normalize(),
+      partnerRadii[salivaStrand.partnerSection]
+    );
+
+    const salivaLength=_sA.distanceTo(_sB);
+    if(salivaLength>salivaStrand.breakLen){
+      salivaStrand.active=false;
+      salivaStrand.m1.visible=false;
+      salivaStrand.m2.visible=false;
+      salivaStrand.m3.visible=false;
+      salivaStrand.cool=.5+Math.random()*.8;
       continue;
     }
-    const stretch=Math.min(1,len/maxLen);
-    _sMid.copy(_sA).add(_sB).multiplyScalar(.5);
-    _sMid.y-=(1-stretch)*.02+.004;              // たるみ=粘性の垂れ
-    const r=.0016*(1-.7*stretch)+.0004;         // 伸びるほど細く
-    orientSalivaSeg(s.m1,_sA,_sMid,r);
-    orientSalivaSeg(s.m2,_sMid,_sB,r);
-    if(touching)s.restLen=Math.min(s.restLen,len+.01); // 触れている間は張り直す
+
+    let salivaOwnedContact=false;
+    for(let salivaCandidate=0;
+        salivaCandidate<salivaContactCount;
+        salivaCandidate++){
+      if(salivaContactOwn[salivaCandidate]===salivaStrand.ownParticle&&
+         salivaContactPartner[salivaCandidate]===salivaStrand.partnerSection){
+        salivaOwnedContact=true;
+        break;
+      }
+    }
+
+    // 接触が続く間は既存仕様と同様に自然長を詰め直す
+    if(salivaOwnedContact){
+      salivaStrand.restLen=Math.min(
+        salivaStrand.restLen,
+        salivaLength+.01
+      );
+    }
+
+    const salivaStretch=Math.min(
+      1,
+      salivaLength/Math.max(1e-4,salivaStrand.breakLen)
+    );
+    const salivaSag=(1-salivaStretch)*.02+.004;
+
+    _sMid1.copy(_sA).lerp(_sB,1/3);
+    _sMid2.copy(_sA).lerp(_sB,2/3);
+    _sMid1.y-=salivaSag;
+    _sMid2.y-=salivaSag*.88;
+
+    const salivaRadius=
+      (.0016*(1-.7*salivaStretch)+.0004)*
+      salivaStrand.thicknessMul;
+
+    orientSalivaSeg(salivaStrand.m1,_sA,_sMid1,salivaRadius);
+    orientSalivaSeg(salivaStrand.m2,_sMid1,_sMid2,salivaRadius*.92);
+    orientSalivaSeg(salivaStrand.m3,_sMid2,_sB,salivaRadius*.84);
+    salivaActiveCount++;
   }
 }
 
@@ -1420,24 +1753,29 @@ function updateKiss(seconds,dt){
   _dV.crossVectors(_dAxis,_dU).normalize();
   _dU.crossVectors(_dV,_dAxis).normalize();
 
-  // 段階ごとの「ペアの踊り」パラメータ
+  // 2本の太さから「触れ合う距離」を出す(輪の直径2*orbitRが太さ合計pairRを下回ると沈み込む)
+  const rOwn=(W0+H0)*.5;
+  const rPartnerNow=(BASE_W+BASE_H)*.5*partnerThickMul();
+  const pairR=rOwn+rPartnerNow;
+
+  // 段階ごとの「ペアの踊り」パラメータ(輪の半径は太さに相対=どのサイズ組合せでも必ず触れる)
   let orbitR, spin, twAmp, clT, pushPull=0, retreat=0;
-  if(kissPhase===0){        // さぐり: 出会いの点のまわりを小さく、ためらいがちに
-    orbitR=.030+.010*Math.sin(t*2.1);
+  if(kissPhase===0){        // さぐり: 表面が触れるか触れないかの距離でためらいがちに
+    orbitR=pairR*(.62+.18*Math.sin(t*2.1));
     spin=1.1+.3*Math.sin(t*.7);
     twAmp=.15; clT=.15+.10*Math.max(0,Math.sin(t*2.5));
-  }else if(kissPhase===1){  // まきつき: 回転を速め、半径を絞りながら編み込む
-    orbitR=.05-(0.05-0.018)*ss;
+  }else if(kissPhase===1){  // まきつき: 回転を速め、沈み込みながら編み込む
+    orbitR=pairR*(.62-(.62-.32)*ss);
     spin=2.6;
     twAmp=.9*ss; clT=.3+.2*ss;
-  }else if(kissPhase===2){  // しぼり: 密着して脈打つ(押し合いは本物=extを互い違いに)
-    orbitR=.008; // 密着を深く
+  }else if(kissPhase===2){  // しぼり: 深く密着して脈打つ(押し合いは本物=extを互い違いに)
+    orbitR=pairR*.30;
     spin=1.3;
     twAmp=Math.min(1,.9+.08*Math.sin(t*2.6));
     pushPull=.12*Math.sin(t*3.1);
     clT=.35+.15*Math.max(0,Math.sin(t*3.1));
   }else{                    // ほどき: 逆回転でゆっくりほどけ、少し身を引く
-    orbitR=.02+.03*ss;
+    orbitR=pairR*(.35+.45*ss);
     spin=-1.8;
     twAmp=.9*(1-ss); clT=.2*(1-ss); retreat=.06*ss;
   }
@@ -1508,7 +1846,7 @@ function updatePartnerFrame(seconds,dt){
     }
   }
 
-  appendPartnerColliders();
+  // (相手コライダは物理ステップ内のsolvePartnerCapsulesが担当。旧appendPartnerCollidersは廃止)
 
   // 接触検知→自動絡み: 自分の舌先が相手の胴体に触れている時間で判定
   {
@@ -1526,7 +1864,7 @@ function updatePartnerFrame(seconds,dt){
       const pl=(P_SECTIONS_COL-1)*3;
       _pTipWorld.set(partnerCenters[pl],partnerCenters[pl+1],partnerCenters[pl+2])
         .applyMatrix4(partnerRoot.matrixWorld);
-      updateSaliva(dt,_ownTipWorld,_pTipWorld,touching);
+      updateSaliva(dt);
     }
 
     if(touching){
@@ -3115,6 +3453,7 @@ window.__dbg={
       maximumStrainPercent:Number((maximumStrain*100).toFixed(3)),
       maximumVolumeErrorPercent:Number((maxVolumeError()*100).toFixed(3)),
       finite:Array.from(pos).every(Number.isFinite),
+      salivaActive:salivaActiveCount,
       gesture:handGestures.enabled,
       gestureActive:handGestures.active,
       attached:tongueMounted,
