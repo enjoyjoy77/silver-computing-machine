@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev7</div>
+<div id="rev">MR版 q6 rev8</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -762,6 +762,7 @@ function updateConstraintRestLengths(){
   }
 }
 
+let waveClock=0; // 進行波の時計(物理ステップごとに進む)
 function buildMuscleTargets(){
   const stretch=currentStretch();
   const radiusScale=1/Math.sqrt(stretch);
@@ -775,9 +776,13 @@ function buildMuscleTargets(){
     const tip=t<.55?0:Math.pow((t-.55)/.45,2);
 
     if(s>0){
+      // 進行波(筋静水圧体の知見): 屈曲の指令が根元→先へ遅れて伝わる。
+      // 断面ごとに位相をずらすと、うねりが波として走って生き物らしくなる。
+      const waveT=waveClock-t*.28;                    // 先端ほど遅れる(0.28秒ぶん)
+      const waveGain=1+.28*Math.sin(waveT*4.4-t*5.6); // 波の腹と節
       // 曲げの強さ(実機FB「ヨッシーみたいに自在に」→約1.7倍に増強)
-      const pitch=-(activation.ud*.16*env+activation.cl*.34*tip);
-      const yaw=activation.lr*.16*env;
+      const pitch=-(activation.ud*.16*env*waveGain+activation.cl*.34*tip);
+      const yaw=activation.lr*.16*env*waveGain;
       const roll=activation.tw*.18*(.1+.9*t);
 
       euler.set(pitch,yaw,roll,"XYZ");
@@ -900,6 +905,7 @@ function solveColliders(){
 }
 
 function physicsStep(dt){
+  waveClock+=dt; // 進行波の時計
   updateActivation(dt);
   updateConstraintRestLengths();
   buildMuscleTargets();
@@ -1546,6 +1552,21 @@ const _sUpAxis=new THREE.Vector3(0,1,0),_sQ=new THREE.Quaternion();
 const _pTipWorld=new THREE.Vector3();
 let salivaActiveCount=0;
 
+// 両端で太さが違う糸の一節(下端r0→上端r1)。中央漏斗形状を出すのに使う
+function orientSalivaSegTaper(mesh,from,to,r0,r1){
+  _sDir.copy(to).sub(from);
+  const len=Math.max(1e-4,_sDir.length());
+  mesh.position.copy(from);
+  _sQ.setFromUnitVectors(_sUpAxis,_sDir.normalize());
+  mesh.quaternion.copy(_sQ);
+  // 元ジオメトリは半径1の円柱なので、平均半径でスケールし、細い側を絞る比率をxzに反映
+  const rAvg=(r0+r1)*.5;
+  mesh.scale.set(rAvg,len,rAvg);
+  mesh.visible=true;
+  // 上下で太さを変えるためgeometryは共有のまま、見た目は平均半径で近似
+  // (円錐台ジオメトリを個別に持つとメモリと生成コストが増えるため、ここでは近似)
+}
+
 function orientSalivaSeg(mesh,from,to,r){
   _sDir.copy(to).sub(from);
   const len=Math.max(1e-4,_sDir.length());
@@ -1686,13 +1707,18 @@ function updateSaliva(dt){
     _sMid1.y-=salivaSag;
     _sMid2.y-=salivaSag*.88;
 
-    const salivaRadius=
-      (.0016*(1-.7*salivaStretch)+.0004)*
+    // 中央漏斗形状(粘弾性フィラメントの知見): 両端は太く、中央ほど細く絞る。
+    // 伸びるほど中央の絞りが強くなり、切れる直前は糸のように細くなる。
+    const salivaBase=
+      (.0022*(1-.55*salivaStretch)+.0005)*
       salivaStrand.thicknessMul;
+    const neck=1-.62*salivaStretch;        // 中央の細さ(伸びるほど細い)
+    const rEnd=salivaBase;                 // 端(付着部)
+    const rMid=salivaBase*neck;            // 中央
 
-    orientSalivaSeg(salivaStrand.m1,_sA,_sMid1,salivaRadius);
-    orientSalivaSeg(salivaStrand.m2,_sMid1,_sMid2,salivaRadius*.92);
-    orientSalivaSeg(salivaStrand.m3,_sMid2,_sB,salivaRadius*.84);
+    orientSalivaSegTaper(salivaStrand.m1,_sA,_sMid1,rEnd,rEnd*(.55+.45*neck));
+    orientSalivaSegTaper(salivaStrand.m2,_sMid1,_sMid2,rEnd*(.55+.45*neck),rMid);
+    orientSalivaSegTaper(salivaStrand.m3,_sMid2,_sB,rMid,rEnd*.9);
     salivaActiveCount++;
   }
 }
@@ -1812,6 +1838,14 @@ function updateKiss(seconds,dt){
   partnerCommand.tw+= (-twAmp-partnerCommand.tw)*Math.min(1,4*dt);
   command.ext=clamp1(command.ext+pushPull);
   partnerCommand.ext=clamp1(partnerCommand.ext-pushPull);
+
+  // 非反復ノイズ(リサーチ知見): 周期の合わないゆらぎを重ねて「毎回同じ」を消す
+  command.ud=clamp1(command.ud+.07*wobble(t,3.1));
+  command.lr=clamp1(command.lr+.07*wobble(t,6.4));
+  command.ext=clamp1(command.ext+.05*wobble(t,9.2));
+  partnerCommand.ud=clamp1(partnerCommand.ud+.07*wobble(t+1.3,3.1));
+  partnerCommand.lr=clamp1(partnerCommand.lr+.07*wobble(t+1.3,6.4));
+  partnerCommand.ext=clamp1(partnerCommand.ext+.05*wobble(t+1.3,9.2));
 
   // 舌先カール+たまのフリック
   const flick=.22*Math.max(0,Math.sin(t*7.3))*Math.max(0,Math.sin(t*.23));
@@ -3296,7 +3330,27 @@ if(!navigator.xr){
 
 const clock=new THREE.Clock();
 
+/* ===== 生き物っぽさの層(リサーチ工場2026-07-26の知見) =====
+   ①アイドル: 何もしていない時も呼吸(低周波)+微振動(高周波)で「死体感」を消す
+   ②非反復ノイズ: 周期の合わない正弦を重ねた1/f的ゆらぎ。完全な繰り返しは不気味の谷 */
+function wobble(t,seed){ // -1..1のなめらかな非反復ゆらぎ(低周波大+高周波小の二層)
+  return .6*Math.sin(t*.37+seed)+.25*Math.sin(t*.91+seed*2.1)
+        +.1*Math.sin(t*2.3+seed*3.7)+.05*Math.sin(t*5.1+seed*1.3);
+}
+function applyIdleLife(t){
+  // 手動操作・自動モーション・キス・録体・ジェスチャー中は邪魔しない
+  if(automatic||kissActive||entangleActive||handGestures.enabled||rokutai.playing)return;
+  const breath=.10*Math.sin(t*.55);             // 呼吸(約11秒で1往復)
+  const micro=.02*Math.sin(t*7.9)+.012*Math.sin(t*11.3+1.2); // 微振動
+  command.ext+=(breath+micro-command.ext)*.12;
+  command.ud +=(.09*wobble(t,1.7)-command.ud)*.10;
+  command.lr +=(.10*wobble(t,4.2)-command.lr)*.10;
+  command.tw +=(.06*wobble(t,8.8)-command.tw)*.08;
+  command.cl +=(Math.max(0,.09*wobble(t,2.5))-command.cl)*.08;
+}
+
 function updateAutomatic(time){
+  applyIdleLife(time);
   if(automatic==="pero"){
     command.ext=.28+Math.sin(time*3.1)*.23;
     command.ud=Math.sin(time*3.1+1)*.56;
@@ -3449,6 +3503,7 @@ window.__dbg={
     const steps=Math.max(0,Math.min(20000,Math.floor(Number(count)||1)));
 
     for(let i=0;i<steps;i++){
+      updateAutomatic(performance.now()*.001);             // アイドル・自動モーションも進める
       updatePartnerFrame(performance.now()*.001,FIXED_DT); // 相手・キスも進める
       physicsStep(FIXED_DT);
       rokutai.update(performance.now(),command); // 非表示タブ検証用: 録体も進める
