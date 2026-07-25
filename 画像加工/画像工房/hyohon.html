@@ -689,8 +689,11 @@ const LAYER_TUNE = {
 // 幾何は一切変えない(深度を凹ませる段階1は擂鉢になって失敗した)
 const GAZE_TUNE = {
   gain:1.0,          // 1.0=本物の眼球と同じ追従量
-  maxShiftX:0.55,    // 虹彩半径の何倍まで横に動かすか
+  maxShiftX:0.55,    // 虹彩半径の何倍まで横に動かすか(上限)
   maxShiftY:0.25,    // 縦(まぶたがあるので控えめ)
+  roomKeep:0.96,     // まぶたの型からどれだけはみ出させないか(下げると大きく動くが縁で切られる)
+  lidDilate:0.10,    // まぶたの型を虹彩半径の何倍広げるか(狭いと虹彩が四角く切れる)
+  lidBlur:0.12,      // 型の縁のぼかし。硬いと切り口が線になる
   minIrisPx:6,       // 虹彩半径がこれ未満なら発動しない
   maxYawDeg:25,      // 元写真の顔がこれ以上横向きなら発動しない
   irisCut:1.12,      // 虹彩の外周(黒い輪)まで含めて切り出す倍率。切り出しと消しで同じ値を使う
@@ -3265,7 +3268,15 @@ function buildGazeSprites(
       throw new Error("まぶた多角形用canvasを作成できません");
     }
 
+    const lidScale = (scaleX + scaleY) * 0.5;
+    const dilatePx = Math.max(0, eye.r * GAZE_TUNE.lidDilate * lidScale);
+    const blurPx = Math.max(1, eye.r * GAZE_TUNE.lidBlur * lidScale);
+
     polygonContext.fillStyle = "white";
+    polygonContext.strokeStyle = "white";
+    polygonContext.lineJoin = "round";
+    polygonContext.lineCap = "round";
+    polygonContext.lineWidth = dilatePx * 2;
     polygonContext.beginPath();
     eye.lidPoints.forEach((point, index) => {
       const x = (point.x - eye.lid.x0) * scaleX;
@@ -3275,9 +3286,10 @@ function buildGazeSprites(
     });
     polygonContext.closePath();
     polygonContext.fill();
+    if (dilatePx > 0) polygonContext.stroke();
 
     maskContext.save();
-    maskContext.filter = "blur(1.5px)";
+    maskContext.filter = `blur(${blurPx.toFixed(2)}px)`;
     maskContext.drawImage(polygonCanvas, 0, 0);
     maskContext.restore();
 
@@ -3292,13 +3304,15 @@ function buildGazeSprites(
       if (xi < 0 || yi < 0 || xi >= canvasW || yi >= canvasH) return 0;
       return maskData[(yi * canvasW + xi) * 4 + 1] > 128 ? 1 : 0;
     };
+    // 判定は「本来の虹彩」の大きさで行う(切り出し用の一回り大きい円ではない)
+    const irisRTrue = eye.r * (scaleX + scaleY) * 0.5;
     const discCoverage = (ox, oy) => {
-      const step = Math.max(1, Math.round(irisR / 7));
+      const step = Math.max(1, Math.round(irisRTrue / 7));
       let inside = 0;
       let total = 0;
-      for (let y = -irisR; y <= irisR; y += step) {
-        for (let x = -irisR; x <= irisR; x += step) {
-          if (x * x + y * y > irisR * irisR) continue;
+      for (let y = -irisRTrue; y <= irisRTrue; y += step) {
+        for (let x = -irisRTrue; x <= irisRTrue; x += step) {
+          if (x * x + y * y > irisRTrue * irisRTrue) continue;
           total++;
           inside += insideAt(irisX + x + ox, irisY + y + oy);
         }
@@ -3308,8 +3322,11 @@ function buildGazeSprites(
     const baseCoverage = discCoverage(0, 0);
     const findRoom = (dirX, dirY) => {
       let room = 0;
-      for (let s = 1; s <= irisR * 1.2; s++) {
-        if (discCoverage(dirX * s, dirY * s) < baseCoverage * 0.97) break;
+      for (let s = 1; s <= irisRTrue * 1.5; s++) {
+        if (
+          discCoverage(dirX * s, dirY * s) <
+          baseCoverage * GAZE_TUNE.roomKeep
+        ) break;
         room = s;
       }
       return room;
@@ -3339,19 +3356,34 @@ function buildGazeSprites(
     const lidCenterY = (eye.lid.y0 + eye.lid.y1) * 0.5;
     const localX = (lidCenterX / texW - 0.5) * innerWidth;
     const localY = -(lidCenterY / texH - 0.5) * innerHeight;
+    // 板の奥行きは「目のまわりで一番手前の面」に合わせる。
+    // 近い頂点1点に合わせると、鼻筋などの手前の面に虹彩が潜り込んで
+    // 縦にすっぱり切られたように見える(実写で顕著)
     let nearestZ = 0;
     let nearestDistance = Infinity;
+    let surfaceZ = -Infinity;
+    const halfW = quadW * 0.55;
+    const halfH = quadH * 0.55;
 
     for (let index = 0; index < positions.count; index++) {
-      const dx = positions.getX(index) - localX;
-      const dy = positions.getY(index) - localY;
-      const distance = dx * dx + dy * dy;
+      const vx = positions.getX(index);
+      const vy = positions.getY(index);
+      const vz = positions.getZ(index);
+      const dx = vx - localX;
+      const dy = vy - localY;
 
+      if (Math.abs(dx) <= halfW && Math.abs(dy) <= halfH && vz > surfaceZ) {
+        surfaceZ = vz;
+      }
+
+      const distance = dx * dx + dy * dy;
       if (distance < nearestDistance) {
         nearestDistance = distance;
-        nearestZ = positions.getZ(index);
+        nearestZ = vz;
       }
     }
+
+    const baseZ = surfaceZ > -Infinity ? surfaceZ : nearestZ;
 
     const material = new THREE.MeshStandardMaterial({
       map:mapTexture,
@@ -3374,7 +3406,7 @@ function buildGazeSprites(
     mesh.position.set(
       localX,
       localY,
-      personMesh.position.z + nearestZ + quadH * 0.02
+      personMesh.position.z + baseZ + quadH * 0.02
     );
     mesh.userData.gaze = {
       irisR_uv:{x:eye.r / lidW, y:eye.r / lidH},
@@ -3409,16 +3441,17 @@ function updateGazeSprites() {
       // 本物の目は「眼球の回転半径(=虹彩の直径)×sinθ」だけ虹彩が動く
       const sinX = direction.x / length;
       const sinY = direction.y / length;
-      const sx = clamp(
-        2 * sinX * GAZE_TUNE.gain,
-        -GAZE_TUNE.maxShiftX,
-        GAZE_TUNE.maxShiftX
+      // 目ごとの実測の余裕(room)を超えないようにする=まぶたの型で切られない
+      const limitX = Math.min(
+        GAZE_TUNE.maxShiftX,
+        (gaze.room?.x ?? GAZE_TUNE.maxShiftX)
       );
-      const sy = clamp(
-        2 * sinY * GAZE_TUNE.gain,
-        -GAZE_TUNE.maxShiftY,
-        GAZE_TUNE.maxShiftY
+      const limitY = Math.min(
+        GAZE_TUNE.maxShiftY,
+        (gaze.room?.y ?? GAZE_TUNE.maxShiftY)
       );
+      const sx = clamp(2 * sinX * GAZE_TUNE.gain, -limitX, limitX);
+      const sy = clamp(2 * sinY * GAZE_TUNE.gain, -limitY, limitY);
 
       map.offset.set(
         -GAZE_TUNE.signX * sx * gaze.irisR_uv.x,
@@ -3676,6 +3709,7 @@ function createSpecimen(sourceImage, depthImage, person = null) {
             active:gazeSprites.length > 0,
             eyes:gazeSprites.length,
             irisPx:gazeMeasurement.eyes.map(eye => eye.r),
+            room:gazeSprites.map(mesh => mesh.userData.gaze.room),
             yawDeg:gazeMeasurement.yawDeg,
             reason:gazeSprites.length
               ? ""
@@ -4958,6 +4992,16 @@ $("recordShow").addEventListener("click", () => {
 Object.assign(window.__dbg, {
   gazeTune() {
     return GAZE_TUNE;
+  },
+
+  // 虹彩の板の中身を取り出す(見た目の不具合を調べるための検証用)
+  gazeMaps() {
+    return gazeSprites.map(mesh => ({
+      map:mesh.material.map.image.toDataURL(),
+      alpha:mesh.material.alphaMap.image.toDataURL(),
+      offset:[mesh.material.map.offset.x, mesh.material.map.offset.y],
+      size:[mesh.material.map.image.width, mesh.material.map.image.height]
+    }));
   },
 
   gazeStats() {
