@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev6</div>
+<div id="rev">MR版 q6 rev7</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -1165,6 +1165,8 @@ const _pWorld=new THREE.Vector3();
 const _ownTipWorld=new THREE.Vector3();
 let partnerHeldBy=-1;                      // 相手ベロを持っている手(-1=なし)
 const partnerHoldOffset=new THREE.Vector3();
+let ownHeldBy=-1;                          // 自分のベロを持っている手(-1=なし。装着中は不可)
+const ownHoldOffset=new THREE.Vector3();
 let entangleActive=false;                  // 接触で自動発動する絡みモーション
 let entangleContactTimer=0;
 let entangleSepTimer=0;
@@ -1509,7 +1511,7 @@ function ksmooth(u){ return u*u*(3-2*u); }
    離れると伸びて細くなり、限界でプツッと切れて少し後にまた張る。 */
 const SALIVA_N=6;
 const salivaMat=new THREE.MeshPhysicalMaterial({
-  color:0xf4f9ff,transparent:true,opacity:.42,
+  color:0xf4f9ff,transparent:true,opacity:.18, // 重なっても白飛びしない薄さ
   roughness:.05,clearcoat:1,clearcoatRoughness:.05,depthWrite:false,
   envMap:wetEnvironmentMap,envMapIntensity:1.5
 });
@@ -2899,6 +2901,10 @@ for(let i=0;i<2;i++){
       partnerHeldBy=-1;
       logJapanese("相手のベロをここに置きました。");
     }
+    if(ownHeldBy===i){
+      ownHeldBy=-1;
+      logJapanese("自分のベロをここに置きました。");
+    }
     if(grabbedOwner===i){
       grabbedParticle=-1;
       grabbedOwner=-1;
@@ -3154,6 +3160,17 @@ function beginXRGrab(side){
     }
   }
 
+  // 自分のベロの持ち運び: 根元寄り(根元から6cm以内)をつまむと本体ごと動かせる(装着中は不可)
+  if(!tongueMounted&&ownHeldBy<0){
+    tongueRoot.getWorldPosition(_pWorld);
+    if(_pWorld.distanceTo(tempWorld)<.06){
+      ownHeldBy=side;
+      ownHoldOffset.copy(tongueRoot.position).sub(tempWorld);
+      logJapanese("自分のベロをつかみました。動かして好きな場所で離してください。");
+      return;
+    }
+  }
+
   tongueRoot.updateMatrixWorld(true);
   localMatrixInverse.copy(tongueRoot.matrixWorld).invert();
   tempLocal.copy(tempWorld).applyMatrix4(localMatrixInverse);
@@ -3304,6 +3321,21 @@ renderer.setAnimationLoop((time,frame)=>{
   if(xrActive&&frame){
     if(!xrPlaced)placeXRContent();
     if(tongueMounted)applyTongueMountPose();
+    // 自分のベロの持ち運び追従
+    if(ownHeldBy>=0){
+      if(tongueMounted){ownHeldBy=-1;}
+      else if(interactionValid[ownHeldBy]){
+        const oh3=ownHeldBy*3;
+        tongueRoot.position.set(
+          interactionWorld[oh3]+ownHoldOffset.x,
+          interactionWorld[oh3+1]+ownHoldOffset.y,
+          interactionWorld[oh3+2]+ownHoldOffset.z
+        );
+        tongueRoot.updateMatrixWorld(true);
+      }else{
+        ownHeldBy=-1; // トラッキング切れで手放す
+      }
+    }
     updateXRInputs(frame);
     handGestures.update(frame,xrReferenceSpace,inputSources,time);
     updateXRButtons(time);
