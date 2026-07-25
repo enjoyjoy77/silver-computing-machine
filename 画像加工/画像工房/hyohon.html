@@ -625,7 +625,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev19-wide";
+const REV = "rev20-gaze";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -683,6 +683,20 @@ const LAYER_TUNE = {
   alphaTest:0.35,
   maskGamma:1.5,
   texMax:1024
+};
+
+// 視線追従(設計書_視線追従.md 段階2): 虹彩だけを別の板にして、視点方向へ滑らせる。
+// 幾何は一切変えない(深度を凹ませる段階1は擂鉢になって失敗した)
+const GAZE_TUNE = {
+  gain:1.0,          // 1.0=本物の眼球と同じ追従量
+  maxShiftX:0.55,    // 虹彩半径の何倍まで横に動かすか
+  maxShiftY:0.25,    // 縦(まぶたがあるので控えめ)
+  minIrisPx:6,       // 虹彩半径がこれ未満なら発動しない
+  maxYawDeg:25,      // 元写真の顔がこれ以上横向きなら発動しない
+  irisCut:1.12,      // 虹彩の外周(黒い輪)まで含めて切り出す倍率。切り出しと消しで同じ値を使う
+  fillRingRatio:1.35,// 塗りつぶしの色をどこから取るか(irisCutより外=白目側)
+  signX:1,           // 動く向きが逆なら-1にする
+  signY:1
 };
 
 let personSegmenter = null;
@@ -1388,6 +1402,15 @@ let sourceFile = null;
 let depthFile = null;
 let meshVerts = 0;
 let lastDepthStats = null;
+let gazeSprites = [];
+let gazeUpdateFailed = false;
+let lastGazeStats = {
+  active:false,
+  eyes:0,
+  irisPx:[],
+  yawDeg:null,
+  reason:"画像を読み込んでいません"
+};
 
 let targetX = 0;
 let targetY = 0;
@@ -2957,7 +2980,421 @@ function buildLayeredRelief(
   }
 }
 
+function measureGazeEyes(landmarks, texW, texH) {
+  const invalid = reason => ({
+    ok:false, reason, yawDeg:null, eyes:[]
+  });
+
+  if (
+    !Array.isArray(landmarks) ||
+    !Number.isFinite(texW) ||
+    !Number.isFinite(texH) ||
+    texW < 1 ||
+    texH < 1
+  ) {
+    return invalid("虹彩を検出できませんでした");
+  }
+
+  const rightLid = [
+    33, 7, 163, 144, 145, 153, 154, 155,
+    133, 173, 157, 158, 159, 160, 161, 246
+  ];
+  const leftLid = [
+    362, 382, 381, 380, 374, 373, 390, 249,
+    263, 466, 388, 387, 386, 385, 384, 398
+  ];
+  const required = new Set([
+    33, 133, 362, 263,
+    468, 469, 470, 471, 472,
+    473, 474, 475, 476, 477,
+    ...rightLid,
+    ...leftLid
+  ]);
+
+  for (const index of required) {
+    const point = landmarks[index];
+    if (
+      !point ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y)
+    ) {
+      return invalid("虹彩を検出できませんでした");
+    }
+  }
+
+  const rightWidth = Math.abs(landmarks[33].x - landmarks[133].x);
+  const leftWidth = Math.abs(landmarks[362].x - landmarks[263].x);
+  const largerWidth = Math.max(rightWidth, leftWidth);
+  const smallerWidth = Math.min(rightWidth, leftWidth);
+
+  if (!Number.isFinite(largerWidth) || largerWidth <= 1e-8) {
+    return invalid("虹彩を検出できませんでした");
+  }
+
+  const yawDeg =
+    Math.acos(clamp(smallerWidth / largerWidth, 0, 1)) *
+    180 / Math.PI;
+
+  if (yawDeg > GAZE_TUNE.maxYawDeg) {
+    return {
+      ok:false,
+      reason:`顔が横を向きすぎています(${yawDeg.toFixed(1)}度)`,
+      yawDeg,
+      eyes:[]
+    };
+  }
+
+  const definitions = [
+    {center:468, ring:[469, 470, 471, 472], lid:rightLid},
+    {center:473, ring:[474, 475, 476, 477], lid:leftLid}
+  ];
+  const eyes = [];
+
+  for (const definition of definitions) {
+    const center = landmarks[definition.center];
+    const cx = center.x * texW;
+    const cy = center.y * texH;
+    const ring = definition.ring.map(index => ({
+      x:landmarks[index].x * texW,
+      y:landmarks[index].y * texH
+    }));
+    const r = ring.reduce(
+      (sum, point) => sum + Math.hypot(point.x - cx, point.y - cy),
+      0
+    ) / ring.length;
+
+    if (!Number.isFinite(r)) {
+      return invalid("虹彩を検出できませんでした");
+    }
+
+    if (r < GAZE_TUNE.minIrisPx) {
+      return {
+        ok:false,
+        reason:`顔が小さすぎます(虹彩${r.toFixed(1)}px)`,
+        yawDeg,
+        eyes:[]
+      };
+    }
+
+    const lidPoints = definition.lid.map(index => ({
+      x:landmarks[index].x * texW,
+      y:landmarks[index].y * texH
+    }));
+    const padding = r * 0.8;
+    const minX = Math.min(...lidPoints.map(point => point.x));
+    const maxX = Math.max(...lidPoints.map(point => point.x));
+    const minY = Math.min(...lidPoints.map(point => point.y));
+    const maxY = Math.max(...lidPoints.map(point => point.y));
+
+    eyes.push({
+      cx,
+      cy,
+      r,
+      lid:{
+        x0:clamp(minX - padding, 0, texW),
+        y0:clamp(minY - padding, 0, texH),
+        x1:clamp(maxX + padding, 0, texW),
+        y1:clamp(maxY + padding, 0, texH)
+      },
+      ring,
+      lidPoints
+    });
+  }
+
+  return {ok:true, reason:"虹彩を検出しました", yawDeg, eyes};
+}
+
+// 元画像のコピーを作り、虹彩の円を外周リングの色で塗りつぶす。
+// 大きい写真でも重くならないよう、読み書きは目のまわりの小さな矩形だけに限る
+function makeGazeSourceCanvas(sourceImage, eyes) {
+  const texW = sourceImage.naturalWidth || sourceImage.width;
+  const texH = sourceImage.naturalHeight || sourceImage.height;
+  const output = document.createElement("canvas");
+  output.width = texW;
+  output.height = texH;
+
+  const context = output.getContext("2d", {
+    willReadFrequently:true
+  });
+  if (!context) {
+    throw new Error("虹彩を消すためのcanvasを作成できません");
+  }
+
+  context.drawImage(sourceImage, 0, 0, texW, texH);
+
+  for (const eye of eyes) {
+    const outerR = eye.r * GAZE_TUNE.fillRingRatio + 2;
+    const x0 = clamp(Math.floor(eye.cx - outerR), 0, texW - 1);
+    const y0 = clamp(Math.floor(eye.cy - outerR), 0, texH - 1);
+    const x1 = clamp(Math.ceil(eye.cx + outerR), 0, texW - 1);
+    const y1 = clamp(Math.ceil(eye.cy + outerR), 0, texH - 1);
+    const boxW = x1 - x0 + 1;
+    const boxH = y1 - y0 + 1;
+    if (boxW < 2 || boxH < 2) continue;
+
+    const patch = context.getImageData(x0, y0, boxW, boxH);
+    const pixels = patch.data;
+    const original = new Uint8ClampedArray(pixels);
+    const cutR = eye.r * GAZE_TUNE.irisCut;
+    const innerR = cutR * 0.85;
+
+    for (let y = 0; y < boxH; y++) {
+      for (let x = 0; x < boxW; x++) {
+        const dx = x0 + x + 0.5 - eye.cx;
+        const dy = y0 + y + 0.5 - eye.cy;
+        const distance = Math.hypot(dx, dy);
+        if (distance > cutR) continue;
+
+        const directionX = distance > 1e-6 ? dx / distance : 1;
+        const directionY = distance > 1e-6 ? dy / distance : 0;
+        const sampleX = clamp(
+          Math.round(
+            eye.cx + directionX * eye.r * GAZE_TUNE.fillRingRatio - x0
+          ),
+          0,
+          boxW - 1
+        );
+        const sampleY = clamp(
+          Math.round(
+            eye.cy + directionY * eye.r * GAZE_TUNE.fillRingRatio - y0
+          ),
+          0,
+          boxH - 1
+        );
+        const targetOffset = (y * boxW + x) * 4;
+        const sampleOffset = (sampleY * boxW + sampleX) * 4;
+        const blend = distance <= innerR
+          ? 1
+          : clamp(1 - (distance - innerR) / (cutR - innerR), 0, 1);
+
+        for (let channel = 0; channel < 3; channel++) {
+          pixels[targetOffset + channel] = Math.round(
+            original[targetOffset + channel] * (1 - blend) +
+            original[sampleOffset + channel] * blend
+          );
+        }
+      }
+    }
+
+    context.putImageData(patch, x0, y0);
+  }
+
+  return output;
+}
+
+function buildGazeSprites(
+  sourceImage,
+  eyes,
+  innerWidth,
+  innerHeight,
+  personMesh
+) {
+  if (
+    !personMesh?.isMesh ||
+    !personMesh.geometry?.attributes?.position
+  ) {
+    throw new Error("人物層メッシュを取得できません");
+  }
+
+  const texW = sourceImage.naturalWidth || sourceImage.width;
+  const texH = sourceImage.naturalHeight || sourceImage.height;
+  const positions = personMesh.geometry.attributes.position;
+  const meshes = [];
+
+  for (const eye of eyes) {
+    const lidW = eye.lid.x1 - eye.lid.x0;
+    const lidH = eye.lid.y1 - eye.lid.y0;
+
+    if (lidW <= 0 || lidH <= 0) {
+      throw new Error("まぶた領域の大きさが不正です");
+    }
+
+    const canvasW = Math.max(1, Math.ceil(lidW));
+    const canvasH = Math.max(1, Math.ceil(lidH));
+    const scaleX = canvasW / lidW;
+    const scaleY = canvasH / lidH;
+    const mapCanvas = document.createElement("canvas");
+    mapCanvas.width = canvasW;
+    mapCanvas.height = canvasH;
+
+    const mapContext = mapCanvas.getContext("2d");
+    if (!mapContext) {
+      throw new Error("虹彩テクスチャ用canvasを作成できません");
+    }
+
+    mapContext.drawImage(
+      sourceImage,
+      eye.lid.x0, eye.lid.y0, lidW, lidH,
+      0, 0, canvasW, canvasH
+    );
+
+    const irisX = (eye.cx - eye.lid.x0) * scaleX;
+    const irisY = (eye.cy - eye.lid.y0) * scaleY;
+    // 消した範囲と同じ大きさで切り出す(ずれると白い輪が残る)
+    const irisR =
+      eye.r * GAZE_TUNE.irisCut * (scaleX + scaleY) * 0.5;
+    const feather = Math.min(2, Math.max(1, irisR * 0.25));
+    const irisMask = mapContext.createRadialGradient(
+      irisX, irisY, Math.max(0, irisR - feather),
+      irisX, irisY, irisR
+    );
+    irisMask.addColorStop(0, "rgba(255,255,255,1)");
+    irisMask.addColorStop(1, "rgba(255,255,255,0)");
+
+    mapContext.globalCompositeOperation = "destination-in";
+    mapContext.fillStyle = irisMask;
+    mapContext.fillRect(0, 0, canvasW, canvasH);
+    mapContext.globalCompositeOperation = "source-over";
+
+    const maskCanvas = document.createElement("canvas");
+    maskCanvas.width = canvasW;
+    maskCanvas.height = canvasH;
+    const maskContext = maskCanvas.getContext("2d");
+    if (!maskContext) {
+      throw new Error("まぶたマスク用canvasを作成できません");
+    }
+
+    maskContext.fillStyle = "black";
+    maskContext.fillRect(0, 0, canvasW, canvasH);
+
+    const polygonCanvas = document.createElement("canvas");
+    polygonCanvas.width = canvasW;
+    polygonCanvas.height = canvasH;
+    const polygonContext = polygonCanvas.getContext("2d");
+    if (!polygonContext) {
+      throw new Error("まぶた多角形用canvasを作成できません");
+    }
+
+    polygonContext.fillStyle = "white";
+    polygonContext.beginPath();
+    eye.lidPoints.forEach((point, index) => {
+      const x = (point.x - eye.lid.x0) * scaleX;
+      const y = (point.y - eye.lid.y0) * scaleY;
+      if (index === 0) polygonContext.moveTo(x, y);
+      else polygonContext.lineTo(x, y);
+    });
+    polygonContext.closePath();
+    polygonContext.fill();
+
+    maskContext.save();
+    maskContext.filter = "blur(1.5px)";
+    maskContext.drawImage(polygonCanvas, 0, 0);
+    maskContext.restore();
+
+    const mapTexture = new THREE.CanvasTexture(mapCanvas);
+    mapTexture.colorSpace = THREE.SRGBColorSpace;
+    mapTexture.minFilter = THREE.LinearFilter;
+    mapTexture.magFilter = THREE.LinearFilter;
+    mapTexture.wrapS = THREE.ClampToEdgeWrapping;
+    mapTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const maskTexture = new THREE.CanvasTexture(maskCanvas);
+    maskTexture.minFilter = THREE.LinearFilter;
+    maskTexture.magFilter = THREE.LinearFilter;
+    maskTexture.wrapS = THREE.ClampToEdgeWrapping;
+    maskTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const quadW = lidW / texW * innerWidth;
+    const quadH = lidH / texH * innerHeight;
+    const lidCenterX = (eye.lid.x0 + eye.lid.x1) * 0.5;
+    const lidCenterY = (eye.lid.y0 + eye.lid.y1) * 0.5;
+    const localX = (lidCenterX / texW - 0.5) * innerWidth;
+    const localY = -(lidCenterY / texH - 0.5) * innerHeight;
+    let nearestZ = 0;
+    let nearestDistance = Infinity;
+
+    for (let index = 0; index < positions.count; index++) {
+      const dx = positions.getX(index) - localX;
+      const dy = positions.getY(index) - localY;
+      const distance = dx * dx + dy * dy;
+
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestZ = positions.getZ(index);
+      }
+    }
+
+    const material = new THREE.MeshStandardMaterial({
+      map:mapTexture,
+      alphaMap:maskTexture,
+      transparent:true,
+      alphaTest:0.15,
+      depthWrite:false,
+      side:THREE.FrontSide,
+      roughness:0.78,
+      metalness:0,
+      emissive:0xffffff,
+      emissiveMap:mapTexture,
+      emissiveIntensity:0.12
+    });
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(quadW, quadH),
+      material
+    );
+
+    mesh.position.set(
+      localX,
+      localY,
+      personMesh.position.z + nearestZ + quadH * 0.02
+    );
+    mesh.userData.gaze = {
+      irisR_uv:{x:eye.r / lidW, y:eye.r / lidH},
+      quadPx:{w:lidW, h:lidH}
+    };
+    meshes.push(mesh);
+  }
+
+  return meshes;
+}
+
+function updateGazeSprites() {
+  if (!gazeSprites.length || gazeUpdateFailed) return;
+
+  try {
+    const worldPosition = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+
+    for (const mesh of gazeSprites) {
+      const gaze = mesh.userData.gaze;
+      const map = mesh.material?.map;
+
+      if (!gaze || !map || !camera) continue;
+
+      mesh.getWorldPosition(worldPosition);
+      direction.copy(camera.position).sub(worldPosition);
+      const length = direction.length();
+
+      if (!Number.isFinite(length) || length <= 1e-8) continue;
+
+      // 本物の目は「眼球の回転半径(=虹彩の直径)×sinθ」だけ虹彩が動く
+      const sinX = direction.x / length;
+      const sinY = direction.y / length;
+      const sx = clamp(
+        2 * sinX * GAZE_TUNE.gain,
+        -GAZE_TUNE.maxShiftX,
+        GAZE_TUNE.maxShiftX
+      );
+      const sy = clamp(
+        2 * sinY * GAZE_TUNE.gain,
+        -GAZE_TUNE.maxShiftY,
+        GAZE_TUNE.maxShiftY
+      );
+
+      map.offset.set(
+        -GAZE_TUNE.signX * sx * gaze.irisR_uv.x,
+        GAZE_TUNE.signY * sy * gaze.irisR_uv.y
+      );
+    }
+  } catch (error) {
+    gazeUpdateFailed = true;
+    console.warn("視線追従の更新に失敗したため停止します", error);
+  }
+}
+
 function disposeSpecimen() {
+  gazeSprites = [];
+  gazeUpdateFailed = false;
+
   if (specimen && scene) {
     scene.remove(specimen);
   }
@@ -3073,6 +3510,76 @@ function createSpecimen(sourceImage, depthImage, person = null) {
 
   const reliefStrength = Math.min(innerWidth, innerHeight) * 0.24;
 
+  // 視線追従(段階2): 虹彩を測り、元画像から虹彩を消したコピーを人物層に使う
+  let gazeSourceImage = sourceImage;
+  let gazeMeasurement = null;
+
+  lastGazeStats = {
+    active:false,
+    eyes:0,
+    irisPx:[],
+    yawDeg:null,
+    reason:!lastDepthStats?.personDetected
+      ? "人物が検出されなかったため視線追従を行いません"
+      : !lastDepthStats?.faceDetected
+        ? "顔が検出されなかったため視線追従を行いません"
+        : !person?.landmarks?.length
+          ? "虹彩ランドマークがないため視線追従を行いません"
+          : "虹彩の確認待ちです"
+  };
+
+  if (
+    lastDepthStats?.personDetected &&
+    lastDepthStats?.faceDetected &&
+    person?.landmarks?.length
+  ) {
+    try {
+      const gazeTexW = sourceImage.naturalWidth || sourceImage.width;
+      const gazeTexH = sourceImage.naturalHeight || sourceImage.height;
+      gazeMeasurement = measureGazeEyes(
+        person.landmarks,
+        gazeTexW,
+        gazeTexH
+      );
+
+      if (gazeMeasurement.ok) {
+        gazeSourceImage = makeGazeSourceCanvas(
+          sourceImage,
+          gazeMeasurement.eyes
+        );
+        lastGazeStats = {
+          active:false,
+          eyes:gazeMeasurement.eyes.length,
+          irisPx:gazeMeasurement.eyes.map(eye => eye.r),
+          yawDeg:gazeMeasurement.yawDeg,
+          reason:"人物層の構築待ちです"
+        };
+      } else {
+        lastGazeStats = {
+          active:false,
+          eyes:0,
+          irisPx:[],
+          yawDeg:gazeMeasurement.yawDeg,
+          reason:gazeMeasurement.reason
+        };
+        gazeMeasurement = null;
+      }
+    } catch (error) {
+      gazeMeasurement = null;
+      gazeSourceImage = sourceImage;
+      lastGazeStats = {
+        active:false,
+        eyes:0,
+        irisPx:[],
+        yawDeg:null,
+        reason:
+          "視線追従の準備に失敗しました: " +
+          (error?.message || error)
+      };
+      console.warn(lastGazeStats.reason, error);
+    }
+  }
+
   // 「画面そのものが窓」構成(VRChatのモニタ窓と同じ考え方):
   // 額縁や箱は描かない。絵は窓(=画面)の奥に置き、視点が最大まで動いても
   // 絵の端が画面に入らないよう大きめに拡大する(端が見えるとジャギつき+興ざめ)。
@@ -3089,7 +3596,7 @@ function createSpecimen(sourceImage, depthImage, person = null) {
   ) {
     try {
       relief = buildLayeredRelief(
-        sourceImage,
+        gazeSourceImage,
         depthMap,
         person,
         depthWidth,
@@ -3102,7 +3609,63 @@ function createSpecimen(sourceImage, depthImage, person = null) {
       reliefGeometry = null;
       sourceTexture = null;
       meshVerts = depthWidth * depthHeight * 2;
+
+      // 視線追従の板を人物層の上に足す(失敗しても写真は普通に見られるようにする)
+      if (gazeMeasurement?.ok) {
+        try {
+          const personMesh =
+            relief.children[relief.children.length - 1];
+
+          if (!personMesh?.isMesh) {
+            throw new Error("人物層の最後の子がメッシュではありません");
+          }
+
+          gazeSprites = buildGazeSprites(
+            sourceImage,
+            gazeMeasurement.eyes,
+            innerWidth,
+            innerHeight,
+            personMesh
+          );
+
+          for (const mesh of gazeSprites) {
+            relief.add(mesh);
+          }
+
+          lastGazeStats = {
+            active:gazeSprites.length > 0,
+            eyes:gazeSprites.length,
+            irisPx:gazeMeasurement.eyes.map(eye => eye.r),
+            yawDeg:gazeMeasurement.yawDeg,
+            reason:gazeSprites.length
+              ? ""
+              : "虹彩スプライトを作成できませんでした"
+          };
+        } catch (error) {
+          gazeSprites = [];
+          lastGazeStats = {
+            active:false,
+            eyes:0,
+            irisPx:gazeMeasurement.eyes.map(eye => eye.r),
+            yawDeg:gazeMeasurement.yawDeg,
+            reason:
+              "視線追従を開始できませんでした: " +
+              (error?.message || error)
+          };
+          console.warn(lastGazeStats.reason, error);
+        }
+      }
     } catch (error) {
+      if (gazeMeasurement?.ok) {
+        gazeSprites = [];
+        lastGazeStats = {
+          active:false,
+          eyes:0,
+          irisPx:gazeMeasurement.eyes.map(eye => eye.r),
+          yawDeg:gazeMeasurement.yawDeg,
+          reason:"多層表示を構築できなかったため視線追従を行いません"
+        };
+      }
       showError(
         "多層表示に失敗したため単層で表示しています: " +
         (error?.message || error)
@@ -4336,6 +4899,13 @@ renderFrame = function() {
   renderer?.render(scene, camera);
 };
 
+// 視線追従: 毎フレーム、虹彩の板のUVを視点方向へずらす(rev18と同じ再代入ラップ)
+const baseRenderFrameGaze = renderFrame;
+renderFrame = function() {
+  updateGazeSprites();
+  baseRenderFrameGaze();
+};
+
 $("recordShow").addEventListener("click", () => {
   if (recording) return;
   if (pendingShowVideo) {
@@ -4346,6 +4916,14 @@ $("recordShow").addEventListener("click", () => {
 });
 
 Object.assign(window.__dbg, {
+  gazeTune() {
+    return GAZE_TUNE;
+  },
+
+  gazeStats() {
+    return {...lastGazeStats};
+  },
+
   showStats() {
     return {
       idleActive,
