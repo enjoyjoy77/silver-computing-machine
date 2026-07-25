@@ -618,14 +618,14 @@
   <button id="closeEyeSettings" type="button">閉じる</button>
 </section>
 <button id="recordShow" type="button">🎬 動画にする</button>
-<div id="hint">端末を傾ける／マウスを動かすと、窓の中を覗けます</div>
+<div id="hint">端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと、標本ごと回せます</div>
 
 <script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
 <script type="module">
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev22-turn";
+const REV = "rev23-drag";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -709,7 +709,19 @@ const WOLLASTON = {
   gain:0.15,
   maxTurnDeg:4
 };
-let lastTurn = {on:false, yawDeg:0, pitchDeg:0};
+
+// 左ボタン長押しの強制操作: 普段の視点の限界(±1)を超えて押し込むと、
+// はみ出した分だけ標本そのものが回る。離すと自然に正面へ戻る
+const DRAG_TURN = {
+  degPerUnit:45,   // 限界を1.0ぶん超えて押したとき何度回すか
+  maxTurnDeg:40,   // 回せる上限
+  decay:0.90,      // 離してから戻る速さ(1に近いほどゆっくり。1で戻らない)
+  signX:1,
+  signY:1
+};
+let manualYaw = 0;
+let manualPitch = 0;
+let lastTurn = {on:false, yawDeg:0, pitchDeg:0, manualYawDeg:0};
 
 let personSegmenter = null;
 let personFaceLandmarker = null;
@@ -3468,49 +3480,65 @@ function updateGazeSprites() {
       );
     }
 
-    // Wollaston補正: 絵の面をごくわずかに視点へ向ける。
-    // 虹彩の板はreliefの子なので一緒に回り、ズレない。
-    // ここは顔が見つかったとき(板がある)しか通らないので、風景写真は回らない
-    const relief = specimen?.userData?.relief;
-
-    if (relief && camera) {
-      if (WOLLASTON.gain > 0) {
-        relief.getWorldPosition(worldPosition);
-        direction.copy(camera.position).sub(worldPosition);
-
-        const depth = Math.max(Math.abs(direction.z), 1e-6);
-        const limit = WOLLASTON.maxTurnDeg * Math.PI / 180;
-        const yaw = clamp(
-          Math.atan2(direction.x, depth) * WOLLASTON.gain,
-          -limit,
-          limit
-        );
-        const pitch = clamp(
-          -Math.atan2(direction.y, depth) * WOLLASTON.gain,
-          -limit,
-          limit
-        );
-
-        relief.rotation.set(pitch, yaw, 0);
-        lastTurn = {
-          on:true,
-          yawDeg:yaw * 180 / Math.PI,
-          pitchDeg:pitch * 180 / Math.PI
-        };
-      } else if (lastTurn.on) {
-        relief.rotation.set(0, 0, 0);
-        lastTurn = {on:false, yawDeg:0, pitchDeg:0};
-      }
-    }
   } catch (error) {
     gazeUpdateFailed = true;
     console.warn("視線追従の更新に失敗したため停止します", error);
   }
 }
 
+// 標本の回し: ①長押しドラッグで限界を超えた分の手動回転 ②顔があるときのWollaston補正
+// この2つを足して relief に反映する。虹彩の板はreliefの子なので一緒に回りズレない
+function applySpecimenTurn() {
+  const relief = specimen?.userData?.relief;
+  if (!relief || !camera) return;
+
+  if (!dragging) {
+    manualYaw *= DRAG_TURN.decay;
+    manualPitch *= DRAG_TURN.decay;
+    if (Math.abs(manualYaw) < 1e-5) manualYaw = 0;
+    if (Math.abs(manualPitch) < 1e-5) manualPitch = 0;
+  }
+
+  let yaw = manualYaw;
+  let pitch = manualPitch;
+  let wollastonYaw = 0;
+
+  // 顔が見つかっているとき(虹彩の板があるとき)だけWollaston補正を足す
+  if (gazeSprites.length && WOLLASTON.gain > 0) {
+    const worldPosition = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+    relief.getWorldPosition(worldPosition);
+    direction.copy(camera.position).sub(worldPosition);
+
+    const depth = Math.max(Math.abs(direction.z), 1e-6);
+    const limit = WOLLASTON.maxTurnDeg * Math.PI / 180;
+    wollastonYaw = clamp(
+      Math.atan2(direction.x, depth) * WOLLASTON.gain,
+      -limit,
+      limit
+    );
+    yaw += wollastonYaw;
+    pitch += clamp(
+      -Math.atan2(direction.y, depth) * WOLLASTON.gain,
+      -limit,
+      limit
+    );
+  }
+
+  relief.rotation.set(pitch, yaw, 0);
+  lastTurn = {
+    on:yaw !== 0 || pitch !== 0,
+    yawDeg:yaw * 180 / Math.PI,
+    pitchDeg:pitch * 180 / Math.PI,
+    manualYawDeg:manualYaw * 180 / Math.PI
+  };
+}
+
 function disposeSpecimen() {
   gazeSprites = [];
   gazeUpdateFailed = false;
+  manualYaw = 0;
+  manualPitch = 0;
 
   if (specimen && scene) {
     scene.remove(specimen);
@@ -4363,9 +4391,25 @@ canvas.addEventListener("pointermove", event => {
   const dy =
     (event.clientY - dragStartY) / Math.max(innerHeight, 1) * 2;
 
-  setParallax(
-    dragOriginX + dx,
-    dragOriginY + dy
+  const rawX = dragOriginX + dx;
+  const rawY = dragOriginY + dy;
+  setParallax(rawX, rawY);
+
+  // 限界(±1)を超えて押し込んだ分は、標本そのものを回す力にする
+  const excessX = rawX - clamp(rawX, -1, 1);
+  const excessY = rawY - clamp(rawY, -1, 1);
+  const turnLimit = DRAG_TURN.maxTurnDeg * Math.PI / 180;
+  const perUnit = DRAG_TURN.degPerUnit * Math.PI / 180;
+
+  manualYaw = clamp(
+    -DRAG_TURN.signX * excessX * perUnit,
+    -turnLimit,
+    turnLimit
+  );
+  manualPitch = clamp(
+    DRAG_TURN.signY * excessY * perUnit,
+    -turnLimit,
+    turnLimit
   );
 });
 
@@ -5021,6 +5065,7 @@ renderFrame = function() {
 const baseRenderFrameGaze = renderFrame;
 renderFrame = function() {
   updateGazeSprites();
+  applySpecimenTurn();
   baseRenderFrameGaze();
 };
 
@@ -5040,6 +5085,10 @@ Object.assign(window.__dbg, {
 
   wollaston() {
     return WOLLASTON;
+  },
+
+  dragTurn() {
+    return DRAG_TURN;
   },
 
   turnStats() {
