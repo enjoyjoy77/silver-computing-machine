@@ -625,7 +625,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev24-soft";
+const REV = "rev25-warp";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -694,12 +694,12 @@ const GAZE_TUNE = {
   roomKeep:0.96,     // まぶたの型からどれだけはみ出させないか(下げると大きく動くが縁で切られる)
   lidDilate:0.10,    // まぶたの型を虹彩半径の何倍広げるか(狭いと虹彩が四角く切れる)
   lidBlur:0.12,      // 型の縁のぼかし。硬いと切り口が線になる
-  irisFeather:0.18,  // 虹彩を切り出す円のぼかし幅(半径比)。小さいと縁が線として見える
-  alphaTest:0.02,    // 0に近いほどぼかしが活きる。上げるとそこで硬く切れる
+  alphaTest:0.02,    // 0に近いほど縁のぼかしが活きる
   minIrisPx:6,       // 虹彩半径がこれ未満なら発動しない
   maxYawDeg:25,      // 元写真の顔がこれ以上横向きなら発動しない
-  irisCut:1.12,      // 虹彩の外周(黒い輪)まで含めて切り出す倍率。切り出しと消しで同じ値を使う
-  fillRingRatio:1.35,// 塗りつぶしの色をどこから取るか(irisCutより外=白目側)
+  warpGrid:24,       // ゆがみ格子の細かさ(横の分割数)
+  warpInner:1.0,     // 虹彩半径の何倍までを「丸ごと動かす」か
+  warpOuter:2.2,     // 何倍で動きが0になるか(大きいほどゆるやかに逃がす)
   signX:1,           // 動く向きが逆なら-1にする
   signY:1
 };
@@ -3132,82 +3132,6 @@ function measureGazeEyes(landmarks, texW, texH) {
 
 // 元画像のコピーを作り、虹彩の円を外周リングの色で塗りつぶす。
 // 大きい写真でも重くならないよう、読み書きは目のまわりの小さな矩形だけに限る
-function makeGazeSourceCanvas(sourceImage, eyes) {
-  const texW = sourceImage.naturalWidth || sourceImage.width;
-  const texH = sourceImage.naturalHeight || sourceImage.height;
-  const output = document.createElement("canvas");
-  output.width = texW;
-  output.height = texH;
-
-  const context = output.getContext("2d", {
-    willReadFrequently:true
-  });
-  if (!context) {
-    throw new Error("虹彩を消すためのcanvasを作成できません");
-  }
-
-  context.drawImage(sourceImage, 0, 0, texW, texH);
-
-  for (const eye of eyes) {
-    const outerR = eye.r * GAZE_TUNE.fillRingRatio + 2;
-    const x0 = clamp(Math.floor(eye.cx - outerR), 0, texW - 1);
-    const y0 = clamp(Math.floor(eye.cy - outerR), 0, texH - 1);
-    const x1 = clamp(Math.ceil(eye.cx + outerR), 0, texW - 1);
-    const y1 = clamp(Math.ceil(eye.cy + outerR), 0, texH - 1);
-    const boxW = x1 - x0 + 1;
-    const boxH = y1 - y0 + 1;
-    if (boxW < 2 || boxH < 2) continue;
-
-    const patch = context.getImageData(x0, y0, boxW, boxH);
-    const pixels = patch.data;
-    const original = new Uint8ClampedArray(pixels);
-    const cutR = eye.r * GAZE_TUNE.irisCut;
-    const innerR = cutR * 0.85;
-
-    for (let y = 0; y < boxH; y++) {
-      for (let x = 0; x < boxW; x++) {
-        const dx = x0 + x + 0.5 - eye.cx;
-        const dy = y0 + y + 0.5 - eye.cy;
-        const distance = Math.hypot(dx, dy);
-        if (distance > cutR) continue;
-
-        const directionX = distance > 1e-6 ? dx / distance : 1;
-        const directionY = distance > 1e-6 ? dy / distance : 0;
-        const sampleX = clamp(
-          Math.round(
-            eye.cx + directionX * eye.r * GAZE_TUNE.fillRingRatio - x0
-          ),
-          0,
-          boxW - 1
-        );
-        const sampleY = clamp(
-          Math.round(
-            eye.cy + directionY * eye.r * GAZE_TUNE.fillRingRatio - y0
-          ),
-          0,
-          boxH - 1
-        );
-        const targetOffset = (y * boxW + x) * 4;
-        const sampleOffset = (sampleY * boxW + sampleX) * 4;
-        const blend = distance <= innerR
-          ? 1
-          : clamp(1 - (distance - innerR) / (cutR - innerR), 0, 1);
-
-        for (let channel = 0; channel < 3; channel++) {
-          pixels[targetOffset + channel] = Math.round(
-            original[targetOffset + channel] * (1 - blend) +
-            original[sampleOffset + channel] * blend
-          );
-        }
-      }
-    }
-
-    context.putImageData(patch, x0, y0);
-  }
-
-  return output;
-}
-
 function buildGazeSprites(
   sourceImage,
   eyes,
@@ -3226,6 +3150,11 @@ function buildGazeSprites(
   const texH = sourceImage.naturalHeight || sourceImage.height;
   const positions = personMesh.geometry.attributes.position;
   const meshes = [];
+  const smooth01 = (edge0, edge1, value) => {
+    if (edge1 <= edge0) return value < edge1 ? 0 : 1;
+    const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
 
   for (const eye of eyes) {
     const lidW = eye.lid.x1 - eye.lid.x0;
@@ -3239,13 +3168,15 @@ function buildGazeSprites(
     const canvasH = Math.max(1, Math.ceil(lidH));
     const scaleX = canvasW / lidW;
     const scaleY = canvasH / lidH;
+
+    // 目のまわりを「そのまま」切り出す。虹彩を消さないので、消した跡も出ない
     const mapCanvas = document.createElement("canvas");
     mapCanvas.width = canvasW;
     mapCanvas.height = canvasH;
 
     const mapContext = mapCanvas.getContext("2d");
     if (!mapContext) {
-      throw new Error("虹彩テクスチャ用canvasを作成できません");
+      throw new Error("目のテクスチャ用canvasを作成できません");
     }
 
     mapContext.drawImage(
@@ -3254,29 +3185,13 @@ function buildGazeSprites(
       0, 0, canvasW, canvasH
     );
 
-    const irisX = (eye.cx - eye.lid.x0) * scaleX;
-    const irisY = (eye.cy - eye.lid.y0) * scaleY;
-    // 消した範囲と同じ大きさで切り出す(ずれると白い輪が残る)
-    const irisR =
-      eye.r * GAZE_TUNE.irisCut * (scaleX + scaleY) * 0.5;
-    // ぼかし幅は虹彩の大きさに比例させる(固定pxだと大きい写真で縁が線に見える)
-    const feather = Math.max(1, irisR * GAZE_TUNE.irisFeather);
-    const irisMask = mapContext.createRadialGradient(
-      irisX, irisY, Math.max(0, irisR - feather),
-      irisX, irisY, irisR
-    );
-    irisMask.addColorStop(0, "rgba(255,255,255,1)");
-    irisMask.addColorStop(1, "rgba(255,255,255,0)");
-
-    mapContext.globalCompositeOperation = "destination-in";
-    mapContext.fillStyle = irisMask;
-    mapContext.fillRect(0, 0, canvasW, canvasH);
-    mapContext.globalCompositeOperation = "source-over";
-
+    // まぶたの開口部マスク。ここが下の写真と溶け合う縁になる
     const maskCanvas = document.createElement("canvas");
     maskCanvas.width = canvasW;
     maskCanvas.height = canvasH;
-    const maskContext = maskCanvas.getContext("2d");
+    const maskContext = maskCanvas.getContext("2d", {
+      willReadFrequently:true
+    });
     if (!maskContext) {
       throw new Error("まぶたマスク用canvasを作成できません");
     }
@@ -3313,32 +3228,33 @@ function buildGazeSprites(
     if (dilatePx > 0) polygonContext.stroke();
 
     maskContext.save();
-    maskContext.filter = `blur(${blurPx.toFixed(2)}px)`;
+    maskContext.filter = "blur(" + blurPx.toFixed(2) + "px)";
     maskContext.drawImage(polygonCanvas, 0, 0);
     maskContext.restore();
 
-    // まぶたの型からはみ出さずに動かせる量を、目ごとに実測する。
-    // 実写は目の開きに対して虹彩が大きく、少し動かすと縁で切られて四角く見えるため
+    const irisX = (eye.cx - eye.lid.x0) * scaleX;
+    const irisY = (eye.cy - eye.lid.y0) * scaleY;
+    const irisR = Math.max(1e-6, eye.r * lidScale);
     const maskData = maskContext.getImageData(
       0, 0, canvasW, canvasH
     ).data;
-    const insideAt = (px, py) => {
+    const maskAt = (px, py) => {
       const xi = Math.round(px);
       const yi = Math.round(py);
       if (xi < 0 || yi < 0 || xi >= canvasW || yi >= canvasH) return 0;
-      return maskData[(yi * canvasW + xi) * 4 + 1] > 128 ? 1 : 0;
+      return maskData[(yi * canvasW + xi) * 4 + 1] / 255;
     };
-    // 判定は「本来の虹彩」の大きさで行う(切り出し用の一回り大きい円ではない)
-    const irisRTrue = eye.r * (scaleX + scaleY) * 0.5;
+
+    // まぶたの型からはみ出さずに動かせる量を、目ごとに実測する
     const discCoverage = (ox, oy) => {
-      const step = Math.max(1, Math.round(irisRTrue / 7));
+      const step = Math.max(1, Math.round(irisR / 7));
       let inside = 0;
       let total = 0;
-      for (let y = -irisRTrue; y <= irisRTrue; y += step) {
-        for (let x = -irisRTrue; x <= irisRTrue; x += step) {
-          if (x * x + y * y > irisRTrue * irisRTrue) continue;
+      for (let y = -irisR; y <= irisR; y += step) {
+        for (let x = -irisR; x <= irisR; x += step) {
+          if (x * x + y * y > irisR * irisR) continue;
           total++;
-          inside += insideAt(irisX + x + ox, irisY + y + oy);
+          inside += maskAt(irisX + x + ox, irisY + y + oy) > 0.5 ? 1 : 0;
         }
       }
       return total ? inside / total : 0;
@@ -3346,7 +3262,7 @@ function buildGazeSprites(
     const baseCoverage = discCoverage(0, 0);
     const findRoom = (dirX, dirY) => {
       let room = 0;
-      for (let s = 1; s <= irisRTrue * 1.5; s++) {
+      for (let s = 1; s <= irisR * 1.5; s++) {
         if (
           discCoverage(dirX * s, dirY * s) <
           baseCoverage * GAZE_TUNE.roomKeep
@@ -3355,8 +3271,9 @@ function buildGazeSprites(
       }
       return room;
     };
-    const irisPxUnit = Math.max(1e-6, eye.r * scaleX);
-    const roomX = Math.min(findRoom(-1, 0), findRoom(1, 0)) / irisPxUnit;
+    const roomX =
+      Math.min(findRoom(-1, 0), findRoom(1, 0)) /
+      Math.max(1e-6, eye.r * scaleX);
     const roomY =
       Math.min(findRoom(0, -1), findRoom(0, 1)) /
       Math.max(1e-6, eye.r * scaleY);
@@ -3380,9 +3297,8 @@ function buildGazeSprites(
     const lidCenterY = (eye.lid.y0 + eye.lid.y1) * 0.5;
     const localX = (lidCenterX / texW - 0.5) * innerWidth;
     const localY = -(lidCenterY / texH - 0.5) * innerHeight;
-    // 板の奥行きは「目のまわりで一番手前の面」に合わせる。
-    // 近い頂点1点に合わせると、鼻筋などの手前の面に虹彩が潜り込んで
-    // 縦にすっぱり切られたように見える(実写で顕著)
+
+    // 板の奥行きは「目のまわりで一番手前の面」に合わせる
     let nearestZ = 0;
     let nearestDistance = Infinity;
     let surfaceZ = -Infinity;
@@ -3409,6 +3325,33 @@ function buildGazeSprites(
 
     const baseZ = surfaceZ > -Infinity ? surfaceZ : nearestZ;
 
+    // ゆがみ用の細かい格子。虹彩の所は丸ごと動かし、まわりへ滑らかに減衰させる
+    const segX = Math.max(6, Math.round(GAZE_TUNE.warpGrid));
+    const segY = Math.max(
+      4,
+      Math.round(GAZE_TUNE.warpGrid * canvasH / Math.max(canvasW, 1))
+    );
+    const geometry = new THREE.PlaneGeometry(quadW, quadH, segX, segY);
+    const uvAttribute = geometry.attributes.uv;
+    const baseUv = new Float32Array(uvAttribute.array);
+    const weights = new Float32Array(uvAttribute.count);
+
+    for (let index = 0; index < uvAttribute.count; index++) {
+      const u = baseUv[index * 2];
+      const v = baseUv[index * 2 + 1];
+      const px = u * canvasW;
+      const py = (1 - v) * canvasH;
+      const dist = Math.hypot(px - irisX, py - irisY) / irisR;
+      // 虹彩の内側は1(丸ごと動く)、外へ向かって滑らかに0へ
+      const irisWeight =
+        1 - smooth01(GAZE_TUNE.warpInner, GAZE_TUNE.warpOuter, dist);
+      // まぶたの縁では0にする(まつげが動くと破綻するため)
+      const lidWeight = smooth01(0.45, 0.95, maskAt(px, py));
+      weights[index] = clamp(irisWeight * lidWeight, 0, 1);
+    }
+
+    uvAttribute.setUsage(THREE.DynamicDrawUsage);
+
     const material = new THREE.MeshStandardMaterial({
       map:mapTexture,
       alphaMap:maskTexture,
@@ -3422,10 +3365,7 @@ function buildGazeSprites(
       emissiveMap:mapTexture,
       emissiveIntensity:0.12
     });
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(quadW, quadH),
-      material
-    );
+    const mesh = new THREE.Mesh(geometry, material);
 
     mesh.position.set(
       localX,
@@ -3434,8 +3374,9 @@ function buildGazeSprites(
     );
     mesh.userData.gaze = {
       irisR_uv:{x:eye.r / lidW, y:eye.r / lidH},
-      quadPx:{w:lidW, h:lidH},
-      room:{x:roomX, y:roomY}
+      room:{x:roomX, y:roomY},
+      baseUv,
+      weights
     };
     meshes.push(mesh);
   }
@@ -3477,10 +3418,23 @@ function updateGazeSprites() {
       const sx = clamp(2 * sinX * GAZE_TUNE.gain, -limitX, limitX);
       const sy = clamp(2 * sinY * GAZE_TUNE.gain, -limitY, limitY);
 
-      map.offset.set(
-        -GAZE_TUNE.signX * sx * gaze.irisR_uv.x,
-        GAZE_TUNE.signY * sy * gaze.irisR_uv.y
-      );
+      // 切らずに「ゆがませる」: 虹彩の所だけUVをずらし、まわりへ滑らかに逃がす。
+      // 縁では動きが0なので、下の写真とまったく同じ絵になり継ぎ目が出ない
+      const shiftU = -GAZE_TUNE.signX * sx * gaze.irisR_uv.x;
+      const shiftV = GAZE_TUNE.signY * sy * gaze.irisR_uv.y;
+      const uvAttribute = mesh.geometry?.attributes?.uv;
+      const baseUv = gaze.baseUv;
+      const weights = gaze.weights;
+
+      if (!uvAttribute || !baseUv || !weights) continue;
+
+      const uvArray = uvAttribute.array;
+      for (let index = 0; index < weights.length; index++) {
+        const weight = weights[index];
+        uvArray[index * 2] = baseUv[index * 2] + shiftU * weight;
+        uvArray[index * 2 + 1] = baseUv[index * 2 + 1] + shiftV * weight;
+      }
+      uvAttribute.needsUpdate = true;
     }
 
   } catch (error) {
@@ -3658,8 +3612,7 @@ function createSpecimen(sourceImage, depthImage, person = null) {
 
   const reliefStrength = Math.min(innerWidth, innerHeight) * 0.24;
 
-  // 視線追従(段階2): 虹彩を測り、元画像から虹彩を消したコピーを人物層に使う
-  let gazeSourceImage = sourceImage;
+  // 視線追従: 虹彩とまぶたを測る(元画像には手を加えない)
   let gazeMeasurement = null;
 
   lastGazeStats = {
@@ -3691,10 +3644,6 @@ function createSpecimen(sourceImage, depthImage, person = null) {
       );
 
       if (gazeMeasurement.ok) {
-        gazeSourceImage = makeGazeSourceCanvas(
-          sourceImage,
-          gazeMeasurement.eyes
-        );
         lastGazeStats = {
           active:false,
           eyes:gazeMeasurement.eyes.length,
@@ -3714,7 +3663,6 @@ function createSpecimen(sourceImage, depthImage, person = null) {
       }
     } catch (error) {
       gazeMeasurement = null;
-      gazeSourceImage = sourceImage;
       lastGazeStats = {
         active:false,
         eyes:0,
@@ -3744,7 +3692,7 @@ function createSpecimen(sourceImage, depthImage, person = null) {
   ) {
     try {
       relief = buildLayeredRelief(
-        gazeSourceImage,
+        sourceImage,
         depthMap,
         person,
         depthWidth,
