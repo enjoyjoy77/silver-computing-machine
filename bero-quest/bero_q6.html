@@ -174,7 +174,7 @@ body.xr-active #hint{
 </style>
 </head>
 <body>
-<div id="rev">MR版 q6 rev1</div>
+<div id="rev">MR版 q6 rev2</div>
 
 <section id="panel">
   <h1>ベロ物理シミュレータ</h1>
@@ -1095,6 +1095,12 @@ const _pRight=new THREE.Vector3();
 const _pUp=new THREE.Vector3();
 const _pFwd=new THREE.Vector3();
 const _pWorld=new THREE.Vector3();
+const _ownTipWorld=new THREE.Vector3();
+let partnerHeldBy=-1;                      // 相手ベロを持っている手(-1=なし)
+const partnerHoldOffset=new THREE.Vector3();
+let entangleActive=false;                  // 接触で自動発動する絡みモーション
+let entangleContactTimer=0;
+let entangleSepTimer=0;
 
 function partnerThickMul(){
   return partnerThickLevel<=5 ? .4+.12*partnerThickLevel : 1+.22*(partnerThickLevel-5);
@@ -1244,6 +1250,8 @@ function toggleKiss(){
     rokutai.stopPlayback&&rokutai.stopPlayback(false);
     logJapanese("ディープキス開始。もう一度押すと止まります。");
   }else{
+    entangleActive=false;
+    entangleContactTimer=0;
     for(const name of commandNames){command[name]=0;partnerCommand[name]=0;}
     syncControls();
     logJapanese("ディープキスを止めました。");
@@ -1252,9 +1260,10 @@ function toggleKiss(){
   if(b)b.classList.toggle("on",kissActive);
 }
 
-/* キスの振り付け: 互い違いの位相で絡む(lr/twは相手側で符号反転) */
+/* キス/絡みの振り付け: 互い違いの位相で絡む(lr/twは相手側で符号反転)。
+   指令は-1..1の正規化値なので、ながさ・ふとさが2本で違っても同じ振り付けが成立する */
 function updateKiss(seconds){
-  if(!kissActive)return;
+  if(!kissActive&&!entangleActive)return;
   const t=seconds;
   command.ext=.45+.15*Math.sin(t*1.4);
   command.ud=.25*Math.sin(t*.9);
@@ -1281,7 +1290,54 @@ function updatePartnerFrame(seconds,dt){
     partnerAct[name]+=(partnerCommand[name]-partnerAct[name])*(1-Math.exp(-dt/tau));
   }
   rebuildPartner();
+
+  // 持ち運び: つまんだ手に相手ごと追従
+  if(partnerHeldBy>=0){
+    if(interactionValid[partnerHeldBy]){
+      const h3=partnerHeldBy*3;
+      partnerRoot.position.set(
+        interactionWorld[h3]+partnerHoldOffset.x,
+        interactionWorld[h3+1]+partnerHoldOffset.y,
+        interactionWorld[h3+2]+partnerHoldOffset.z
+      );
+      partnerRoot.updateMatrixWorld(true);
+    }else{
+      partnerHeldBy=-1; // トラッキング切れで手放す
+    }
+  }
+
   appendPartnerColliders();
+
+  // 接触検知→自動絡み: 自分の舌先が相手の胴体に触れている時間で判定
+  {
+    const tipI=centerIndex(SECTIONS-1)*3;
+    tongueRoot.updateMatrixWorld(true);
+    _ownTipWorld.set(pos[tipI],pos[tipI+1],pos[tipI+2]).applyMatrix4(tongueRoot.matrixWorld);
+    let touching=false;
+    for(let s=0;s<P_SECTIONS_COL;s++){
+      _pWorld.set(partnerCenters[s*3],partnerCenters[s*3+1],partnerCenters[s*3+2])
+        .applyMatrix4(partnerRoot.matrixWorld);
+      if(_pWorld.distanceTo(_ownTipWorld)<partnerRadii[s]+H0+.02){touching=true;break;}
+    }
+    if(touching){
+      entangleContactTimer+=dt; entangleSepTimer=0;
+      if(!entangleActive&&!kissActive&&entangleContactTimer>.25){
+        entangleActive=true;
+        logJapanese("舌が触れ合いました。絡みモーション発動。離すと自然に止まります。");
+      }
+    }else{
+      entangleContactTimer=0;
+      if(entangleActive){
+        entangleSepTimer+=dt;
+        if(entangleSepTimer>1.5){
+          entangleActive=false;
+          for(const name of commandNames){command[name]=0;partnerCommand[name]=0;}
+          syncControls();
+          logJapanese("離れたので絡みモーションを終えました。");
+        }
+      }
+    }
+  }
 }
 
 function cubic(p0,p1,p2,p3,t){
@@ -2079,13 +2135,13 @@ function triggerXRButton(action,controllerIndex){
     }
     logJapanese(enable?"ぺろぺろを開始しました。":"ぺろぺろを停止しました。");
   }else if(action===1){
-    setSize(sizeLevel-1);
+    setSize((operatePartner?partnerSizeLevel:sizeLevel)-1);   // 操作先の現在値を基準に(±が自分基準になるバグ修正)
   }else if(action===2){
-    setSize(sizeLevel+1);
+    setSize((operatePartner?partnerSizeLevel:sizeLevel)+1);
   }else if(action===3){
-    setThickness(thickLevel-1);
+    setThickness((operatePartner?partnerThickLevel:thickLevel)-1);
   }else if(action===4){
-    setThickness(thickLevel+1);
+    setThickness((operatePartner?partnerThickLevel:thickLevel)+1);
   }else if(action===5){
     setTongueMounted(!tongueMounted);
   }else if(action===6){
@@ -2290,6 +2346,10 @@ for(let i=0;i<2;i++){
   });
 
   controllers[i].addEventListener("selectend",()=>{
+    if(partnerHeldBy===i){
+      partnerHeldBy=-1;
+      logJapanese("相手のベロをここに置きました。");
+    }
     if(grabbedOwner===i){
       grabbedParticle=-1;
       grabbedOwner=-1;
@@ -2526,6 +2586,24 @@ function beginXRGrab(side){
     interactionWorld[i3+1],
     interactionWorld[i3+2]
   );
+
+  // 相手ベロの持ち運び: 相手の胴体(コライダ列)の近く(8cm以内)でつまむと相手ごと動かせる
+  if(partnerActive&&partnerHeldBy<0){
+    partnerRoot.updateMatrixWorld(true);
+    let best=Infinity;
+    for(let s=0;s<P_SECTIONS_COL;s++){
+      _pWorld.set(partnerCenters[s*3],partnerCenters[s*3+1],partnerCenters[s*3+2])
+        .applyMatrix4(partnerRoot.matrixWorld);
+      const d=_pWorld.distanceTo(tempWorld);
+      if(d<best)best=d;
+    }
+    if(best<.08){
+      partnerHeldBy=side;
+      partnerHoldOffset.copy(partnerRoot.position).sub(tempWorld);
+      logJapanese("相手のベロをつかみました。動かして好きな場所で離してください。");
+      return;
+    }
+  }
 
   tongueRoot.updateMatrixWorld(true);
   localMatrixInverse.copy(tongueRoot.matrixWorld).invert();
@@ -2830,6 +2908,8 @@ window.__dbg={
       attached:tongueMounted,
       partner:partnerActive,
       kiss:kissActive,
+      entangle:entangleActive,
+      partnerHeld:partnerHeldBy,
       operatePartner,
       rokutai:{mode:rokutai.mode,hasTake:rokutai.hasTake,duration:rokutai.duration,frames:rokutai.frameCount}
     };
