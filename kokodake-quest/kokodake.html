@@ -98,7 +98,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v1 rev4";
+const REV = "v1 rev5";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -471,17 +471,17 @@ function placeSquare(pos){
   placed = true; peek = false; timeUp = false; timeLeft = sessionMin*60;
   peekBtn.setLabel("まわりを見る");
   infoPanel.visible = true; infoDirty = true;
-  wideBtn.mesh.visible = narrowBtn.mesh.visible = peekBtn.mesh.visible = nextBtn.mesh.visible = true;
+  uiButtons.forEach(b=>{ b.mesh.visible = true; b.dwell = 0; b.hot = 0; b.redraw(); });
   reticle.visible = false;
   playPlace(); pulse(90, 1.0);
-  log("ここだけ、にしました。" + sessionMin + "分たったら合図します");
+  log("ここだけ、にしました。ボタンは手を近づけるだけでも押せます（" + sessionMin + "分で合図）");
 }
 function finishSquare(){
   if(!placed) return;
   doneToday++; saveDone();
   placed = false; peek = false; timeUp = false;
   frameGroup.visible = false; infoPanel.visible = false;
-  wideBtn.mesh.visible = narrowBtn.mesh.visible = peekBtn.mesh.visible = nextBtn.mesh.visible = false;
+  uiButtons.forEach(b=>{ b.mesh.visible = false; b.dwell = 0; });
   playDone(); pulse(160, 1.0);
   log("1マス終わり。きょう " + doneToday + "マス。次の場所を見て、トリガーで置いてください");
 }
@@ -494,29 +494,73 @@ function onTimeUp(){
 
 /* ============ 入力（コントローラ／素手のつまみ） ============ */
 const controllers = [];
+const ctrlConnected = [false, false];
 const raycaster = new THREE.Raycaster();
 const _origin = new THREE.Vector3(), _dirv = new THREE.Vector3();
+const _bp = new THREE.Vector3(), _bl = new THREE.Vector3();
 function setupControllers(){
   if(controllers.length) return;
   for(let i=0;i<2;i++){
     const c = renderer.xr.getController(i);
-    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-2.0)]);
-    const rayLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.5 }));
-    rayLine.renderOrder = 10;
+    // 真っ暗な中で狙えないと押せないので、光の線は素手でも出す（先に光の玉も付ける）
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-1.6)]);
+    const rayLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.75, depthTest:false }));
+    rayLine.renderOrder = 11;
     c.add(rayLine);
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.9, depthTest:false });
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), tipMat);
+    tip.position.set(0, 0, -1.6); tip.renderOrder = 11;
+    c.add(tip);
     c.addEventListener("select", ()=>onSelect(c));
-    c.addEventListener("connected", (e)=>{ rayLine.visible = !isHandInput(e); });
+    c.addEventListener("connected", ()=>{ ctrlConnected[i] = true; });
+    c.addEventListener("disconnected", ()=>{ ctrlConnected[i] = false; });
     scene.add(c); controllers.push(c);
   }
 }
-function pressButtonsByRay(){
+/* ボタンの当たり判定（毎フレーム）
+   実機で「押しても反応しない」と言われたので、次の3つを同時にやる:
+   (1) 狙っているボタンを光らせる＝反応が見える (2) 手を近づけるだけで押せる
+   (3) 押せている途中がゲージで見える */
+function updateButtons(dt){
+  let hovered = null;
+  for(let i=0;i<controllers.length;i++){
+    if(!ctrlConnected[i]) continue;               // 未接続は原点にいるので数えない
+    const c = controllers[i];
+    _origin.setFromMatrixPosition(c.matrixWorld);
+    _dirv.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
+    raycaster.set(_origin, _dirv);
+    const e = hitButtonByRay();
+    if(e){ hovered = e; break; }
+  }
+  for(const b of uiButtons){
+    if(!b.mesh.visible){ if(b.dwell !== 0){ b.dwell = 0; b.hot = 0; b.redraw(); } continue; }
+    let near = false;
+    for(let i=0;i<controllers.length;i++){
+      if(!ctrlConnected[i]) continue;
+      _bp.setFromMatrixPosition(controllers[i].matrixWorld);
+      b.mesh.worldToLocal(_bl.copy(_bp));
+      if(Math.abs(_bl.x) < b.w/2 + 0.03 && Math.abs(_bl.y) < b.h/2 + 0.03 && Math.abs(_bl.z) < TUNE.btnNear){ near = true; break; }
+    }
+    const wantHot = (hovered === b || near) ? 1 : 0;
+    const before = Math.round(b.dwell / TUNE.btnDwell * 10);
+    if(near) b.dwell += dt; else b.dwell = 0;
+    if(b.dwell >= TUNE.btnDwell){ fireButton(b); continue; }
+    const after = Math.round(b.dwell / TUNE.btnDwell * 10);
+    // 毎フレームの絵の作り直しは重いので、見た目が変わるときだけ
+    if(after !== before || b.hot !== wantHot){ b.hot = wantHot; b.redraw(); }
+  }
+}
+function hitButtonByRay(){
   const btnMeshes = uiButtons.filter(b=>b.mesh.visible).map(b=>b.mesh);
-  if(!btnMeshes.length) return false;
+  if(!btnMeshes.length) return null;
   const hit = raycaster.intersectObjects(btnMeshes, false);
-  if(!hit.length) return false;
-  const entry = uiButtons.find(b=>b.mesh === hit[0].object);
-  if(entry && entry.onClick){ entry.onClick(); return true; }
-  return false;
+  if(!hit.length) return null;
+  return uiButtons.find(b=>b.mesh === hit[0].object) || null;
+}
+function pressButtonsByRay(){
+  const entry = hitButtonByRay();
+  if(!entry) return false;
+  fireButton(entry); return true;
 }
 function onSelect(c){
   _origin.setFromMatrixPosition(c.matrixWorld);
@@ -529,7 +573,7 @@ function onSelect(c){
     placeSquare(pos);
     return;
   }
-  if(placed) log("ボタンを狙ってトリガーを引いてください");
+  if(placed) log("ボタンに光の線を当ててトリガー。または手をボタンに近づけるだけでも押せます");
   else log("片づける場所を見て、黄色い輪が出てからトリガーを引いてください");
 }
 
@@ -711,13 +755,15 @@ function layoutUI(){
   shell.position.copy(_camPos);   // 球は常に頭を包む
   if(!placed) return;
   const r = shellUniforms.uR.value;
-  infoPanel.position.set(target.x, target.y + r + 0.30, target.z);
+  // マスの手前・少し上に、大きめのボタンを離して並べる（近づけて押せるように間隔を空ける）
+  infoPanel.position.set(target.x, target.y + r + 0.52, target.z);
   faceCamera(infoPanel);
-  const y = target.y + r + 0.14;
-  narrowBtn.mesh.position.set(target.x - 0.19, y, target.z); faceCamera(narrowBtn.mesh);
-  wideBtn.mesh.position.set(  target.x + 0.19, y, target.z); faceCamera(wideBtn.mesh);
-  peekBtn.mesh.position.set(  target.x - 0.15, y - 0.11, target.z); faceCamera(peekBtn.mesh);
-  nextBtn.mesh.position.set(  target.x + 0.17, y - 0.11, target.z); faceCamera(nextBtn.mesh);
+  const y1 = target.y + r + 0.34, y2 = target.y + r + 0.18;
+  narrowBtn.mesh.position.set(target.x - 0.32, y1, target.z); faceCamera(narrowBtn.mesh);
+  wideBtn.mesh.position.set(  target.x + 0.32, y1, target.z); faceCamera(wideBtn.mesh);
+  shapeBtn.mesh.position.set( target.x,        y1, target.z); faceCamera(shapeBtn.mesh);
+  peekBtn.mesh.position.set(  target.x - 0.26, y2, target.z); faceCamera(peekBtn.mesh);
+  nextBtn.mesh.position.set(  target.x + 0.26, y2, target.z); faceCamera(nextBtn.mesh);
   if(infoDirty) drawInfoPanel();
 }
 
@@ -762,6 +808,7 @@ function renderLoop(t, frame){
   if(renderer.xr.isPresenting || pcMode){
     simulate(dt);
     layoutUI();
+    if(renderer.xr.isPresenting) updateButtons(dt);
   }
 
   renderer.render(scene, camera);
@@ -810,6 +857,9 @@ window.__dbg = {
     return Math.round(a * shellUniforms.uOpacity.value * 1000)/1000;
   },
   setFade(v){ shellFade = v; shellUniforms.uOpacity.value = v; return this.state(); },
+  buttons(){ return uiButtons.map((b,i)=>({ i, label: b.label, visible: b.mesh.visible, w: b.w, h: b.h, pos: b.mesh.position.toArray().map(v=>Math.round(v*100)/100) })); },
+  fire(i){ const b = uiButtons[i]; if(!b) return "なし"; b.coolUntil = 0; fireButton(b); return this.state(); },
+  shape(){ return { square: TUNE.square, uSquare: shellUniforms.uSquare.value }; },
   look(yaw, pitch){ pcYaw = yaw; pcPitch = pitch; return "ok"; },
   // マスの方向をまっすぐ向く（PC試写での撮影用）
   lookAtTarget(){
