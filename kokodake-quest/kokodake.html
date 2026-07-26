@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ここだけ</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141822; --line:#2a3140; --ink:#eef1f6;
+    --dim:#93a0b5; --accent:#ffd166; --accent2:#ffe9ad; --danger:#ff8f8f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+
+  #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;}
+
+  #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;background:var(--bg);
+    padding:26px 22px;overflow-y:auto;text-align:center;}
+  #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
+  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.45;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:460px;}
+  #goBtn{border:none;border-radius:16px;padding:19px 44px;font:inherit;font-size:19px;
+    font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
+    color:#20180a;box-shadow:0 6px 22px rgba(255,209,102,.3);transition:opacity .2s,transform .1s;}
+  #goBtn:active{transform:translateY(1px);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #pcBtn{border:1px solid var(--line);background:#111620;color:var(--dim);border-radius:12px;
+    padding:11px 20px;font:inherit;font-size:13px;cursor:pointer;}
+
+  .modeBox{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:13px 16px;max-width:460px;width:100%;}
+  .modeBox .lbl{font-size:12px;color:var(--dim);margin-bottom:9px;letter-spacing:.04em;}
+  .modeRow{display:flex;gap:8px;}
+  .modeRow button{flex:1;border:1px solid var(--line);background:#111620;color:var(--ink);
+    border-radius:11px;padding:11px 8px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;
+    transition:border-color .15s,background .15s;line-height:1.5;}
+  .modeRow button.on{background:#3a2f14;border-color:var(--accent);color:var(--accent2);}
+
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:13px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:460px;}
+  #note b{color:var(--accent2);}
+
+  #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
+  #log{background:rgba(8,10,15,.82);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
+    height:104px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
+    display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
+    padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<span id="rev"></span>
+
+<div id="start">
+  <div class="mark">ここだけ</div>
+  <h1>部屋を消して<br>30cm四方だけ見せる</h1>
+  <p>散らかった部屋が見えていると手が止まります。だから見えなくします。<br>
+  片づける場所を1か所ぬらすと、そこ以外が真っ暗になり、目の前の一手だけが残ります。</p>
+
+  <div class="modeBox">
+    <div class="lbl">1回の長さ（あとで変えられます）</div>
+    <div class="modeRow">
+      <button data-min="10">10分</button>
+      <button data-min="20">20分</button>
+      <button data-min="30">30分</button>
+    </div>
+  </div>
+
+  <button id="goBtn" disabled>はじめる</button>
+  <button id="pcBtn">PCで見た目だけ試す（お試し）</button>
+  <div id="note">
+    <b>英語の画面が出たら</b>「<b>Allow</b>（許可）」や「<b>OK</b>」を押してください。<br>
+    <b>足元は真っ暗にしません。</b>暗くなるだけで、床は見えるようにしてあります。<br>
+    まわりを見たいときは「まわりを見る」を押すと、いつでも部屋が戻ります。
+  </div>
+</div>
+
+<div id="logWrap">
+  <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+  <div id="log"></div>
+</div>
+
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import { setupHands, isHandInput } from "./lib/hands.js";
+
+const REV = "v1 rev4";
+document.getElementById("rev").textContent = REV;
+
+/* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
+const TUNE = {
+  revealR: 0.30,        // 見える範囲の半径（m）30cm四方なら0.25〜0.32あたり
+  revealMin: 0.12,
+  revealMax: 0.80,
+  revealStep: 0.06,
+  soft: 0.07,           // 見える範囲のふちのぼかし（m）
+  floorAlpha: 0.62,     // 真下（足元）の暗さ（1=真っ黒 / 小さいほど床が見える）
+  floorFrom: -0.78,     // ここから下向きの視線を暗くしはじめる（-1=真下）
+  floorTo:   -0.95,     // ここまで下を向くと floorAlpha になる
+  fadeSec: 1.1,         // 暗くなる／戻るのにかける秒数
+  awayFar: 2.0,         // マスからこれ以上離れたら自動で部屋を戻す（m）
+  awayNear: 1.6,        // ここまで戻ったらまた暗くする（m）
+  shellR: 6.0,          // 目かくしの球の半径（m）
+};
+
+/* ============ 画面内ログ（DOM＋MR中は3Dパネル） ============ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  logLines.push({ t: msg, e: !!isErr });
+  if(logLines.length > 40) logLines.shift();
+  const div = document.createElement("div");
+  if(isErr) div.className = "e";
+  div.textContent = "・" + msg;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  drawLogPanel();
+}
+function showErr(msg){
+  const e = $("err"); e.textContent = msg; e.style.display = "block";
+  log(msg, true);
+}
+addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
+addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+/* ============ 1回の長さ（開始画面で選ぶ・localStorageに保存） ============ */
+let sessionMin = 20;
+try{ const s = parseInt(localStorage.getItem("kokodake_min"), 10); if(s === 10 || s === 20 || s === 30) sessionMin = s; }catch(_){}
+const minBtns = Array.from(document.querySelectorAll(".modeRow button"));
+function setMin(m){
+  sessionMin = m;
+  try{ localStorage.setItem("kokodake_min", String(m)); }catch(_){}
+  minBtns.forEach(b => b.classList.toggle("on", parseInt(b.dataset.min,10) === m));
+}
+minBtns.forEach(b => b.addEventListener("click", ()=>setMin(parseInt(b.dataset.min,10))));
+setMin(sessionMin);
+
+/* ============ きょう終わったマスの数 ============ */
+function todayKey(){
+  const d = new Date();
+  return "kokodake_" + d.getFullYear() + ("0"+(d.getMonth()+1)).slice(-2) + ("0"+d.getDate()).slice(-2);
+}
+let doneToday = 0;
+try{ doneToday = parseInt(localStorage.getItem(todayKey()) || "0", 10) || 0; }catch(_){}
+function saveDone(){ try{ localStorage.setItem(todayKey(), String(doneToday)); }catch(_){} }
+addEventListener("pagehide", saveDone);
+
+/* ============ 音（その場で合成・音声ファイル無し） ============ */
+let actx = null;
+function initAudio(){
+  try{
+    if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if(actx && actx.state === "suspended") actx.resume();
+  }catch(_){}
+}
+function beep(freq, dur, type, vol){
+  if(!actx) return;
+  try{
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.3, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }catch(_){}
+}
+function playPlace(){ beep(520, 0.16, "triangle", 0.30); beep(780, 0.12, "sine", 0.12); }
+function playClick(){ beep(440, 0.07, "sine", 0.16); }
+function playDone(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.32,"triangle",0.32), i*130)); }
+function playChime(){ [784,988].forEach((f,i)=>setTimeout(()=>beep(f,0.5,"sine",0.3), i*260)); }
+
+/* ============ 振動（対応していなければ静かに無視） ============ */
+function pulse(ms, intensity){
+  try{
+    const s = renderer && renderer.xr.getSession(); if(!s) return;
+    for(const src of s.inputSources){
+      const g = src.gamepad;
+      if(g && g.hapticActuators && g.hapticActuators[0] && g.hapticActuators[0].pulse){
+        g.hapticActuators[0].pulse(intensity || 1.0, ms || 80);
+      }
+    }
+  }catch(_){}
+}
+
+/* ============ Three.js 基本 ============ */
+const canvas = $("view");
+let renderer = null;
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445044, 1.0));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0); dirLight.position.set(1,2,1); scene.add(dirLight);
+
+/* ============ 目かくし（内側から見る黒い球。ここだけ穴があく） ============ */
+const shellUniforms = {
+  uTarget:     { value: new THREE.Vector3(0, 0.75, -0.6) },
+  uR:          { value: TUNE.revealR },
+  uSoft:       { value: TUNE.soft },
+  uOpacity:    { value: 0.0 },
+  uFloorAlpha: { value: TUNE.floorAlpha },
+  uFloorFrom:  { value: TUNE.floorFrom },
+  uFloorTo:    { value: TUNE.floorTo },
+};
+const shellMat = new THREE.ShaderMaterial({
+  uniforms: shellUniforms,
+  transparent: true,
+  depthWrite: false,
+  // depthTest を切るのが要点。切らないと「手前にある物」に負けて、
+  // 目かくしが遠景だけにしかかからない（=部屋が丸見えになる）
+  depthTest: false,
+  side: THREE.BackSide,
+  vertexShader: `
+    varying vec3 vWorld;
+    void main(){
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorld = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3  uTarget;
+    uniform float uR;
+    uniform float uSoft;
+    uniform float uOpacity;
+    uniform float uFloorAlpha;
+    uniform float uFloorFrom;
+    uniform float uFloorTo;
+    varying vec3  vWorld;
+    void main(){
+      // 目からこの点へ伸ばした線が、作業マス（uTarget）にどれだけ近いか
+      vec3  dir = normalize(vWorld - cameraPosition);
+      float t   = max(dot(uTarget - cameraPosition, dir), 0.0);
+      float d   = distance(cameraPosition + dir * t, uTarget);
+      float a   = smoothstep(uR, uR + uSoft, d);   // マスの中=0（透ける）／外=1（黒い）
+      // 真下（足元）だけは真っ黒にしない＝つまずかないように床は見えるようにする
+      float low = smoothstep(uFloorFrom, uFloorTo, dir.y);
+      a *= mix(1.0, uFloorAlpha, low);
+      gl_FragColor = vec4(0.0, 0.0, 0.0, a * uOpacity);
+    }
+  `,
+});
+const shell = new THREE.Mesh(new THREE.SphereGeometry(TUNE.shellR, 32, 24), shellMat);
+shell.frustumCulled = false;
+shell.renderOrder = -10;
+shell.visible = false;
+scene.add(shell);
+
+/* ============ 床のリング（マスを置くときの目印） ============ */
+const reticle = new THREE.Mesh(
+  new THREE.RingGeometry(0.09, 0.13, 40).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.95 })
+);
+reticle.matrixAutoUpdate = false; reticle.visible = false; reticle.renderOrder = 5;
+scene.add(reticle);
+
+/* ============ 作業マスの枠（置いた場所を光る枠で示す） ============ */
+const frameGroup = new THREE.Group();
+frameGroup.visible = false; scene.add(frameGroup);
+const frameRing = new THREE.Mesh(
+  new THREE.TorusGeometry(1, 0.006, 8, 64),
+  new THREE.MeshBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.85 })
+);
+frameRing.rotation.x = -Math.PI/2; frameRing.renderOrder = 6;
+frameGroup.add(frameRing);
+function layoutFrame(){
+  frameRing.scale.set(shellUniforms.uR.value, shellUniforms.uR.value, 1);
+}
+
+/* ============ 文字パネルを作る道具 ============ */
+function makePanelTexture(w, h){
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  return { cv, ctx: cv.getContext("2d"), tex };
+}
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+const _camPos = new THREE.Vector3();
+function faceCamera(obj){
+  obj.rotation.y = Math.atan2(_camPos.x - obj.position.x, _camPos.z - obj.position.z);
+}
+
+/* ---- 残り時間パネル ---- */
+const iP = makePanelTexture(512, 224);
+const infoPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.34, 0.149),
+  new THREE.MeshBasicMaterial({ map: iP.tex, transparent:true })
+);
+infoPanel.visible = false; infoPanel.renderOrder = 10; scene.add(infoPanel);
+let infoDirty = true;
+function drawInfoPanel(){
+  const c = iP.ctx, W = iP.cv.width, H = iP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(8,10,15,0.86)"; roundRect(c,6,6,W-12,H-12,24); c.fill();
+  c.strokeStyle = "#ffd166"; c.lineWidth = 5; roundRect(c,6,6,W-12,H-12,24); c.stroke();
+  c.textAlign = "center"; c.textBaseline = "middle";
+  const left = Math.max(0, Math.ceil(timeLeft));
+  const mm = Math.floor(left/60), ss = left % 60;
+  c.fillStyle = timeUp ? "#ffe9ad" : "#eef1f6"; c.font = "bold 104px sans-serif";
+  c.fillText(timeUp ? "おつかれ" : (mm + ":" + ("0"+ss).slice(-2)), W/2, 84);
+  c.font = "bold 34px sans-serif"; c.fillStyle = "#93a0b5";
+  const cm = Math.round(shellUniforms.uR.value * 200);
+  c.fillText("きょう " + doneToday + "マス　／　見える幅 約" + cm + "cm", W/2, 172);
+  iP.tex.needsUpdate = true;
+  infoDirty = false;
+}
+
+/* ---- 3Dボタン ---- */
+const uiButtons = [];
+function makeButton(label, w, h, onClick, accent){
+  const P = makePanelTexture(384, 150);
+  const draw = (text)=>{
+    const c = P.ctx, W = P.cv.width, H = P.cv.height;
+    c.clearRect(0,0,W,H);
+    c.fillStyle = "#151a24"; roundRect(c,5,5,W-10,H-10,28); c.fill();
+    c.strokeStyle = accent || "#ffd166"; c.lineWidth = 6; roundRect(c,5,5,W-10,H-10,28); c.stroke();
+    c.fillStyle = "#f3f6fb"; c.textAlign="center"; c.textBaseline="middle";
+    c.font = (text.length > 7 ? "bold 42px" : "bold 54px") + " sans-serif";
+    c.fillText(text, W/2, H/2);
+    P.tex.needsUpdate = true;
+  };
+  draw(label);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map:P.tex, transparent:true }));
+  mesh.visible = false; mesh.renderOrder = 10; scene.add(mesh);
+  const entry = { mesh, onClick, setLabel: draw };
+  uiButtons.push(entry);
+  return entry;
+}
+const wideBtn  = makeButton("ひろげる",      0.16, 0.0625, ()=>changeReveal(+TUNE.revealStep), "#9fb4d8");
+const narrowBtn= makeButton("せばめる",      0.16, 0.0625, ()=>changeReveal(-TUNE.revealStep), "#9fb4d8");
+const peekBtn  = makeButton("まわりを見る",  0.20, 0.078,  togglePeek,  "#9fb4d8");
+const nextBtn  = makeButton("このマスは終わり", 0.24, 0.094, finishSquare, "#ffd166");
+
+// 目かくし（depthTest切り）より手前に必ず出したい表示は、同じくdepthTestを切って
+// renderOrder の順番だけで重ねる。切り忘れると真っ暗の中でボタンが見えなくなる。
+[reticle, frameRing, infoPanel].forEach(m => { m.material.depthTest = false; });
+uiButtons.forEach(b => { b.mesh.material.depthTest = false; });
+
+/* ============ 状態 ============ */
+let placed = false;          // 作業マスを置いたか
+let peek = false;            // 「まわりを見る」中か
+let away = false;            // マスから離れているか
+let timeLeft = sessionMin*60;
+let timeUp = false;
+let shellFade = 0;           // 0=部屋が見える / 1=真っ暗
+const target = new THREE.Vector3();
+
+function shellWant(){
+  if(!placed) return 0;
+  if(peek || away || timeUp) return 0;
+  return 1;
+}
+function changeReveal(d){
+  const v = Math.min(TUNE.revealMax, Math.max(TUNE.revealMin, shellUniforms.uR.value + d));
+  shellUniforms.uR.value = v;
+  layoutFrame(); infoDirty = true; playClick();
+  log("見える幅を 約" + Math.round(v*200) + "cm にしました");
+}
+function togglePeek(){
+  // 時間切れのあとは、このボタンが「もうすこし続ける」に変わる
+  if(timeUp){
+    timeUp = false; peek = false; timeLeft = sessionMin*60;
+    peekBtn.setLabel("まわりを見る"); infoDirty = true;
+    playPlace(); pulse(90, 1.0);
+    log("もう" + sessionMin + "分つづけます");
+    return;
+  }
+  peek = !peek;
+  peekBtn.setLabel(peek ? "ここだけに戻す" : "まわりを見る");
+  playClick();
+  log(peek ? "まわりを見ています（部屋が戻ります）" : "また「ここだけ」にします");
+}
+function placeSquare(pos){
+  target.copy(pos);
+  shellUniforms.uTarget.value.copy(pos);
+  frameGroup.position.copy(pos);
+  frameGroup.visible = true; layoutFrame();
+  placed = true; peek = false; timeUp = false; timeLeft = sessionMin*60;
+  peekBtn.setLabel("まわりを見る");
+  infoPanel.visible = true; infoDirty = true;
+  wideBtn.mesh.visible = narrowBtn.mesh.visible = peekBtn.mesh.visible = nextBtn.mesh.visible = true;
+  reticle.visible = false;
+  playPlace(); pulse(90, 1.0);
+  log("ここだけ、にしました。" + sessionMin + "分たったら合図します");
+}
+function finishSquare(){
+  if(!placed) return;
+  doneToday++; saveDone();
+  placed = false; peek = false; timeUp = false;
+  frameGroup.visible = false; infoPanel.visible = false;
+  wideBtn.mesh.visible = narrowBtn.mesh.visible = peekBtn.mesh.visible = nextBtn.mesh.visible = false;
+  playDone(); pulse(160, 1.0);
+  log("1マス終わり。きょう " + doneToday + "マス。次の場所を見て、トリガーで置いてください");
+}
+function onTimeUp(){
+  timeUp = true; infoDirty = true;
+  peekBtn.setLabel("もうすこし続ける");
+  playChime(); pulse(200, 1.0);
+  log(sessionMin + "分たちました。休むか、「このマスは終わり」か、「もうすこし続ける」を選んでください");
+}
+
+/* ============ 入力（コントローラ／素手のつまみ） ============ */
+const controllers = [];
+const raycaster = new THREE.Raycaster();
+const _origin = new THREE.Vector3(), _dirv = new THREE.Vector3();
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i);
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-2.0)]);
+    const rayLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffd166, transparent:true, opacity:0.5 }));
+    rayLine.renderOrder = 10;
+    c.add(rayLine);
+    c.addEventListener("select", ()=>onSelect(c));
+    c.addEventListener("connected", (e)=>{ rayLine.visible = !isHandInput(e); });
+    scene.add(c); controllers.push(c);
+  }
+}
+function pressButtonsByRay(){
+  const btnMeshes = uiButtons.filter(b=>b.mesh.visible).map(b=>b.mesh);
+  if(!btnMeshes.length) return false;
+  const hit = raycaster.intersectObjects(btnMeshes, false);
+  if(!hit.length) return false;
+  const entry = uiButtons.find(b=>b.mesh === hit[0].object);
+  if(entry && entry.onClick){ entry.onClick(); return true; }
+  return false;
+}
+function onSelect(c){
+  _origin.setFromMatrixPosition(c.matrixWorld);
+  _dirv.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
+  raycaster.set(_origin, _dirv);
+  if(pressButtonsByRay()) return;
+  if(reticle.visible){
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+    reticle.matrix.decompose(pos, quat, scl);
+    placeSquare(pos);
+    return;
+  }
+  if(placed) log("ボタンを狙ってトリガーを引いてください");
+  else log("片づける場所を見て、黄色い輪が出てからトリガーを引いてください");
+}
+
+/* ============ MR開始 ============ */
+let xrSession = null, hitSource = null, hitReq = false, pendingLogPanel = false;
+async function startMR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(!navigator.xr){
+    showErr("このブラウザはMRに対応していません。Quest 3のブラウザで開いてください。"); return;
+  }
+  init3D(); initAudio();
+  try{
+    log("MRを開始します…");
+    const session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"], optionalFeatures: ["local-floor", "hand-tracking"],
+    });
+    xrSession = session;
+    renderer.xr.setReferenceSpaceType("local");
+    renderer.xr.setFramebufferScaleFactor(0.9);
+    await renderer.xr.setSession(session);
+    scene.background = null;
+    setupControllers();
+    setupHands(renderer, scene);
+    hitSource = null; hitReq = false;
+    placed = false; peek = false; timeUp = false; shellFade = 0;
+    frameGroup.visible = false; infoPanel.visible = false;
+    uiButtons.forEach(b=>b.mesh.visible = false);
+    shell.visible = true;
+    $("start").style.display = "none";
+    $("goBtn").textContent = "MR中…";
+    log("MR開始OK。片づける場所（机や床）を見て、黄色い輪→トリガーで置いてください");
+    pendingLogPanel = true;
+
+    session.addEventListener("end", ()=>{
+      xrSession = null; hitSource = null; hitReq = false;
+      scene.background = null;
+      reticle.visible = false; logPanel.visible = false;
+      frameGroup.visible = false; infoPanel.visible = false;
+      uiButtons.forEach(b=>b.mesh.visible = false);
+      shell.visible = false; shellFade = 0; shellUniforms.uOpacity.value = 0;
+      placed = false; peek = false;
+      saveDone();
+      $("start").style.display = "flex";
+      $("goBtn").textContent = "もう一度はじめる"; $("goBtn").disabled = false;
+      log("MRを終了しました（きょう " + doneToday + "マス）");
+    });
+  }catch(e){
+    showErr("MR開始に失敗しました：" + (e && e.message ? e.message : e));
+    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
+    try{ xrSession && xrSession.end(); }catch(_){}
+    xrSession = null;
+  }
+}
+
+/* ============ MR中に読める3Dログパネル ============ */
+const lP = makePanelTexture(640, 320);
+const logPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.5, 0.25),
+  new THREE.MeshBasicMaterial({ map: lP.tex, transparent:true })
+);
+logPanel.visible = false; logPanel.renderOrder = 10;
+logPanel.material.depthTest = false; scene.add(logPanel);
+function drawLogPanel(){
+  const c = lP.ctx, W = lP.cv.width, H = lP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(8,10,15,0.88)"; c.fillRect(0,0,W,H);
+  c.strokeStyle = "#2a3140"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
+  c.font = "18px 'Consolas','Courier New',monospace"; c.textAlign = "left"; c.textBaseline = "top";
+  const last = logLines.slice(-11); let y = 12;
+  for(const ln of last){
+    c.fillStyle = ln.e ? "#ff9a9a" : "#dfe7f5";
+    let t = ln.t; if(t.length > 46) t = t.slice(0,45) + "…";
+    c.fillText(t, 12, y); y += 27;
+  }
+  lP.tex.needsUpdate = true;
+}
+function placeLogPanelInFront(){
+  const cam = renderer.xr.getCamera();
+  const camPos = new THREE.Vector3(), camQ = new THREE.Quaternion();
+  cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
+  const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
+  if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
+  logPanel.position.set(camPos.x + fwd.x*1.4, camPos.y - 0.55, camPos.z + fwd.z*1.4);
+  logPanel.lookAt(camPos.x, camPos.y - 0.55, camPos.z);
+  logPanel.visible = true; drawLogPanel();
+}
+
+/* ============ PCで見た目だけ試すモード（Claudeの確認用・実機の代わりにはならない） ============ */
+let pcMode = false, pcYaw = 0, pcPitch = -0.25, dragging = false, lastX = 0, lastY = 0;
+const pcRoom = new THREE.Group(); pcRoom.visible = false; scene.add(pcRoom);
+{
+  const grid = new THREE.GridHelper(8, 16, 0x556070, 0x333c48);
+  pcRoom.add(grid);
+  const mat = i => new THREE.MeshLambertMaterial({ color: [0xc25c4a,0x4a7cc2,0x9ac24a,0xc2a24a,0x8a5cc2,0xc25c9a][i%6] });
+  // 散らかった物の代わり（部屋いっぱいに置く＝目かくしが効いているか見える）
+  const spots = [
+    [0,0.75,-0.6,0.30,0.10,0.22], [0.55,0.82,-0.5,0.14,0.24,0.14], [-0.6,0.78,-0.7,0.2,0.16,0.2],
+    [1.6,0.3,-1.2,0.5,0.6,0.4], [-1.8,0.5,-0.8,0.4,1.0,0.4], [0.4,0.2,1.5,0.7,0.4,0.5],
+    [-1.2,0.15,1.2,0.6,0.3,0.6], [2.0,0.9,0.6,0.3,1.8,0.3], [-2.2,1.2,-1.8,0.5,2.4,0.5],
+    [1.0,0.08,-2.2,1.2,0.16,0.8],
+  ];
+  spots.forEach((s,i)=>{
+    const m = new THREE.Mesh(new THREE.BoxGeometry(s[3],s[4],s[5]), mat(i));
+    m.position.set(s[0],s[1],s[2]); pcRoom.add(m);
+  });
+  // 机の天板
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.05,0.7), new THREE.MeshLambertMaterial({ color:0x6b5a48 }));
+  desk.position.set(0,0.70,-0.6); pcRoom.add(desk);
+}
+function startPC(){
+  init3D(); initAudio();
+  pcMode = true;
+  $("start").style.display = "none";
+  pcRoom.visible = true; shell.visible = true;
+  scene.background = new THREE.Color(0x1a1f28);
+  camera.position.set(0, 1.45, 0);
+  placeSquare(new THREE.Vector3(0, 0.75, -0.6));
+  log("PC試写モード。ドラッグで見回せます（実機の代わりにはなりません）");
+}
+canvas.addEventListener("pointerdown", e=>{
+  if(!pcMode) return;
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+});
+addEventListener("pointerup", ()=>{ dragging = false; });
+addEventListener("pointermove", e=>{
+  if(!pcMode || !dragging) return;
+  pcYaw   -= (e.clientX - lastX) * 0.005;
+  pcPitch -= (e.clientY - lastY) * 0.005;
+  pcPitch = Math.max(-1.4, Math.min(1.4, pcPitch));
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener("click", e=>{
+  if(!pcMode) return;
+  const r = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+  raycaster.setFromCamera(ndc, camera);
+  pressButtonsByRay();
+});
+
+/* ============ ボタン有効化 ============ */
+$("goBtn").addEventListener("click", startMR);
+$("pcBtn").addEventListener("click", startPC);
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{
+    if(ok){ $("goBtn").disabled = false; log("準備OK。「はじめる」を押せます"); }
+    else { showErr("この端末ではMRを開始できません。Quest 3のブラウザで開いてください。"); }
+  }).catch(err=>{ showErr("MR対応の確認に失敗：" + (err && err.message || err)); });
+}else{
+  showErr("このブラウザはWebXR（MR）に対応していません。Quest 3のブラウザで開いてください。");
+  log("PCでは下の「PCで見た目だけ試す」で見た目だけ確認できます");
+}
+
+/* ============ 毎フレーム ============ */
+const tmpM = new THREE.Matrix4();
+let loopErrLogged = false, lastMs = performance.now();
+
+function simulate(dt){
+  // 残り時間
+  if(placed && !timeUp && !peek){
+    timeLeft -= dt;
+    if(Math.ceil(timeLeft) !== Math.ceil(timeLeft + dt)) infoDirty = true;
+    if(timeLeft <= 0){ timeLeft = 0; onTimeUp(); }
+  }
+  // マスから離れたら自動で部屋を戻す（安全）
+  if(placed){
+    const d = _camPos.distanceTo(target);
+    if(!away && d > TUNE.awayFar){ away = true; log("マスから離れました。部屋を戻します"); }
+    else if(away && d < TUNE.awayNear){ away = false; log("戻りました。また「ここだけ」にします"); }
+  }else if(away){ away = false; }
+  // 暗くなる／戻るの補間
+  const want = shellWant();
+  const step = dt / Math.max(0.05, TUNE.fadeSec);
+  shellFade += Math.max(-step, Math.min(step, want - shellFade));
+  shellUniforms.uOpacity.value = shellFade;
+}
+
+// 目かくしの球とパネル・ボタンの配置（描画の直前に毎回そろえる）
+function layoutUI(){
+  shell.position.copy(_camPos);   // 球は常に頭を包む
+  if(!placed) return;
+  const r = shellUniforms.uR.value;
+  infoPanel.position.set(target.x, target.y + r + 0.30, target.z);
+  faceCamera(infoPanel);
+  const y = target.y + r + 0.14;
+  narrowBtn.mesh.position.set(target.x - 0.19, y, target.z); faceCamera(narrowBtn.mesh);
+  wideBtn.mesh.position.set(  target.x + 0.19, y, target.z); faceCamera(wideBtn.mesh);
+  peekBtn.mesh.position.set(  target.x - 0.15, y - 0.11, target.z); faceCamera(peekBtn.mesh);
+  nextBtn.mesh.position.set(  target.x + 0.17, y - 0.11, target.z); faceCamera(nextBtn.mesh);
+  if(infoDirty) drawInfoPanel();
+}
+
+function renderLoop(t, frame){
+ try{
+  const nowMs = performance.now();
+  const dt = Math.min((nowMs - lastMs)/1000, 0.05); lastMs = nowMs;
+
+  if(frame && renderer.xr.isPresenting){
+    const ref = renderer.xr.getReferenceSpace();
+    const sess = renderer.xr.getSession();
+    if(pendingLogPanel){ pendingLogPanel = false; placeLogPanelInFront(); }
+
+    if(!hitReq){
+      hitReq = true;
+      if(sess.requestHitTestSource){
+        sess.requestReferenceSpace("viewer")
+          .then(vs => sess.requestHitTestSource({ space: vs })
+            .then(src => { hitSource = src; })
+            .catch(err => showErr("場所の検出を開始できません：" + (err && err.message || err))))
+          .catch(err => showErr("基準空間の取得に失敗：" + (err && err.message || err)));
+      }else{
+        showErr("このブラウザは場所の検出（hit-test）に対応していません。ブラウザを最新にしてください。");
+      }
+    }
+    // マスを置く前だけ輪を探す
+    if(hitSource && !placed){
+      const res = frame.getHitTestResults(hitSource);
+      if(res.length){
+        reticle.visible = true;
+        tmpM.fromArray(res[0].getPose(ref).transform.matrix); reticle.matrix.copy(tmpM);
+      }else reticle.visible = false;
+    }else{
+      reticle.visible = false;
+    }
+    renderer.xr.getCamera().getWorldPosition(_camPos);
+  }else if(pcMode){
+    camera.rotation.set(pcPitch, pcYaw, 0, "YXZ");
+    camera.getWorldPosition(_camPos);
+  }
+
+  if(renderer.xr.isPresenting || pcMode){
+    simulate(dt);
+    layoutUI();
+  }
+
+  renderer.render(scene, camera);
+ }catch(err){
+  if(!loopErrLogged){ loopErrLogged = true; showErr("描画エラー：" + (err && err.message || err)); }
+ }
+}
+
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============ Claudeの検証窓口（描画が止まる環境でも中身を確かめられる） ============ */
+window.__dbg = {
+  state(){
+    return {
+      rev: REV, pcMode, placed, peek, away, timeUp,
+      timeLeft: Math.round(timeLeft*10)/10, sessionMin, doneToday,
+      revealR: shellUniforms.uR.value, shellFade: Math.round(shellFade*1000)/1000,
+      opacity: shellUniforms.uOpacity.value,
+      target: target.toArray().map(v=>Math.round(v*1000)/1000),
+      buttonsVisible: uiButtons.filter(b=>b.mesh.visible).length,
+    };
+  },
+  tick(sec, steps){
+    const n = steps || 60, dt = sec/n;
+    for(let i=0;i<n;i++) simulate(dt);
+    return this.state();
+  },
+  place(x,y,z){ placeSquare(new THREE.Vector3(x,y,z)); return this.state(); },
+  finish(){ finishSquare(); return this.state(); },
+  peek(){ togglePeek(); return this.state(); },
+  // シェーダーと同じ式のJS版（穴の当たり方を数値で確かめる用）
+  alphaAt(px,py,pz, camX,camY,camZ){
+    const cam = new THREE.Vector3(camX!==undefined?camX:_camPos.x, camY!==undefined?camY:_camPos.y, camZ!==undefined?camZ:_camPos.z);
+    const p = new THREE.Vector3(px,py,pz);
+    const dir = p.clone().sub(cam).normalize();
+    const tt = Math.max(dir.dot(target.clone().sub(cam)), 0);
+    const d = cam.clone().add(dir.clone().multiplyScalar(tt)).distanceTo(target);
+    const R = shellUniforms.uR.value, S = TUNE.soft;
+    const sm = (a,b,x)=>{ const u = Math.min(1, Math.max(0, (x-a)/(b-a))); return u*u*(3-2*u); };
+    let a = sm(R, R+S, d);
+    const low = sm(TUNE.floorFrom, TUNE.floorTo, dir.y);
+    a *= 1 + (TUNE.floorAlpha - 1) * low;
+    return Math.round(a * shellUniforms.uOpacity.value * 1000)/1000;
+  },
+  setFade(v){ shellFade = v; shellUniforms.uOpacity.value = v; return this.state(); },
+  look(yaw, pitch){ pcYaw = yaw; pcPitch = pitch; return "ok"; },
+  // マスの方向をまっすぐ向く（PC試写での撮影用）
+  lookAtTarget(){
+    const d = target.clone().sub(camera.position);
+    pcYaw = Math.atan2(-d.x, -d.z);
+    pcPitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    return { pcYaw: Math.round(pcYaw*1000)/1000, pcPitch: Math.round(pcPitch*1000)/1000 };
+  },
+  render(){ try{ renderer && renderer.render(scene, camera); return "ok"; }catch(e){ return String(e); } },
+  // 画面が0pxになる環境（Claudeの検証タブ等）でも絵を撮れるように、大きさを指定して描く
+  snap(q, w, h){
+    try{
+      if(!renderer) return "ERR:renderer なし";
+      const W = w || 800, H = h || 500;
+      renderer.setSize(W, H, false);
+      camera.aspect = W/H; camera.updateProjectionMatrix();
+      if(pcMode){
+        camera.rotation.set(pcPitch, pcYaw, 0, "YXZ");
+        camera.updateMatrixWorld(true);
+        camera.getWorldPosition(_camPos);
+        layoutUI();
+      }
+      renderer.render(scene, camera);
+      return canvas.toDataURL("image/jpeg", q || 0.85);
+    }catch(e){ return "ERR:" + e; }
+  },
+};
+
+log("読み込みOK（版：" + REV + "）");
+</script>
+</body>
+</html>

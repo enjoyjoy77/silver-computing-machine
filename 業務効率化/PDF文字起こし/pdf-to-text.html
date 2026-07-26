@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF文字起こし</title>
+<script src="../../libs/pdf.min.js"></script>
+<style>
+  /* フォントは端末内のものを使用（ネット接続不要） */
+  :root {
+    --bg: #0e0f14;
+    --surface: #16171e;
+    --surface2: #1e2029;
+    --border: #2a2c38;
+    --text: #e2e4ed;
+    --text-dim: #6b6f82;
+    --accent: #6c8aff;
+    --radius: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0; gap: 12px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; white-space: nowrap; }
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    border-radius: 7px; display: grid; place-items: center; font-size: 14px; flex-shrink: 0;
+  }
+  .rev { font-size: 11px; color: var(--text-dim); }
+
+  .btn {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+
+  main { flex: 1; display: flex; flex-direction: column; padding: 16px 20px; gap: 12px; min-height: 0; }
+
+  #drop {
+    flex: 1; display: grid; place-items: center;
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    background: var(--surface); text-align: center; padding: 24px;
+  }
+  #drop.over { border-color: var(--accent); background: var(--surface2); }
+  #drop h2 { font-size: 17px; margin-bottom: 8px; font-weight: 700; }
+  #drop p { font-size: 13px; color: var(--text-dim); line-height: 1.9; }
+
+  #result { flex: 1; display: none; flex-direction: column; gap: 10px; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .bar .info { font-size: 12px; color: var(--text-dim); margin-right: auto; }
+  textarea {
+    flex: 1; width: 100%; resize: none;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px; font-size: 13px; line-height: 1.8;
+    font-family: 'Yu Gothic UI', 'Meiryo', monospace;
+    min-height: 0;
+  }
+  #status { font-size: 13px; color: var(--accent); min-height: 20px; }
+  #status.err { color: #ff8a8a; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo"><span class="logo-icon">📄</span>PDF文字起こし</div>
+    <span class="rev">rev2</span>
+  </header>
+
+  <main>
+    <div id="drop">
+      <div>
+        <h2>PDFをここにドロップ</h2>
+        <p>
+          PDFの中の文字を取り出して、txtで保存できます。<br>
+          日本語のPDFも読めます。ネットにはつながりません。<br><br>
+          <button class="btn primary" id="pick">パソコンから選ぶ</button>
+        </p>
+      </div>
+    </div>
+
+    <div id="result">
+      <div class="bar">
+        <span class="info" id="info"></span>
+        <button class="btn" id="copy">コピー</button>
+        <button class="btn primary" id="save">txtで保存</button>
+        <button class="btn" id="again">別のPDFを読む</button>
+      </div>
+      <textarea id="out" spellcheck="false"></textarea>
+    </div>
+
+    <div id="status"></div>
+  </main>
+</div>
+
+<input type="file" id="file" accept=".pdf" style="display:none">
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = '../../libs/pdf.worker.min.js';
+
+var drop = document.getElementById('drop');
+var result = document.getElementById('result');
+var out = document.getElementById('out');
+var info = document.getElementById('info');
+var msgEl = document.getElementById('status');
+var fileInput = document.getElementById('file');
+var currentName = 'PDF';
+
+function say(msg, isError) {
+  msgEl.textContent = msg;
+  msgEl.className = isError ? 'err' : '';
+}
+
+document.getElementById('pick').onclick = function () { fileInput.click(); };
+document.getElementById('again').onclick = function () {
+  result.style.display = 'none';
+  drop.style.display = 'grid';
+  out.value = '';
+  say('');
+};
+fileInput.onchange = function (e) {
+  if (e.target.files[0]) start(e.target.files[0]);
+  fileInput.value = '';
+};
+
+['dragenter', 'dragover'].forEach(function (ev) {
+  document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+});
+['dragleave', 'drop'].forEach(function (ev) {
+  document.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+});
+document.addEventListener('drop', function (e) {
+  e.preventDefault();
+  var f = e.dataTransfer.files[0];
+  if (!f) return;
+  if (f.name.toLowerCase().slice(-4) !== '.pdf') {
+    say('PDFファイルではないようです。拡張子が .pdf のファイルを入れてください。', true);
+    return;
+  }
+  start(f);
+});
+
+// 1ページ分の文字を、行のまとまりに組み立てる
+function buildPageText(items) {
+  var lines = [];
+  var lastY = null;
+  var buf = '';
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (!it.str) continue;
+    var y = it.transform[5];
+    // 縦位置が3以上ずれたら別の行とみなす
+    if (lastY !== null && Math.abs(y - lastY) > 3) {
+      lines.push(buf);
+      buf = '';
+    }
+    buf += it.str;
+    if (it.hasEOL) { lines.push(buf); buf = ''; lastY = null; }
+    else { lastY = y; }
+  }
+  if (buf) lines.push(buf);
+  return lines.join('\n');
+}
+
+async function start(file) {
+  currentName = file.name.replace(/\.pdf$/i, '');
+  say('読み込んでいます…');
+  drop.style.display = 'none';
+  result.style.display = 'flex';
+  out.value = '';
+  info.textContent = file.name;
+
+  try {
+    var buf = await file.arrayBuffer();
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    var parts = [];
+    var gotAny = false;
+
+    for (var p = 1; p <= pdf.numPages; p++) {
+      say('文字を取り出しています… ' + p + ' / ' + pdf.numPages + 'ページ');
+      var page = await pdf.getPage(p);
+      var content = await page.getTextContent();
+      var text = buildPageText(content.items).trim();
+      if (text) gotAny = true;
+      parts.push('----- ' + p + 'ページ -----\n' + (text || '(このページには文字が入っていません)'));
+      out.value = parts.join('\n\n');
+      out.scrollTop = out.scrollHeight;
+    }
+
+    info.textContent = file.name + '  /  ' + pdf.numPages + 'ページ  /  ' + out.value.length.toLocaleString() + '文字';
+
+    if (!gotAny) {
+      say('文字が1つも入っていませんでした。写真として取り込まれたPDF（スキャンしたもの）の可能性があります。その場合は画面OCRツールを使ってください。', true);
+    } else {
+      say('できました。「txtで保存」または「コピー」でどうぞ。');
+    }
+  } catch (err) {
+    say('読めませんでした: ' + (err && err.message ? err.message : err) + '  （パスワード付きPDFや壊れたファイルの可能性があります）', true);
+  }
+}
+
+document.getElementById('copy').onclick = async function () {
+  if (!out.value) { say('まだ何も取り出していません。', true); return; }
+  try {
+    await navigator.clipboard.writeText(out.value);
+    say('コピーしました。貼り付けてください。');
+  } catch (e) {
+    out.select();
+    say('自動コピーができませんでした。文字が選ばれているので Ctrl+C を押してください。', true);
+  }
+};
+
+document.getElementById('save').onclick = function () {
+  if (!out.value) { say('まだ何も取り出していません。', true); return; }
+  // メモ帳・Excelで文字化けしないよう UTF-8 BOM付きで保存する
+  var bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+  var blob = new Blob([bom, out.value], { type: 'text/plain;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = currentName + '_text.txt';
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  say('保存しました（ダウンロードフォルダを見てください）。');
+};
+</script>
+</body>
+</html>
