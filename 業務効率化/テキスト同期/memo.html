@@ -206,6 +206,15 @@
     flex: 1;
   }
 
+  .auto-copy-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #555;
+  }
+
   #startupError {
     display: none;
     background: #fff;
@@ -229,7 +238,7 @@
 </style>
 </head>
 <body>
-<div class="rev">rev1</div>
+<div class="rev">rev2</div>
 
 <div class="wrap">
   <h1>テキスト同期メモ</h1>
@@ -288,6 +297,11 @@
           内容を消す
         </button>
       </div>
+
+      <label class="auto-copy-row">
+        <input type="checkbox" id="autoCopyToggle" disabled>
+        新しい内容が届いたら自動でコピーする
+      </label>
     </section>
   </main>
 </div>
@@ -316,7 +330,9 @@
   var countEl = document.getElementById("charCount");
   var copyBtn = document.getElementById("copyBtn");
   var clearBtn = document.getElementById("clearBtn");
+  var autoCopyToggle = document.getElementById("autoCopyToggle");
 
+  var AUTO_COPY_KEY = "memoAutoCopy";
   var currentCode = "";
   var lastUpdatedAt = null;
   var lastSentText = null;
@@ -365,6 +381,23 @@
     memoEl.disabled = !enabled;
     copyBtn.disabled = !enabled;
     clearBtn.disabled = !enabled;
+    autoCopyToggle.disabled = !enabled;
+  }
+
+  function loadAutoCopyPref() {
+    try {
+      return localStorage.getItem(AUTO_COPY_KEY) !== "false";
+    } catch (error) {
+      return true;
+    }
+  }
+
+  function saveAutoCopyPref(enabled) {
+    try {
+      localStorage.setItem(AUTO_COPY_KEY, enabled ? "true" : "false");
+    } catch (error) {
+      // 保存できなくても、この場での切り替えは続行する。
+    }
   }
 
   async function readJsonResponse(response) {
@@ -511,6 +544,7 @@
     saveCode(normalized);
     showCurrentCode();
     enableMemo(true);
+    autoCopyToggle.checked = loadAutoCopyPref();
     setStatus("サーバーから読み込んでいます。");
 
     await receiveMemo(true);
@@ -565,6 +599,8 @@
 
       if (initialLoad) {
         setStatus("読み込みました。", "success");
+      } else if (autoCopyToggle.checked && memoEl.value) {
+        copyMemo(true);
       } else {
         setStatus(
           "ほかの端末の内容を受信しました " + formatTime(new Date()),
@@ -663,7 +699,7 @@
     }
   }
 
-  async function copyMemo() {
+  async function copyMemo(isAuto) {
     var text = memoEl.value;
 
     try {
@@ -676,9 +712,21 @@
         throw new Error("Clipboard APIを利用できません。");
       }
 
-      setStatus("コピーしました。", "success");
+      setStatus(
+        (isAuto ? "自動でコピーしました " : "コピーしました ") +
+          formatTime(new Date()),
+        "success",
+      );
       return;
     } catch (error) {
+      if (isAuto) {
+        setStatus(
+          "自動コピーに失敗しました。「全文コピー」を押してください。",
+          "error",
+        );
+        return;
+      }
+
       var start = memoEl.selectionStart;
       var end = memoEl.selectionEnd;
 
@@ -813,8 +861,14 @@
     receiveMemo(false);
   });
 
-  copyBtn.addEventListener("click", copyMemo);
+  copyBtn.addEventListener("click", function () {
+    copyMemo(false);
+  });
   clearBtn.addEventListener("click", clearMemo);
+
+  autoCopyToggle.addEventListener("change", function () {
+    saveAutoCopyPref(autoCopyToggle.checked);
+  });
 
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible") {

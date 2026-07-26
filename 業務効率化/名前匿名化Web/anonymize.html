@@ -40,6 +40,13 @@
   .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.7rem; }
   .fileload { display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:0.4rem 0.8rem; background:var(--card); font-size:0.85rem; white-space:nowrap; }
   .fileload:hover { border-color: var(--accent); }
+  /* ドラッグ＆ドロップ中の見た目 */
+  body.dragover::after {
+    content: "ここに離すと読み込みます"; position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.45); color: #fff; font-size: 1.1rem; font-weight: 600;
+    border: 4px dashed var(--accent); pointer-events: none;
+  }
   button {
     border: 1px solid var(--line); border-radius: 10px; background: var(--card);
     color: var(--ink); padding: 0.55rem 0.9rem; font-size: 0.9rem; cursor: pointer;
@@ -85,14 +92,14 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章やWord（.docx / .doc）の実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-09b Word(.doc/.docx)対応版</span></p>
+  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-26d ふりがな除去つき（表の列まるごと＋Excel直読み＋D&D）</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
 
   <div class="row" style="margin-top:0.4rem">
-    <label class="fileload">📄 Word（.docx / .doc）／テキストを読み込む
-      <input type="file" id="fileInput" accept=".docx,.txt,.text,.doc" hidden>
+    <label class="fileload">📄 ファイルを読み込む（Excel .xlsx／Word .docx・.doc／.csv／.txt・複数可・この画面にドラッグ＆ドロップでもOK）
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.docx,.doc,.csv,.tsv,.txt,.text" multiple hidden>
     </label>
     <span id="fileMsg" class="hint" style="margin:0"></span>
   </div>
@@ -100,6 +107,16 @@
   <div class="row">
     <button class="primary" id="execBtn">▶ 匿名化を実行！</button>
     <label class="chk"><input type="checkbox" id="autoDetect" checked> 自動で人名を探す（辞書 約2.9万語）</label>
+  </div>
+
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="colDetect" checked> 表の「生徒名」「記入者」などの列は、辞書に無くても丸ごと伏せる</label>
+    <span id="colMsg" class="hint" style="margin:0"></span>
+  </div>
+  <div class="row">
+    <label class="chk" style="gap:.4rem">名前の列を手で指定（表の左から何列目か。例: 1,2）
+      <input type="text" id="colManual" placeholder="空欄でよい" style="width:8rem;padding:.25rem .4rem">
+    </label>
   </div>
 
   <details id="nameBox">
@@ -29516,6 +29533,78 @@ window.TinySegmenter = { segment: segment };
   // 人名として扱わない一般語・地名（フルネーム誤検出よけ）
   const STOP = new Set(("東京 大阪 名古屋 京都 横浜 神戸 福岡 札幌 仙台 広島 千葉 埼玉 静岡 岡山 熊本 日本 世界 本社 支社 支店 会社 部門 総務 営業 経理 人事 開発 製造 品質 結果 連絡 対応 確認 会議 資料 担当 案件 予定 期限 内容 以上 各位 御中 今回 前回 今後 御礼 森林 山林 河川 大和 桃太郎 浦島太郎 金太郎 一寸法師 花咲爺").split(/\s+/));
 
+  // ---- 表の「名前の列」を丸ごと匿名化（rev 2026-07-26）----
+  // 名簿・引き継ぎ簿では、名前の列に1〜2文字の呼び捨てが単独で入る。辞書でもAIでも拾えないので、
+  // 「列の見出し」という構造から人名と決めてしまう。辞書に無くても伏せる。
+  const COL_NAME_HDR = ["生徒名","児童名","園児名","学生名","氏名","名前","記入者","確認者","担当者","担当職員","職員名","入力者","記録者","報告者","対象者","保護者名","当番","日直","正日直","副日直","出席者","参加者","利用者名"];
+  const COL_OTHER_HDR = ["部署","連絡事項","備考","日付","時間","時刻","学年","番号","内容","項目","区分","曜日","場所","行事","予定","記事","連絡"];
+  const isColHdr = (s, list) => { s = (s||"").trim(); return s.length > 0 && s.length <= 10 && list.some(h => s.includes(h)); };
+  function detectColumns(text, manualSpec){
+    const out = [], seen = new Set(), usedHdr = new Set();
+    const manual = String(manualSpec||"").split(/[,、\s]+/).map(x => parseInt(x,10)-1).filter(n => n >= 0);
+    const isNameLike = v => {
+      if (!v) return false;
+      if (v.length > 12) return false;                       // 長い文＝連絡事項
+      if (/[、。「」『』・…]/.test(v)) return false;
+      if (/https?:/.test(v)) return false;
+      if (/^[0-9０-９\s　\-ー〜~:：\/／.,()（）%％]+$/.test(v)) return false;   // 数字・記号だけ
+      if (/^【[A-Za-z]{1,3}】$/.test(v)) return false;        // すでに匿名化済みの記号
+      if (isColHdr(v, COL_NAME_HDR) || isColHdr(v, COL_OTHER_HDR)) return false;
+      if (STOP.has(v)) return false;
+      return true;
+    };
+    const addName = raw => {
+      const v = (raw||"").replace(/^[\s　]+|[\s　]+$/g, "");
+      if (!isNameLike(v)) return;
+      const parts = v.split(/[\s　]+/).filter(Boolean);
+      let rec;
+      if (parts.length >= 2) rec = { surname: parts[0], given: parts.slice(1).join(""), cellOnly: false };
+      else rec = { surname: v, given: null, cellOnly: v.length <= 1 };
+      const key = rec.surname + "|" + (rec.given || "");
+      if (seen.has(key)) return;
+      seen.add(key); out.push(rec);
+    };
+    const push = raw => {
+      let v = (raw||"").replace(/^[\s　]+|[\s　]+$/g, "");
+      v = v.replace(/^【[A-Za-z]{1,3}】/, "");               // 既存ラベルの後ろ（例:【N】（紗））も拾う
+      const m = v.match(/^(.*?)[（(]([^）)]{1,6})[）)]$/);    // 「山田（紗）」＝本体と括弧内を別々に
+      if (m) { addName(m[1]); addName(m[2]); return; }
+      addName(v);
+    };
+    let cols = null;
+    for (const line of text.split(/\r?\n/)) {
+      if (line.indexOf("\t") < 0 && !manual.length) { continue; }
+      const cells = line.split("\t");
+      const hdrCols = [];
+      let otherHdr = false;
+      cells.forEach((c, i) => {
+        if (isColHdr(c, COL_NAME_HDR)) hdrCols.push(i);
+        else if (isColHdr(c, COL_OTHER_HDR)) otherHdr = true;
+      });
+      if (hdrCols.length) {
+        for (const i of hdrCols) usedHdr.add(cells[i].trim());
+        // 行ラベル型（「男子１階確認者　…　配膳当番」）＝見出しの右どなりの値も名前
+        for (const i of hdrCols) {
+          for (let j = i + 1; j < cells.length; j++) {
+            const v = cells[j].trim();
+            if (!v) continue;
+            if (isColHdr(v, COL_NAME_HDR) || isColHdr(v, COL_OTHER_HDR)) break;
+            // 行ラベル型は右どなりが短い名前のときだけ。見出しの補足（例「連絡(体調不良など)」）を拾わない
+            if (v.length <= 6 && !/[（()）]/.test(v)) addName(v);
+            break;
+          }
+        }
+        cols = hdrCols;                    // 以降の行は、この列を名前の列とみなす
+        continue;
+      }
+      if (otherHdr) { cols = null; continue; }   // 別の表が始まった＝いったん解除
+      const use = manual.length ? manual : cols;
+      if (!use) continue;
+      for (const i of use) push(cells[i] || "");
+    }
+    return { names: out, headers: [...usedHdr] };
+  }
+
   // ---- 単語分割＋「漢字のかたまり」解析による自動検出（v5）----
   const normLatin = s => (s||"").replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
   const OLD2NEW = {"髙":"高","﨑":"崎","嵜":"崎","邊":"辺","邉":"辺","齋":"斎","齊":"斉","澤":"沢","嶋":"島","嶌":"島","檜":"桧","德":"徳","惠":"恵","冨":"富","廣":"広","濱":"浜","濵":"浜","栁":"柳","渕":"淵","曾":"曽","眞":"真","桒":"桑","龜":"亀","瀨":"瀬","雙":"双"};
@@ -29683,36 +29772,47 @@ window.TinySegmenter = { segment: segment };
       if (cb.checked) unchecked.delete(cb.dataset.text); else unchecked.add(cb.dataset.text);
     }
     const manual = parseNames($("nameList").value);
+    const colRes = $("colDetect").checked ? detectColumns(text, $("colManual").value) : { names: [], headers: [] };
+    const cols = colRes.names;
+    $("colMsg").textContent = cols.length
+      ? `表の列から ${cols.length} 件（${colRes.headers.join("・") || "手で指定した列"}）`
+      : ($("colDetect").checked ? "表の名前の列は見つかりませんでした" : "");
     const auto = $("autoDetect").checked ? detect(text) : [];
-    if (manual.length === 0 && auto.length === 0) {
+    if (manual.length === 0 && cols.length === 0 && auto.length === 0) {
       toast("名前が見つかりませんでした");
       return false;
     }
     persons = []; patterns = [];
     const known = new Set();
     let idx = 0;
-    const addPerson = (surname, given, typePrefix) => {
+    const addPerson = (surname, given, typePrefix, cellOnly) => {
       const lb = label(idx++);
       persons.push({ surname, given, label: lb });
+      // cellOnly＝1文字など巻き込みが怖い名前。セル内（表の枠）と敬称つきだけ置換する
       if (given) {
-        patterns.push({ text: surname + given, label: lb, type: typePrefix + "フルネーム", surname, given });
-        patterns.push({ text: surname,          label: lb, type: typePrefix + "名字のみ",  surname, given: null });
+        patterns.push({ text: surname + given, label: lb, type: typePrefix + "フルネーム", surname, given, cellOnly: false });
+        patterns.push({ text: surname,          label: lb, type: typePrefix + "名字のみ",  surname, given: null, cellOnly: false });
         // 1文字の名前を単独で消すと「楽しみ→しみ」「誠に→に」等を巻き込む。フルネームでは必ず消えるので、
         // 単独の「名前のみ」パターンは2文字以上のときだけ作る
         if (given.length >= 2) {
-          patterns.push({ text: given,          label: lb, type: typePrefix + "名前のみ",  surname: null, given: null });
+          patterns.push({ text: given,          label: lb, type: typePrefix + "名前のみ",  surname: null, given: null, cellOnly: false });
         }
         known.add(surname + given); known.add(surname); known.add(given);
       } else {
-        patterns.push({ text: surname, label: lb, type: typePrefix + "名字のみ", surname, given: null });
+        patterns.push({ text: surname, label: lb, type: typePrefix + "名字のみ", surname, given: null, cellOnly: !!cellOnly });
         known.add(surname);
       }
     };
-    for (const p of manual) addPerson(p.surname, p.given, "");
+    for (const p of manual) addPerson(p.surname, p.given, "", false);
+    for (const c of cols) {
+      const key = c.given ? c.surname + c.given : c.surname;
+      if (known.has(key)) continue;
+      addPerson(c.surname, c.given, "列:", !!c.cellOnly);
+    }
     for (const a of auto) {
       const key = a.given ? a.surname + a.given : a.surname;
       if (known.has(key)) continue;
-      addPerson(a.surname, a.given, "自動:");
+      addPerson(a.surname, a.given, "自動:", false);
     }
     // 一覧を描画
     const box = $("patterns");
@@ -29728,7 +29828,7 @@ window.TinySegmenter = { segment: segment };
       lb.appendChild(tp);
       box.appendChild(lb);
     });
-    $("patBox").open = patterns.some(p => p.type.startsWith("自動:"));
+    $("patBox").open = patterns.some(p => p.type.startsWith("自動:") || p.type.startsWith("列:"));
     persist();
     return true;
   }
@@ -29767,6 +29867,10 @@ window.TinySegmenter = { segment: segment };
       }
       return new RegExp(esc(s), "g");   // カタカナ・伏せ字など
     };
+    // セル内だけ置換（表の枠にぽつんと入った1文字の名前用。本文の同じ字は壊さない）
+    const cellRe = (s) => new RegExp(
+      "(?<=^|[\\t（(【「\\[])[ 　]*" + vesc(s) + "[ 　]*(?=$|[\\t）)】」\\]])" +
+      "|" + vesc(s) + "(?=[ 　]*(?:" + TITLE + "))", "gm");
     const active2 = active.slice().sort((a,b) => b.text.length - a.text.length);
     let result = text;
     for (const p of active2) {
@@ -29774,7 +29878,7 @@ window.TinySegmenter = { segment: segment };
       try {
         re = (p.given && p.text === p.surname + p.given)
           ? new RegExp(vesc(p.surname) + "[ 　\t]?" + vesc(p.given), "g")
-          : surfRe(p.text);
+          : (p.cellOnly ? cellRe(p.text) : surfRe(p.text));
       } catch(e) { re = new RegExp(esc(p.text), "g"); }
       result = result.replace(re, () => { counts[p.label] = (counts[p.label]||0) + 1; return MS + p.label + ME; });
     }
@@ -29904,6 +30008,8 @@ window.TinySegmenter = { segment: segment };
   function xmlToText(xml){
     // 段落=改行、表のセル=タブ、表の行=改行に変換してからタグを除去
     let s = xml
+      .replace(/<w:rubyPr\b[\s\S]*?<\/w:rubyPr>/g, "")
+      .replace(/<w:rt\b[\s\S]*?<\/w:rt>/g, "")     // ルビ（ふりがな）は本文ではないので落とす
       .replace(/<w:tab\b[^>]*\/?>/g, "\t")
       .replace(/<w:br\b[^>]*\/?>/g, "\n")
       .replace(/<\/w:p>/g, "\n")
@@ -29950,6 +30056,121 @@ window.TinySegmenter = { segment: segment };
     }
     return xmlToText(new TextDecoder("utf-8").decode(xmlBytes));
   }
+  // ---- Excel(.xlsx/.xlsm) : ZIP+XMLを直読み（外部ライブラリなし。File-2-Textと同じ考え方）----
+  function zipIndex(arrayBuffer){
+    const buf = new Uint8Array(arrayBuffer), dv = new DataView(arrayBuffer);
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65536; i--) {
+      if (_u32(dv,i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Excelファイルの形式が読めません（ZIP終端なし）");
+    const cdCount = _u16(dv, eocd+10), cdOffset = _u32(dv, eocd+16);
+    const map = new Map();
+    let p = cdOffset;
+    for (let n = 0; n < cdCount; n++) {
+      if (_u32(dv,p) !== 0x02014b50) break;
+      const method = _u16(dv,p+10), compSize = _u32(dv,p+20);
+      const fnLen = _u16(dv,p+28), extraLen = _u16(dv,p+30), commLen = _u16(dv,p+32);
+      const localOff = _u32(dv,p+42);
+      const fn = new TextDecoder("utf-8").decode(buf.subarray(p+46, p+46+fnLen));
+      map.set(fn, { method, compSize, localOff });
+      p += 46 + fnLen + extraLen + commLen;
+    }
+    return { buf, dv, map };
+  }
+  async function zipText(z, name){
+    const e = z.map.get(name);
+    if (!e) return null;
+    const lo = e.localOff;
+    if (_u32(z.dv,lo) !== 0x04034b50) return null;
+    const dataStart = lo + 30 + _u16(z.dv,lo+26) + _u16(z.dv,lo+28);
+    const comp = z.buf.subarray(dataStart, dataStart + e.compSize);
+    let bytes;
+    if (e.method === 0) bytes = comp;
+    else {
+      if (typeof DecompressionStream === "undefined") throw new Error("このブラウザはExcel読み込みに未対応です。最新のChrome/Edgeでお試しください");
+      const stream = new Blob([comp]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  const unent = s => s.replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCodePoint(parseInt(h,16)))
+                      .replace(/&#(\d+);/g,(_,d)=>String.fromCodePoint(parseInt(d,10)))
+                      .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+  // ふりがな(<rPh>)と設定(<phoneticPr>)を落とす。File-2-Text の xl 抽出と同じ扱い
+  const stripPhonetic = x => x.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").replace(/<phoneticPr\b[^>]*\/?>/g, "");
+  const colNum = ref => { let n = 0; for (const ch of (ref.match(/^[A-Z]+/)||["A"])[0]) n = n*26 + (ch.charCodeAt(0)-64); return n-1; };
+  async function xlsxToText(arrayBuffer){
+    const z = zipIndex(arrayBuffer);
+    // 共有文字列（本文の実体はほぼここ）
+    const shared = [];
+    const ss = await zipText(z, "xl/sharedStrings.xml");
+    if (ss) for (const m of ss.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+      // ふりがな(<rPh>)は本文ではない。取り込むと「佐藤サトウ」になって名前として一致しなくなる
+      const body = stripPhonetic(m[1]);
+      let t = ""; for (const g of body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) t += g[1];
+      shared.push(unent(t).replace(/[\r\n]+/g," "));
+    }
+    // シート名 → シートXMLの対応（workbook.xml と rels から）
+    const wb = await zipText(z, "xl/workbook.xml") || "";
+    const rels = await zipText(z, "xl/_rels/workbook.xml.rels") || "";
+    const relMap = new Map();
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = (m[0].match(/Id="([^"]+)"/)||[])[1], tg = (m[0].match(/Target="([^"]+)"/)||[])[1];
+      if (id && tg) relMap.set(id, "xl/" + tg.replace(/^\/?xl\//,"").replace(/^\.\//,""));
+    }
+    const sheets = [];
+    for (const m of wb.matchAll(/<sheet\b[^>]*>/g)) {
+      const nm = (m[0].match(/name="([^"]*)"/)||[])[1] || "シート";
+      const rid = (m[0].match(/r:id="([^"]+)"/)||[])[1];
+      const path = relMap.get(rid);
+      if (path && z.map.has(path)) sheets.push({ name: unent(nm), path });
+    }
+    if (!sheets.length) for (const k of z.map.keys()) if (/^xl\/worksheets\/sheet\d+\.xml$/.test(k)) sheets.push({ name: k, path: k });
+    if (!sheets.length) throw new Error("Excelの中身が見つかりません（対応外のファイルかもしれません）");
+    let out = "";
+    for (const sh of sheets) {
+      const xml = await zipText(z, sh.path); if (xml == null) continue;
+      const lines = [];
+      for (const r of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+        const cells = [];
+        for (const c of r[1].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const attr = c[1], body = c[2] || "";
+          const ref = (attr.match(/r="([A-Z]+)\d+"/)||[])[1] || "";
+          const ty = (attr.match(/t="([^"]+)"/)||[])[1] || "n";
+          let v = "";
+          if (ty === "s") { const i = parseInt((body.match(/<v>(\d+)<\/v>/)||[])[1], 10); v = shared[i] || ""; }
+          else if (ty === "inlineStr") { for (const g of stripPhonetic(body).matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) v += g[1]; v = unent(v); }
+          else { v = unent((body.match(/<v>([\s\S]*?)<\/v>/)||[])[1] || ""); }
+          const idx = ref ? colNum(ref) : cells.length;
+          while (cells.length < idx) cells.push("");
+          cells.push(String(v).replace(/[\r\n]+/g," "));
+        }
+        while (cells.length && cells[cells.length-1] === "") cells.pop();
+        lines.push(cells.join("\t"));
+      }
+      while (lines.length && lines[lines.length-1] === "") lines.pop();
+      out += "-- " + sh.name + " --\n" + lines.join("\n") + "\n\n";
+    }
+    return out.replace(/\n{3,}/g,"\n\n").trim();
+  }
+  // CSV/TSV：列がタブで揃うようにしてから渡す（表の列判定に効く）
+  function csvToTab(text){
+    if (text.indexOf("\t") >= 0) return text;                 // 既にタブ区切り
+    const rows = []; let row = [], cur = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(cur); cur = ""; }
+      else if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+      else if (ch === "\r") { /* skip */ }
+      else cur += ch;
+    }
+    row.push(cur); rows.push(row);
+    return rows.map(r => r.map(c => c.replace(/[\r\n]+/g," ")).join("\t")).join("\n").trim();
+  }
+
   // ---- 古い .doc (Word97-2003) : OLE複合ファイル+ピーステーブルで本文を正しく取り出す（外部ライブラリ不要） ----
   function cleanDocText(text){
     let o = "";
@@ -30055,38 +30276,86 @@ window.TinySegmenter = { segment: segment };
     try { return new TextDecoder("utf-8", {fatal:true}).decode(arrayBuffer); }
     catch(e){ try { return new TextDecoder("shift_jis").decode(arrayBuffer); } catch(e2){ return new TextDecoder("utf-8").decode(arrayBuffer); } }
   }
-  $("fileInput").addEventListener("change", async (e) => {
-    const f = e.target.files && e.target.files[0]; if (!f) return;
-    const msg = (t) => { $("fileMsg").textContent = t; };
+  // 1ファイルをテキストにする（対応外は日本語の理由を投げる）
+  async function fileToText(f){
     const name = f.name.toLowerCase();
-    try {
-      if (name.endsWith(".docx")) {
-        msg("読み込み中…");
-        const text = await docxToText(await f.arrayBuffer());
-        $("inputText").value = text;
-        msg("✅ " + f.name + " を読み込みました（" + text.length + "文字）。匿名化しました↓");
-        run();
-      } else if (name.endsWith(".txt") || name.endsWith(".text")) {
-        $("inputText").value = decodeTextBytes(await f.arrayBuffer());
-        msg("✅ " + f.name + " を読み込みました。匿名化しました↓");
-        run();
-      } else if (name.endsWith(".doc")) {
-        msg("読み込み中…");
-        try {
-          const text = docToText(await f.arrayBuffer());
-          $("inputText").value = text;
-          msg("✅ " + f.name + " を読み込みました（" + text.length + "文字）。匿名化しました↓");
-          run();
-        } catch (e2) {
-          msg("⚠ この .doc は読み取れませんでした（" + ((e2 && e2.message) || e2) + "）。Wordで開いて『名前を付けて保存』→種類を『Word 文書(.docx)』にし直すか、ツールボックスの File-2-Text でテキストにしてから貼ってください。");
-        }
-      } else {
-        msg("⚠ 対応していない形式です（.docx と .txt に対応）");
-      }
-    } catch (err) {
-      msg("⚠ 読み込みに失敗しました：" + ((err && err.message) || err));
+    if (name.endsWith(".xlsx") || name.endsWith(".xlsm")) return await xlsxToText(await f.arrayBuffer());
+    if (name.endsWith(".docx")) return await docxToText(await f.arrayBuffer());
+    if (name.endsWith(".csv") || name.endsWith(".tsv")) return csvToTab(decodeTextBytes(await f.arrayBuffer()));
+    if (name.endsWith(".txt") || name.endsWith(".text")) return decodeTextBytes(await f.arrayBuffer());
+    if (name.endsWith(".doc")) {
+      try { return docToText(await f.arrayBuffer()); }
+      catch (e2) { throw new Error("この .doc は読み取れませんでした（" + ((e2 && e2.message) || e2) + "）。Wordで開いて .docx で保存し直すか、File-2-Text でテキストにしてから貼ってください"); }
     }
+    if (name.endsWith(".xls") || name.endsWith(".jtd") || name.endsWith(".pdf") || name.endsWith(".pptx") || name.endsWith(".xlsb"))
+      throw new Error("この形式（" + f.name.replace(/^.*\./,".") + "）はブラウザ版では読めません。ツールボックスの File-2-Text でテキストにしてから貼ってください");
+    throw new Error("対応していない形式です（Excel .xlsx / Word .docx・.doc / .csv / .txt に対応）");
+  }
+  async function handleFiles(files, quiet){
+    const msg = (t) => { $("fileMsg").textContent = t; };
+    if (!files.length) { msg("⚠ 読み込めるファイルがありませんでした"); return; }
+    msg("読み込み中…");
+    const parts = [], errs = [];
+    for (const f of files) {
+      try {
+        const t = await fileToText(f);
+        parts.push(files.length > 1 ? ("===== " + f.name + " =====\n" + t) : t);
+      } catch (err) { if (!quiet) errs.push(f.name + "：" + ((err && err.message) || err)); }
+    }
+    if (parts.length) {
+      const text = parts.join("\n\n");
+      $("inputText").value = text;
+      msg("✅ " + parts.length + "件を読み込みました（" + text.length + "文字）。匿名化しました↓"
+          + (errs.length ? "／⚠ 読めなかったもの: " + errs.join(" / ") : ""));
+      run();
+    } else {
+      msg("⚠ " + (errs.join(" / ") || "読み込めるファイルがありませんでした"));
+    }
+  }
+  $("fileInput").addEventListener("change", async (e) => {
+    await handleFiles(Array.from(e.target.files || []), false);
     e.target.value = "";   // 同じファイルを続けて選べるように
+  });
+
+  // ---- ドラッグ＆ドロップ（ファイルでも、選んだ文字でも受ける。フォルダごとでも可）----
+  const READABLE = /\.(xlsx|xlsm|docx|doc|csv|tsv|txt|text)$/i;
+  async function entryFiles(entry, out, depth){
+    if (!entry || depth > 4) return;
+    if (entry.isFile) {
+      const f = await new Promise(res => entry.file(res, () => res(null)));
+      if (f && READABLE.test(f.name) && !/^~\$/.test(f.name)) out.push(f);
+      return;
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      while (true) {
+        const batch = await new Promise(res => reader.readEntries(res, () => res([])));
+        if (!batch.length) break;
+        for (const e of batch) await entryFiles(e, out, depth + 1);
+      }
+    }
+  }
+  let dragDepth = 0;
+  document.addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; document.body.classList.add("dragover"); } });
+  document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragover"); } });
+  document.addEventListener("dragover", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  document.addEventListener("drop", async (e) => {
+    dragDepth = 0; document.body.classList.remove("dragover");
+    const dt = e.dataTransfer; if (!dt) return;
+    if (dt.files && dt.files.length) {
+      e.preventDefault();
+      let files = Array.from(dt.files), fromFolder = false;
+      // フォルダを落とされたときは中身を集める
+      if (dt.items && dt.items.length && dt.items[0].webkitGetAsEntry) {
+        const entries = Array.from(dt.items).map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+        if (entries.some(en => en.isDirectory)) {
+          const out = [];
+          for (const en of entries) await entryFiles(en, out, 0);
+          if (out.length) { files = out; fromFolder = true; }
+        }
+      }
+      await handleFiles(files, fromFolder);   // フォルダの中の対応外ファイルは黙って飛ばす
+    }
   });
 })();
 </script>

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>ここだけ（スマホ）</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141822; --line:#2a3140; --ink:#eef1f6;
+    --dim:#93a0b5; --accent:#ffd166; --accent2:#ffe9ad; --danger:#ff8f8f; --ok:#7ee0a0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overscroll-behavior:none;}
+  body{display:flex;flex-direction:column;min-height:100%;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+
+  #rev{position:fixed;top:calc(env(safe-area-inset-top) + 6px);right:10px;z-index:60;
+    font-size:10px;letter-spacing:.1em;color:var(--dim);pointer-events:none;}
+
+  .screen{display:none;flex:1;flex-direction:column;min-height:0;}
+  .screen.on{display:flex;}
+
+  .pad{padding:22px 20px;}
+  h1{margin:0 0 10px;font-size:22px;font-weight:900;line-height:1.45;}
+  .mark{font-size:11px;letter-spacing:.35em;color:var(--accent);margin-bottom:8px;}
+  p.lead{margin:0 0 16px;color:var(--dim);font-size:13px;line-height:1.9;}
+
+  button{font:inherit;cursor:pointer;}
+  .big{display:block;width:100%;border:none;border-radius:16px;padding:19px 20px;
+    font-size:18px;font-weight:900;background:var(--accent);color:#20180a;
+    box-shadow:0 6px 20px rgba(255,209,102,.25);}
+  .big:active{transform:translateY(1px);}
+  .sub{display:block;width:100%;border:1px solid var(--line);background:#111620;color:var(--ink);
+    border-radius:14px;padding:14px 16px;font-size:14px;margin-top:10px;}
+  .row{display:flex;gap:8px;}
+  .row > *{flex:1;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+    font-size:12.5px;line-height:1.85;color:var(--ink);margin-top:14px;}
+  .card b{color:var(--accent2);}
+  label.fld{display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;}
+  input[type=text]{width:100%;border:1px solid var(--line);background:#0f131b;color:var(--ink);
+    border-radius:12px;padding:13px 14px;font:inherit;font-size:15px;}
+
+  /* ---- 区切り画面 ---- */
+  #gridWrap{flex:1;min-height:0;position:relative;background:#05070a;touch-action:none;overflow:hidden;}
+  #gridCv{position:absolute;inset:0;width:100%;height:100%;}
+  .toolbar{padding:12px 14px calc(14px + env(safe-area-inset-bottom));background:var(--panel);
+    border-top:1px solid var(--line);}
+  .seg{display:flex;gap:6px;margin-bottom:10px;}
+  .seg button{flex:1;border:1px solid var(--line);background:#111620;color:var(--ink);
+    border-radius:11px;padding:11px 4px;font-size:13px;font-weight:700;}
+  .seg button.on{background:#3a2f14;border-color:var(--accent);color:var(--accent2);}
+  .hint{font-size:11.5px;color:var(--dim);line-height:1.7;margin-bottom:10px;}
+
+  /* ---- 作業画面（ここが本体：1マスだけ） ---- */
+  #work{background:#000;}
+  #workTop{padding:10px 14px 6px;display:flex;align-items:center;justify-content:space-between;
+    font-size:13px;color:var(--dim);}
+  #workTop .num{font-size:17px;font-weight:900;color:var(--accent2);letter-spacing:.02em;}
+  #cellWrap{flex:1;min-height:0;position:relative;}
+  #cellCv{position:absolute;inset:0;width:100%;height:100%;}
+  #workBtns{padding:10px 14px calc(14px + env(safe-area-inset-bottom));background:#000;}
+  #doneBtn{background:var(--ok);color:#062015;}
+  #peekBtn{margin-top:10px;}
+
+  /* ---- 幽霊合わせ ---- */
+  #ghostWrap{flex:1;min-height:0;position:relative;background:#05070a;}
+  #ghostCv{position:absolute;inset:0;width:100%;height:100%;}
+  input[type=range]{width:100%;margin:14px 0 4px;}
+  .lbls{display:flex;justify-content:space-between;font-size:11.5px;color:var(--dim);}
+
+  #logWrap{padding:0 14px 12px;}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin:10px 0 4px;}
+  #log{background:rgba(8,10,15,.9);border:1px solid var(--line);border-radius:10px;
+    padding:8px 10px;font-size:11px;line-height:1.6;color:var(--ink);
+    max-height:96px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+
+  #err{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 40px);transform:translateX(-50%);
+    z-index:70;display:none;background:#3a1414;border:1px solid #8a2e2e;color:#ffdada;
+    padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+  #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 18px);transform:translateX(-50%);
+    z-index:70;display:none;background:#1a2130;border:1px solid var(--line);color:var(--ink);
+    padding:11px 16px;border-radius:12px;font-size:12.5px;max-width:92vw;text-align:center;}
+</style>
+</head>
+<body>
+<span id="rev"></span>
+<div id="err"></div>
+<div id="toast"></div>
+
+<!-- ================= 1. さいしょの画面 ================= -->
+<section id="home" class="screen on">
+  <div class="pad">
+    <div class="mark">ここだけ・スマホ版</div>
+    <h1>写真を1枚。<br>あとは1マスずつ。</h1>
+    <p class="lead">散らかった所を1枚だけ撮ります。<br>
+    あとはアプリが<b>1マスだけ</b>を大きく出すので、それだけ見て片づけます。<br>
+    作業中はもう撮りません。両手が空きます。</p>
+
+    <label class="fld">場所の名前（あとで同じ場所と比べるため）</label>
+    <input type="text" id="spotName" value="ここ" maxlength="20">
+
+    <div style="margin-top:16px">
+      <button class="big" id="takeBtn">写真をとる／えらぶ</button>
+      <input type="file" id="file" accept="image/*" capture="environment" style="display:none">
+      <button class="sub" id="compareBtn" style="display:none">前に撮った写真と見くらべる</button>
+    </div>
+
+    <div class="card">
+      <b>コツ</b>：全体が入るように、少し引いて撮ってください。<br>
+      次に同じ場所を撮るときは、<b>同じ位置から</b>撮ると変化が見えます。
+    </div>
+    <div class="card" id="ioWarn" style="display:none;color:#ffdada;border-color:#8a2e2e"></div>
+  </div>
+  <div id="logWrap">
+    <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+    <div id="log"></div>
+  </div>
+</section>
+
+<!-- ================= 2. マスの区切り ================= -->
+<section id="grid" class="screen">
+  <div id="gridWrap"><canvas id="gridCv"></canvas></div>
+  <div class="toolbar">
+    <div class="seg" id="segCells">
+      <button data-n="2">2×2</button>
+      <button data-n="3">3×3</button>
+      <button data-n="4">4×4</button>
+      <button data-n="5">5×5</button>
+    </div>
+    <div class="hint">線をずらしたいときは、写真を<b>指でドラッグ</b>してください。<br>
+      1マスが「一度に片づけられる大きさ」になるくらいが目安です。</div>
+    <button class="big" id="startBtn">はじめる</button>
+    <button class="sub" id="gridBackBtn">写真を撮り直す</button>
+  </div>
+</section>
+
+<!-- ================= 3. 作業（1マスだけ） ================= -->
+<section id="work" class="screen">
+  <div id="workTop">
+    <span class="num" id="progress">1 / 9</span>
+    <span id="spotLabel"></span>
+  </div>
+  <div id="cellWrap"><canvas id="cellCv"></canvas></div>
+  <div id="workBtns">
+    <button class="big" id="doneBtn">終わった → 次へ</button>
+    <div class="row" style="margin-top:10px">
+      <button class="sub" id="laterBtn" style="margin-top:0">あとで</button>
+      <button class="sub" id="quitBtn" style="margin-top:0">やめる</button>
+    </div>
+    <button class="sub" id="peekBtn">ぜんぶ見る（押している間だけ）</button>
+  </div>
+</section>
+
+<!-- ================= 4. 終わり ================= -->
+<section id="done" class="screen">
+  <div class="pad">
+    <div class="mark">おつかれさまでした</div>
+    <h1 id="doneHead">ぜんぶ終わりました</h1>
+    <p class="lead" id="doneText"></p>
+    <button class="big" id="afterBtn">同じ場所をもう1枚とって、見くらべる</button>
+    <button class="sub" id="againBtn">別の場所をやる</button>
+    <div class="card">同じ位置から撮ると、前の写真が薄く重なって、<b>どれだけ変わったか</b>が見えます。</div>
+  </div>
+</section>
+
+<!-- ================= 5. 幽霊合わせ ================= -->
+<section id="ghost" class="screen">
+  <div id="ghostWrap"><canvas id="ghostCv"></canvas></div>
+  <div class="toolbar">
+    <input type="range" id="mix" min="0" max="100" value="100">
+    <div class="lbls"><span>前の写真</span><span>いまの写真</span></div>
+    <button class="big" id="ghostDoneBtn" style="margin-top:12px">これで終わり</button>
+  </div>
+</section>
+
+<script>
+"use strict";
+const REV = "v1 rev5";
+document.getElementById("rev").textContent = REV;
+
+/* ============ 画面内ログ・エラー表示 ============ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+function log(msg, isErr){
+  const d = document.createElement("div");
+  if(isErr) d.className = "e";
+  d.textContent = "・" + msg;
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  while(logEl.childElementCount > 60) logEl.removeChild(logEl.firstChild);
+}
+function showErr(msg){ const e = $("err"); e.textContent = msg; e.style.display = "block"; log(msg, true); }
+let toastT = 0;
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastT); toastT = setTimeout(()=>{ t.style.display = "none"; }, 2200);
+}
+addEventListener("error", ev => log("エラー: " + (ev.message || ev.error || "不明"), true));
+addEventListener("unhandledrejection", ev => log("エラー(非同期): " + ((ev.reason && ev.reason.message) || ev.reason || "不明"), true));
+
+/* ============ 画面の切り替え ============ */
+const SCREENS = ["home","grid","work","done","ghost"];
+let screenNow = "home";
+function go(name){
+  SCREENS.forEach(s => $(s).classList.toggle("on", s === name));
+  screenNow = name;
+  if(name === "grid") drawGrid();
+  if(name === "work") drawCell();
+  if(name === "ghost") drawGhost();
+}
+
+/* ============ 音（その場で合成・ファイル無し） ============ */
+let actx = null;
+function initAudio(){
+  try{
+    if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if(actx.state === "suspended") actx.resume();
+  }catch(_){}
+}
+function beep(f, dur, type, vol){
+  if(!actx) return;
+  try{
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.28, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur + 0.03);
+  }catch(_){}
+}
+function sndNext(step){ const f = 620 * Math.pow(2, Math.min(step,10)/12); beep(f,0.16,"triangle",0.3); beep(f*2,0.09,"sine",0.09); }
+function sndAll(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.32,"triangle",0.3), i*130)); }
+function sndSoft(){ beep(400, 0.10, "sine", 0.16); }
+function vib(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(_){} }
+
+/* ============ 保存（IndexedDB。使えない環境でも本体は動く） ============ */
+const DB_NAME = "kokodake", DB_STORE = "spots";
+const canSave = (typeof indexedDB !== "undefined" && indexedDB !== null);
+if(!canSave){
+  $("ioWarn").style.display = "block";
+  $("ioWarn").innerHTML = "この画面では写真を保存できません（アプリの中の簡易ブラウザで開いている可能性があります）。<br>" +
+    "<b>SafariやChrome本体で開くと</b>、前の写真との見くらべが使えます。片づけ自体は今のままでも使えます。";
+  log("保存が使えない環境（indexedDBなし）。見くらべ機能だけ無効", true);
+}
+function openDB(){
+  return new Promise((res, rej)=>{
+    if(!canSave) return rej(new Error("保存が使えません"));
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = ()=>{ const db = r.result; if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath:"name" }); };
+    r.onsuccess = ()=>res(r.result);
+    r.onerror = ()=>rej(r.error || new Error("保存を開けません"));
+  });
+}
+async function spotGet(name){
+  try{
+    const db = await openDB();
+    return await new Promise((res, rej)=>{
+      const tx = db.transaction(DB_STORE, "readonly");
+      const q = tx.objectStore(DB_STORE).get(name);
+      q.onsuccess = ()=>res(q.result || null);
+      q.onerror = ()=>rej(q.error);
+    });
+  }catch(e){ return null; }
+}
+// 記録は1回の片づけで1度しか書かないので、レコード丸ごと書きで問題ない
+async function spotPut(rec){
+  try{
+    const db = await openDB();
+    await new Promise((res, rej)=>{
+      const tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).put(rec);
+      tx.oncomplete = ()=>res(); tx.onerror = ()=>rej(tx.error);
+    });
+    return true;
+  }catch(e){ log("保存できませんでした：" + (e.message || e), true); return false; }
+}
+
+/* ============ 写真の読み込み（向きの補正つき） ============ */
+const MAXPX = 2000;  // 長辺の上限（大きすぎる写真で重くならないように）
+let img = null;        // いまの写真（HTMLCanvasElement）
+let imgPrev = null;    // 前に撮った同じ場所の写真
+let spotName = "ここ";
+
+// <img>で読むと、iPhoneの写真の向き（EXIF）はブラウザが自動で直してくれる
+function loadToCanvas(blobOrUrl){
+  return new Promise((res, rej)=>{
+    const url = (typeof blobOrUrl === "string") ? blobOrUrl : URL.createObjectURL(blobOrUrl);
+    const im = new Image();
+    im.onload = ()=>{
+      try{
+        const s = Math.min(1, MAXPX / Math.max(im.naturalWidth, im.naturalHeight));
+        const w = Math.max(1, Math.round(im.naturalWidth * s));
+        const h = Math.max(1, Math.round(im.naturalHeight * s));
+        const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(im, 0, 0, w, h);
+        if(typeof blobOrUrl !== "string") URL.revokeObjectURL(url);
+        res(cv);
+      }catch(e){ rej(e); }
+    };
+    im.onerror = ()=>{ if(typeof blobOrUrl !== "string") URL.revokeObjectURL(url); rej(new Error("写真を読めませんでした")); };
+    im.src = url;
+  });
+}
+function canvasToBlob(cv, q){
+  return new Promise(res=>{
+    if(cv.toBlob) cv.toBlob(b=>res(b), "image/jpeg", q || 0.82);
+    else res(null);
+  });
+}
+
+/* ============ マスの状態 ============ */
+let cells = 3;                 // 1辺のマス数
+let offX = 0, offY = 0;        // 区切り線のずらし（0〜1マス分）
+let order = [], idx = 0;       // まわる順番と現在位置
+let doneCount = 0, laterCount = 0;
+
+// ずらしは 0 / 1/3 / 2/3 の3段階に丸める。自由にずらせるようにすると、
+// 端に「写真のごく細い帯」のマスができて、それが画面いっぱいに出て気持ち悪いため。
+function quantOff(v){
+  let x = ((v % 1) + 1) % 1;
+  x = Math.round(x * 3) / 3;
+  return (x >= 0.999) ? 0 : x;
+}
+// 線をずらすと、端に細いマスが1列ぶん増える（ずらした分を取りこぼさないため）
+function gridCounts(){
+  return { cols: cells + (offX > 0.0005 ? 1 : 0), rows: cells + (offY > 0.0005 ? 1 : 0) };
+}
+function buildOrder(){
+  const { cols, rows } = gridCounts();
+  order = [];
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) order.push({ r, c, later:false, done:false });
+  idx = 0; doneCount = 0; laterCount = 0;
+}
+// マスの範囲（写真のピクセル）。ずらしのぶん、端のマスは細くなる
+function cellRect(cw){
+  const W = img.width, H = img.height;
+  const gw = W / cells, gh = H / cells;
+  // ずらしている時だけ、左端(上端)に細いマスが1つ増える分だけ番号がずれる
+  const ox = (offX > 0.0005) ? (offX - 1) : 0;
+  const oy = (offY > 0.0005) ? (offY - 1) : 0;
+  const x0 = (cw.c + ox) * gw, y0 = (cw.r + oy) * gh;
+  const x1 = x0 + gw, y1 = y0 + gh;
+  const cx0 = Math.max(0, Math.min(W, x0)), cy0 = Math.max(0, Math.min(H, y0));
+  const cx1 = Math.max(0, Math.min(W, x1)), cy1 = Math.max(0, Math.min(H, y1));
+  return { x: cx0, y: cy0, w: Math.max(1, cx1-cx0), h: Math.max(1, cy1-cy0) };
+}
+
+/* ============ 描く道具 ============ */
+// Claudeの検証タブは画面の大きさが0になるので、撮影用に大きさを差し込めるようにしておく
+let forceSize = null;
+function fitCanvas(cv){
+  const r = cv.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  let w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if(forceSize){ w = forceSize[0]; h = forceSize[1]; }
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  return cv.getContext("2d");
+}
+// 枠の中に収める（contain）
+function containBox(sw, sh, dw, dh, pad){
+  const p = pad || 0;
+  const s = Math.min((dw - p*2) / sw, (dh - p*2) / sh);
+  const w = sw * s, h = sh * s;
+  return { x: (dw - w)/2, y: (dh - h)/2, w, h, s };
+}
+
+/* ---- 区切り画面 ---- */
+let gridBox = null;
+function drawGrid(){
+  if(!img) return;
+  const cv = $("gridCv"), ctx = fitCanvas(cv);
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,W,H);
+  const b = containBox(img.width, img.height, W, H, 8*Math.min(devicePixelRatio||1,2));
+  gridBox = b;
+  ctx.drawImage(img, b.x, b.y, b.w, b.h);
+  // 区切り線
+  ctx.strokeStyle = "rgba(255,209,102,0.95)"; ctx.lineWidth = Math.max(1.5, 2*(devicePixelRatio||1));
+  ctx.beginPath();
+  for(let i=0;i<=cells;i++){
+    const fx = (i + offX) / cells, fy = (i + offY) / cells;
+    if(fx >= 0 && fx <= 1){ ctx.moveTo(b.x + b.w*fx, b.y); ctx.lineTo(b.x + b.w*fx, b.y + b.h); }
+    if(fy >= 0 && fy <= 1){ ctx.moveTo(b.x, b.y + b.h*fy); ctx.lineTo(b.x + b.w, b.y + b.h*fy); }
+  }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = Math.max(1, 1*(devicePixelRatio||1));
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+}
+// ドラッグで区切りをずらす
+{
+  const wrap = $("gridWrap");
+  let drag = false, lx = 0, ly = 0, rawX = 0, rawY = 0;
+  wrap.addEventListener("pointerdown", e=>{
+    drag = true; lx = e.clientX; ly = e.clientY; rawX = offX; rawY = offY;
+    wrap.setPointerCapture(e.pointerId);
+  });
+  wrap.addEventListener("pointerup", ()=>{ drag = false; });
+  wrap.addEventListener("pointercancel", ()=>{ drag = false; });
+  wrap.addEventListener("pointermove", e=>{
+    if(!drag || !gridBox) return;
+    const dpr = Math.min(devicePixelRatio||1, 2);
+    rawX += ((e.clientX - lx) * dpr) / (gridBox.w / cells);
+    rawY += ((e.clientY - ly) * dpr) / (gridBox.h / cells);
+    const nx = quantOff(rawX), ny = quantOff(rawY);
+    lx = e.clientX; ly = e.clientY;
+    if(nx !== offX || ny !== offY){ offX = nx; offY = ny; drawGrid(); }
+  });
+}
+
+/* ---- 作業画面（1マスだけ大きく） ---- */
+let peeking = false;
+function drawCell(){
+  if(!img || !order.length) return;
+  const cv = $("cellCv"), ctx = fitCanvas(cv);
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = "#000"; ctx.fillRect(0,0,W,H);
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const cur = order[idx];
+
+  if(peeking){
+    // 押している間だけ全体を出す（いまのマスに枠）
+    const b = containBox(img.width, img.height, W, H, 10*dpr);
+    ctx.globalAlpha = 0.45; ctx.drawImage(img, b.x, b.y, b.w, b.h); ctx.globalAlpha = 1;
+    const r = cellRect(cur);
+    const sx = b.w / img.width, sy = b.h / img.height;
+    ctx.drawImage(img, r.x, r.y, r.w, r.h, b.x + r.x*sx, b.y + r.y*sy, r.w*sx, r.h*sy);
+    ctx.strokeStyle = "#ffd166"; ctx.lineWidth = Math.max(2, 3*dpr);
+    ctx.strokeRect(b.x + r.x*sx, b.y + r.y*sy, r.w*sx, r.h*sy);
+    return;
+  }
+  const r = cellRect(cur);
+  const b = containBox(r.w, r.h, W, H, 6*dpr);
+  ctx.drawImage(img, r.x, r.y, r.w, r.h, b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = "rgba(255,209,102,0.85)"; ctx.lineWidth = Math.max(2, 2.5*dpr);
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+}
+function updateProgress(){
+  const total = order.length;
+  $("progress").textContent = (doneCount + 1) + " / " + total;
+  $("spotLabel").textContent = spotName + "・ぜんぶで" + total + "マス";
+}
+function nextCell(markDone){
+  if(markDone){ doneCount++; sndNext(doneCount); vib(35); }
+  else { order[idx].later = true; laterCount++; sndSoft(); }
+
+  // 次の「まだ終わっていないマス」へ。無ければ、あとで回しにした分へ戻る
+  order[idx].done = !!markDone;
+  let n = -1;
+  for(let k=1;k<=order.length;k++){
+    const j = (idx + k) % order.length;
+    if(!order[j].done && !order[j].later){ n = j; break; }
+  }
+  if(n < 0){
+    for(let k=1;k<=order.length;k++){
+      const j = (idx + k) % order.length;
+      if(!order[j].done){ n = j; order[j].later = false; break; }
+    }
+  }
+  if(n < 0){ finishAll(); return; }
+  idx = n; updateProgress(); drawCell();
+}
+function finishAll(){
+  sndAll(); vib(120);
+  const total = order.length;
+  $("doneHead").textContent = (doneCount >= total) ? "ぜんぶ終わりました" : "きょうはここまで";
+  $("doneText").textContent = total + "マスのうち " + doneCount + "マス終わりました。";
+  go("done");
+}
+
+/* ============ ボタンの配線 ============ */
+$("takeBtn").addEventListener("click", ()=>{ initAudio(); $("file").click(); });
+$("file").addEventListener("change", async ev=>{
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = "";   // 同じ写真をもう一度選べるように
+  if(!f) return;
+  try{
+    spotName = ($("spotName").value || "ここ").trim().slice(0,20) || "ここ";
+    img = await loadToCanvas(f);
+    log("写真を読みました（" + img.width + "×" + img.height + "）");
+    // この場所の前回の写真があれば覚えておく
+    const rec = await spotGet(spotName);
+    imgPrev = null;
+    if(rec && rec.latest){
+      try{ imgPrev = await loadToCanvas(rec.latest); log("前に撮った「" + spotName + "」の写真が見つかりました"); }catch(_){}
+    }
+    if(afterMode){ afterMode = false; await saveAndShowGhost(); return; }
+    offX = 0; offY = 0; buildOrder(); updateProgress();
+    go("grid");
+  }catch(e){ showErr("写真を読めませんでした：" + (e.message || e)); }
+});
+Array.from(document.querySelectorAll("#segCells button")).forEach(b=>{
+  b.addEventListener("click", ()=>{
+    cells = parseInt(b.dataset.n, 10);
+    Array.from(document.querySelectorAll("#segCells button")).forEach(x=>x.classList.toggle("on", x === b));
+    buildOrder(); updateProgress(); drawGrid();
+    try{ localStorage.setItem("kokodake_cells", String(cells)); }catch(_){}
+  });
+});
+$("startBtn").addEventListener("click", ()=>{ initAudio(); buildOrder(); updateProgress(); go("work"); });
+$("gridBackBtn").addEventListener("click", ()=>go("home"));
+
+$("doneBtn").addEventListener("click", ()=>nextCell(true));
+$("laterBtn").addEventListener("click", ()=>nextCell(false));
+$("quitBtn").addEventListener("click", finishAll);
+{
+  const pb = $("peekBtn");
+  const on = e=>{ e.preventDefault(); peeking = true; drawCell(); };
+  const off = ()=>{ if(!peeking) return; peeking = false; drawCell(); };
+  pb.addEventListener("pointerdown", on);
+  ["pointerup","pointercancel","pointerleave"].forEach(t=>pb.addEventListener(t, off));
+}
+
+let afterMode = false;
+$("afterBtn").addEventListener("click", ()=>{
+  if(!canSave){ toast("この画面では見くらべができません。Safari本体で開いてください"); return; }
+  afterMode = true; $("file").click();
+});
+$("againBtn").addEventListener("click", async ()=>{ await saveLatest(); go("home"); });
+$("compareBtn").addEventListener("click", ()=>{ afterMode = true; $("file").click(); });
+$("ghostDoneBtn").addEventListener("click", ()=>{ go("home"); toast("保存しました"); });
+
+/* ============ 保存と幽霊合わせ ============ */
+async function saveLatest(){
+  if(!canSave || !img) return;
+  const blob = await canvasToBlob(img, 0.82);
+  if(!blob) return;
+  const old = await spotGet(spotName);
+  await spotPut({ name: spotName, latest: blob, prev: (old && old.latest) || null, ts: Date.now() });
+}
+async function saveAndShowGhost(){
+  await saveLatest();
+  if(!imgPrev){ toast("前の写真が無いので、これを1枚目として保存しました"); go("home"); return; }
+  $("mix").value = "100";
+  go("ghost");
+}
+function drawGhost(){
+  const cv = $("ghostCv"), ctx = fitCanvas(cv);
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,W,H);
+  if(!img) return;
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const b = containBox(img.width, img.height, W, H, 8*dpr);
+  const m = parseInt($("mix").value, 10) / 100;
+  if(imgPrev){ ctx.globalAlpha = 1; ctx.drawImage(imgPrev, b.x, b.y, b.w, b.h); }
+  ctx.globalAlpha = imgPrev ? m : 1;
+  ctx.drawImage(img, b.x, b.y, b.w, b.h);
+  ctx.globalAlpha = 1;
+}
+$("mix").addEventListener("input", drawGhost);
+
+/* ============ 起動時 ============ */
+try{
+  const c = parseInt(localStorage.getItem("kokodake_cells"), 10);
+  if(c >= 2 && c <= 5) cells = c;
+}catch(_){}
+Array.from(document.querySelectorAll("#segCells button")).forEach(x=>x.classList.toggle("on", parseInt(x.dataset.n,10) === cells));
+buildOrder();
+
+// 前に撮った場所があれば「見くらべる」を出す
+(async ()=>{
+  if(!canSave) return;
+  const rec = await spotGet(($("spotName").value || "ここ").trim());
+  if(rec && rec.latest) $("compareBtn").style.display = "block";
+})();
+
+addEventListener("resize", ()=>{
+  if(screenNow === "grid") drawGrid();
+  else if(screenNow === "work") drawCell();
+  else if(screenNow === "ghost") drawGhost();
+});
+
+log("読み込みOK（版：" + REV + "）");
+
+/* ============ Claudeの検証窓口 ============ */
+window.__dbg = {
+  state(){
+    return {
+      rev: REV, screen: screenNow, cells, offX: Math.round(offX*1000)/1000, offY: Math.round(offY*1000)/1000,
+      total: order.length, idx, doneCount, laterCount, peeking, canSave,
+      hasImg: !!img, imgW: img && img.width, imgH: img && img.height,
+      hasPrev: !!imgPrev, spotName,
+      cur: order[idx] ? { r: order[idx].r, c: order[idx].c } : null,
+      progressText: $("progress").textContent,
+    };
+  },
+  // 試験用のダミー写真を作って読み込む（実機の写真の代わり）
+  async fakePhoto(w, h){
+    const cv = document.createElement("canvas"); cv.width = w||1200; cv.height = h||900;
+    const c = cv.getContext("2d");
+    c.fillStyle = "#333"; c.fillRect(0,0,cv.width,cv.height);
+    for(let i=0;i<40;i++){
+      c.fillStyle = "hsl(" + (i*37%360) + ",60%,55%)";
+      c.fillRect(Math.random()*cv.width*0.9, Math.random()*cv.height*0.9, 40+Math.random()*90, 30+Math.random()*70);
+    }
+    img = cv; spotName = "テスト"; offX = 0; offY = 0; buildOrder(); updateProgress(); go("grid");
+    return this.state();
+  },
+  setCells(n){ cells = n; buildOrder(); updateProgress(); if(screenNow==="grid") drawGrid(); return this.state(); },
+  drag(dx, dy){ offX = quantOff(offX + dx); offY = quantOff(offY + dy); if(screenNow==="grid") drawGrid(); return this.state(); },
+  start(){ buildOrder(); updateProgress(); go("work"); return this.state(); },
+  done(){ nextCell(true); return this.state(); },
+  later(){ nextCell(false); return this.state(); },
+  peek(v){ peeking = !!v; drawCell(); return this.state(); },
+  rect(){ return order[idx] ? cellRect(order[idx]) : null; },
+  snap(which, q, w, h){
+    const id = which || "cellCv", cv = $(id);
+    try{
+      forceSize = [w || 420, h || 700];
+      if(id === "gridCv") drawGrid(); else if(id === "cellCv") drawCell(); else if(id === "ghostCv") drawGhost();
+      const url = cv.toDataURL("image/jpeg", q || 0.85);
+      forceSize = null;
+      return url;
+    }catch(e){ forceSize = null; return "ERR:" + e; }
+  },
+};
+</script>
+</body>
+</html>
