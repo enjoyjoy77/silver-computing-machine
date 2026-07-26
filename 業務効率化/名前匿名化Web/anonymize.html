@@ -92,7 +92,7 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-26d ふりがな除去つき（表の列まるごと＋Excel直読み＋D&D）</span></p>
+  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-26e 呼び捨て検出＋現代の名前を辞書に追加</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
@@ -106,12 +106,15 @@
 
   <div class="row">
     <button class="primary" id="execBtn">▶ 匿名化を実行！</button>
-    <label class="chk"><input type="checkbox" id="autoDetect" checked> 自動で人名を探す（辞書 約2.9万語）</label>
+    <label class="chk"><input type="checkbox" id="autoDetect" checked> 自動で人名を探す（辞書 約2.9万語＋現代の名前）</label>
   </div>
 
   <div class="row">
     <label class="chk"><input type="checkbox" id="colDetect" checked> 表の「生徒名」「記入者」などの列は、辞書に無くても丸ごと伏せる</label>
     <span id="colMsg" class="hint" style="margin:0"></span>
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="strictGiven" checked> 下の名前だけの呼び捨て（「陽菜が」「さくらは」）も伏せる</label>
   </div>
   <div class="row">
     <label class="chk" style="gap:.4rem">名前の列を手で指定（表の左から何列目か。例: 1,2）
@@ -29306,11 +29309,257 @@
 龍雲
 龍鳳
 </script>
+<script id="meiExtra" type="text/plain">
+あおい
+あおと
+あかり
+あんな
+いちか
+えま
+かえで
+かける
+ここな
+こはる
+さくら
+すみれ
+そうた
+そら
+だいち
+つばさ
+つむぎ
+のあ
+ののか
+はるき
+はると
+ひなた
+ひなたろ
+ひなの
+ひまり
+ひより
+みお
+みつき
+めい
+もえ
+ももか
+ゆあ
+ゆい
+ゆうき
+ゆうと
+ゆな
+ゆめ
+りお
+りく
+りこ
+りん
+るな
+れいな
+れん
+アヤ
+サクラ
+ソウタ
+ハルト
+ヒナタ
+ミオ
+ユイ
+リン
+レン
+七星
+七海
+万葉
+亜美
+亜衣
+令和
+依茉
+健人
+健太
+健斗
+優奈
+優月
+優花
+凛音
+匠海
+匠真
+千夏
+千尋
+千歳
+千聖
+友也
+友翔
+史織
+向日葵
+和奏
+咲希
+咲穂
+咲耶
+咲良
+唯奈
+唯花
+圭吾
+大和
+大地
+大晴
+大河
+大空
+大翔
+大雅
+奏太
+奏汰
+奏羽
+奏音
+巧真
+廉太
+彩乃
+彩花
+彩莉
+彩葉
+彩音
+律希
+心奏
+心愛
+心春
+心晴
+心桜
+心結
+心美
+心陽
+志穂
+怜央
+怜奈
+恋菜
+恵茉
+恵麻
+悠人
+悠斗
+悠生
+悠真
+悠翔
+愛梨
+愛結
+愛莉
+愛菜
+慶太
+拓也
+拓海
+拓真
+新太
+日和
+日菜
+早希
+明莉
+春斗
+春樹
+晴人
+晴斗
+晴翔
+智也
+朝日
+朝陽
+朱莉
+朱音
+杏奈
+栄斗
+栞奈
+梨央
+梨花
+楓花
+樹希
+江莉
+沙羅
+涼花
+湊斗
+湊翔
+澪奈
+玲央
+玲奈
+玲空
+琉斗
+琉生
+琉聖
+琉花
+琉衣
+琴音
+瑛太
+瑛斗
+瑠奈
+瑠愛
+環奈
+直樹
+真央
+礼斗
+穂乃果
+穂香
+紗奈
+紗希
+紗月
+紗良
+結奈
+結愛
+結月
+結菜
+結衣
+綾乃
+美月
+美桜
+美結
+美羽
+美陽
+翔太
+翔平
+翔梧
+翔生
+翔真
+花奈
+花音
+芽依
+英斗
+茉央
+茉綾
+茉莉
+莉央
+莉奈
+莉子
+莉愛
+莉緒
+菜月
+菜穂
+華恋
+蒼介
+蒼太
+蒼汰
+蒼真
+蒼空
+蓮太
+蓮斗
+詩乃
+詩織
+詩音
+賢人
+遥花
+遥菜
+遥香
+那月
+里桜
+鈴音
+陽向
+陽和
+陽咲
+陽太
+陽斗
+陽翔
+陽茉莉
+陽菜
+陽菜乃
+陽葵
+颯太
+颯希
+颯真
+麻央
+</script>
 <script id="sei1" type="text/plain">
 丁上丘中丸丹乾京今仲伝伴佃侯俵倉傅元全円冠劉勇勝北千南原厳叶司吉向呉周和団團圷坂城堀堤堺塙墨墺壇夏奥姜姫宅安宋宗宝室宮寳寿尹尺岡岬岸峠峯峰島崔嵐嵩嶋嶺左巴巻巽幡平幸康建弓張彩徐忍慎戎所扇捧新方旭昆昇星晴朔本朱朴杉李杣東松林柏柳柴栃桂桜梁梅梓條梶棒棗森椿楓楠榊榎槙槻標樟橋橘檀櫻欲武毛永汀江池沖沢沼泉泊洲浜清渡游湊源滝潘潮澤濱瀧瀬炭燕牛牧猪王環甲町畑畠登白盛盧眠研硲碇磯礒社祝神祭秋秦窪竜笠笹筧篁米紀紫紺緑縫纒羅翁翠聖脇與舘舛舞艾芝芹茅荒荻菅華萬葵蒲蒼蔦蕨薄薗薫薮藍藤藩蘇衣袋西角谷財越趙輪轟辻迎迫遥郡郭郷都鄭酒釈金銭鏡鐘鐙長門間関阪陳陶陸隆雅青韓音響風館馬高鮎鳳鴇鴨鶴黛鼎
 </script>
 <script id="mei1" type="text/plain">
-一万丈上丘丞中丹久九乱亀了亘亨享京亮仁仙仲任伝伸佐佑作佳佶侃俊保信修倫健傑傳儀優允元充光克全公典円冴冽凌凛出初利剛創力功助努勇勉勗務勝勤勧勲匠匡半卓南博卯厚原厳友収叡史司吟周和咲哲唯啓善喬嘉圓圭均坦基堂堺壮壯壽夢大天太央奨奬好妃妙始威孚孜孝孟学學守安完宏宗官定実宮宰容寅密富寔寛實寧寿将尊尚尭尼岩岬岳峻崇崑嵩巌巍巖工巧巴巻巽帆希常年幸幹広庚康庸廉廣建弓弘弥強弾彊彝彩彪彬彰征律復徳徹心忍忠忱怜恂恋恒恪恭恵悟悠悦悳惇惠愛愿慎慧慶憂憲成拓拳捷揚揺操收攻政敏敞敦敬整文斉斌斎新旭昂昇昊昌明昭是昶晁晃晄晋晟普晴晶智暁暉暢曉有朋朔朗望李杏東林柱柾栄栞格桂桃桜梓梢植椿楓榕榮権樸樹橘檀正武歩毅永求汎汪治泉波泰洋洌洪洵洸洽浄浜浩涼淑淨深淳淵清済渉渓渙渚渡温游湛湧満源滉滋滿漠漸潔潜潤潮澄澪瀏烈煕照牧独猛玄玉玲理琢琴瑛瑞瑶璋環甫由男登皎皓盈直眞真眸督睦瞬瞭瞳矗知研碧碩磐磨磬礼祐祝祥禎秀税稔種穀穂穆積穗穣穰究竜章端競笑等節篠篤米粲精糺紀紅納純紘紫紳統綱綾総緑縁總繁繭美義翔翠翼耕聖聡聰肇育胖脩至舜舞航良花芳芹若英茂茜菊華萌萠葉董葵蓮蔦蕃薫藍藹蘭虔融螢衆行衛衞装裕襄要規覚親覺計訓誉誠諒諦諭謙譚譲護讓豊豪貘貞貢貴賢質赳超輝農迩迪透通進逸運道達遥遼邦郁都醇重釣鈞鈴鉄錠錦鐙鐵鑑長開陟陸陽隆雄雅雪零震霞靖静靜順領頼顯養香馨駿高魁魏鮎鴻鵬麓麗麻麿黎鼎齊龍
+一万丈上丘丞中丹久九乱亀了亘亨享京亮仁仙仲任伝伸佐佑作佳佶侃俊保信修倫健傑傳儀優允元充光克全公典円冴冽凌凛出初利剛創力功助努勇勉勗務勝勤勧勲匠匡半卓南博卯厚原厳友収叡史司吟周和咲哲唯啓善喬嘉圓圭均坦基堂堺壮壯壽夢大天太央奨奬好妃妙始威孚孜孝孟学學守安完宏宗官定実宮宰容寅密富寔寛實寧寿将尊尚尭尼岩岬岳峻崇崑嵩巌巍巖工巧巴巻巽帆希常年幸幹広庚康庸廉廣建弓弘弥強弾彊彝彩彪彬彰征律復徳徹心忍忠忱怜恂恋恒恪恭恵悟悠悦悳惇惠愛愿慎慧慶憂憲成拓拳捷揚揺操收攻政敏敞敦敬整文斉斌斎新旭昂昇昊昌明昭是昶晁晃晄晋晟普晴晶智暁暉暢曉有朋朔朗望李杏東林柱柾栄栞格桂桃桜梓梢植椿楓榕榮権樸樹橘檀正武歩毅永求汎汪治泉波泰洋洌洪洵洸洽浄浜浩涼淑淨深淳淵清済渉渓渙渚渡温游湛湧満源滉滋滿漠漸潔潜潤潮澄澪瀏烈煕照牧独猛玄玉玲理琢琴瑛瑞瑶璋環甫由男登皎皓盈直眞真眸督睦瞬瞭瞳矗知研碧碩磐磨磬礼祐祝祥禎秀税稔種穀穂穆積穗穣穰究竜章端競笑等節篠篤米粲精糺紀紅納純紘紫紳統綱綾総緑縁總繁繭美義翔翠翼耕聖聡聰肇育胖脩至舜舞航良花芳芹若英茂茜菊華萌萠葉董葵蓮蔦蕃薫藍藹蘭虔融螢衆行衛衞装裕襄要規覚親覺計訓誉誠諒諦諭謙譚譲護讓豊豪貘貞貢貴賢質赳超輝農迩迪透通進逸運道達遥遼邦郁都醇重釣鈞鈴鉄錠錦鐙鐵鑑長開陟陸陽隆雄雅雪零震霞靖静靜順領頼顯養香馨駿高魁魏鮎鴻鵬麓麗麻麿黎鼎齊龍湊蒼昴奏詩紬燈灯蒔楽
 </script>
 
 <script>
@@ -29492,7 +29741,8 @@ window.TinySegmenter = { segment: segment };
   "use strict";
   const $ = id => document.getElementById(id);
   const dictSei = $("dictSei").textContent.trim().split("\n").filter(Boolean);
-  const dictMei = $("dictMei").textContent.trim().split("\n").filter(Boolean);
+  const dictMei = $("dictMei").textContent.trim().split("\n").filter(Boolean)
+    .concat(($("meiExtra") ? $("meiExtra").textContent : "").trim().split("\n").filter(Boolean));   // 現代の名前を追加（IPA辞書は2000年代までで新しい名前が無い）
   const dictSei1 = new Set(($("sei1")?$("sei1").textContent:"").trim().split(""));
   const dictMei1 = new Set(($("mei1")?$("mei1").textContent:"").trim().split(""));
   const KANJI = /^[一-鿿々]+$/;
@@ -29626,6 +29876,13 @@ window.TinySegmenter = { segment: segment };
     const SEI1 = new Set([...dictSei1, ...SEI1_EXTRA]);
     const MEI1 = dictMei1;
     const HON = new Set(HONORIFIC.split("|"));
+    // 下の名前だけの呼び捨て（「陽菜が」「さくらは」）。人名辞書と同じ形の一般語は伏せない
+    const STRICT = $("strictGiven") ? $("strictGiven").checked : false;
+    const NOUN_NG = new Set(("正義 大成 健康 元気 自然 平和 幸福 満足 記録 練習 学習 生活 昼食 朝食 夕食 掃除 洗濯 入浴 就寝 起床 体調 様子 保健 給食 部屋 準備 確認 連絡 相談 指導 支援 対応 参加 帰省 帰舎 登校 下校 外出 面談 行事 活動 作業 訓練 検査 通院 服薬 発熱 頭痛 腹痛 風邪 心配 注意 危険 安心 一緒 本人 職員 先生 生徒 児童 学年 学級 教室 食堂 浴室 玄関 廊下 階段 洗面 時間 曜日 今日 明日 昨日 今週 来週 先週 今月 来月 先月 今年 本日 午前 午後 夕方 早朝 深夜 週末 全員 各自 順番 予定 希望 説明 報告 質問 返事 電話 手紙 荷物 洗濯物 上着 上履 制服 私服 眼鏡 財布 携帯 音楽 体育 図工 家庭 理科 社会 国語 数学 英語 美術 技術 道徳 進路 就労 実習").split(/\s+/));
+    // ひらがなの「〜さん」で人名でないもの
+    const HIRA_NG = new Set(("みな みんな おかあ おとう おじい おばあ おにい おねえ あなた どなた ばあ じい かあ とう ねえ にい おく おきゃく こども おとな みなさま "
+      + "ため とき なか つぎ やすみ こと もの ところ ほう あと まえ うち ひと これ それ あれ ここ そこ など まま いま あさ ひる よる ちから はなし").split(/\s+/));
+    const isGivenAlone = w => STRICT && w.length >= 2 && w.length <= 4 && !NOUN_NG.has(w) && !STOP.has(w) && meiSet.has(w);
     const isSpace = s => /^[\s　]+$/.test(s);
     const isKanjiTok = s => /^[一-鿿々]+$/.test(s);
     const isKataStr  = s => /^[ァ-ヶー・]{2,}$/.test(s);
@@ -29683,6 +29940,8 @@ window.TinySegmenter = { segment: segment };
         if(!pre || STOP.has(pre)) return;
         if(isInitial(pre)) { add(normLatin(pre),null,"イニシャル"); return; }
         if(isKataStr(pre)) { add(pre,null,"カナ"); return; }
+        // ひらがなの名前（さくらさん・ゆいちゃん）。呼びかけ語（みなさん等）は除く
+        if(/^[ぁ-ん]{2,4}$/.test(pre) && !HIRA_NG.has(pre)) { add(pre,null,"かな"); return; }
         const person=analyzeChunk(pre,'hon'); if(person) add(person.surname,person.given,"敬称");
       };
 
@@ -29733,6 +29992,8 @@ window.TinySegmenter = { segment: segment };
             }
             // 表のセルに単独の1文字姓（前後がタブ/改行/端）＝名前とみなす
             if(leftCell && cb(j<N?toks[j]:"")) add(chunk,null,"セル姓");
+          } else if(isGivenAlone(chunk)){
+            add(chunk,null,"名前(呼び捨て)");     // 陽菜が／健太は
           }
           i=j; continue;
         }
@@ -29741,8 +30002,13 @@ window.TinySegmenter = { segment: segment };
           let ch=t, j=i+1;
           while(j<N && /^[ァ-ヶー・]+$/.test(toks[j])){ ch+=toks[j]; j++; }
           ch=ch.replace(/^・+|・+$/g,"");
-          if(ch.length>=2 && followCtx(j)==='hon') add(ch,null,"カナ");
+          if(ch.length>=2 && (followCtx(j)==='hon' || isGivenAlone(ch))) add(ch,null,"カナ");
           i=j; continue;
+        }
+        // ひらがなの名前（さくらが／ゆいは）。辞書にある名前と同じ形のときだけ
+        // 直前が「の」なら「体調不良のため」型の一般語。人名として扱わない
+        if(/^[ぁ-ん]{2,4}$/.test(t) && !HIRA_NG.has(t) && (i===0 || toks[i-1] !== "の") && isGivenAlone(t)){
+          add(t,null,"名前(呼び捨て)"); i++; continue;
         }
         i++;
       }

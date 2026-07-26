@@ -7,7 +7,7 @@ import {
 } from "../../_lib/handoff.js";
 
 const MAX_TEXT_BYTES = 64 * 1024;
-const EXPIRES_MS = 24 * 60 * 60 * 1000;
+const EXPIRES_MS = 5 * 60 * 1000;
 const CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
 
 function normalizeCode(value) {

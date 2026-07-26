@@ -108,13 +108,19 @@ const TUNE = {
   revealMax: 0.80,
   revealStep: 0.06,
   soft: 0.07,           // 見える範囲のふちのぼかし（m）
-  floorAlpha: 0.62,     // 真下（足元）の暗さ（1=真っ黒 / 小さいほど床が見える）
+  maxAlpha: 0.90,       // 一番暗いときでもこれだけ（1=完全に真っ黒）。少し透かして安全に
+  floorAlpha: 0.55,     // 真下（足元）の暗さ（1=真っ黒 / 小さいほど床が見える）
   floorFrom: -0.78,     // ここから下向きの視線を暗くしはじめる（-1=真下）
   floorTo:   -0.95,     // ここまで下を向くと floorAlpha になる
   fadeSec: 1.1,         // 暗くなる／戻るのにかける秒数
   awayFar: 2.0,         // マスからこれ以上離れたら自動で部屋を戻す（m）
   awayNear: 1.6,        // ここまで戻ったらまた暗くする（m）
   shellR: 6.0,          // 目かくしの球の半径（m）
+  square: true,         // 窓のかたち true=しかく / false=まる
+  // ボタン（実機で「押しても反応しない」と言われたので大きくして、手を近づけても押せるようにした）
+  btnNear: 0.085,       // 手がこの距離まで近づいたら押す（m）
+  btnDwell: 0.28,       // 近づけたまま押し続ける時間（秒）
+  btnCool: 0.9,         // 一度押したあとの待ち（秒）
 };
 
 /* ============ 画面内ログ（DOM＋MR中は3Dパネル） ============ */
@@ -225,6 +231,8 @@ const shellUniforms = {
   uFloorAlpha: { value: TUNE.floorAlpha },
   uFloorFrom:  { value: TUNE.floorFrom },
   uFloorTo:    { value: TUNE.floorTo },
+  uSquare:     { value: TUNE.square ? 1.0 : 0.0 },
+  uMaxAlpha:   { value: TUNE.maxAlpha },
 };
 const shellMat = new THREE.ShaderMaterial({
   uniforms: shellUniforms,
@@ -250,17 +258,32 @@ const shellMat = new THREE.ShaderMaterial({
     uniform float uFloorAlpha;
     uniform float uFloorFrom;
     uniform float uFloorTo;
+    uniform float uSquare;
+    uniform float uMaxAlpha;
     varying vec3  vWorld;
     void main(){
-      // 目からこの点へ伸ばした線が、作業マス（uTarget）にどれだけ近いか
       vec3  dir = normalize(vWorld - cameraPosition);
+      // (1) まる: 目からこの点へ伸ばした線が、作業マス（uTarget）にどれだけ近いか
       float t   = max(dot(uTarget - cameraPosition, dir), 0.0);
       float d   = distance(cameraPosition + dir * t, uTarget);
-      float a   = smoothstep(uR, uR + uSoft, d);   // マスの中=0（透ける）／外=1（黒い）
+      float aRound = smoothstep(uR, uR + uSoft, d);
+      // (2) しかく: 視線が「マスの高さの平面」と交わる点で、四角の内側かを見る
+      float aSq = 1.0;
+      if(dir.y < -0.001){
+        float tp = (uTarget.y - cameraPosition.y) / dir.y;
+        if(tp > 0.0){
+          vec3 hp = cameraPosition + dir * tp;
+          vec2 q  = abs(hp.xz - uTarget.xz);
+          aSq = smoothstep(uR, uR + uSoft, max(q.x, q.y));
+          // 浅い角度で窓が地平線まで伸びるのを止める
+          aSq = max(aSq, smoothstep(uR * 2.0, uR * 2.6, length(hp - uTarget)));
+        }
+      }
+      float a = mix(aRound, aSq, uSquare);   // マスの中=0（透ける）／外=1（黒い）
       // 真下（足元）だけは真っ黒にしない＝つまずかないように床は見えるようにする
       float low = smoothstep(uFloorFrom, uFloorTo, dir.y);
       a *= mix(1.0, uFloorAlpha, low);
-      gl_FragColor = vec4(0.0, 0.0, 0.0, a * uOpacity);
+      gl_FragColor = vec4(0.0, 0.0, 0.0, a * uOpacity * uMaxAlpha);
     }
   `,
 });
@@ -287,8 +310,26 @@ const frameRing = new THREE.Mesh(
 );
 frameRing.rotation.x = -Math.PI/2; frameRing.renderOrder = 6;
 frameGroup.add(frameRing);
+
+// しかくの枠（四角い窓のとき）。線が細いと実機で見えないので、太い枠の絵を貼った板にする
+let frameSq = null;
+{
+  const S = 256, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+  const c = cv.getContext("2d");
+  c.strokeStyle = "#ffd166"; c.lineWidth = 10;
+  c.strokeRect(6, 6, S-12, S-12);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  frameSq = new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+    new THREE.MeshBasicMaterial({ map: tex, transparent:true, opacity:0.9 }));
+  frameSq.rotation.x = -Math.PI/2; frameSq.renderOrder = 6;
+  frameGroup.add(frameSq);
+}
 function layoutFrame(){
-  frameRing.scale.set(shellUniforms.uR.value, shellUniforms.uR.value, 1);
+  const r = shellUniforms.uR.value;
+  frameRing.scale.set(r, r, 1);
+  frameSq.scale.set(r*2, r*2, 1);
+  frameRing.visible = !TUNE.square;
+  frameSq.visible = TUNE.square;
 }
 
 /* ============ 文字パネルを作る道具 ============ */
@@ -331,28 +372,57 @@ function drawInfoPanel(){
 /* ---- 3Dボタン ---- */
 const uiButtons = [];
 function makeButton(label, w, h, onClick, accent){
-  const P = makePanelTexture(384, 150);
-  const draw = (text)=>{
+  const P = makePanelTexture(512, 200);
+  const entry = { onClick, label, hot: 0, dwell: 0, coolUntil: 0, w, h };
+  const draw = ()=>{
     const c = P.ctx, W = P.cv.width, H = P.cv.height;
+    const hot = entry.hot;                    // 0=ふつう 1=狙われている/近い
     c.clearRect(0,0,W,H);
-    c.fillStyle = "#151a24"; roundRect(c,5,5,W-10,H-10,28); c.fill();
-    c.strokeStyle = accent || "#ffd166"; c.lineWidth = 6; roundRect(c,5,5,W-10,H-10,28); c.stroke();
+    c.fillStyle = hot ? "#2a4a3c" : "#151a24";
+    roundRect(c,5,5,W-10,H-10,34); c.fill();
+    c.strokeStyle = hot ? "#7ee0a0" : (accent || "#ffd166");
+    c.lineWidth = hot ? 12 : 7; roundRect(c,5,5,W-10,H-10,34); c.stroke();
+    // 手を近づけている間、下から溜まるゲージ（押せているのが分かる＝無反応に見えない）
+    if(entry.dwell > 0){
+      const p = Math.min(1, entry.dwell / TUNE.btnDwell);
+      c.fillStyle = "rgba(126,224,160,0.35)";
+      c.fillRect(10, H - 10 - (H-20)*p, W-20, (H-20)*p);
+    }
     c.fillStyle = "#f3f6fb"; c.textAlign="center"; c.textBaseline="middle";
-    c.font = (text.length > 7 ? "bold 42px" : "bold 54px") + " sans-serif";
-    c.fillText(text, W/2, H/2);
+    c.font = (entry.label.length > 7 ? "bold 54px" : "bold 68px") + " sans-serif";
+    c.fillText(entry.label, W/2, H/2);
     P.tex.needsUpdate = true;
   };
-  draw(label);
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map:P.tex, transparent:true }));
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map:P.tex, transparent:true, side: THREE.DoubleSide }));
   mesh.visible = false; mesh.renderOrder = 10; scene.add(mesh);
-  const entry = { mesh, onClick, setLabel: draw };
+  entry.mesh = mesh; entry.redraw = draw;
+  entry.setLabel = (t)=>{ entry.label = t; draw(); };
+  draw();
   uiButtons.push(entry);
   return entry;
 }
-const wideBtn  = makeButton("ひろげる",      0.16, 0.0625, ()=>changeReveal(+TUNE.revealStep), "#9fb4d8");
-const narrowBtn= makeButton("せばめる",      0.16, 0.0625, ()=>changeReveal(-TUNE.revealStep), "#9fb4d8");
-const peekBtn  = makeButton("まわりを見る",  0.20, 0.078,  togglePeek,  "#9fb4d8");
-const nextBtn  = makeButton("このマスは終わり", 0.24, 0.094, finishSquare, "#ffd166");
+// 実機で「押しても反応しない」と言われたので、ぜんぶ2倍くらい大きくした
+const wideBtn  = makeButton("ひろげる",      0.26, 0.102, ()=>changeReveal(+TUNE.revealStep), "#9fb4d8");
+const narrowBtn= makeButton("せばめる",      0.26, 0.102, ()=>changeReveal(-TUNE.revealStep), "#9fb4d8");
+const peekBtn  = makeButton("まわりを見る",  0.30, 0.117, togglePeek,  "#9fb4d8");
+const nextBtn  = makeButton("このマスは終わり", 0.34, 0.133, finishSquare, "#ffd166");
+const shapeBtn = makeButton("まる／しかく",  0.26, 0.102, toggleShape, "#9fb4d8");
+
+function toggleShape(){
+  TUNE.square = !TUNE.square;
+  shellUniforms.uSquare.value = TUNE.square ? 1.0 : 0.0;
+  layoutFrame(); playClick();
+  log("窓のかたちを「" + (TUNE.square ? "しかく" : "まる") + "」にしました");
+}
+// ボタンを押す（ray でも 手を近づけるでも、ここを通る）
+function fireButton(entry){
+  const now = performance.now()/1000;
+  if(now < entry.coolUntil) return;
+  entry.coolUntil = now + TUNE.btnCool;
+  entry.dwell = 0; entry.redraw();
+  pulse(60, 1.0);
+  if(entry.onClick) entry.onClick();
+}
 
 // 目かくし（depthTest切り）より手前に必ず出したい表示は、同じくdepthTestを切って
 // renderOrder の順番だけで重ねる。切り忘れると真っ暗の中でボタンが見えなくなる。

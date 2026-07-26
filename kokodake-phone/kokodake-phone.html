@@ -32,8 +32,10 @@
     font-size:18px;font-weight:900;background:var(--accent);color:#20180a;
     box-shadow:0 6px 20px rgba(255,209,102,.25);}
   .big:active{transform:translateY(1px);}
+  .big:disabled{opacity:.35;box-shadow:none;}
   .sub{display:block;width:100%;border:1px solid var(--line);background:#111620;color:var(--ink);
     border-radius:14px;padding:14px 16px;font-size:14px;margin-top:10px;}
+  .sub:disabled{opacity:.35;}
   .row{display:flex;gap:8px;}
   .row > *{flex:1;}
 
@@ -44,18 +46,29 @@
   input[type=text]{width:100%;border:1px solid var(--line);background:#0f131b;color:var(--ink);
     border-radius:12px;padding:13px 14px;font:inherit;font-size:15px;}
 
-  /* ---- 区切り画面 ---- */
-  #gridWrap{flex:1;min-height:0;position:relative;background:#05070a;touch-action:none;overflow:hidden;}
-  #gridCv{position:absolute;inset:0;width:100%;height:100%;}
-  .toolbar{padding:12px 14px calc(14px + env(safe-area-inset-bottom));background:var(--panel);
-    border-top:1px solid var(--line);}
   .seg{display:flex;gap:6px;margin-bottom:10px;}
   .seg button{flex:1;border:1px solid var(--line);background:#111620;color:var(--ink);
-    border-radius:11px;padding:11px 4px;font-size:13px;font-weight:700;}
+    border-radius:11px;padding:11px 4px;font-size:13px;font-weight:700;line-height:1.5;}
+  .seg button .s{display:block;font-size:10px;color:var(--dim);font-weight:400;margin-top:2px;}
   .seg button.on{background:#3a2f14;border-color:var(--accent);color:var(--accent2);}
   .hint{font-size:11.5px;color:var(--dim);line-height:1.7;margin-bottom:10px;}
+  .toolbar{padding:12px 14px calc(14px + env(safe-area-inset-bottom));background:var(--panel);
+    border-top:1px solid var(--line);}
 
-  /* ---- 作業画面（ここが本体：1マスだけ） ---- */
+  /* ---- 1個ずつ消す（本体） ---- */
+  #objsWrap{flex:1;min-height:0;position:relative;background:#05070a;touch-action:none;overflow:hidden;}
+  #objsCv{position:absolute;inset:0;width:100%;height:100%;}
+  #objsTop{padding:9px 14px 5px;display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--dim);}
+  #objsTop .num{font-size:18px;font-weight:900;color:var(--ok);letter-spacing:.02em;}
+  #bar{height:6px;background:#1b2231;border-radius:99px;overflow:hidden;margin:0 14px 6px;}
+  #barIn{height:100%;width:0%;background:linear-gradient(90deg,#7ee0a0,#ffd166);transition:width .35s;}
+  #eraseBtn{background:var(--ok);color:#062015;}
+
+  /* ---- 区切り画面（おまけ） ---- */
+  #gridWrap{flex:1;min-height:0;position:relative;background:#05070a;touch-action:none;overflow:hidden;}
+  #gridCv{position:absolute;inset:0;width:100%;height:100%;}
+
+  /* ---- 作業画面（マス方式） ---- */
   #work{background:#000;}
   #workTop{padding:10px 14px 6px;display:flex;align-items:center;justify-content:space-between;
     font-size:13px;color:var(--dim);}
@@ -66,7 +79,7 @@
   #doneBtn{background:var(--ok);color:#062015;}
   #peekBtn{margin-top:10px;}
 
-  /* ---- 幽霊合わせ ---- */
+  /* ---- 見くらべ ---- */
   #ghostWrap{flex:1;min-height:0;position:relative;background:#05070a;}
   #ghostCv{position:absolute;inset:0;width:100%;height:100%;}
   input[type=range]{width:100%;margin:14px 0 4px;}
@@ -98,10 +111,16 @@
 <section id="home" class="screen on">
   <div class="pad">
     <div class="mark">ここだけ・スマホ版</div>
-    <h1>写真を1枚。<br>あとは1マスずつ。</h1>
+    <h1>片づけた物を、<br>写真から1個ずつ消す。</h1>
     <p class="lead">散らかった所を1枚だけ撮ります。<br>
-    あとはアプリが<b>1マスだけ</b>を大きく出すので、それだけ見て片づけます。<br>
-    作業中はもう撮りません。両手が空きます。</p>
+    アプリが物のめじるしを付けるので、<b>1個片づけたら、その物をタップ</b>。<br>
+    写真の中から本当に消えて、机がどんどんきれいになります。</p>
+
+    <label class="fld">やりかた</label>
+    <div class="seg" id="segMode">
+      <button data-m="objs">1個ずつ消す<span class="s">おすすめ</span></button>
+      <button data-m="cells">マスで区切る<span class="s">広い床など</span></button>
+    </div>
 
     <label class="fld">場所の名前（あとで同じ場所と比べるため）</label>
     <input type="text" id="spotName" value="ここ" maxlength="20">
@@ -113,8 +132,8 @@
     </div>
 
     <div class="card">
-      <b>コツ</b>：全体が入るように、少し引いて撮ってください。<br>
-      次に同じ場所を撮るときは、<b>同じ位置から</b>撮ると変化が見えます。
+      <b>大事</b>：タップするのは、<b>実際にその物を片づけたあと</b>です。<br>
+      写真の中だけ片づいても意味がないので、順番を守ると気持ちよさが本物になります。
     </div>
     <div class="card" id="ioWarn" style="display:none;color:#ffdada;border-color:#8a2e2e"></div>
   </div>
@@ -124,7 +143,30 @@
   </div>
 </section>
 
-<!-- ================= 2. マスの区切り ================= -->
+<!-- ================= 2. 1個ずつ消す ================= -->
+<section id="objs" class="screen">
+  <div id="objsTop">
+    <span class="num" id="objsCount">消した 0 個</span>
+    <span id="objsInfo"></span>
+  </div>
+  <div id="bar"><div id="barIn"></div></div>
+  <div id="objsWrap"><canvas id="objsCv"></canvas></div>
+  <div class="toolbar">
+    <div class="hint" id="objsHint">片づけた物を写真の上でタップしてください。</div>
+    <button class="big" id="eraseBtn" disabled>これを消す</button>
+    <div class="row" style="margin-top:10px">
+      <button class="sub" id="growBtn" style="margin-top:0" disabled>もっと広く</button>
+      <button class="sub" id="shrinkBtn" style="margin-top:0" disabled>せばめる</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="sub" id="undoBtn" style="margin-top:0" disabled>1個もどす</button>
+      <button class="sub" id="markBtn" style="margin-top:0">めじるし切替</button>
+      <button class="sub" id="objsFinBtn" style="margin-top:0">おしまい</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3. マスの区切り（おまけ） ================= -->
 <section id="grid" class="screen">
   <div id="gridWrap"><canvas id="gridCv"></canvas></div>
   <div class="toolbar">
@@ -134,14 +176,13 @@
       <button data-n="4">4×4</button>
       <button data-n="5">5×5</button>
     </div>
-    <div class="hint">線をずらしたいときは、写真を<b>指でドラッグ</b>してください。<br>
-      1マスが「一度に片づけられる大きさ」になるくらいが目安です。</div>
+    <div class="hint">線をずらしたいときは、写真を<b>指でドラッグ</b>してください。</div>
     <button class="big" id="startBtn">はじめる</button>
     <button class="sub" id="gridBackBtn">写真を撮り直す</button>
   </div>
 </section>
 
-<!-- ================= 3. 作業（1マスだけ） ================= -->
+<!-- ================= 4. 作業（マス方式） ================= -->
 <section id="work" class="screen">
   <div id="workTop">
     <span class="num" id="progress">1 / 9</span>
@@ -158,34 +199,35 @@
   </div>
 </section>
 
-<!-- ================= 4. 終わり ================= -->
+<!-- ================= 5. 終わり ================= -->
 <section id="done" class="screen">
   <div class="pad">
     <div class="mark">おつかれさまでした</div>
     <h1 id="doneHead">ぜんぶ終わりました</h1>
     <p class="lead" id="doneText"></p>
-    <button class="big" id="afterBtn">同じ場所をもう1枚とって、見くらべる</button>
-    <button class="sub" id="againBtn">別の場所をやる</button>
-    <div class="card">同じ位置から撮ると、前の写真が薄く重なって、<b>どれだけ変わったか</b>が見えます。</div>
+    <button class="big" id="beforeAfterBtn" style="display:none">さっきの写真と見くらべる</button>
+    <button class="sub" id="afterBtn">同じ場所をもう1枚とって、見くらべる</button>
+    <button class="sub" id="againBtn">べつの場所をやる</button>
+    <div class="card">同じ位置から撮ると、<b>本物の写真で</b>どれだけ変わったかが見えます。</div>
   </div>
 </section>
 
-<!-- ================= 5. 幽霊合わせ ================= -->
+<!-- ================= 6. 見くらべ ================= -->
 <section id="ghost" class="screen">
   <div id="ghostWrap"><canvas id="ghostCv"></canvas></div>
   <div class="toolbar">
     <input type="range" id="mix" min="0" max="100" value="100">
-    <div class="lbls"><span>前の写真</span><span>いまの写真</span></div>
+    <div class="lbls"><span id="mixL">前の写真</span><span id="mixR">いまの写真</span></div>
     <button class="big" id="ghostDoneBtn" style="margin-top:12px">これで終わり</button>
   </div>
 </section>
 
 <script>
 "use strict";
-const REV = "v1 rev5";
+const REV = "v2 rev5";
 document.getElementById("rev").textContent = REV;
 
-/* ============ 画面内ログ・エラー表示 ============ */
+/* ============ ログ・エラー ============ */
 const $ = id => document.getElementById(id);
 const logEl = $("log");
 function log(msg, isErr){
@@ -204,18 +246,19 @@ function toast(msg){
 addEventListener("error", ev => log("エラー: " + (ev.message || ev.error || "不明"), true));
 addEventListener("unhandledrejection", ev => log("エラー(非同期): " + ((ev.reason && ev.reason.message) || ev.reason || "不明"), true));
 
-/* ============ 画面の切り替え ============ */
-const SCREENS = ["home","grid","work","done","ghost"];
+/* ============ 画面切り替え ============ */
+const SCREENS = ["home","objs","grid","work","done","ghost"];
 let screenNow = "home";
 function go(name){
   SCREENS.forEach(s => $(s).classList.toggle("on", s === name));
   screenNow = name;
+  if(name === "objs") drawObjs();
   if(name === "grid") drawGrid();
   if(name === "work") drawCell();
   if(name === "ghost") drawGhost();
 }
 
-/* ============ 音（その場で合成・ファイル無し） ============ */
+/* ============ 音・振動 ============ */
 let actx = null;
 function initAudio(){
   try{
@@ -234,19 +277,24 @@ function beep(f, dur, type, vol){
     o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur + 0.03);
   }catch(_){}
 }
-function sndNext(step){ const f = 620 * Math.pow(2, Math.min(step,10)/12); beep(f,0.16,"triangle",0.3); beep(f*2,0.09,"sine",0.09); }
+// 消すたびに半音上がる「ぽん♪」＝続けるほど気持ちよくなる
+function sndPop(step){
+  const f = 660 * Math.pow(2, Math.min(step, 14)/12);
+  beep(f, 0.15, "triangle", 0.32); beep(f*2, 0.09, "sine", 0.10);
+}
+function sndPick(){ beep(880, 0.05, "sine", 0.14); }
+function sndUndo(){ beep(300, 0.13, "sine", 0.20); }
 function sndAll(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.32,"triangle",0.3), i*130)); }
-function sndSoft(){ beep(400, 0.10, "sine", 0.16); }
 function vib(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(_){} }
 
-/* ============ 保存（IndexedDB。使えない環境でも本体は動く） ============ */
+/* ============ 保存（IndexedDB。無ければ本体だけ動く） ============ */
 const DB_NAME = "kokodake", DB_STORE = "spots";
 const canSave = (typeof indexedDB !== "undefined" && indexedDB !== null);
 if(!canSave){
   $("ioWarn").style.display = "block";
   $("ioWarn").innerHTML = "この画面では写真を保存できません（アプリの中の簡易ブラウザで開いている可能性があります）。<br>" +
     "<b>SafariやChrome本体で開くと</b>、前の写真との見くらべが使えます。片づけ自体は今のままでも使えます。";
-  log("保存が使えない環境（indexedDBなし）。見くらべ機能だけ無効", true);
+  log("保存が使えない環境（indexedDBなし）", true);
 }
 function openDB(){
   return new Promise((res, rej)=>{
@@ -261,14 +309,11 @@ async function spotGet(name){
   try{
     const db = await openDB();
     return await new Promise((res, rej)=>{
-      const tx = db.transaction(DB_STORE, "readonly");
-      const q = tx.objectStore(DB_STORE).get(name);
-      q.onsuccess = ()=>res(q.result || null);
-      q.onerror = ()=>rej(q.error);
+      const q = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).get(name);
+      q.onsuccess = ()=>res(q.result || null); q.onerror = ()=>rej(q.error);
     });
   }catch(e){ return null; }
 }
-// 記録は1回の片づけで1度しか書かないので、レコード丸ごと書きで問題ない
 async function spotPut(rec){
   try{
     const db = await openDB();
@@ -281,13 +326,15 @@ async function spotPut(rec){
   }catch(e){ log("保存できませんでした：" + (e.message || e), true); return false; }
 }
 
-/* ============ 写真の読み込み（向きの補正つき） ============ */
-const MAXPX = 2000;  // 長辺の上限（大きすぎる写真で重くならないように）
-let img = null;        // いまの写真（HTMLCanvasElement）
-let imgPrev = null;    // 前に撮った同じ場所の写真
+/* ============ 写真の読み込み ============ */
+const MAXPX = 1600;
+let img = null;        // 撮ったままの写真（消す前）
+let work = null;       // 消しこんでいく作業用（表示されるのはこちら）
+let imgPrev = null;
 let spotName = "ここ";
+let mode = "objs";
 
-// <img>で読むと、iPhoneの写真の向き（EXIF）はブラウザが自動で直してくれる
+// <img>で読むと iPhoneの写真の向き(EXIF)はブラウザが直してくれる
 function loadToCanvas(blobOrUrl){
   return new Promise((res, rej)=>{
     const url = (typeof blobOrUrl === "string") ? blobOrUrl : URL.createObjectURL(blobOrUrl);
@@ -307,53 +354,274 @@ function loadToCanvas(blobOrUrl){
     im.src = url;
   });
 }
+function cloneCanvas(src){
+  const cv = document.createElement("canvas"); cv.width = src.width; cv.height = src.height;
+  cv.getContext("2d").drawImage(src, 0, 0); return cv;
+}
 function canvasToBlob(cv, q){
-  return new Promise(res=>{
-    if(cv.toBlob) cv.toBlob(b=>res(b), "image/jpeg", q || 0.82);
-    else res(null);
-  });
+  return new Promise(res=>{ cv.toBlob ? cv.toBlob(b=>res(b), "image/jpeg", q || 0.82) : res(null); });
 }
 
-/* ============ マスの状態 ============ */
-let cells = 3;                 // 1辺のマス数
-let offX = 0, offY = 0;        // 区切り線のずらし（0〜1マス分）
-let order = [], idx = 0;       // まわる順番と現在位置
-let doneCount = 0, laterCount = 0;
+/* ================================================================
+   物のめじるし付け（ネット不要・その場で計算）
+   考え方: 一番多い色＝台や床の地の色とみなし、そこから離れた色のまとまりを「物」とする。
+   物の名前は当てない（当てられないので当てない）。人がタップするので当てる必要がない。
+   ================================================================ */
+let det = null;        // { w,h,scale,label:Int32Array,comps:[{id,size,cx,cy,x0,y0,x1,y1}] }
+let detTh = 62;        // 地の色からどれだけ離れたら「物」とみなすか
+let showMarks = true;
+let picked = null;     // いま選んでいる物 {comp, pad}
+let padExtra = 0;      // もっと広く／せばめる（画素）
+let erased = 0, erasedArea = 0, totalObjArea = 1;
+const undoStack = [];  // {x,y,cv} 消す前の絵（戻す用）
 
-// ずらしは 0 / 1/3 / 2/3 の3段階に丸める。自由にずらせるようにすると、
-// 端に「写真のごく細い帯」のマスができて、それが画面いっぱいに出て気持ち悪いため。
-function quantOff(v){
-  let x = ((v % 1) + 1) % 1;
-  x = Math.round(x * 3) / 3;
-  return (x >= 0.999) ? 0 : x;
+function detect(){
+  if(!work) return;
+  const DW = Math.min(700, work.width);
+  const s = DW / work.width;
+  const w = Math.max(1, Math.round(work.width * s)), h = Math.max(1, Math.round(work.height * s));
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const c = cv.getContext("2d"); c.drawImage(work, 0, 0, w, h);
+  const d = c.getImageData(0,0,w,h).data;
+
+  // 1) 一番多い色（地の色）をヒストグラムで探す
+  const BINS = 12, hist = new Int32Array(BINS*BINS*BINS);
+  const q = 256 / BINS;
+  for(let i=0;i<w*h;i++){
+    const r=(d[i*4]/q)|0, g=(d[i*4+1]/q)|0, b=(d[i*4+2]/q)|0;
+    hist[(r*BINS+g)*BINS+b]++;
+  }
+  let best = 0, bi = 0;
+  for(let i=0;i<hist.length;i++) if(hist[i] > best){ best = hist[i]; bi = i; }
+  const bb = bi % BINS, bg = ((bi - bb)/BINS) % BINS, br = ((bi - bb)/BINS - bg)/BINS;
+  let sr=0, sg=0, sb=0, n=0;
+  for(let i=0;i<w*h;i++){
+    const r=(d[i*4]/q)|0, g=(d[i*4+1]/q)|0, b=(d[i*4+2]/q)|0;
+    if(r===br && g===bg && b===bb){ sr+=d[i*4]; sg+=d[i*4+1]; sb+=d[i*4+2]; n++; }
+  }
+  const bgc = n ? [sr/n, sg/n, sb/n] : [128,128,128];
+
+  // 2) 地の色から離れている画素＝物
+  const mask = new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){
+    const dr = Math.abs(d[i*4]-bgc[0]), dg = Math.abs(d[i*4+1]-bgc[1]), db = Math.abs(d[i*4+2]-bgc[2]);
+    if(dr + dg + db > detTh) mask[i] = 1;
+  }
+  // 3) つながりでまとめる（4近傍・スタック方式。再帰は深すぎて落ちるので使わない）
+  const label = new Int32Array(w*h);
+  const comps = [];
+  const stack = new Int32Array(w*h);
+  let id = 0;
+  const area = w*h;
+  const minA = Math.max(24, Math.round(area * 0.0009));
+  const maxA = Math.round(area * 0.30);
+  for(let st=0; st<area; st++){
+    if(!mask[st] || label[st]) continue;
+    id++;
+    let sp = 0; stack[sp++] = st; label[st] = id;
+    let size = 0, cx = 0, cy = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+    while(sp > 0){
+      const p = stack[--sp];
+      const x = p % w, y = (p - x) / w;
+      size++; cx += x; cy += y;
+      if(x < x0) x0 = x; if(x > x1) x1 = x;
+      if(y < y0) y0 = y; if(y > y1) y1 = y;
+      if(x > 0   && mask[p-1] && !label[p-1]){ label[p-1] = id; stack[sp++] = p-1; }
+      if(x < w-1 && mask[p+1] && !label[p+1]){ label[p+1] = id; stack[sp++] = p+1; }
+      if(y > 0   && mask[p-w] && !label[p-w]){ label[p-w] = id; stack[sp++] = p-w; }
+      if(y < h-1 && mask[p+w] && !label[p+w]){ label[p+w] = id; stack[sp++] = p+w; }
+    }
+    if(size >= minA && size <= maxA){
+      comps.push({ id, size, cx: cx/size, cy: cy/size, x0, y0, x1, y1 });
+    }
+  }
+  comps.sort((a,b)=>b.size - a.size);
+  const keep = comps.slice(0, 60);
+  det = { w, h, scale: s, label, comps: keep, bgc, objMask: mask };
+  totalObjArea = Math.max(1, keep.reduce((t,c)=>t + c.size, 0));
+  picked = null; padExtra = 0;
+  updateObjsUI();
+  log("めじるし " + keep.length + "個（しきい値 " + detTh + "）");
 }
-// 線をずらすと、端に細いマスが1列ぶん増える（ずらした分を取りこぼさないため）
-function gridCounts(){
-  return { cols: cells + (offX > 0.0005 ? 1 : 0), rows: cells + (offY > 0.0005 ? 1 : 0) };
+
+/* ---- 貼り元さがし ----
+   消したい四角と同じ大きさで、物がほとんど写っていない場所を近くから探す。
+   見つかればその模様を持ってきて貼る＝木目や畳の柄が消えずに残る。 */
+function findDonor(X0, Y0, W, H){
+  if(!det) return null;
+  const s = det.scale;
+  const objRatio = (x, y)=>{
+    let n = 0, tot = 0;
+    const step = Math.max(1, Math.floor(Math.min(W,H)/40));
+    for(let yy=0; yy<H; yy+=step){
+      const dy = Math.min(det.h-1, Math.floor((y+yy)*s));
+      for(let xx=0; xx<W; xx+=step){
+        const dx = Math.min(det.w-1, Math.floor((x+xx)*s));
+        tot++;
+        // 番号が付かなかった小さい物も「物」に数える（数えないと物ごと貼り付けてしまう）
+        if(det.objMask[dy*det.w + dx] || det.label[dy*det.w + dx]) n++;
+      }
+    }
+    return tot ? n/tot : 1;
+  };
+  const cands = [];
+  for(const m of [1.15, 1.5, 2.0]){
+    cands.push([Math.round(W*m), 0], [-Math.round(W*m), 0], [0, Math.round(H*m)], [0, -Math.round(H*m)],
+               [Math.round(W*m), Math.round(H*m)], [-Math.round(W*m), -Math.round(H*m)],
+               [Math.round(W*m), -Math.round(H*m)], [-Math.round(W*m), Math.round(H*m)]);
+  }
+  let best = null, bestR = 1;
+  for(const [dx, dy] of cands){
+    const x = X0 + dx, y = Y0 + dy;
+    if(x < 0 || y < 0 || x + W > work.width || y + H > work.height) continue;
+    const r = objRatio(x, y);
+    // 近い候補から順に見ているので、何も無ければその場で採用する（近い方が明るさも近い）
+    // ここを甘くすると「別の物の端っこ」を貼り付けてしまう（実際に magenta の線が生えた）
+    if(r === 0) return { x, y, r };
+    if(r < bestR){ bestR = r; best = { x, y, r }; }
+  }
+  return (best && bestR <= 0.004) ? best : null;
 }
-function buildOrder(){
-  const { cols, rows } = gridCounts();
-  order = [];
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) order.push({ r, c, later:false, done:false });
-  idx = 0; doneCount = 0; laterCount = 0;
+
+/* ---- 消す（近くの地の模様を持ってきて貼る／だめならまわりの色でふさぐ） ----
+   きれいな修復はできないが「そこにあった物が無くなった」ようには見える。 */
+function eraseComp(comp){
+  const s = det.scale;                      // 検出は縮小画像。作業画像へ戻す倍率は 1/s
+  const pad = 4 + padExtra;
+  const X0 = Math.max(0, Math.floor((comp.x0 - pad) / s));
+  const Y0 = Math.max(0, Math.floor((comp.y0 - pad) / s));
+  const X1 = Math.min(work.width  - 1, Math.ceil((comp.x1 + pad) / s));
+  const Y1 = Math.min(work.height - 1, Math.ceil((comp.y1 + pad) / s));
+  const W = X1 - X0 + 1, H = Y1 - Y0 + 1;
+  if(W < 2 || H < 2) return false;
+
+  const ctx = work.getContext("2d");
+  const before = document.createElement("canvas");
+  before.width = W; before.height = H;
+  before.getContext("2d").drawImage(work, X0, Y0, W, H, 0, 0, W, H);
+
+  const idata = ctx.getImageData(X0, Y0, W, H);
+  const px = idata.data;
+  // この物にあたる画素（検出画像の番号を作業画像の解像度へ拡大）＋ふちを少し太らせる
+  const hole = new Uint8Array(W*H);
+  for(let y=0;y<H;y++){
+    const dy = Math.min(det.h-1, Math.floor((Y0 + y) * s));
+    for(let x=0;x<W;x++){
+      const dx = Math.min(det.w-1, Math.floor((X0 + x) * s));
+      if(det.label[dy*det.w + dx] === comp.id) hole[y*W+x] = 1;
+    }
+  }
+  const grow = Math.max(1, Math.round(pad / s));
+  for(let g=0; g<grow; g++){
+    const cp = hole.slice();
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      if(cp[y*W+x]) continue;
+      if((x>0 && cp[y*W+x-1]) || (x<W-1 && cp[y*W+x+1]) || (y>0 && cp[(y-1)*W+x]) || (y<H-1 && cp[(y+1)*W+x])) hole[y*W+x] = 1;
+    }
+  }
+  let remain = 0; for(let i=0;i<W*H;i++) if(hole[i]) remain++;
+  if(!remain) return false;
+
+  // 貼り替える範囲は、物のふちの色が残らないように少し余分に広げる
+  const extra = Math.max(2, Math.round(Math.min(W,H) * 0.05));
+  for(let g=0; g<extra; g++){
+    const cp = hole.slice();
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const i = y*W+x; if(cp[i]) continue;
+      if((x>0&&cp[i-1])||(x<W-1&&cp[i+1])||(y>0&&cp[i-W])||(y<H-1&&cp[i+W])) hole[i]=1;
+    }
+  }
+
+  // まず「近くの何も置いていない所」から地の模様を持ってきて貼る（木目や畳の柄が残るので自然）
+  const donor = findDonor(X0, Y0, W, H);
+  if(donor){
+    const mcv = document.createElement("canvas"); mcv.width = W; mcv.height = H;
+    const mc = mcv.getContext("2d");
+    const mdata = mc.createImageData(W, H);
+    for(let i=0;i<W*H;i++){ if(hole[i]){ mdata.data[i*4]=255; mdata.data[i*4+1]=255; mdata.data[i*4+2]=255; mdata.data[i*4+3]=255; } }
+    mc.putImageData(mdata, 0, 0);
+    // ふちをぼかして境目を目立たなくする
+    const fcv = document.createElement("canvas"); fcv.width = W; fcv.height = H;
+    const fc = fcv.getContext("2d");
+    try{ fc.filter = "blur(" + Math.max(1, Math.round(Math.min(W,H)/26)) + "px)"; }catch(_){}
+    fc.drawImage(mcv, 0, 0);
+    const pcv = document.createElement("canvas"); pcv.width = W; pcv.height = H;
+    const pc = pcv.getContext("2d");
+    pc.drawImage(work, donor.x, donor.y, W, H, 0, 0, W, H);
+    pc.globalCompositeOperation = "destination-in";
+    pc.drawImage(fcv, 0, 0);
+    ctx.drawImage(pcv, X0, Y0);
+    undoStack.push({ x: X0, y: Y0, cv: before, size: comp.size, id: comp.id });
+    if(undoStack.length > 30) undoStack.shift();
+    det.comps = det.comps.filter(c => c.id !== comp.id);
+    erased++; erasedArea += comp.size;
+    return true;
+  }
+
+  // 持ってこられる所が無ければ、ふちから1枚ずつ内側へ、まわりの色の平均で塗る（玉ねぎの皮方式）
+  let guard = 0;
+  while(remain > 0 && guard++ < 4000){
+    const fill = [];
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      const i = y*W+x; if(!hole[i]) continue;
+      let r=0,g=0,b=0,k=0;
+      const add = (j)=>{ if(!hole[j]){ r+=px[j*4]; g+=px[j*4+1]; b+=px[j*4+2]; k++; } };
+      if(x>0) add(i-1); if(x<W-1) add(i+1); if(y>0) add(i-W); if(y<H-1) add(i+W);
+      if(x>0&&y>0) add(i-W-1); if(x<W-1&&y>0) add(i-W+1);
+      if(x>0&&y<H-1) add(i+W-1); if(x<W-1&&y<H-1) add(i+W+1);
+      if(k > 0) fill.push([i, r/k, g/k, b/k]);
+    }
+    if(!fill.length){ // まわりが全部穴＝写真の端まで届いた。地の色でふさぐ
+      for(let i=0;i<W*H;i++) if(hole[i]){ px[i*4]=det.bgc[0]; px[i*4+1]=det.bgc[1]; px[i*4+2]=det.bgc[2]; hole[i]=0; }
+      remain = 0; break;
+    }
+    for(const [i,r,g,b] of fill){ px[i*4]=r; px[i*4+1]=g; px[i*4+2]=b; hole[i]=0; remain--; }
+  }
+  ctx.putImageData(idata, X0, Y0);
+  // 塗った所を軽くぼかして、塗り跡のスジを目立たなくする
+  try{
+    const bcv = document.createElement("canvas"); bcv.width = W; bcv.height = H;
+    const bc = bcv.getContext("2d");
+    bc.filter = "blur(" + Math.max(1, Math.round(Math.min(W,H)/22)) + "px)";
+    bc.drawImage(work, X0, Y0, W, H, 0, 0, W, H);
+    ctx.save(); ctx.globalAlpha = 0.55; ctx.drawImage(bcv, X0, Y0); ctx.restore();
+  }catch(_){}
+
+  undoStack.push({ x: X0, y: Y0, cv: before, size: comp.size, id: comp.id });
+  if(undoStack.length > 30) undoStack.shift();
+  // 消した物はめじるしから外す
+  det.comps = det.comps.filter(c => c.id !== comp.id);
+  erased++; erasedArea += comp.size;
+  return true;
 }
-// マスの範囲（写真のピクセル）。ずらしのぶん、端のマスは細くなる
-function cellRect(cw){
-  const W = img.width, H = img.height;
-  const gw = W / cells, gh = H / cells;
-  // ずらしている時だけ、左端(上端)に細いマスが1つ増える分だけ番号がずれる
-  const ox = (offX > 0.0005) ? (offX - 1) : 0;
-  const oy = (offY > 0.0005) ? (offY - 1) : 0;
-  const x0 = (cw.c + ox) * gw, y0 = (cw.r + oy) * gh;
-  const x1 = x0 + gw, y1 = y0 + gh;
-  const cx0 = Math.max(0, Math.min(W, x0)), cy0 = Math.max(0, Math.min(H, y0));
-  const cx1 = Math.max(0, Math.min(W, x1)), cy1 = Math.max(0, Math.min(H, y1));
-  return { x: cx0, y: cy0, w: Math.max(1, cx1-cx0), h: Math.max(1, cy1-cy0) };
+function undoErase(){
+  const u = undoStack.pop();
+  if(!u){ toast("もどす分がありません"); return; }
+  work.getContext("2d").drawImage(u.cv, u.x, u.y);
+  erased = Math.max(0, erased - 1);
+  erasedArea = Math.max(0, erasedArea - u.size);
+  sndUndo();
+  // 消した物をめじるしに戻す（並びは面積順のまま）
+  recoverComp(u.id);
+  picked = null; padExtra = 0;
+  updateObjsUI(); drawObjs();
+  log("1個もどしました（消した " + erased + "個）");
+}
+// もどした物の位置を、番号地図から作り直す
+function recoverComp(id){
+  if(!det) return;
+  let size=0,cx=0,cy=0,x0=det.w,y0=det.h,x1=-1,y1=-1;
+  for(let y=0;y<det.h;y++) for(let x=0;x<det.w;x++){
+    if(det.label[y*det.w+x] !== id) continue;
+    size++; cx+=x; cy+=y;
+    if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+  }
+  if(size) det.comps.push({ id, size, cx:cx/size, cy:cy/size, x0, y0, x1, y1 });
+  det.comps.sort((a,b)=>b.size-a.size);
 }
 
 /* ============ 描く道具 ============ */
-// Claudeの検証タブは画面の大きさが0になるので、撮影用に大きさを差し込めるようにしておく
-let forceSize = null;
+let forceSize = null;   // Claudeの検証タブは画面が0pxになるので、撮影時に大きさを差し込む
 function fitCanvas(cv){
   const r = cv.getBoundingClientRect();
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -362,138 +630,279 @@ function fitCanvas(cv){
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
   return cv.getContext("2d");
 }
-// 枠の中に収める（contain）
 function containBox(sw, sh, dw, dh, pad){
   const p = pad || 0;
-  const s = Math.min((dw - p*2) / sw, (dh - p*2) / sh);
-  const w = sw * s, h = sh * s;
-  return { x: (dw - w)/2, y: (dh - h)/2, w, h, s };
+  const s = Math.min((dw - p*2)/sw, (dh - p*2)/sh);
+  const w = sw*s, h = sh*s;
+  return { x:(dw-w)/2, y:(dh-h)/2, w, h, s };
 }
 
-/* ---- 区切り画面 ---- */
+/* ---- 1個ずつ消す画面 ---- */
+let objsBox = null, poof = null;
+function drawObjs(){
+  if(!work) return;
+  const cv = $("objsCv"), ctx = fitCanvas(cv);
+  const W = cv.width, H = cv.height;
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,W,H);
+  const b = containBox(work.width, work.height, W, H, 6*dpr);
+  objsBox = b;
+  ctx.drawImage(work, b.x, b.y, b.w, b.h);
+  if(!det) return;
+  const k = b.w / det.w;   // 検出画像 → 画面
+  if(showMarks){
+    for(const c of det.comps){
+      const isSel = picked && picked.comp.id === c.id;
+      if(isSel) continue;
+      ctx.beginPath();
+      ctx.arc(b.x + c.cx*k, b.y + c.cy*k, Math.max(4, 6*dpr), 0, Math.PI*2);
+      ctx.fillStyle = "rgba(255,209,102,0.85)"; ctx.fill();
+      ctx.lineWidth = Math.max(1, 1.5*dpr); ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.stroke();
+    }
+  }
+  if(picked){
+    const c = picked.comp, pad = (4 + padExtra);
+    const x = b.x + (c.x0 - pad)*k, y = b.y + (c.y0 - pad)*k;
+    const w = (c.x1 - c.x0 + pad*2)*k, h = (c.y1 - c.y0 + pad*2)*k;
+    ctx.strokeStyle = "#7ee0a0"; ctx.lineWidth = Math.max(2, 3*dpr);
+    ctx.setLineDash([8*dpr, 5*dpr]); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(126,224,160,0.16)"; ctx.fillRect(x, y, w, h);
+  }
+  if(poof){
+    const t = poof.t;
+    const sc = 1 - t*0.9;
+    ctx.save(); ctx.globalAlpha = Math.max(0, 1 - t);
+    const w = poof.w * sc, h = poof.h * sc;
+    ctx.drawImage(poof.cv, poof.x + (poof.w-w)/2, poof.y + (poof.h-h)/2, w, h);
+    ctx.restore();
+  }
+}
+function updateObjsUI(){
+  const found = det ? det.comps.length : 0;
+  $("objsCount").textContent = "消した " + erased + " 個";
+  $("objsInfo").textContent = spotName + "・のこり " + found;
+  const pct = Math.min(100, Math.round(erasedArea / totalObjArea * 100));
+  $("barIn").style.width = pct + "%";
+  $("eraseBtn").disabled = !picked;
+  $("growBtn").disabled = !picked;
+  $("shrinkBtn").disabled = !picked;
+  $("undoBtn").disabled = undoStack.length === 0;
+  $("objsHint").innerHTML = picked
+    ? "この緑のわくを消します。ずれていたら<b>もっと広く／せばめる</b>、ちがう物なら別のところをタップ。"
+    : (found ? "片づけた物を写真の上でタップしてください。" : "めじるしがありません。<b>めじるし切替</b>で点を出すか、写真を撮り直してください。");
+}
+function pickAt(clientX, clientY){
+  if(!det || !objsBox) return;
+  const cv = $("objsCv"), r = cv.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const px = (clientX - r.left) * dpr, py = (clientY - r.top) * dpr;
+  const k = objsBox.w / det.w;
+  const dx = (px - objsBox.x) / k, dy = (py - objsBox.y) / k;
+  if(dx < 0 || dy < 0 || dx >= det.w || dy >= det.h) return;
+  const id = det.label[Math.floor(dy)*det.w + Math.floor(dx)];
+  let comp = id ? det.comps.find(c=>c.id === id) : null;
+  if(!comp){
+    // 点を外しても、近い物を拾ってあげる
+    let bestD = 1e9;
+    for(const c of det.comps){
+      const d = (c.cx-dx)*(c.cx-dx) + (c.cy-dy)*(c.cy-dy);
+      if(d < bestD){ bestD = d; comp = c; }
+    }
+    if(!comp || bestD > (det.w*0.09)*(det.w*0.09)) { picked = null; updateObjsUI(); drawObjs(); return; }
+  }
+  picked = { comp }; padExtra = 0;
+  sndPick(); updateObjsUI(); drawObjs();
+}
+function doErase(){
+  if(!picked) return;
+  const c = picked.comp;
+  // 消える前の見た目を取っておいて、吸い込まれるように縮めて見せる
+  const b = objsBox, k = b ? b.w/det.w : 1;
+  const s = det.scale;
+  const pad = 4 + padExtra;
+  const X0 = Math.max(0, Math.floor((c.x0 - pad)/s)), Y0 = Math.max(0, Math.floor((c.y0 - pad)/s));
+  const X1 = Math.min(work.width-1, Math.ceil((c.x1 + pad)/s)), Y1 = Math.min(work.height-1, Math.ceil((c.y1 + pad)/s));
+  const pw = Math.max(1, X1-X0+1), ph = Math.max(1, Y1-Y0+1);
+  const snap = document.createElement("canvas"); snap.width = pw; snap.height = ph;
+  snap.getContext("2d").drawImage(work, X0, Y0, pw, ph, 0, 0, pw, ph);
+
+  const ok = eraseComp(c);
+  picked = null; padExtra = 0;
+  if(!ok){ toast("この物は消せませんでした"); updateObjsUI(); drawObjs(); return; }
+  sndPop(erased); vib(35);
+  if(b){
+    const ws = (work.width ? b.w/work.width : 1);
+    poof = { cv: snap, x: b.x + X0*ws, y: b.y + Y0*ws, w: pw*ws, h: ph*ws, t: 0 };
+    animPoof();
+  }
+  updateObjsUI(); drawObjs();
+  if(det.comps.length === 0) setTimeout(finishObjs, 700);
+}
+function animPoof(){
+  if(!poof) return;
+  poof.t += 0.09;
+  if(poof.t >= 1){ poof = null; drawObjs(); return; }
+  drawObjs();
+  requestAnimationFrame(animPoof);
+}
+function finishObjs(){
+  sndAll(); vib(120);
+  $("doneHead").textContent = (det && det.comps.length === 0 && erased > 0) ? "ぜんぶ消えました" : "きょうはここまで";
+  $("doneText").textContent = erased + "個 片づけました。" + (det ? "のこり " + det.comps.length + "個。" : "");
+  $("beforeAfterBtn").style.display = erased > 0 ? "block" : "none";
+  go("done");
+}
+
+/* ============ マス方式（v1から継続・おまけ） ============ */
+let cells = 3, offX = 0, offY = 0, order = [], idx = 0, doneCount = 0, laterCount = 0;
+function quantOff(v){
+  let x = ((v % 1) + 1) % 1; x = Math.round(x*3)/3;
+  return (x >= 0.999) ? 0 : x;
+}
+function gridCounts(){ return { cols: cells + (offX > 0.0005 ? 1 : 0), rows: cells + (offY > 0.0005 ? 1 : 0) }; }
+function buildOrder(){
+  const { cols, rows } = gridCounts();
+  order = [];
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) order.push({ r, c, later:false, done:false });
+  idx = 0; doneCount = 0; laterCount = 0;
+}
+function cellRect(cw){
+  const W = img.width, H = img.height;
+  const gw = W/cells, gh = H/cells;
+  const ox = (offX > 0.0005) ? (offX - 1) : 0;
+  const oy = (offY > 0.0005) ? (offY - 1) : 0;
+  const x0 = (cw.c + ox)*gw, y0 = (cw.r + oy)*gh;
+  const x1 = x0 + gw, y1 = y0 + gh;
+  const cx0 = Math.max(0, Math.min(W, x0)), cy0 = Math.max(0, Math.min(H, y0));
+  const cx1 = Math.max(0, Math.min(W, x1)), cy1 = Math.max(0, Math.min(H, y1));
+  return { x: cx0, y: cy0, w: Math.max(1, cx1-cx0), h: Math.max(1, cy1-cy0) };
+}
 let gridBox = null;
 function drawGrid(){
   if(!img) return;
   const cv = $("gridCv"), ctx = fitCanvas(cv);
-  const W = cv.width, H = cv.height;
+  const W = cv.width, H = cv.height, dpr = Math.min(devicePixelRatio||1,2);
   ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,W,H);
-  const b = containBox(img.width, img.height, W, H, 8*Math.min(devicePixelRatio||1,2));
+  const b = containBox(img.width, img.height, W, H, 8*dpr);
   gridBox = b;
   ctx.drawImage(img, b.x, b.y, b.w, b.h);
-  // 区切り線
-  ctx.strokeStyle = "rgba(255,209,102,0.95)"; ctx.lineWidth = Math.max(1.5, 2*(devicePixelRatio||1));
+  ctx.strokeStyle = "rgba(255,209,102,0.95)"; ctx.lineWidth = Math.max(1.5, 2*dpr);
   ctx.beginPath();
   for(let i=0;i<=cells;i++){
-    const fx = (i + offX) / cells, fy = (i + offY) / cells;
+    const fx = (i + offX)/cells, fy = (i + offY)/cells;
     if(fx >= 0 && fx <= 1){ ctx.moveTo(b.x + b.w*fx, b.y); ctx.lineTo(b.x + b.w*fx, b.y + b.h); }
     if(fy >= 0 && fy <= 1){ ctx.moveTo(b.x, b.y + b.h*fy); ctx.lineTo(b.x + b.w, b.y + b.h*fy); }
   }
   ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = Math.max(1, 1*(devicePixelRatio||1));
+  ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = Math.max(1, dpr);
   ctx.strokeRect(b.x, b.y, b.w, b.h);
 }
-// ドラッグで区切りをずらす
 {
   const wrap = $("gridWrap");
   let drag = false, lx = 0, ly = 0, rawX = 0, rawY = 0;
-  wrap.addEventListener("pointerdown", e=>{
-    drag = true; lx = e.clientX; ly = e.clientY; rawX = offX; rawY = offY;
-    wrap.setPointerCapture(e.pointerId);
-  });
+  wrap.addEventListener("pointerdown", e=>{ drag = true; lx = e.clientX; ly = e.clientY; rawX = offX; rawY = offY; wrap.setPointerCapture(e.pointerId); });
   wrap.addEventListener("pointerup", ()=>{ drag = false; });
   wrap.addEventListener("pointercancel", ()=>{ drag = false; });
   wrap.addEventListener("pointermove", e=>{
     if(!drag || !gridBox) return;
     const dpr = Math.min(devicePixelRatio||1, 2);
-    rawX += ((e.clientX - lx) * dpr) / (gridBox.w / cells);
-    rawY += ((e.clientY - ly) * dpr) / (gridBox.h / cells);
+    rawX += ((e.clientX - lx)*dpr)/(gridBox.w/cells);
+    rawY += ((e.clientY - ly)*dpr)/(gridBox.h/cells);
     const nx = quantOff(rawX), ny = quantOff(rawY);
     lx = e.clientX; ly = e.clientY;
     if(nx !== offX || ny !== offY){ offX = nx; offY = ny; drawGrid(); }
   });
 }
-
-/* ---- 作業画面（1マスだけ大きく） ---- */
 let peeking = false;
 function drawCell(){
   if(!img || !order.length) return;
   const cv = $("cellCv"), ctx = fitCanvas(cv);
-  const W = cv.width, H = cv.height;
+  const W = cv.width, H = cv.height, dpr = Math.min(devicePixelRatio||1,2);
   ctx.fillStyle = "#000"; ctx.fillRect(0,0,W,H);
-  const dpr = Math.min(devicePixelRatio||1, 2);
   const cur = order[idx];
-
   if(peeking){
-    // 押している間だけ全体を出す（いまのマスに枠）
     const b = containBox(img.width, img.height, W, H, 10*dpr);
     ctx.globalAlpha = 0.45; ctx.drawImage(img, b.x, b.y, b.w, b.h); ctx.globalAlpha = 1;
-    const r = cellRect(cur);
-    const sx = b.w / img.width, sy = b.h / img.height;
+    const r = cellRect(cur), sx = b.w/img.width, sy = b.h/img.height;
     ctx.drawImage(img, r.x, r.y, r.w, r.h, b.x + r.x*sx, b.y + r.y*sy, r.w*sx, r.h*sy);
     ctx.strokeStyle = "#ffd166"; ctx.lineWidth = Math.max(2, 3*dpr);
     ctx.strokeRect(b.x + r.x*sx, b.y + r.y*sy, r.w*sx, r.h*sy);
     return;
   }
-  const r = cellRect(cur);
-  const b = containBox(r.w, r.h, W, H, 6*dpr);
+  const r = cellRect(cur), b = containBox(r.w, r.h, W, H, 6*dpr);
   ctx.drawImage(img, r.x, r.y, r.w, r.h, b.x, b.y, b.w, b.h);
   ctx.strokeStyle = "rgba(255,209,102,0.85)"; ctx.lineWidth = Math.max(2, 2.5*dpr);
   ctx.strokeRect(b.x, b.y, b.w, b.h);
 }
 function updateProgress(){
-  const total = order.length;
-  $("progress").textContent = (doneCount + 1) + " / " + total;
-  $("spotLabel").textContent = spotName + "・ぜんぶで" + total + "マス";
+  $("progress").textContent = (doneCount + 1) + " / " + order.length;
+  $("spotLabel").textContent = spotName + "・ぜんぶで" + order.length + "マス";
 }
 function nextCell(markDone){
-  if(markDone){ doneCount++; sndNext(doneCount); vib(35); }
-  else { order[idx].later = true; laterCount++; sndSoft(); }
-
-  // 次の「まだ終わっていないマス」へ。無ければ、あとで回しにした分へ戻る
+  if(markDone){ doneCount++; sndPop(doneCount); vib(35); }
+  else { order[idx].later = true; laterCount++; sndPick(); }
   order[idx].done = !!markDone;
   let n = -1;
-  for(let k=1;k<=order.length;k++){
-    const j = (idx + k) % order.length;
-    if(!order[j].done && !order[j].later){ n = j; break; }
-  }
-  if(n < 0){
-    for(let k=1;k<=order.length;k++){
-      const j = (idx + k) % order.length;
-      if(!order[j].done){ n = j; order[j].later = false; break; }
-    }
-  }
-  if(n < 0){ finishAll(); return; }
+  for(let k=1;k<=order.length;k++){ const j=(idx+k)%order.length; if(!order[j].done && !order[j].later){ n=j; break; } }
+  if(n < 0) for(let k=1;k<=order.length;k++){ const j=(idx+k)%order.length; if(!order[j].done){ n=j; order[j].later=false; break; } }
+  if(n < 0){ finishCells(); return; }
   idx = n; updateProgress(); drawCell();
 }
-function finishAll(){
+function finishCells(){
   sndAll(); vib(120);
-  const total = order.length;
-  $("doneHead").textContent = (doneCount >= total) ? "ぜんぶ終わりました" : "きょうはここまで";
-  $("doneText").textContent = total + "マスのうち " + doneCount + "マス終わりました。";
+  $("doneHead").textContent = (doneCount >= order.length) ? "ぜんぶ終わりました" : "きょうはここまで";
+  $("doneText").textContent = order.length + "マスのうち " + doneCount + "マス終わりました。";
+  $("beforeAfterBtn").style.display = "none";
   go("done");
 }
 
 /* ============ ボタンの配線 ============ */
+Array.from(document.querySelectorAll("#segMode button")).forEach(b=>{
+  b.addEventListener("click", ()=>{
+    mode = b.dataset.m;
+    Array.from(document.querySelectorAll("#segMode button")).forEach(x=>x.classList.toggle("on", x === b));
+    try{ localStorage.setItem("kokodake_mode", mode); }catch(_){}
+  });
+});
 $("takeBtn").addEventListener("click", ()=>{ initAudio(); $("file").click(); });
 $("file").addEventListener("change", async ev=>{
   const f = ev.target.files && ev.target.files[0];
-  ev.target.value = "";   // 同じ写真をもう一度選べるように
+  ev.target.value = "";
   if(!f) return;
   try{
     spotName = ($("spotName").value || "ここ").trim().slice(0,20) || "ここ";
     img = await loadToCanvas(f);
+    work = cloneCanvas(img);
     log("写真を読みました（" + img.width + "×" + img.height + "）");
-    // この場所の前回の写真があれば覚えておく
     const rec = await spotGet(spotName);
     imgPrev = null;
     if(rec && rec.latest){
-      try{ imgPrev = await loadToCanvas(rec.latest); log("前に撮った「" + spotName + "」の写真が見つかりました"); }catch(_){}
+      try{ imgPrev = await loadToCanvas(rec.latest); log("前の「" + spotName + "」の写真が見つかりました"); }catch(_){}
     }
     if(afterMode){ afterMode = false; await saveAndShowGhost(); return; }
-    offX = 0; offY = 0; buildOrder(); updateProgress();
-    go("grid");
+    erased = 0; erasedArea = 0; undoStack.length = 0; poof = null;
+    if(mode === "objs"){ detTh = 62; detect(); go("objs"); }
+    else { offX = 0; offY = 0; buildOrder(); updateProgress(); go("grid"); }
   }catch(e){ showErr("写真を読めませんでした：" + (e.message || e)); }
 });
+$("objsWrap").addEventListener("pointerdown", e=>{ pickAt(e.clientX, e.clientY); });
+$("eraseBtn").addEventListener("click", doErase);
+$("growBtn").addEventListener("click", ()=>{ if(!picked) return; padExtra = Math.min(24, padExtra + 3); sndPick(); drawObjs(); });
+$("shrinkBtn").addEventListener("click", ()=>{ if(!picked) return; padExtra = Math.max(-2, padExtra - 3); sndPick(); drawObjs(); });
+$("undoBtn").addEventListener("click", undoErase);
+$("markBtn").addEventListener("click", ()=>{
+  // めじるしが多すぎ／少なすぎのときは、しきい値を回して作り直す
+  const steps = [40, 52, 62, 78, 96];
+  let i = steps.indexOf(detTh); i = (i < 0) ? 2 : (i + 1) % steps.length;
+  detTh = steps[i];
+  const keepErased = erased, keepArea = erasedArea;
+  detect();
+  erased = keepErased; erasedArea = keepArea;
+  updateObjsUI(); drawObjs();
+  toast("めじるしを作り直しました（" + (det ? det.comps.length : 0) + "個）");
+});
+$("objsFinBtn").addEventListener("click", finishObjs);
+
 Array.from(document.querySelectorAll("#segCells button")).forEach(b=>{
   b.addEventListener("click", ()=>{
     cells = parseInt(b.dataset.n, 10);
@@ -504,10 +913,9 @@ Array.from(document.querySelectorAll("#segCells button")).forEach(b=>{
 });
 $("startBtn").addEventListener("click", ()=>{ initAudio(); buildOrder(); updateProgress(); go("work"); });
 $("gridBackBtn").addEventListener("click", ()=>go("home"));
-
 $("doneBtn").addEventListener("click", ()=>nextCell(true));
 $("laterBtn").addEventListener("click", ()=>nextCell(false));
-$("quitBtn").addEventListener("click", finishAll);
+$("quitBtn").addEventListener("click", finishCells);
 {
   const pb = $("peekBtn");
   const on = e=>{ e.preventDefault(); peeking = true; drawCell(); };
@@ -516,108 +924,149 @@ $("quitBtn").addEventListener("click", finishAll);
   ["pointerup","pointercancel","pointerleave"].forEach(t=>pb.addEventListener(t, off));
 }
 
-let afterMode = false;
+let afterMode = false, ghostKind = "prev";
+$("beforeAfterBtn").addEventListener("click", ()=>{ ghostKind = "self"; $("mixL").textContent = "撮ったとき"; $("mixR").textContent = "消したあと"; $("mix").value = "100"; go("ghost"); });
 $("afterBtn").addEventListener("click", ()=>{
   if(!canSave){ toast("この画面では見くらべができません。Safari本体で開いてください"); return; }
   afterMode = true; $("file").click();
 });
 $("againBtn").addEventListener("click", async ()=>{ await saveLatest(); go("home"); });
 $("compareBtn").addEventListener("click", ()=>{ afterMode = true; $("file").click(); });
-$("ghostDoneBtn").addEventListener("click", ()=>{ go("home"); toast("保存しました"); });
+$("ghostDoneBtn").addEventListener("click", ()=>{ go("home"); });
 
-/* ============ 保存と幽霊合わせ ============ */
+/* ============ 保存と見くらべ ============ */
 async function saveLatest(){
   if(!canSave || !img) return;
-  const blob = await canvasToBlob(img, 0.82);
+  const blob = await canvasToBlob(img, 0.82);   // 保存するのは「撮ったままの写真」
   if(!blob) return;
   const old = await spotGet(spotName);
   await spotPut({ name: spotName, latest: blob, prev: (old && old.latest) || null, ts: Date.now() });
 }
 async function saveAndShowGhost(){
   await saveLatest();
+  ghostKind = "prev";
+  $("mixL").textContent = "前の写真"; $("mixR").textContent = "いまの写真";
   if(!imgPrev){ toast("前の写真が無いので、これを1枚目として保存しました"); go("home"); return; }
-  $("mix").value = "100";
-  go("ghost");
+  $("mix").value = "100"; go("ghost");
 }
 function drawGhost(){
   const cv = $("ghostCv"), ctx = fitCanvas(cv);
   const W = cv.width, H = cv.height;
   ctx.fillStyle = "#05070a"; ctx.fillRect(0,0,W,H);
   if(!img) return;
-  const dpr = Math.min(devicePixelRatio||1, 2);
+  const dpr = Math.min(devicePixelRatio||1,2);
   const b = containBox(img.width, img.height, W, H, 8*dpr);
-  const m = parseInt($("mix").value, 10) / 100;
-  if(imgPrev){ ctx.globalAlpha = 1; ctx.drawImage(imgPrev, b.x, b.y, b.w, b.h); }
-  ctx.globalAlpha = imgPrev ? m : 1;
-  ctx.drawImage(img, b.x, b.y, b.w, b.h);
+  const m = parseInt($("mix").value, 10)/100;
+  const base = (ghostKind === "self") ? img : imgPrev;
+  const top  = (ghostKind === "self") ? work : img;
+  if(base){ ctx.globalAlpha = 1; ctx.drawImage(base, b.x, b.y, b.w, b.h); }
+  ctx.globalAlpha = base ? m : 1;
+  if(top) ctx.drawImage(top, b.x, b.y, b.w, b.h);
   ctx.globalAlpha = 1;
 }
 $("mix").addEventListener("input", drawGhost);
 
 /* ============ 起動時 ============ */
 try{
-  const c = parseInt(localStorage.getItem("kokodake_cells"), 10);
-  if(c >= 2 && c <= 5) cells = c;
+  const m = localStorage.getItem("kokodake_mode"); if(m === "objs" || m === "cells") mode = m;
+  const c = parseInt(localStorage.getItem("kokodake_cells"), 10); if(c >= 2 && c <= 5) cells = c;
 }catch(_){}
+Array.from(document.querySelectorAll("#segMode button")).forEach(x=>x.classList.toggle("on", x.dataset.m === mode));
 Array.from(document.querySelectorAll("#segCells button")).forEach(x=>x.classList.toggle("on", parseInt(x.dataset.n,10) === cells));
 buildOrder();
-
-// 前に撮った場所があれば「見くらべる」を出す
 (async ()=>{
   if(!canSave) return;
   const rec = await spotGet(($("spotName").value || "ここ").trim());
   if(rec && rec.latest) $("compareBtn").style.display = "block";
 })();
-
 addEventListener("resize", ()=>{
-  if(screenNow === "grid") drawGrid();
+  if(screenNow === "objs") drawObjs();
+  else if(screenNow === "grid") drawGrid();
   else if(screenNow === "work") drawCell();
   else if(screenNow === "ghost") drawGhost();
 });
-
 log("読み込みOK（版：" + REV + "）");
 
 /* ============ Claudeの検証窓口 ============ */
 window.__dbg = {
   state(){
     return {
-      rev: REV, screen: screenNow, cells, offX: Math.round(offX*1000)/1000, offY: Math.round(offY*1000)/1000,
-      total: order.length, idx, doneCount, laterCount, peeking, canSave,
+      rev: REV, screen: screenNow, mode, canSave,
       hasImg: !!img, imgW: img && img.width, imgH: img && img.height,
-      hasPrev: !!imgPrev, spotName,
-      cur: order[idx] ? { r: order[idx].r, c: order[idx].c } : null,
-      progressText: $("progress").textContent,
+      found: det ? det.comps.length : 0, detTh, erased,
+      erasedArea, totalObjArea, pctText: $("barIn").style.width,
+      picked: picked ? picked.comp.id : null, padExtra, undo: undoStack.length,
+      cells, offX: Math.round(offX*1000)/1000, offY: Math.round(offY*1000)/1000,
+      total: order.length, idx, doneCount, laterCount, spotName,
+      countText: $("objsCount").textContent, infoText: $("objsInfo").textContent,
     };
   },
-  // 試験用のダミー写真を作って読み込む（実機の写真の代わり）
-  async fakePhoto(w, h){
+  // 試験用の「散らかった机」を作る（地の色＋色つきの物）
+  async fakePhoto(w, h, n, textured){
     const cv = document.createElement("canvas"); cv.width = w||1200; cv.height = h||900;
     const c = cv.getContext("2d");
-    c.fillStyle = "#333"; c.fillRect(0,0,cv.width,cv.height);
-    for(let i=0;i<40;i++){
-      c.fillStyle = "hsl(" + (i*37%360) + ",60%,55%)";
-      c.fillRect(Math.random()*cv.width*0.9, Math.random()*cv.height*0.9, 40+Math.random()*90, 30+Math.random()*70);
+    c.fillStyle = "#6b5a48"; c.fillRect(0,0,cv.width,cv.height);   // 机の地の色
+    if(textured){
+      // 木目と影に近いムラを足す（本物の写真に近い条件で塗り跡を見るため）
+      for(let i=0;i<220;i++){
+        c.fillStyle = "rgba(" + (60+i%40) + "," + (45+i%30) + "," + (35+i%25) + ",0.20)";
+        c.fillRect((i*97)%cv.width, 0, 3 + (i%7), cv.height);
+      }
+      const g = c.createLinearGradient(0,0,cv.width,cv.height);
+      g.addColorStop(0,"rgba(255,255,255,0.10)"); g.addColorStop(1,"rgba(0,0,0,0.28)");
+      c.fillStyle = g; c.fillRect(0,0,cv.width,cv.height);
     }
-    img = cv; spotName = "テスト"; offX = 0; offY = 0; buildOrder(); updateProgress(); go("grid");
+    const N = n || 14;
+    for(let i=0;i<N;i++){
+      c.fillStyle = "hsl(" + ((i*53)%360) + ",65%,55%)";
+      const bw = 60 + (i%5)*30, bh = 45 + (i%4)*28;
+      const x = 40 + ((i*137)%(cv.width-bw-80)), y = 40 + ((i*211)%(cv.height-bh-80));
+      c.fillRect(x, y, bw, bh);
+    }
+    img = cv; work = cloneCanvas(cv); spotName = "テスト";
+    erased = 0; erasedArea = 0; undoStack.length = 0; poof = null;
+    mode = "objs"; detTh = 62; detect(); go("objs");
     return this.state();
   },
+  setTh(v){ detTh = v; detect(); drawObjs(); return this.state(); },
+  comps(){ return det ? det.comps.map(c=>({id:c.id,size:c.size,cx:Math.round(c.cx),cy:Math.round(c.cy)})) : []; },
+  // 画面座標を経由せず、番号で直接えらぶ（検証用）
+  pickId(id){ const c = det && det.comps.find(x=>x.id===id); if(!c) return "なし"; picked={comp:c}; padExtra=0; updateObjsUI(); drawObjs(); return this.state(); },
+  pickFirst(){ return det && det.comps.length ? this.pickId(det.comps[0].id) : "なし"; },
+  erase(){ doErase(); poof = null; return this.state(); },
+  undo(){ undoErase(); return this.state(); },
+  // 消した所が本当に地の色に近づいたかを測る（1個ずつ消えている証拠）
+  objPixels(){
+    if(!work || !det) return -1;
+    const DW = det.w, DH = det.h;
+    const cv = document.createElement("canvas"); cv.width = DW; cv.height = DH;
+    const c = cv.getContext("2d"); c.drawImage(work, 0, 0, DW, DH);
+    const d = c.getImageData(0,0,DW,DH).data;
+    let n = 0;
+    for(let i=0;i<DW*DH;i++){
+      const dr=Math.abs(d[i*4]-det.bgc[0]), dg=Math.abs(d[i*4+1]-det.bgc[1]), db=Math.abs(d[i*4+2]-det.bgc[2]);
+      if(dr+dg+db > detTh) n++;
+    }
+    return n;
+  },
+  snap(which, q, w, h){
+    const id = which || "objsCv", cv = $(id);
+    try{
+      forceSize = [w || 420, h || 700];
+      if(id === "objsCv") drawObjs(); else if(id === "gridCv") drawGrid();
+      else if(id === "cellCv") drawCell(); else if(id === "ghostCv") drawGhost();
+      const url = cv.toDataURL("image/jpeg", q || 0.85);
+      forceSize = null; return url;
+    }catch(e){ forceSize = null; return "ERR:" + e; }
+  },
+  // マス方式（v1の窓口）
   setCells(n){ cells = n; buildOrder(); updateProgress(); if(screenNow==="grid") drawGrid(); return this.state(); },
-  drag(dx, dy){ offX = quantOff(offX + dx); offY = quantOff(offY + dy); if(screenNow==="grid") drawGrid(); return this.state(); },
+  drag(dx, dy){ offX = quantOff(offX+dx); offY = quantOff(offY+dy); if(screenNow==="grid") drawGrid(); return this.state(); },
   start(){ buildOrder(); updateProgress(); go("work"); return this.state(); },
   done(){ nextCell(true); return this.state(); },
   later(){ nextCell(false); return this.state(); },
   peek(v){ peeking = !!v; drawCell(); return this.state(); },
   rect(){ return order[idx] ? cellRect(order[idx]) : null; },
-  snap(which, q, w, h){
-    const id = which || "cellCv", cv = $(id);
-    try{
-      forceSize = [w || 420, h || 700];
-      if(id === "gridCv") drawGrid(); else if(id === "cellCv") drawCell(); else if(id === "ghostCv") drawGhost();
-      const url = cv.toDataURL("image/jpeg", q || 0.85);
-      forceSize = null;
-      return url;
-    }catch(e){ forceSize = null; return "ERR:" + e; }
-  },
 };
 </script>
 </body>
