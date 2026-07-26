@@ -38,6 +38,10 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   }
 
+  .panel + .panel {
+    margin-top: 14px;
+  }
+
   .code-label {
     display: block;
     font-size: 13px;
@@ -104,6 +108,27 @@
     background: #922b21;
   }
 
+  .role-choice {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .role-choice button {
+    flex: 1;
+    padding: 18px 10px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .role-choice .role-desc {
+    display: block;
+    font-size: 11px;
+    font-weight: normal;
+    margin-top: 4px;
+    opacity: 0.85;
+  }
+
   .code-info {
     display: none;
     margin-top: 8px;
@@ -146,7 +171,18 @@
   }
 
   .memo-area {
+    display: none;
     margin-top: 14px;
+  }
+
+  .memo-area.visible {
+    display: block;
+  }
+
+  .role-badge {
+    font-size: 12px;
+    color: #555;
+    margin-bottom: 8px;
   }
 
   textarea {
@@ -161,6 +197,11 @@
     font-family: "Meiryo", "Yu Gothic", sans-serif;
     font-size: 16px;
     line-height: 1.6;
+  }
+
+  textarea:disabled {
+    background: #f7f7f8;
+    color: #222;
   }
 
   textarea:focus,
@@ -215,6 +256,11 @@
     color: #555;
   }
 
+  .footer-links {
+    margin-top: 14px;
+    font-size: 12px;
+  }
+
   #startupError {
     display: none;
     background: #fff;
@@ -238,7 +284,7 @@
 </style>
 </head>
 <body>
-<div class="rev">rev2</div>
+<div class="rev">rev3</div>
 
 <div class="wrap">
   <h1>テキスト同期メモ</h1>
@@ -246,60 +292,91 @@
   <div id="startupError"></div>
 
   <main id="app">
-    <section class="panel">
-      <div id="codeSetup">
-        <label class="code-label" for="codeInput">合言葉（6文字）</label>
-        <div class="code-row">
-          <input
-            id="codeInput"
-            type="text"
-            maxlength="6"
-            autocomplete="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            inputmode="text"
-            placeholder="例: 7K3M2P"
-          >
-          <button id="useCodeBtn" type="button">この合言葉を使う</button>
-        </div>
-        <button id="makeCodeBtn" class="secondary" type="button">
-          合言葉を作る
+    <section class="panel" id="codeSetup">
+      <label class="code-label" for="codeInput">合言葉（6文字）</label>
+      <div class="code-row">
+        <input
+          id="codeInput"
+          type="text"
+          maxlength="6"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          inputmode="text"
+          placeholder="例: 7K3M2P"
+        >
+        <button id="useCodeBtn" type="button">この合言葉を使う</button>
+      </div>
+      <button id="makeCodeBtn" class="secondary" type="button">
+        合言葉を作る
+      </button>
+      <p class="hint">
+        もう片方の端末でも同じ合言葉を入力してください。I（アイ）とO（オー）は使用しません。
+      </p>
+    </section>
+
+    <section class="panel" id="roleChoice" style="display:none;">
+      <label class="code-label">この端末の役割</label>
+      <div class="role-choice">
+        <button id="roleWriterBtn" type="button">
+          書く（スマホ）
+          <span class="role-desc">ここで文章を打つ</span>
         </button>
-        <p class="hint">
-          もう片方の端末でも同じ合言葉を入力してください。I（アイ）とO（オー）は使用しません。
-        </p>
+        <button id="roleReaderBtn" type="button" class="secondary">
+          受け取る（PC）
+          <span class="role-desc">届いた文章をコピー</span>
+        </button>
+      </div>
+      <p class="hint">
+        あとから「役割を変える」で選び直せます。
+      </p>
+    </section>
+
+    <section class="panel" id="codeInfo" style="display:none;">
+      合言葉:
+      <span id="currentCode" class="code-value"></span>
+      <button id="changeCodeBtn" class="change-link" type="button">
+        合言葉を変える
+      </button>
+      <button id="changeRoleBtn" class="change-link" type="button">
+        役割を変える
+      </button>
+    </section>
+
+    <section class="memo-area" id="writerArea">
+      <div class="role-badge">✏️ 書く側（この端末で入力した内容が、受け取る側へ送られます）</div>
+      <textarea
+        id="writerText"
+        placeholder="ここに文章を入力してください"
+      ></textarea>
+
+      <div class="under-text">
+        <span id="writerStatus">合言葉を設定してください。</span>
+        <span id="writerCharCount">0文字</span>
       </div>
 
-      <div id="codeInfo" class="code-info">
-        合言葉:
-        <span id="currentCode" class="code-value"></span>
-        <button id="changeCodeBtn" class="change-link" type="button">
-          変える
+      <div class="button-row">
+        <button id="writerClearBtn" class="danger" type="button">
+          内容を消す
         </button>
       </div>
     </section>
 
-    <section class="memo-area">
-      <textarea
-        id="memoText"
-        placeholder="ここに文章を入力してください"
-        disabled
-      ></textarea>
+    <section class="memo-area" id="readerArea">
+      <div class="role-badge">📥 受け取る側（書く側の内容がここに届きます）</div>
+      <textarea id="readerText" readonly placeholder="まだ届いていません"></textarea>
 
       <div class="under-text">
-        <span id="status">合言葉を設定してください。</span>
-        <span id="charCount">0文字</span>
+        <span id="readerStatus">合言葉を設定してください。</span>
+        <span id="readerCharCount">0文字</span>
       </div>
 
       <div class="button-row">
-        <button id="copyBtn" type="button" disabled>全文コピー</button>
-        <button id="clearBtn" class="danger" type="button" disabled>
-          内容を消す
-        </button>
+        <button id="copyBtn" type="button">全文コピー</button>
       </div>
 
       <label class="auto-copy-row">
-        <input type="checkbox" id="autoCopyToggle" disabled>
+        <input type="checkbox" id="autoCopyToggle">
         新しい内容が届いたら自動でコピーする
       </label>
     </section>
@@ -311,6 +388,8 @@
   "use strict";
 
   var STORAGE_KEY = "memoSyncCode";
+  var ROLE_KEY = "memoRole";
+  var AUTO_COPY_KEY = "memoAutoCopy";
   var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   var CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
   var SEND_DELAY_MS = 500;
@@ -319,21 +398,32 @@
   var appEl = document.getElementById("app");
   var startupErrorEl = document.getElementById("startupError");
   var codeSetupEl = document.getElementById("codeSetup");
+  var roleChoiceEl = document.getElementById("roleChoice");
   var codeInfoEl = document.getElementById("codeInfo");
   var codeInputEl = document.getElementById("codeInput");
   var useCodeBtn = document.getElementById("useCodeBtn");
   var makeCodeBtn = document.getElementById("makeCodeBtn");
   var currentCodeEl = document.getElementById("currentCode");
   var changeCodeBtn = document.getElementById("changeCodeBtn");
-  var memoEl = document.getElementById("memoText");
-  var statusEl = document.getElementById("status");
-  var countEl = document.getElementById("charCount");
+  var changeRoleBtn = document.getElementById("changeRoleBtn");
+  var roleWriterBtn = document.getElementById("roleWriterBtn");
+  var roleReaderBtn = document.getElementById("roleReaderBtn");
+
+  var writerAreaEl = document.getElementById("writerArea");
+  var writerTextEl = document.getElementById("writerText");
+  var writerStatusEl = document.getElementById("writerStatus");
+  var writerCountEl = document.getElementById("writerCharCount");
+  var writerClearBtn = document.getElementById("writerClearBtn");
+
+  var readerAreaEl = document.getElementById("readerArea");
+  var readerTextEl = document.getElementById("readerText");
+  var readerStatusEl = document.getElementById("readerStatus");
+  var readerCountEl = document.getElementById("readerCharCount");
   var copyBtn = document.getElementById("copyBtn");
-  var clearBtn = document.getElementById("clearBtn");
   var autoCopyToggle = document.getElementById("autoCopyToggle");
 
-  var AUTO_COPY_KEY = "memoAutoCopy";
   var currentCode = "";
+  var currentRole = "";
   var lastUpdatedAt = null;
   var lastSentText = null;
   var sendTimer = null;
@@ -341,11 +431,6 @@
   var sending = false;
   var sendAgain = false;
   var requestGeneration = 0;
-
-  function setStatus(message, kind) {
-    statusEl.textContent = message;
-    statusEl.className = kind || "";
-  }
 
   function formatTime(date) {
     function twoDigits(value) {
@@ -361,6 +446,16 @@
     );
   }
 
+  function setWriterStatus(message, kind) {
+    writerStatusEl.textContent = message;
+    writerStatusEl.className = kind || "";
+  }
+
+  function setReaderStatus(message, kind) {
+    readerStatusEl.textContent = message;
+    readerStatusEl.className = kind || "";
+  }
+
   function normalizeCode(value) {
     return String(value || "").trim().toUpperCase();
   }
@@ -371,17 +466,6 @@
 
   function apiUrl(code) {
     return "/api/memo/" + encodeURIComponent(code);
-  }
-
-  function updateCount() {
-    countEl.textContent = memoEl.value.length + "文字";
-  }
-
-  function enableMemo(enabled) {
-    memoEl.disabled = !enabled;
-    copyBtn.disabled = !enabled;
-    clearBtn.disabled = !enabled;
-    autoCopyToggle.disabled = !enabled;
   }
 
   function loadAutoCopyPref() {
@@ -438,10 +522,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, code);
     } catch (error) {
-      setStatus(
-        "合言葉をブラウザに保存できませんでした。この画面を閉じる前に控えてください。",
-        "error",
-      );
+      // 保存できなくても、この場での利用は続行する。
     }
   }
 
@@ -456,6 +537,31 @@
   function loadSavedCode() {
     try {
       return normalizeCode(localStorage.getItem(STORAGE_KEY));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function saveRole(role) {
+    try {
+      localStorage.setItem(ROLE_KEY, role);
+    } catch (error) {
+      // 保存できなくても、この場での利用は続行する。
+    }
+  }
+
+  function removeSavedRole() {
+    try {
+      localStorage.removeItem(ROLE_KEY);
+    } catch (error) {
+      // 保存領域が利用できない場合も、画面上の切り替えは続行する。
+    }
+  }
+
+  function loadSavedRole() {
+    try {
+      var role = localStorage.getItem(ROLE_KEY);
+      return role === "writer" || role === "reader" ? role : "";
     } catch (error) {
       return "";
     }
@@ -490,7 +596,11 @@
   function startPolling() {
     stopPolling();
 
-    if (document.visibilityState === "visible" && currentCode) {
+    if (
+      currentRole === "reader" &&
+      document.visibilityState === "visible" &&
+      currentCode
+    ) {
       pollTimer = setInterval(function () {
         receiveMemo(false);
       }, POLL_INTERVAL_MS);
@@ -509,19 +619,41 @@
   function showCurrentCode() {
     currentCodeEl.textContent = currentCode;
     codeSetupEl.style.display = "none";
-    codeInfoEl.className = "code-info visible";
+    codeInfoEl.style.display = "block";
   }
 
   function showCodeSetup() {
-    codeInfoEl.className = "code-info";
+    codeInfoEl.style.display = "none";
+    roleChoiceEl.style.display = "none";
+    writerAreaEl.className = "memo-area";
+    readerAreaEl.className = "memo-area";
     codeSetupEl.style.display = "block";
+  }
+
+  function showRoleChoice() {
+    codeInfoEl.style.display = "block";
+    roleChoiceEl.style.display = "block";
+    writerAreaEl.className = "memo-area";
+    readerAreaEl.className = "memo-area";
+  }
+
+  function showWriterUI() {
+    roleChoiceEl.style.display = "none";
+    writerAreaEl.className = "memo-area visible";
+    readerAreaEl.className = "memo-area";
+  }
+
+  function showReaderUI() {
+    roleChoiceEl.style.display = "none";
+    readerAreaEl.className = "memo-area visible";
+    writerAreaEl.className = "memo-area";
   }
 
   async function setCode(code) {
     var normalized = normalizeCode(code);
 
     if (!isValidCode(normalized)) {
-      setStatus(
+      setWriterStatus(
         "合言葉は、IとOを除く半角英数字6文字で入力してください。",
         "error",
       );
@@ -535,24 +667,87 @@
     stopPolling();
 
     currentCode = normalized;
+    currentRole = "";
     lastUpdatedAt = null;
     lastSentText = null;
-    memoEl.value = "";
-    updateCount();
 
     codeInputEl.value = normalized;
     saveCode(normalized);
     showCurrentCode();
-    enableMemo(true);
-    autoCopyToggle.checked = loadAutoCopyPref();
-    setStatus("サーバーから読み込んでいます。");
 
-    await receiveMemo(true);
-    startPolling();
+    var savedRole = loadSavedRole();
+
+    if (savedRole) {
+      applyRole(savedRole);
+    } else {
+      showRoleChoice();
+    }
+  }
+
+  function applyRole(role) {
+    currentRole = role;
+    saveRole(role);
+    lastUpdatedAt = null;
+    lastSentText = null;
+
+    if (role === "writer") {
+      writerTextEl.value = "";
+      writerCountEl.textContent = "0文字";
+      showWriterUI();
+      setWriterStatus("サーバーから読み込んでいます。");
+      loadInitialForWriter();
+    } else {
+      readerTextEl.value = "";
+      readerCountEl.textContent = "0文字";
+      autoCopyToggle.checked = loadAutoCopyPref();
+      showReaderUI();
+      setReaderStatus("サーバーから読み込んでいます。");
+      receiveMemo(true);
+      startPolling();
+    }
+  }
+
+  async function loadInitialForWriter() {
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+
+    try {
+      var data = await requestJson(apiUrl(codeAtStart), {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      writerTextEl.value = typeof data.text === "string" ? data.text : "";
+      writerCountEl.textContent = writerTextEl.value.length + "文字";
+      lastUpdatedAt = data.updatedAt || null;
+      lastSentText = writerTextEl.value;
+      setWriterStatus("読み込みました。前回の続きから書けます。", "success");
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setWriterStatus(error.message, "error");
+      }
+    }
   }
 
   async function receiveMemo(initialLoad) {
-    if (!currentCode || document.visibilityState !== "visible") {
+    if (
+      currentRole !== "reader" ||
+      !currentCode ||
+      document.visibilityState !== "visible"
+    ) {
       return;
     }
 
@@ -577,33 +772,22 @@
 
       if (data.updatedAt === lastUpdatedAt) {
         if (initialLoad) {
-          lastSentText = memoEl.value;
-          setStatus("読み込みました。", "success");
+          setReaderStatus("読み込みました。", "success");
         }
         return;
       }
 
-      if (document.activeElement === memoEl) {
-        if (initialLoad) {
-          setStatus(
-            "編集中のため、サーバーの内容は上書きしていません。",
-          );
-        }
-        return;
-      }
-
-      memoEl.value = typeof data.text === "string" ? data.text : "";
+      readerTextEl.value = typeof data.text === "string" ? data.text : "";
+      readerCountEl.textContent = readerTextEl.value.length + "文字";
       lastUpdatedAt = data.updatedAt || null;
-      lastSentText = memoEl.value;
-      updateCount();
 
       if (initialLoad) {
-        setStatus("読み込みました。", "success");
-      } else if (autoCopyToggle.checked && memoEl.value) {
+        setReaderStatus("読み込みました。", "success");
+      } else if (autoCopyToggle.checked && readerTextEl.value) {
         copyMemo(true);
       } else {
-        setStatus(
-          "ほかの端末の内容を受信しました " + formatTime(new Date()),
+        setReaderStatus(
+          "新しい内容を受信しました " + formatTime(new Date()),
           "success",
         );
       }
@@ -612,13 +796,13 @@
         generationAtStart === requestGeneration &&
         codeAtStart === currentCode
       ) {
-        setStatus(error.message, "error");
+        setReaderStatus(error.message, "error");
       }
     }
   }
 
   function scheduleSend() {
-    if (!currentCode) {
+    if (currentRole !== "writer" || !currentCode) {
       return;
     }
 
@@ -633,7 +817,7 @@
   }
 
   async function sendMemo() {
-    if (!currentCode) {
+    if (currentRole !== "writer" || !currentCode) {
       return;
     }
 
@@ -642,7 +826,7 @@
       return;
     }
 
-    var textToSend = memoEl.value;
+    var textToSend = writerTextEl.value;
 
     if (textToSend === lastSentText) {
       return;
@@ -653,7 +837,7 @@
 
     sending = true;
     sendAgain = false;
-    setStatus("送信中...");
+    setWriterStatus("送信中...");
 
     try {
       var data = await requestJson(apiUrl(codeAtStart), {
@@ -674,7 +858,7 @@
 
       lastSentText = textToSend;
       lastUpdatedAt = data.updatedAt || null;
-      setStatus(
+      setWriterStatus(
         "保存済み " + formatTime(new Date()),
         "success",
       );
@@ -683,7 +867,7 @@
         generationAtStart === requestGeneration &&
         codeAtStart === currentCode
       ) {
-        setStatus(error.message, "error");
+        setWriterStatus(error.message, "error");
       }
     } finally {
       sending = false;
@@ -691,7 +875,7 @@
       if (
         generationAtStart === requestGeneration &&
         codeAtStart === currentCode &&
-        (sendAgain || memoEl.value !== lastSentText)
+        (sendAgain || writerTextEl.value !== lastSentText)
       ) {
         sendAgain = false;
         scheduleSend();
@@ -700,7 +884,7 @@
   }
 
   async function copyMemo(isAuto) {
-    var text = memoEl.value;
+    var text = readerTextEl.value;
 
     try {
       if (
@@ -712,7 +896,7 @@
         throw new Error("Clipboard APIを利用できません。");
       }
 
-      setStatus(
+      setReaderStatus(
         (isAuto ? "自動でコピーしました " : "コピーしました ") +
           formatTime(new Date()),
         "success",
@@ -720,28 +904,28 @@
       return;
     } catch (error) {
       if (isAuto) {
-        setStatus(
+        setReaderStatus(
           "自動コピーに失敗しました。「全文コピー」を押してください。",
           "error",
         );
         return;
       }
 
-      var start = memoEl.selectionStart;
-      var end = memoEl.selectionEnd;
+      var start = readerTextEl.selectionStart;
+      var end = readerTextEl.selectionEnd;
 
       try {
-        memoEl.focus();
-        memoEl.select();
+        readerTextEl.focus();
+        readerTextEl.select();
 
         if (!document.execCommand("copy")) {
           throw new Error("コピーに失敗しました。");
         }
 
-        memoEl.setSelectionRange(start, end);
-        setStatus("コピーしました。", "success");
+        readerTextEl.setSelectionRange(start, end);
+        setReaderStatus("コピーしました。", "success");
       } catch (fallbackError) {
-        setStatus(
+        setReaderStatus(
           "コピーできませんでした。文章を選択してコピーしてください。",
           "error",
         );
@@ -750,12 +934,12 @@
   }
 
   async function clearMemo() {
-    if (!currentCode) {
+    if (currentRole !== "writer" || !currentCode) {
       return;
     }
 
     if (!window.confirm(
-      "サーバーとこの画面の内容をすべて消します。よろしいですか？",
+      "この内容をすべて消します。よろしいですか？",
     )) {
       return;
     }
@@ -766,7 +950,7 @@
     var generationAtStart = requestGeneration;
     var codeAtStart = currentCode;
 
-    setStatus("削除中...");
+    setWriterStatus("削除中...");
 
     try {
       await requestJson(apiUrl(codeAtStart), {
@@ -783,17 +967,17 @@
         return;
       }
 
-      memoEl.value = "";
+      writerTextEl.value = "";
+      writerCountEl.textContent = "0文字";
       lastSentText = "";
       lastUpdatedAt = null;
-      updateCount();
-      setStatus("内容を消しました。", "success");
+      setWriterStatus("内容を消しました。", "success");
     } catch (error) {
       if (
         generationAtStart === requestGeneration &&
         codeAtStart === currentCode
       ) {
-        setStatus(error.message, "error");
+        setWriterStatus(error.message, "error");
       }
     }
   }
@@ -803,18 +987,30 @@
     cancelPendingSend();
     stopPolling();
     removeSavedCode();
+    removeSavedRole();
 
     currentCode = "";
+    currentRole = "";
     lastUpdatedAt = null;
     lastSentText = null;
-    memoEl.value = "";
-    updateCount();
-    enableMemo(false);
     showCodeSetup();
 
     codeInputEl.value = "";
-    setStatus("新しい合言葉を入力してください。");
+    setWriterStatus("新しい合言葉を入力してください。");
+    setReaderStatus("新しい合言葉を入力してください。");
     codeInputEl.focus();
+  }
+
+  function changeRole() {
+    requestGeneration += 1;
+    cancelPendingSend();
+    stopPolling();
+    removeSavedRole();
+
+    currentRole = "";
+    lastUpdatedAt = null;
+    lastSentText = null;
+    showRoleChoice();
   }
 
   codeInputEl.addEventListener("input", function () {
@@ -839,7 +1035,7 @@
     try {
       code = generateCode();
     } catch (error) {
-      setStatus(
+      setWriterStatus(
         "このブラウザでは安全な合言葉を作れませんでした。",
         "error",
       );
@@ -851,20 +1047,26 @@
   });
 
   changeCodeBtn.addEventListener("click", changeCode);
+  changeRoleBtn.addEventListener("click", changeRole);
 
-  memoEl.addEventListener("input", function () {
-    updateCount();
+  roleWriterBtn.addEventListener("click", function () {
+    applyRole("writer");
+  });
+
+  roleReaderBtn.addEventListener("click", function () {
+    applyRole("reader");
+  });
+
+  writerTextEl.addEventListener("input", function () {
+    writerCountEl.textContent = writerTextEl.value.length + "文字";
     scheduleSend();
   });
 
-  memoEl.addEventListener("blur", function () {
-    receiveMemo(false);
-  });
+  writerClearBtn.addEventListener("click", clearMemo);
 
   copyBtn.addEventListener("click", function () {
     copyMemo(false);
   });
-  clearBtn.addEventListener("click", clearMemo);
 
   autoCopyToggle.addEventListener("change", function () {
     saveAutoCopyPref(autoCopyToggle.checked);
@@ -885,8 +1087,6 @@
   });
 
   function initialize() {
-    updateCount();
-
     if (location.protocol !== "http:" && location.protocol !== "https:") {
       appEl.style.display = "none";
       startupErrorEl.style.display = "block";
@@ -902,8 +1102,8 @@
       setCode(savedCode);
     } else {
       showCodeSetup();
-      enableMemo(false);
-      setStatus("合言葉を設定してください。");
+      setWriterStatus("合言葉を設定してください。");
+      setReaderStatus("合言葉を設定してください。");
       codeInputEl.focus();
     }
   }
