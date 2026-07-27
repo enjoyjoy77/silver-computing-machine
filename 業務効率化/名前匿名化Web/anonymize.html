@@ -92,7 +92,7 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-26f 現代名770語＋呼び捨て検出＋意地悪テスト通過</span></p>
+  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-27c 外国系・中韓の姓名・キラキラネーム対応</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
@@ -114,7 +114,7 @@
     <span id="colMsg" class="hint" style="margin:0"></span>
   </div>
   <div class="row">
-    <label class="chk"><input type="checkbox" id="strictGiven" checked> 下の名前だけの呼び捨て（「陽菜が」「さくらは」）も伏せる</label>
+    <label class="chk"><input type="checkbox" id="strictGiven" checked> 下の名前だけの呼び捨て（「陽菜が」）・1文字の名前・カタカナの名前も伏せる</label>
   </div>
   <div class="row">
     <label class="chk" style="gap:.4rem">名前の列を手で指定（表の左から何列目か。例: 1,2）
@@ -29366,7 +29366,6 @@
 万葉
 亜美
 亜衣
-令和
 依茉
 健人
 健太
@@ -29393,11 +29392,9 @@
 唯奈
 唯花
 圭吾
-大和
 大地
 大晴
 大河
-大空
 大翔
 大雅
 奏太
@@ -30080,12 +30077,258 @@
 ダイスケ
 カイト
 ユウセイ
+マリア
+ソフィア
+アンナ
+ハンナ
+エミリー
+エミリア
+ジュリア
+サラ
+ジェシカ
+オリビア
+アリス
+アリサ
+アリシア
+ナタリー
+ニコル
+ローズ
+リリー
+ローラ
+クロエ
+ミア
+ゾーイ
+イザベラ
+カミラ
+ダイアナ
+ヘレン
+キャサリン
+キャロル
+クリスティン
+ステラ
+セシリア
+ヴィヴィアン
+レオ
+ノア
+リアム
+イーサン
+ルーカス
+オリバー
+ジェイク
+ジェイソン
+ジョセフ
+ダニエル
+デイビッド
+マイケル
+ジョージ
+ヘンリー
+トーマス
+アレックス
+アレクサンダー
+アンドリュー
+ベンジャミン
+クリス
+エリック
+フランク
+ゲイブ
+ハリー
+アイザック
+ジャック
+ケビン
+マーク
+マーティン
+ネイサン
+パトリック
+ライアン
+サミュエル
+スティーブ
+ティム
+ウィリアム
+ザック
+ルーカ
+ロレンツォ
+マテオ
+ラファエル
+カルロス
+アントニオ
+ホセ
+フアン
+ペドロ
+ミゲル
+ディエゴ
+ルイス
+パブロ
+セルジオ
+エドゥアルド
+リカルド
+グエン
+チャン
+ファム
+レェ
+ホアン
+ブイ
+ヴォ
+ダン
+ゴー
+ドー
+キム
+リー
+パク
+チェ
+チョン
+カン
+チョウ
+ユン
+チャン
+ハン
+ソン
+ジュン
+ミンス
+ジウ
+ソヨン
+ハヌル
+ミンジ
+ジフン
+ヒョン
+スミス
+ジョンソン
+ウィリアムズ
+ブラウン
+ジョーンズ
+ミラー
+デイビス
+ウィルソン
+アンダーソン
+テイラー
+トーマス
+マーティン
+ロドリゲス
+ガルシア
+マルティネス
+ロペス
+ゴンザレス
+ペレス
+サンチェス
+シルバ
+サントス
+オリベイラ
+ソウザ
+コスタ
+シュミット
+ミュラー
+シュナイダー
+フィッシャー
+ワグナー
+ベッカー
+ホフマン
+クライン
+ロッシ
+ビアンキ
+フェラーリ
+ルッソ
+イワノフ
+ペトロフ
+ソコロフ
+ノヴァク
+コワルスキ
+ホルヴァート
+アリ
+ハッサン
+モハメド
+アフメド
+オマル
+ユスフ
+カリム
+サミール
+ラシッド
+ジミー
+ジョニー
+トミー
+ボビー
+ニック
+ダン
+ベン
+サム
+マット
+ジェフ
+グレッグ
+アイリーン
+アイリス
+レイア
+ルナ
+ネオ
+セナ
+リオナ
+アイラ
+エレナ
+カレン
+シャルロット
+ジャスミン
+ミレイ
+ノエル
+光宙
+姫奈
+龍飛
+七音
+姫花
+姫星
+愛姫
+皇太
+皇希
+龍生
+龍雅
+龍聖
+煌大
+煌翔
+煌希
+心夏
+愛心
+結星
+詩空
+響希
+響也
+虹空
+虹音
+天音姫
+舞空
+舞姫
+夢姫
+姫月
+姫愛
+海月
+陽星
+星陽
+光希
+光星
+光輝
+輝星
+輝希
+綺星
+綺羅
+蒼海
+碧海
+碧星
+瑠星
+琉星
+珠星
+永愛
+幸愛
+幸空
+幸星
+心結愛
+愛莉亜
+亜美莉
+亜門
+亜蘭
+亜蓮
+蓮空
+蓮星
 </script>
 <script id="sei1" type="text/plain">
 丁上丘中丸丹乾京今仲伝伴佃侯俵倉傅元全円冠劉勇勝北千南原厳叶司吉向呉周和団團圷坂城堀堤堺塙墨墺壇夏奥姜姫宅安宋宗宝室宮寳寿尹尺岡岬岸峠峯峰島崔嵐嵩嶋嶺左巴巻巽幡平幸康建弓張彩徐忍慎戎所扇捧新方旭昆昇星晴朔本朱朴杉李杣東松林柏柳柴栃桂桜梁梅梓條梶棒棗森椿楓楠榊榎槙槻標樟橋橘檀櫻欲武毛永汀江池沖沢沼泉泊洲浜清渡游湊源滝潘潮澤濱瀧瀬炭燕牛牧猪王環甲町畑畠登白盛盧眠研硲碇磯礒社祝神祭秋秦窪竜笠笹筧篁米紀紫紺緑縫纒羅翁翠聖脇與舘舛舞艾芝芹茅荒荻菅華萬葵蒲蒼蔦蕨薄薗薫薮藍藤藩蘇衣袋西角谷財越趙輪轟辻迎迫遥郡郭郷都鄭酒釈金銭鏡鐘鐙長門間関阪陳陶陸隆雅青韓音響風館馬高鮎鳳鴇鴨鶴黛鼎
 </script>
 <script id="mei1" type="text/plain">
-一万丈上丘丞中丹久九乱亀了亘亨享京亮仁仙仲任伝伸佐佑作佳佶侃俊保信修倫健傑傳儀優允元充光克全公典円冴冽凌凛出初利剛創力功助努勇勉勗務勝勤勧勲匠匡半卓南博卯厚原厳友収叡史司吟周和咲哲唯啓善喬嘉圓圭均坦基堂堺壮壯壽夢大天太央奨奬好妃妙始威孚孜孝孟学學守安完宏宗官定実宮宰容寅密富寔寛實寧寿将尊尚尭尼岩岬岳峻崇崑嵩巌巍巖工巧巴巻巽帆希常年幸幹広庚康庸廉廣建弓弘弥強弾彊彝彩彪彬彰征律復徳徹心忍忠忱怜恂恋恒恪恭恵悟悠悦悳惇惠愛愿慎慧慶憂憲成拓拳捷揚揺操收攻政敏敞敦敬整文斉斌斎新旭昂昇昊昌明昭是昶晁晃晄晋晟普晴晶智暁暉暢曉有朋朔朗望李杏東林柱柾栄栞格桂桃桜梓梢植椿楓榕榮権樸樹橘檀正武歩毅永求汎汪治泉波泰洋洌洪洵洸洽浄浜浩涼淑淨深淳淵清済渉渓渙渚渡温游湛湧満源滉滋滿漠漸潔潜潤潮澄澪瀏烈煕照牧独猛玄玉玲理琢琴瑛瑞瑶璋環甫由男登皎皓盈直眞真眸督睦瞬瞭瞳矗知研碧碩磐磨磬礼祐祝祥禎秀税稔種穀穂穆積穗穣穰究竜章端競笑等節篠篤米粲精糺紀紅納純紘紫紳統綱綾総緑縁總繁繭美義翔翠翼耕聖聡聰肇育胖脩至舜舞航良花芳芹若英茂茜菊華萌萠葉董葵蓮蔦蕃薫藍藹蘭虔融螢衆行衛衞装裕襄要規覚親覺計訓誉誠諒諦諭謙譚譲護讓豊豪貘貞貢貴賢質赳超輝農迩迪透通進逸運道達遥遼邦郁都醇重釣鈞鈴鉄錠錦鐙鐵鑑長開陟陸陽隆雄雅雪零震霞靖静靜順領頼顯養香馨駿高魁魏鮎鴻鵬麓麗麻麿黎鼎齊龍湊蒼昴奏詩紬燈灯蒔楽宙凪絆稀煌漣燿
+一万丈上丘丞中丹久九乱亀了亘亨享京亮仁仙仲任伝伸佐佑作佳佶侃俊保信修倫健傑傳儀優允元充光克全公典円冴冽凌凛出初利剛創力功助努勇勉勗務勝勤勧勲匠匡半卓南博卯厚原厳友収叡史司吟周和咲哲唯啓善喬嘉圓圭均坦基堂堺壮壯壽夢大天太央奨奬好妃妙始威孚孜孝孟学學守安完宏宗官定実宮宰容寅密富寔寛實寧寿将尊尚尭尼岩岬岳峻崇崑嵩巌巍巖工巧巴巻巽帆希常年幸幹広庚康庸廉廣建弓弘弥強弾彊彝彩彪彬彰征律復徳徹心忍忠忱怜恂恋恒恪恭恵悟悠悦悳惇惠愛愿慎慧慶憂憲成拓拳捷揚揺操收攻政敏敞敦敬整文斉斌斎新旭昂昇昊昌明昭是昶晁晃晄晋晟普晴晶智暁暉暢曉有朋朔朗望李杏東林柱柾栄栞格桂桃桜梓梢植椿楓榕榮権樸樹橘檀正武歩毅永求汎汪治泉波泰洋洌洪洵洸洽浄浜浩涼淑淨深淳淵清済渉渓渙渚渡温游湛湧満源滉滋滿漠漸潔潜潤潮澄澪瀏烈煕照牧独猛玄玉玲理琢琴瑛瑞瑶璋環甫由男登皎皓盈直眞真眸督睦瞬瞭瞳矗知研碧碩磐磨磬礼祐祝祥禎秀税稔種穀穂穆積穗穣穰究竜章端競笑等節篠篤米粲精糺紀紅納純紘紫紳統綱綾総緑縁總繁繭美義翔翠翼耕聖聡聰肇育胖脩至舜舞航良花芳芹若英茂茜菊華萌萠葉董葵蓮蔦蕃薫藍藹蘭虔融螢衆行衛衞装裕襄要規覚親覺計訓誉誠諒諦諭謙譚譲護讓豊豪貘貞貢貴賢質赳超輝農迩迪透通進逸運道達遥遼邦郁都醇重釣鈞鈴鉄錠錦鐙鐵鑑長開陟陸陽隆雄雅雪零震霞靖静靜順領頼顯養香馨駿高魁魏鮎鴻鵬麓麗麻麿黎鼎齊龍湊蒼昴奏詩紬燈灯蒔楽宙凪絆稀煌漣燿娟燕磊涛婷娜雲峰偉珍熙妍鑫昕蕾倩琳曦晨
 </script>
 
 <script>
@@ -30308,14 +30551,14 @@ window.TinySegmenter = { segment: segment };
   const HONORIFIC = "さん|サン|さま|様|氏|殿|どの|くん|君|ちゃん|ちゃま|先生|先輩|部長|次長|課長|係長|主任|主査|室長|所長|局長|部門長|支店長|店長|社長|副社長|専務|常務|会長|取締役|理事長|理事|監事|教授|准教授|講師|助教|校長|教頭|園長|院長|師長|医師|監督|コーチ|選手|議員|大臣|知事|市長|町長|村長|区長|会員";
 
   // 人名として扱わない一般語・地名（フルネーム誤検出よけ）
-  const STOP = new Set(("東京 大阪 名古屋 京都 横浜 神戸 福岡 札幌 仙台 広島 千葉 埼玉 静岡 岡山 熊本 日本 世界 本社 支社 支店 会社 部門 総務 営業 経理 人事 開発 製造 品質 結果 連絡 対応 確認 会議 資料 担当 案件 予定 期限 内容 以上 各位 御中 今回 前回 今後 御礼 森林 山林 河川 大和 桃太郎 浦島太郎 金太郎 一寸法師 花咲爺").split(/\s+/));
+  const STOP = new Set(("令和 平成 昭和 大正 明治 元年 年度 東京 大阪 名古屋 京都 横浜 神戸 福岡 札幌 仙台 広島 千葉 埼玉 静岡 岡山 熊本 日本 世界 本社 支社 支店 会社 部門 総務 営業 経理 人事 開発 製造 品質 結果 連絡 対応 確認 会議 資料 担当 案件 予定 期限 内容 以上 各位 御中 今回 前回 今後 御礼 森林 山林 河川 大和 桃太郎 浦島太郎 金太郎 一寸法師 花咲爺").split(/\s+/));
 
   // ---- 表の「名前の列」を丸ごと匿名化（rev 2026-07-26）----
   // 名簿・引き継ぎ簿では、名前の列に1〜2文字の呼び捨てが単独で入る。辞書でもAIでも拾えないので、
   // 「列の見出し」という構造から人名と決めてしまう。辞書に無くても伏せる。
-  const COL_NAME_HDR = ["生徒名","児童名","園児名","学生名","氏名","名前","記入者","確認者","担当者","担当職員","職員名","入力者","記録者","報告者","対象者","保護者名","当番","日直","正日直","副日直","出席者","参加者","利用者名"];
+  const COL_NAME_HDR = ["生徒名","児童名","園児名","学生名","氏名","名前","ふりがな","フリガナ","ふり仮名","振り仮名","よみがな","ヨミガナ","読みがな","氏名かな","記入者","確認者","担当者","担当職員","職員名","入力者","記録者","報告者","対象者","保護者名","当番","日直","正日直","副日直","出席者","参加者","利用者名"];
   const COL_OTHER_HDR = ["部署","連絡事項","備考","日付","時間","時刻","学年","番号","内容","項目","区分","曜日","場所","行事","予定","記事","連絡"];
-  const isColHdr = (s, list) => { s = (s||"").trim(); return s.length > 0 && s.length <= 10 && list.some(h => s.includes(h)); };
+  const isColHdr = (s, list) => { s = (s||"").replace(/[\s　]+/g,"").trim(); return s.length > 0 && s.length <= 10 && list.some(h => s.includes(h)); };
   function detectColumns(text, manualSpec){
     const out = [], seen = new Set(), usedHdr = new Set();
     const manual = String(manualSpec||"").split(/[,、\s]+/).map(x => parseInt(x,10)-1).filter(n => n >= 0);
@@ -30324,10 +30567,10 @@ window.TinySegmenter = { segment: segment };
       if (v.length > 12) return false;                       // 長い文＝連絡事項
       if (/[、。「」『』・…]/.test(v)) return false;
       if (/https?:/.test(v)) return false;
-      if (/^[0-9０-９\s　\-ー〜~:：\/／.,()（）%％]+$/.test(v)) return false;   // 数字・記号だけ
+      if (/^[0-9０-９\s　\-ー〜~:：\/／.,()（）%％−‐–—―※○●△▲×✓〓_=+*#@!?！？]+$/.test(v)) return false;   // 数字・記号だけ
       if (/^【[A-Za-z]{1,3}】$/.test(v)) return false;        // すでに匿名化済みの記号
       if (isColHdr(v, COL_NAME_HDR) || isColHdr(v, COL_OTHER_HDR)) return false;
-      if (STOP.has(v)) return false;
+      // STOP(地名・一般語)でも、名前の列に入っているなら人名として扱う（千葉さんが記入者の場合など）
       return true;
     };
     const addName = raw => {
@@ -30393,7 +30636,7 @@ window.TinySegmenter = { segment: segment };
   const ORG_SUF = ["技研","製薬","工業","商事","電機","製作所","運輸","銀行","産業","建設","商店","製菓","食品","化学","重工","精機","硝子","証券","保険","不動産","商会","物産","興業","印刷","電工","製鉄","自動車","社","組","会","堂","屋","院","団"];
   const PLACE_SUF = ["町","市","村","区","県","都","府","郡","駅","島"];
   const TITLE_SUF = ["副社長","取締役","理事長","部門長","支店長","准教授","部長","次長","課長","係長","主任","主査","室長","所長","局長","社長","専務","常務","会長","監事","教授","講師","校長","教頭","園長","院長","師長","監督","大臣","知事","市長","町長","村長","区長","議員","選手","先生","先輩","博士"].sort((a,b)=>b.length-a.length);
-  const SEI1_EXTRA = "田 山 実 谷 池 川 島 岡 原 江 井 沖 塚 星 城 堀 辻 畑 沢 柳 桑 呉 潮 樋 郭 峰 磯 郡 服 灰 袋 轟 巴 郷 楠 栗 桐 菅 萩 巽 沼 袴 潟 鎌 樽 梶 幸 境 堺 幡 榊 樫 楢 柏 檀 椿 榎 樺 柚 藤 堤 溝 洲 恵 甲 昆 呂 賀 巨 郷 袴 郡 森 林 東 南 西 北 関 泉 堀 岩 石 内 岸 灘 港 沼 峯 岬 尾 荘 庄 郷".split(" ");
+  const SEI1_EXTRA = "王 李 金 朴 崔 鄭 姜 趙 尹 張 陳 劉 黄 呉 宋 韓 許 沈 盧 白 文 柳 孫 裴 薛 羅 全 権 辛 丁 車 曹 兪 表 秦 康 施 卞 邵 廖 賈 閻 潘 蔡 蘇 葉 楊 徐 馬 朱 胡 郭 何 唐 梁 董 程 蕭 鄧 曾 彭 呂 蒋 蔣 魏 傅 鍾 汪 田 任 姚 方 夏 鄒 熊 陸 侯 邱 江 尚 田 山 実 谷 池 川 島 岡 原 江 井 沖 塚 星 城 堀 辻 畑 沢 柳 桑 呉 潮 樋 郭 峰 磯 郡 服 灰 袋 轟 巴 郷 楠 栗 桐 菅 萩 巽 沼 袴 潟 鎌 樽 梶 幸 境 堺 幡 榊 樫 楢 柏 檀 椿 榎 樺 柚 藤 堤 溝 洲 恵 甲 昆 呂 賀 巨 郷 袴 郡 森 林 東 南 西 北 関 泉 堀 岩 石 内 岸 灘 港 沼 峯 岬 尾 荘 庄 郷".split(" ");
   const NAME_STOP2 = new Set("氏 様 君 殿 方 達 家 邸 側 頃 中 内 外 元 上 下 前 後 他 等 目 者 型 号 課 部 室 社 宅".split(" "));
   function detect(text){
     const found = [];
@@ -30407,6 +30650,7 @@ window.TinySegmenter = { segment: segment };
     const STRICT = $("strictGiven") ? $("strictGiven").checked : false;
     const NOUN_NG = new Set(("正義 大成 健康 元気 自然 平和 幸福 満足 記録 練習 学習 生活 昼食 朝食 夕食 掃除 洗濯 入浴 就寝 起床 体調 様子 保健 給食 部屋 準備 確認 連絡 相談 指導 支援 対応 参加 帰省 帰舎 登校 下校 外出 面談 行事 活動 作業 訓練 検査 通院 服薬 発熱 頭痛 腹痛 風邪 心配 注意 危険 安心 一緒 本人 職員 先生 生徒 児童 学年 学級 教室 食堂 浴室 玄関 廊下 階段 洗面 時間 曜日 今日 明日 昨日 今週 来週 先週 今月 来月 先月 今年 本日 午前 午後 夕方 早朝 深夜 週末 全員 各自 順番 予定 希望 説明 報告 質問 返事 電話 手紙 荷物 洗濯物 上着 上履 制服 私服 眼鏡 財布 携帯 音楽 体育 図工 家庭 理科 社会 国語 数学 英語 美術 技術 道徳 進路 就労 実習").split(/\s+/));
     // ひらがなの「〜さん」で人名でないもの
+    const NICK_NG = new Set(("わん にゃん あか あかん ばあ じい かあ とう ねえ にい みな いぬ ねこ うさ ぞう ぱん ごはん おこ").split(/\s+/));
     const HIRA_NG = new Set(("みな みんな おかあ おとう おじい おばあ おにい おねえ あなた どなた ばあ じい かあ とう ねえ にい おく おきゃく こども おとな みなさま "
       + "ため とき なか つぎ やすみ こと もの ところ ほう あと まえ うち ひと これ それ あれ ここ そこ など まま いま あさ ひる よる ちから はなし").split(/\s+/));
     const isGivenAlone = w => STRICT && w.length >= 2 && w.length <= 4 && !NOUN_NG.has(w) && !STOP.has(w) && meiSet.has(w);
@@ -30419,7 +30663,7 @@ window.TinySegmenter = { segment: segment };
     const isInitial  = s => /^[A-Za-z]{1,2}$/.test(normLatin(s));
     const isFuseji   = s => /^[◯〇○×✕✖●]+$/.test(s);
     const add = (surname, given, kind) => {
-      if (!surname || STOP.has(surname)) return;
+      if (!surname || (STOP.has(surname) && !(kind === "敬称" && seiSet.has(surname)))) return;   // 千葉さん等＝敬称つきの地名型の姓は人名
       if (given && STOP.has(surname + given)) return;
       const key = surname + "|" + (given || "");
       if (seen.has(key)) return;
@@ -30427,7 +30671,9 @@ window.TinySegmenter = { segment: segment };
     };
 
     let toks = null;
-    try { if (window.TinySegmenter) toks = window.TinySegmenter.segment(normOld(text)); } catch(e){ toks = null; }
+    // 記号は単語の切れ目にする。空白だと分割器が「 田中」を1語にしてしまうので読点に置き換える
+    const forSeg = normOld(text).replace(/[＜＞〈〉《》「」『』（）()【】［］\[\]｛｝{}｜|＊*＃#＠@★☆♪♭◆◇■□●○▲△▼▽※→←↑↓＋+～~]/g, "、");
+    try { if (window.TinySegmenter) toks = window.TinySegmenter.segment(forSeg); } catch(e){ toks = null; }
 
     if (toks && toks.length) {
       const N = toks.length;
@@ -30446,7 +30692,7 @@ window.TinySegmenter = { segment: segment };
         if(!chunk) return null;
         // 肩書き接尾がくっついていたら剥がして敬称扱い（鈴木実部長 → 鈴木実）
         for(const ts of TITLE_SUF){ if(chunk.length>ts.length && chunk.endsWith(ts)){ chunk=chunk.slice(0,-ts.length); fctx='hon'; break; } }
-        if((endsWithOrg(chunk)||endsWithPlace(chunk)) && fctx!=='hon') return null;   // 会社・地名
+        if((endsWithOrg(chunk)||endsWithPlace(chunk)) && fctx!=='hon' && !seiSet.has(chunk)) return null;   // 会社・地名（辞書にある姓そのものは除く）
         for(let len=Math.min(4,chunk.length); len>=1; len--){
           const pre=chunk.slice(0,len);
           const isSur=(len>=2 && seiSet.has(pre)) || (len===1 && SEI1.has(pre));
@@ -30466,34 +30712,52 @@ window.TinySegmenter = { segment: segment };
         if(fctx==='hon' && isKanjiTok(chunk) && chunk.length>=2 && chunk.length<=4 && !STOP.has(chunk)) return {surname:chunk, given:null};
         return null;
       };
-      const addStem = (pre) => {   // 敬称の直前（＝人名候補）を判定して追加
-        if(!pre || STOP.has(pre)) return;
+      const HON1_NG_SAMA = new Set("神 王 仏 姫 殿 皇 帝 后".split(" "));   // 「王様」は一般語、「王さん」は人名
+      const HON1_NG = new Set("母 父 兄 姉 皆 赤 若 幼 老 大 小 中 何 誰 女 男 客 娘 孫 祖 叔 伯 嫁 婿 課 部 係 社 店 校 園 医 主 副 会 班 組 隊 番 様 氏 君 方 人 子 之 御 貴 我 汝".split(" "));
+      const addStem = (pre, sufUsed) => {   // 敬称の直前（＝人名候補）を判定して追加
+        if(!pre || (STOP.has(pre) && !seiSet.has(pre))) return;
+        if(/^[一-鿿々]$/.test(pre) && HON1_NG.has(pre)) return;   // 赤ちゃん・母さん
+        if(/^[一-鿿々]$/.test(pre) && HON1_NG_SAMA.has(pre) && /^(様|さま|ちゃま)/.test(sufUsed||"")) return;   // 神様・王様・赤ちゃん・母さん
         if(isInitial(pre)) { add(normLatin(pre),null,"イニシャル"); return; }
         if(isKataStr(pre)) { add(pre,null,"カナ"); return; }
         // ひらがなの名前（さくらさん・ゆいちゃん）。呼びかけ語（みなさん等）は除く
-        if(/^[ぁ-ん]{2,4}$/.test(pre) && !HIRA_NG.has(pre)) { add(pre,null,"かな"); return; }
-        const person=analyzeChunk(pre,'hon'); if(person) add(person.surname,person.given,"敬称");
+        if(/^[ぁ-ん]{2,4}$/.test(pre) && !HIRA_NG.has(pre) && !NICK_NG.has(pre)) { add(pre,null,"かな"); return; }
+        const person=analyzeChunk(pre,'hon');
+        if(person){ add(person.surname,person.given,"敬称"); return; }
+        // 辞書に無くても、敬称が付いていれば人名とみなす（作くん／Tanakaさん）
+        if(/^[一-鿿々]$/.test(pre) && !HON1_NG.has(pre)) { add(pre,null,"敬称"); return; }
+        if(/^[A-Za-zＡ-Ｚａ-ｚ][A-Za-zＡ-Ｚａ-ｚ．.\-]{1,14}$/.test(pre)) { add(pre,null,"敬称"); return; }
+        if(/^[ｦ-ﾟ]{2,10}$/.test(pre)) { add(pre,null,"敬称"); return; }   // 半角カナ
       };
 
       let i=0;
       while(i<N){
         const t=toks[i];
-        if(isSpace(t)||STOP.has(t)){ i++; continue; }
+        if(isSpace(t) || (STOP.has(t) && !(seiSet.has(t) && followCtx(i+1)==='hon'))){ i++; continue; }
 
         let done=false;
         // 愛称接尾（たっちゃん/ゆうきくん/ナベちゃん）＝仮名語幹＋ちゃん/くん
         for(const suf of NICK_SUF){
-          if(t.length>suf.length && t.endsWith(suf) && /^[ぁ-んァ-ヶー]{1,}$/.test(t.slice(0,-suf.length))){ add(t,null,"愛称"); done=true; break; }
+          const stem = t.slice(0,-suf.length);
+          if(t.length>suf.length && t.endsWith(suf) && /^[ぁ-んァ-ヶー]{2,4}$/.test(stem)
+             && !NICK_NG.has(stem) && !/^[おご]/.test(stem)){ add(t,null,"愛称"); done=true; break; }
         }
         if(done){ i++; continue; }
         // 敬称がくっついた1トークン（田さん / 関さん / 田中健さん / マリさん）
         for(const suf of SUF){
-          if(t.length>suf.length && t.endsWith(suf)){ addStem(t.slice(0,-suf.length)); done=true; break; }
+          if(t.length>suf.length && t.endsWith(suf)){ addStem(t.slice(0,-suf.length), suf); done=true; break; }
         }
         if(done){ i++; continue; }
 
         // イニシャル＋敬称
         if(isInitial(t)){ if(followCtx(i+1)==='hon') add(normLatin(t),null,"イニシャル"); i++; continue; }
+        // ローマ字・半角カナの名前＋敬称（Tanakaさん／ﾀﾅｶさん）
+        if(/^([A-Za-zＡ-Ｚａ-ｚ][A-Za-zＡ-Ｚａ-ｚ．.\-]{1,14}|[ｦ-ﾟ]{2,10})$/.test(t)){
+          let word=t, j=i+1, guard=0;
+          while(j+1<N && /^[ 　]+$/.test(toks[j]) && /^[A-Za-zＡ-Ｚａ-ｚ][A-Za-zＡ-Ｚａ-ｚ．.\-]{1,14}$/.test(toks[j+1]) && guard++<2){ word+=toks[j]+toks[j+1]; j+=2; }
+          if(followCtx(j)==='hon') add(word,null,"敬称");
+          i=j; continue;
+        }
         // 伏せ字（◯を連結）＋敬称
         if(isFuseji(t)){
           let fu=t, j=i+1;
@@ -30505,20 +30769,24 @@ window.TinySegmenter = { segment: segment };
         if(isKanjiTok(t) && !HON.has(t)){
           let chunk=t, j=i+1;
           while(j<N && isKanjiTok(toks[j]) && !HON.has(toks[j])){ chunk+=toks[j]; j++; }
-          const person=analyzeChunk(chunk, followCtx(j));
+          const fc=followCtx(j);
+          const person=analyzeChunk(chunk, fc);
           if(person){
             // スペース/タブ区切りの名を吸収（山本 楓 → 山本＋楓）
             if(person.given===null && person.surname.length>=2 && j<N && /^[ 　]+$/.test(toks[j]||"") && j+1<N && isKanjiTok(toks[j+1]) && toks[j+1].length<=2 && !HON.has(toks[j+1]) && !STOP.has(toks[j+1]) && (meiSet.has(toks[j+1]) || (toks[j+1].length===1 && MEI1.has(toks[j+1])))){
               add(person.surname, toks[j+1], "漢字空白"); i=j+2; continue;
             }
-            add(person.surname, person.given, "漢字");
+            if(person.given===null && person.surname.length>=2 && j<N && /^[ァ-ヶー・]{2,10}$/.test(toks[j]||"")){
+              add(person.surname, toks[j], "漢字＋カナ"); i=j+1; continue;   // 田中マリア
+            }
+            add(person.surname, person.given, fc==='hon' ? "敬称" : "漢字");
           } else if(chunk.length===1 && SEI1.has(chunk)){
             const cb = s => (s===undefined) || (s==="") || /[\t\n\r]/.test(s);
             const leftCell = cb(i>0?toks[i-1]:"");
             // 表のセル内の「1文字姓 ＋ 空白 ＋ 名前(辞書)」＝ 境　楓。
             // 前後がタブ/改行/端で囲まれたセル内のときだけ拾う（文章中の「山 道」等の誤爆を防ぐ）
-            if(leftCell && /^[ 　]+$/.test(toks[j]||"") && j+1<N && isKanjiTok(toks[j+1]) && toks[j+1].length<=2 && !HON.has(toks[j+1]) && !STOP.has(toks[j+1]) && (meiSet.has(toks[j+1]) || (toks[j+1].length===1 && MEI1.has(toks[j+1]))) && cb(j+2<N?toks[j+2]:"")){
-              add(chunk, toks[j+1], "単字姓空白"); i=j+2; continue;
+            if(leftCell && /^[ 　]+$/.test(toks[j]||"") && j+1<N && isKanjiTok(toks[j+1]) && toks[j+1].length<=2 && !HON.has(toks[j+1]) && !STOP.has(toks[j+1]) && (meiSet.has(toks[j+1]) || (toks[j+1].length===1 && MEI1.has(toks[j+1]))) && (cb(j+2<N?toks[j+2]:"") || followCtx(j+2)==='particle' || followCtx(j+2)==='hon')){
+              add(chunk, toks[j+1], "単字姓空白"); i=j+2; continue;   // 境　楓／王 麗が
             }
             // 表のセルに単独の1文字姓（前後がタブ/改行/端）＝名前とみなす
             if(leftCell && cb(j<N?toks[j]:"")) add(chunk,null,"セル姓");
@@ -30532,7 +30800,13 @@ window.TinySegmenter = { segment: segment };
           let ch=t, j=i+1;
           while(j<N && /^[ァ-ヶー・]+$/.test(toks[j])){ ch+=toks[j]; j++; }
           ch=ch.replace(/^・+|・+$/g,"");
-          if(ch.length>=2 && (followCtx(j)==='hon' || isKanaGivenAlone(ch))) add(ch,null,"カナ");
+          const parts = ch.split("・").filter(Boolean);
+          const nakaguro = parts.length>=2 && parts.some(x => !COMMON_KATA.has(x) && !STOP.has(x));
+          // カタカナの姓＋漢字の名（スミス花子）
+          if(ch.length>=2 && j<N && isKanjiTok(toks[j]||"") && toks[j].length<=3 && meiSet.has(toks[j]) && !STOP.has(toks[j])){
+            add(ch, toks[j], "カナ＋漢字"); i=j+1; continue;
+          }
+          if(ch.length>=2 && (followCtx(j)==='hon' || isKanaGivenAlone(ch) || (STRICT && nakaguro))) add(ch,null,"カナ");
           i=j; continue;
         }
         // ひらがなが続く語＋敬称（さいとうさん／さくらさん）。「お〜さん」「ご〜さま」は呼びかけなので除く
@@ -30588,7 +30862,8 @@ window.TinySegmenter = { segment: segment };
       ? `表の列から ${cols.length} 件（${colRes.headers.join("・") || "手で指定した列"}）`
       : ($("colDetect").checked ? "表の名前の列は見つかりませんでした" : "");
     const auto = $("autoDetect").checked ? detect(text) : [];
-    if (manual.length === 0 && cols.length === 0 && auto.length === 0) {
+    const contacts = findContacts(text);
+    if (manual.length === 0 && cols.length === 0 && auto.length === 0 && contacts.length === 0) {
       toast("名前が見つかりませんでした");
       return false;
     }
@@ -30624,6 +30899,10 @@ window.TinySegmenter = { segment: segment };
       if (known.has(key)) continue;
       addPerson(a.surname, a.given, "自動:", false);
     }
+    for (const c of contacts) {      // メール・電話も伏せる
+      if (known.has(c)) continue;
+      addPerson(c, null, "連絡先:", false);
+    }
     // 一覧を描画
     const box = $("patterns");
     box.innerHTML = "";
@@ -30643,13 +30922,29 @@ window.TinySegmenter = { segment: segment };
     return true;
   }
 
+  // メールアドレス・電話番号（名前と同じく個人が特定される情報なので一緒に伏せる）
+  const RE_MAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+  const RE_TEL  = /0\d{1,4}[-‐－ー(（]?\d{1,4}[-‐－ー)）]?\d{3,4}/g;
+  function findContacts(text){
+    const out = [];
+    for (const m of text.match(RE_MAIL) || []) if (!out.includes(m)) out.push(m);
+    for (const m of text.match(RE_TEL) || []) {
+      if ((m.replace(/\D/g,"").length) >= 10 && !out.includes(m)) out.push(m);
+    }
+    return out;
+  }
+
   // ---- 実行 ----
   function run(){
+    // 見えない文字（ゼロ幅スペース）は名前を分断して検出を邪魔するので先に取り除く
+    if (/[​-‍﻿]/.test($("inputText").value)) {
+      $("inputText").value = $("inputText").value.replace(/[​-‍﻿]/g, "");
+    }
     const text = $("inputText").value;
     if (!text.trim()) { toast("テキストを貼ってください"); return; }
     if (!generate(text)) {
       $("result").innerHTML=""; $("stats").textContent=""; $("mapArea").innerHTML="";
-      $("suspectsBox").innerHTML="";
+      renderSuspects(text);        // 1件も見つからない時こそ「名前かも」を出す（前は空にしていた）
       $("copyBody").disabled=true; $("copyMap").disabled=true; $("saveBtn").disabled=true;
       return;
     }
@@ -30678,9 +30973,15 @@ window.TinySegmenter = { segment: segment };
       return new RegExp(esc(s), "g");   // カタカナ・伏せ字など
     };
     // セル内だけ置換（表の枠にぽつんと入った1文字の名前用。本文の同じ字は壊さない）
+    // 1文字の名前は「マスの中」「敬称の前」に加えて、
+    // 「文の切れ目＋名前＋助詞」のときも置換する（前後が漢字なら熟語なので触らない＝音楽・森林は無事）
+    const PARTICLE = "が|は|を|に|と|も|の|へ|で|ちゃん|くん|君|さん|様|さま|氏|先生|先輩";
+    // 「実は」「共に」など、1文字名＋助詞と同じ形の副詞は置換しない
+    const ADV_NG = new Set(("実は 実に 実の 実も 主に 共に 更に 既に 特に 逆に 常に 単に 次に 後に 先に 他に 中に 上に 下に 前に 外に 内に 真に 正に 元に 何と 何は 半ば 側に 力に 気に 目に 手に 口に 顔に 声に 音に 光に 形に 数に 分に 度に 点に 面に 線に 色に 味に 品に 物に 事に 者に 由に 用に 場に 席に 中で 上で 下で 外で 内で 前で 後で 中の 上の 下の 前の 後の 外の 内の 他の 別の 元の 真の 正の 主の").split(" "));
     const cellRe = (s) => new RegExp(
       "(?<=^|[\\t（(【「\\[])[ 　]*" + vesc(s) + "[ 　]*(?=$|[\\t）)】」\\]])" +
-      "|" + vesc(s) + "(?=[ 　]*(?:" + TITLE + "))", "gm");
+      "|" + vesc(s) + "(?=[ 　]*(?:" + TITLE + "))" +
+      "|(?<=^|[、。，．・「」（）\\(\\)\\t\\n 　がはをにともへでやかとの])" + vesc(s) + "(?=(?:" + PARTICLE + "))", "gm");
     const active2 = active.slice().sort((a,b) => b.text.length - a.text.length);
     let result = text;
     for (const p of active2) {
@@ -30690,7 +30991,14 @@ window.TinySegmenter = { segment: segment };
           ? new RegExp(vesc(p.surname) + "[ 　]?" + vesc(p.given), "g")
           : (p.cellOnly ? cellRe(p.text) : surfRe(p.text));
       } catch(e) { re = new RegExp(esc(p.text), "g"); }
-      result = result.replace(re, () => { counts[p.label] = (counts[p.label]||0) + 1; return MS + p.label + ME; });
+      result = result.replace(re, function(mm){
+        if (p.cellOnly) {
+          const src = arguments[arguments.length-1], off = arguments[arguments.length-2];
+          const withParticle = String(src).substr(off, mm.length + 1).replace(/[ 　]/g,"");
+          if (ADV_NG.has(withParticle)) return mm;      // 「実は」等はそのまま残す
+        }
+        counts[p.label] = (counts[p.label]||0) + 1; return MS + p.label + ME;
+      });
     }
 
     // 描画＋プレーン文字列
@@ -30730,9 +31038,9 @@ window.TinySegmenter = { segment: segment };
   }
 
   // ---- 見落としチェック（匿名化後に残った“名前かも”を洗い出す。最後は人間が確認する前提の補助）----
-  const COMMON_KATA = new Set("データ メール テーブル システム パソコン スマホ ファイル フォルダ サイト ページ ボタン クリック コピー エラー チェック リスト グループ チーム プロジェクト スケジュール ミーティング レポート メモ コメント サービス サポート ユーザー アカウント パスワード ログイン ネット ケース ポイント レベル スタート ゴール ルール マナー イベント ゲーム アプリ カメラ ビデオ オフィス トイレ センター カード テスト コース クラス ノート バス タクシー コーヒー パン ゴミ メニュー カレー ラーメン グラム メートル キロ センチ ページ タイプ タイトル コメント".split(" "));
+  const COMMON_KATA = new Set("バス タクシー トイレ シャワー シーツ タオル ハンガー スリッパ ジャージ ズボン シャツ パンツ コップ スプーン フォーク テーブル ソファ ベッド カーテン ドライヤー エアコン ストーブ テレビ ラジオ カレンダー プリント ファイル ボックス ロッカー アンケート スケジュール カード ケース パターン コーナー スペース ルート バッグ リュック ポケット ハンカチ ティッシュ マスク アルコール ワクチン リハビリ ヘルパー ケア サポート トレーニング ストレッチ レクリエーション イベント ゲーム パズル ボール ドア ベル ブザー チャイム エレベーター スロープ トイレット シャンプー ソープ ブラシ クリーム オムツ パジャマ タンス カレー ラーメン パン ジュース ヨーグルト ゼリー プリン ケーキ アイス ミルク コーヒー サラダ スープ メニュー バイタル ナース ドクター クリニック センター ホーム グループ ホール ロビー フロア クラス チーム メンバー ルール マナー コロナ インフル ノロ アレルギー パニック ストレス トラブル ミス チェック メモ コメント アドバイス フォロー データ メール テーブル システム パソコン スマホ ファイル フォルダ サイト ページ ボタン クリック コピー エラー チェック リスト グループ チーム プロジェクト スケジュール ミーティング レポート メモ コメント サービス サポート ユーザー アカウント パスワード ログイン ネット ケース ポイント レベル スタート ゴール ルール マナー イベント ゲーム アプリ カメラ ビデオ オフィス トイレ センター カード テスト コース クラス ノート バス タクシー コーヒー パン ゴミ メニュー カレー ラーメン グラム メートル キロ センチ ページ タイプ タイトル コメント".split(" "));
   const SUS_HON = "さん|サン|くん|君|ちゃん|様|さま|氏|殿|先生|先輩|部長|次長|課長|係長|主任|主査|室長|所長|局長|社長|副社長|専務|常務|会長|監督|コーチ|教授|准教授|講師|校長|教頭|園長|院長|師長|店長|議員|大臣|知事|市長|選手";
-  const NG_BEFORE = new Set("要 必 応 各 全 同 本 当 前 後 別 他 お客 皆 みな 兄 姉 母 父 娘 息子 担当 関係 患者 利用 参加 出席 責任 当事 第三 経営 労働 消費 購入 保護 皆様 各位 一同 全員 職員 社員 生徒 児童 学生 双方 両者 本人 当人 相手 客 神 仏 賓 主 姫 王 嬢 方 者 殿 様 氏 会 部 課 係 組 班 隊 団".split(" "));
+  const NG_BEFORE = new Set("神 王 仏 姫 殿 女 男 客 要 必 応 各 全 同 本 当 前 後 別 他 お客 皆 みな 兄 姉 母 父 娘 息子 担当 関係 患者 利用 参加 出席 責任 当事 第三 経営 労働 消費 購入 保護 皆様 各位 一同 全員 職員 社員 生徒 児童 学生 双方 両者 本人 当人 相手 客 神 仏 賓 主 姫 王 嬢 方 者 殿 様 氏 会 部 課 係 組 班 隊 団".split(" "));
   function findSuspects(plain){
     const out = new Map();
     const add=(w,ctx,kind)=>{ if(!w||out.has(w))return; out.set(w,{w,ctx:(ctx||"").replace(/[\s　]+/g," ").trim(),kind}); };
@@ -30778,6 +31086,17 @@ window.TinySegmenter = { segment: segment };
     const note=document.createElement("div"); note.className="note";
     note.textContent="敬称の前やカタカナで残っている“名前かも”です。人名でなければ無視してOK。";
     box.appendChild(hd); box.appendChild(note);
+    // 候補をまとめて名前として扱う（カタカナの外国名などを1クリックで消すため）
+    const allBtn=document.createElement("button"); allBtn.type="button"; allBtn.textContent="⬇ 候補を全部 名前にして、もう一度実行";
+    allBtn.style.margin="0 0 .4rem";
+    allBtn.addEventListener("click",()=>{
+      let cur=$("nameList").value.replace(/\s+$/,"");
+      const already=new Set(cur.split(/\r?\n/).map(x=>x.trim()));
+      for(const s of sus){ if(!already.has(s.w)){ cur = cur ? (cur+"\n"+s.w) : s.w; already.add(s.w); } }
+      $("nameList").value=cur; persist(); run();
+      toast("候補を全部 名前として消しました（名前でないものは一覧でチェックを外せます）");
+    });
+    box.appendChild(allBtn);
     for(const s of sus){
       const chip=document.createElement("span"); chip.className="suspect";
       const w=document.createElement("span"); w.className="w"; w.textContent=s.w;

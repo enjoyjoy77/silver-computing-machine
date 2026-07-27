@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>テキスト同期メモ</title>
+<title>ファイル同期</title>
 <style>
   body {
     font-family: "Meiryo", "Yu Gothic", sans-serif;
@@ -66,8 +66,7 @@
     text-transform: uppercase;
   }
 
-  button,
-  .link-button {
+  button {
     border: none;
     border-radius: 8px;
     background: #2d6cdf;
@@ -78,8 +77,7 @@
     padding: 11px 14px;
   }
 
-  button:active,
-  .link-button:active {
+  button:active {
     background: #1e4fad;
   }
 
@@ -145,35 +143,63 @@
     line-height: 1.6;
   }
 
-  .memo-area {
+  .file-area {
     margin-top: 14px;
   }
 
-  textarea {
-    width: 100%;
-    height: 50vh;
-    min-height: 240px;
-    box-sizing: border-box;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    padding: 10px;
-    resize: vertical;
-    font-family: "Meiryo", "Yu Gothic", sans-serif;
-    font-size: 16px;
-    line-height: 1.6;
+  .send-panel {
+    background: #fff;
+    border: 2px dashed #b7c2d4;
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
   }
 
-  textarea:focus,
-  #codeInput:focus {
+  .send-panel.drag {
     border-color: #2d6cdf;
-    outline: 2px solid rgba(45, 108, 223, 0.18);
+    background: #eef3fc;
+  }
+
+  .send-panel p {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.7;
+  }
+
+  .recv-panel {
+    margin-top: 14px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .recv-title {
+    font-size: 13px;
+    color: #555;
+    margin: 0 0 8px;
+  }
+
+  #preview {
+    display: none;
+    max-width: 100%;
+    max-height: 45vh;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    margin-bottom: 10px;
+  }
+
+  #fileInfo {
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    color: #333;
+    margin: 0 0 10px;
   }
 
   .under-text {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 5px;
+    margin-top: 8px;
     font-size: 12px;
   }
 
@@ -191,28 +217,13 @@
     color: #237a3b;
   }
 
-  #charCount {
-    flex: none;
-    color: #666;
-  }
-
   .button-row {
     display: flex;
     gap: 8px;
-    margin-top: 12px;
   }
 
   .button-row button {
     flex: 1;
-  }
-
-  .auto-copy-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 10px;
-    font-size: 13px;
-    color: #555;
   }
 
   #startupError {
@@ -238,10 +249,10 @@
 </style>
 </head>
 <body>
-<div class="rev">rev4</div>
+<div class="rev">rev2</div>
 
 <div class="wrap">
-  <h1>テキスト同期メモ</h1>
+  <h1>ファイル同期</h1>
 
   <div id="startupError"></div>
 
@@ -279,29 +290,39 @@
       </div>
     </section>
 
-    <section class="memo-area">
-      <textarea
-        id="memoText"
-        placeholder="ここに文章を入力してください"
-        disabled
-      ></textarea>
+    <section class="file-area">
+      <div class="send-panel" id="dropZone">
+        <button id="pickBtn" type="button" disabled>ファイルを選ぶ</button>
+        <input id="fileInput" type="file" hidden>
+        <p>
+          画像でもファイルでも1件送れます（100MBまで）。<br>
+          大きいファイルは送るのに時間がかかります。<br>
+          パソコンでは、スクリーンショットをコピーして
+          この画面で貼り付け（Ctrl+V）でも送れます。
+        </p>
+      </div>
+
+      <div class="recv-panel">
+        <p class="recv-title">受け取ったファイル</p>
+        <img id="preview" alt="受信した画像">
+        <p id="fileInfo">まだありません。</p>
+        <div class="button-row">
+          <button id="saveBtn" type="button" disabled>保存する</button>
+          <button id="clearBtn" class="danger" type="button" disabled>
+            内容を消す
+          </button>
+        </div>
+      </div>
 
       <div class="under-text">
         <span id="status">合言葉を設定してください。</span>
-        <span id="charCount">0文字</span>
       </div>
 
-      <div class="button-row">
-        <button id="copyBtn" type="button" disabled>全文コピー</button>
-        <button id="clearBtn" class="danger" type="button" disabled>
-          内容を消す
-        </button>
-      </div>
-
-      <label class="auto-copy-row">
-        <input type="checkbox" id="autoCopyToggle" disabled>
-        新しい内容が届いたら自動でコピーする
-      </label>
+      <p class="hint">
+        送ったファイルは5分たつと自動で消えます。
+        合言葉を知っていれば誰でも受け取れる仕組みなので、
+        人に見られて困るもの（個人情報など）は送らないでください。
+      </p>
     </section>
   </main>
 </div>
@@ -310,11 +331,11 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "memoSyncCode";
+  var STORAGE_KEY = "fileSyncCode";
   var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   var CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
-  var SEND_DELAY_MS = 500;
   var POLL_INTERVAL_MS = 2500;
+  var MAX_FILE_BYTES = 100 * 1024 * 1024;
 
   var appEl = document.getElementById("app");
   var startupErrorEl = document.getElementById("startupError");
@@ -325,22 +346,23 @@
   var makeCodeBtn = document.getElementById("makeCodeBtn");
   var currentCodeEl = document.getElementById("currentCode");
   var changeCodeBtn = document.getElementById("changeCodeBtn");
-  var memoEl = document.getElementById("memoText");
-  var statusEl = document.getElementById("status");
-  var countEl = document.getElementById("charCount");
-  var copyBtn = document.getElementById("copyBtn");
+  var dropZone = document.getElementById("dropZone");
+  var pickBtn = document.getElementById("pickBtn");
+  var fileInput = document.getElementById("fileInput");
+  var previewEl = document.getElementById("preview");
+  var fileInfoEl = document.getElementById("fileInfo");
+  var saveBtn = document.getElementById("saveBtn");
   var clearBtn = document.getElementById("clearBtn");
-  var autoCopyToggle = document.getElementById("autoCopyToggle");
+  var statusEl = document.getElementById("status");
 
-  var AUTO_COPY_KEY = "memoAutoCopy";
   var currentCode = "";
   var lastUpdatedAt = null;
-  var lastSentText = null;
-  var sendTimer = null;
   var pollTimer = null;
-  var sending = false;
-  var sendAgain = false;
+  var busy = false;
   var requestGeneration = 0;
+  var receivedBlob = null;
+  var receivedName = "";
+  var previewUrl = null;
 
   function setStatus(message, kind) {
     statusEl.textContent = message;
@@ -361,6 +383,18 @@
     );
   }
 
+  function formatSize(bytes) {
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + " KB";
+    }
+
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
   function normalizeCode(value) {
     return String(value || "").trim().toUpperCase();
   }
@@ -369,35 +403,17 @@
     return CODE_RE.test(value);
   }
 
-  function apiUrl(code) {
-    return "/api/memo/" + encodeURIComponent(code);
+  function apiUrl(code, body) {
+    return (
+      "/api/file/" +
+      encodeURIComponent(code) +
+      (body ? "?body=1" : "")
+    );
   }
 
-  function updateCount() {
-    countEl.textContent = memoEl.value.length + "文字";
-  }
-
-  function enableMemo(enabled) {
-    memoEl.disabled = !enabled;
-    copyBtn.disabled = !enabled;
+  function enableControls(enabled) {
+    pickBtn.disabled = !enabled;
     clearBtn.disabled = !enabled;
-    autoCopyToggle.disabled = !enabled;
-  }
-
-  function loadAutoCopyPref() {
-    try {
-      return localStorage.getItem(AUTO_COPY_KEY) !== "false";
-    } catch (error) {
-      return true;
-    }
-  }
-
-  function saveAutoCopyPref(enabled) {
-    try {
-      localStorage.setItem(AUTO_COPY_KEY, enabled ? "true" : "false");
-    } catch (error) {
-      // 保存できなくても、この場での切り替えは続行する。
-    }
   }
 
   async function readJsonResponse(response) {
@@ -449,7 +465,7 @@
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (error) {
-      // 保存領域が利用できない場合も、画面上の切り替えは続行する。
+      // 保存領域が使えなくても、画面の切り替えは続行する。
     }
   }
 
@@ -492,18 +508,49 @@
 
     if (document.visibilityState === "visible" && currentCode) {
       pollTimer = setInterval(function () {
-        receiveMemo(false);
+        checkForNewFile(false);
       }, POLL_INTERVAL_MS);
     }
   }
 
-  function cancelPendingSend() {
-    if (sendTimer !== null) {
-      clearTimeout(sendTimer);
-      sendTimer = null;
+  function clearReceivedView() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
     }
 
-    sendAgain = false;
+    previewEl.style.display = "none";
+    previewEl.removeAttribute("src");
+    receivedBlob = null;
+    receivedName = "";
+    fileInfoEl.textContent = "まだありません。";
+    saveBtn.disabled = true;
+  }
+
+  function showReceived(blob, name, updatedAt) {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+    }
+
+    receivedBlob = blob;
+    receivedName = name || "received.bin";
+
+    var isImage = (blob.type || "").indexOf("image/") === 0;
+
+    if (isImage) {
+      previewUrl = URL.createObjectURL(blob);
+      previewEl.src = previewUrl;
+      previewEl.style.display = "block";
+    } else {
+      previewEl.style.display = "none";
+      previewEl.removeAttribute("src");
+    }
+
+    fileInfoEl.textContent =
+      receivedName + "（" + formatSize(blob.size) + "）";
+    saveBtn.disabled = false;
+    lastUpdatedAt = updatedAt || null;
   }
 
   function showCurrentCode() {
@@ -531,28 +578,82 @@
     }
 
     requestGeneration += 1;
-    cancelPendingSend();
     stopPolling();
 
     currentCode = normalized;
     lastUpdatedAt = null;
-    lastSentText = null;
-    memoEl.value = "";
-    updateCount();
+    clearReceivedView();
 
     codeInputEl.value = normalized;
     saveCode(normalized);
     showCurrentCode();
-    enableMemo(true);
-    autoCopyToggle.checked = loadAutoCopyPref();
-    setStatus("サーバーから読み込んでいます。");
+    enableControls(true);
+    setStatus("サーバーを確認しています。");
 
-    await receiveMemo(true);
+    await checkForNewFile(true);
     startPolling();
   }
 
-  async function receiveMemo(initialLoad) {
-    if (!currentCode || document.visibilityState !== "visible") {
+  async function fetchReceivedFile(codeAtStart, generationAtStart, meta) {
+    var response;
+
+    try {
+      response = await fetch(apiUrl(codeAtStart, true), {
+        method: "GET",
+        cache: "no-store",
+      });
+    } catch (error) {
+      throw new Error(
+        "通信できません。この場所のネットワークで止められている可能性があります。",
+      );
+    }
+
+    if (!response.ok) {
+      var data = null;
+
+      try {
+        data = await response.json();
+      } catch (error) {
+        // JSONでない失敗応答は既定文言にする。
+      }
+
+      throw new Error(
+        data && data.message
+          ? data.message
+          : "ファイルを受け取れませんでした。",
+      );
+    }
+
+    var blob = await response.blob();
+
+    if (
+      generationAtStart !== requestGeneration ||
+      codeAtStart !== currentCode
+    ) {
+      return;
+    }
+
+    if (blob.size < 1) {
+      throw new Error("受け取ったファイルが空でした。");
+    }
+
+    showReceived(
+      new Blob([blob], { type: meta.type || blob.type }),
+      meta.name,
+      meta.updatedAt,
+    );
+    setStatus(
+      "ファイルを受信しました " + formatTime(new Date()),
+      "success",
+    );
+  }
+
+  async function checkForNewFile(initialLoad) {
+    if (
+      !currentCode ||
+      busy ||
+      document.visibilityState !== "visible"
+    ) {
       return;
     }
 
@@ -560,7 +661,7 @@
     var generationAtStart = requestGeneration;
 
     try {
-      var data = await requestJson(apiUrl(codeAtStart), {
+      var meta = await requestJson(apiUrl(codeAtStart, false), {
         method: "GET",
         cache: "no-store",
         headers: {
@@ -575,38 +676,26 @@
         return;
       }
 
-      if (data.updatedAt === lastUpdatedAt) {
-        if (initialLoad) {
-          lastSentText = memoEl.value;
-          setStatus("読み込みました。", "success");
+      if (!meta.updatedAt) {
+        if (lastUpdatedAt !== null) {
+          clearReceivedView();
+          lastUpdatedAt = null;
+          setStatus("ファイルは期限切れ（5分）で消えました。");
+        } else if (initialLoad) {
+          setStatus("準備できました。ファイルを送るか、届くのを待ってください。", "success");
         }
         return;
       }
 
-      if (document.activeElement === memoEl) {
+      if (meta.updatedAt === lastUpdatedAt) {
         if (initialLoad) {
-          setStatus(
-            "編集中のため、サーバーの内容は上書きしていません。",
-          );
+          setStatus("準備できました。", "success");
         }
         return;
       }
 
-      memoEl.value = typeof data.text === "string" ? data.text : "";
-      lastUpdatedAt = data.updatedAt || null;
-      lastSentText = memoEl.value;
-      updateCount();
-
-      if (initialLoad) {
-        setStatus("読み込みました。", "success");
-      } else if (autoCopyToggle.checked && memoEl.value) {
-        copyMemo(true);
-      } else {
-        setStatus(
-          "ほかの端末の内容を受信しました " + formatTime(new Date()),
-          "success",
-        );
-      }
+      setStatus("ファイルを受信しています...");
+      await fetchReceivedFile(codeAtStart, generationAtStart, meta);
     } catch (error) {
       if (
         generationAtStart === requestGeneration &&
@@ -617,52 +706,54 @@
     }
   }
 
-  function scheduleSend() {
+  async function sendFile(file) {
     if (!currentCode) {
+      setStatus("先に合言葉を設定してください。", "error");
       return;
     }
 
-    if (sendTimer !== null) {
-      clearTimeout(sendTimer);
-    }
-
-    sendTimer = setTimeout(function () {
-      sendTimer = null;
-      sendMemo();
-    }, SEND_DELAY_MS);
-  }
-
-  async function sendMemo() {
-    if (!currentCode) {
+    if (!file) {
       return;
     }
 
-    if (sending) {
-      sendAgain = true;
+    if (file.size > MAX_FILE_BYTES) {
+      setStatus(
+        "このファイルは" + formatSize(file.size) +
+          "あります。送れるのは100MBまでです。",
+        "error",
+      );
       return;
     }
 
-    var textToSend = memoEl.value;
+    if (file.size < 1) {
+      setStatus("中身が空のファイルは送れません。", "error");
+      return;
+    }
 
-    if (textToSend === lastSentText) {
+    if (busy) {
+      setStatus("送信中です。終わってからもう一度お試しください。", "error");
       return;
     }
 
     var codeAtStart = currentCode;
     var generationAtStart = requestGeneration;
+    var name = file.name || "clipboard.png";
 
-    sending = true;
-    sendAgain = false;
-    setStatus("送信中...");
+    busy = true;
+    setStatus(
+      "送信中...（" + formatSize(file.size) +
+        "。大きいファイルは数分かかることがあります）",
+    );
 
     try {
-      var data = await requestJson(apiUrl(codeAtStart), {
+      var data = await requestJson(apiUrl(codeAtStart, false), {
         method: "PUT",
         headers: {
           "Accept": "application/json",
-          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Type": file.type || "application/octet-stream",
+          "X-File-Name": encodeURIComponent(name),
         },
-        body: textToSend,
+        body: file,
       });
 
       if (
@@ -672,10 +763,11 @@
         return;
       }
 
-      lastSentText = textToSend;
       lastUpdatedAt = data.updatedAt || null;
+      showReceived(file, name, data.updatedAt);
       setStatus(
-        "保存済み " + formatTime(new Date()),
+        "送信しました " + formatTime(new Date()) +
+          "（相手の画面に数秒で届きます）",
         "success",
       );
     } catch (error) {
@@ -686,82 +778,42 @@
         setStatus(error.message, "error");
       }
     } finally {
-      sending = false;
-
-      if (
-        generationAtStart === requestGeneration &&
-        codeAtStart === currentCode &&
-        (sendAgain || memoEl.value !== lastSentText)
-      ) {
-        sendAgain = false;
-        scheduleSend();
-      }
+      busy = false;
     }
   }
 
-  async function copyMemo(isAuto) {
-    var text = memoEl.value;
-
-    try {
-      if (
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function"
-      ) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        throw new Error("Clipboard APIを利用できません。");
-      }
-
-      setStatus(
-        (isAuto ? "自動でコピーしました " : "コピーしました ") +
-          formatTime(new Date()),
-        "success",
-      );
+  function saveReceived() {
+    if (!receivedBlob) {
       return;
-    } catch (error) {
-      if (isAuto) {
-        setStatus(
-          "自動コピーに失敗しました。「全文コピー」を押してください。",
-          "error",
-        );
-        return;
-      }
-
-      var start = memoEl.selectionStart;
-      var end = memoEl.selectionEnd;
-
-      try {
-        memoEl.focus();
-        memoEl.select();
-
-        if (!document.execCommand("copy")) {
-          throw new Error("コピーに失敗しました。");
-        }
-
-        memoEl.setSelectionRange(start, end);
-        setStatus("コピーしました。", "success");
-      } catch (fallbackError) {
-        setStatus(
-          "コピーできませんでした。文章を選択してコピーしてください。",
-          "error",
-        );
-      }
     }
+
+    var url = URL.createObjectURL(receivedBlob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = receivedName || "received.bin";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 10000);
+
+    setStatus("保存しました（ダウンロードに入ります）。", "success");
   }
 
-  async function clearMemo() {
+  async function clearFile() {
     if (!currentCode) {
       return;
     }
 
     if (!window.confirm(
-      "サーバーとこの画面の内容をすべて消します。よろしいですか？",
+      "サーバーとこの画面のファイルを消します。よろしいですか？",
     )) {
       return;
     }
 
     requestGeneration += 1;
-    cancelPendingSend();
 
     var generationAtStart = requestGeneration;
     var codeAtStart = currentCode;
@@ -769,7 +821,7 @@
     setStatus("削除中...");
 
     try {
-      await requestJson(apiUrl(codeAtStart), {
+      await requestJson(apiUrl(codeAtStart, false), {
         method: "DELETE",
         headers: {
           "Accept": "application/json",
@@ -783,10 +835,8 @@
         return;
       }
 
-      memoEl.value = "";
-      lastSentText = "";
+      clearReceivedView();
       lastUpdatedAt = null;
-      updateCount();
       setStatus("内容を消しました。", "success");
     } catch (error) {
       if (
@@ -800,16 +850,13 @@
 
   function changeCode() {
     requestGeneration += 1;
-    cancelPendingSend();
     stopPolling();
     removeSavedCode();
 
     currentCode = "";
     lastUpdatedAt = null;
-    lastSentText = null;
-    memoEl.value = "";
-    updateCount();
-    enableMemo(false);
+    clearReceivedView();
+    enableControls(false);
     showCodeSetup();
 
     codeInputEl.value = "";
@@ -852,27 +899,66 @@
 
   changeCodeBtn.addEventListener("click", changeCode);
 
-  memoEl.addEventListener("input", function () {
-    updateCount();
-    scheduleSend();
+  pickBtn.addEventListener("click", function () {
+    fileInput.click();
   });
 
-  memoEl.addEventListener("blur", function () {
-    receiveMemo(false);
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files.length > 0) {
+      sendFile(fileInput.files[0]);
+    }
+
+    fileInput.value = "";
   });
 
-  copyBtn.addEventListener("click", function () {
-    copyMemo(false);
-  });
-  clearBtn.addEventListener("click", clearMemo);
+  document.addEventListener("paste", function (event) {
+    if (!currentCode || !event.clipboardData) {
+      return;
+    }
 
-  autoCopyToggle.addEventListener("change", function () {
-    saveAutoCopyPref(autoCopyToggle.checked);
+    var items = event.clipboardData.items || [];
+
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        var file = items[i].getAsFile();
+
+        if (file) {
+          event.preventDefault();
+          sendFile(file);
+          return;
+        }
+      }
+    }
   });
+
+  dropZone.addEventListener("dragover", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel drag";
+  });
+
+  dropZone.addEventListener("dragleave", function () {
+    dropZone.className = "send-panel";
+  });
+
+  dropZone.addEventListener("drop", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel";
+
+    if (
+      event.dataTransfer &&
+      event.dataTransfer.files &&
+      event.dataTransfer.files.length > 0
+    ) {
+      sendFile(event.dataTransfer.files[0]);
+    }
+  });
+
+  saveBtn.addEventListener("click", saveReceived);
+  clearBtn.addEventListener("click", clearFile);
 
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "visible") {
-      receiveMemo(false);
+      checkForNewFile(false);
       startPolling();
     } else {
       stopPolling();
@@ -880,13 +966,10 @@
   });
 
   window.addEventListener("beforeunload", function () {
-    cancelPendingSend();
     stopPolling();
   });
 
   function initialize() {
-    updateCount();
-
     if (location.protocol !== "http:" && location.protocol !== "https:") {
       appEl.style.display = "none";
       startupErrorEl.style.display = "block";
@@ -902,7 +985,7 @@
       setCode(savedCode);
     } else {
       showCodeSetup();
-      enableMemo(false);
+      enableControls(false);
       setStatus("合言葉を設定してください。");
       codeInputEl.focus();
     }

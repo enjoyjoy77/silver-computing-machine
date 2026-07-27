@@ -113,8 +113,9 @@
     <div class="mark">ここだけ・スマホ版</div>
     <h1>片づけた物を、<br>写真から1個ずつ消す。</h1>
     <p class="lead">散らかった所を1枚だけ撮ります。<br>
-    アプリが物のめじるしを付けるので、<b>1個片づけたら、その物をタップ</b>。<br>
-    写真の中から本当に消えて、机がどんどんきれいになります。</p>
+    <b>1個片づけたら、その物を写真の上でタップ</b>。<br>
+    写真の中から本当に消えて、机がどんどんきれいになります。<br>
+    タップで拾えないものは、<b>指でなぞれば</b>必ず消せます。</p>
 
     <label class="fld">やりかた</label>
     <div class="seg" id="segMode">
@@ -158,9 +159,10 @@
       <button class="sub" id="growBtn" style="margin-top:0" disabled>もっと広く</button>
       <button class="sub" id="shrinkBtn" style="margin-top:0" disabled>せばめる</button>
     </div>
+    <button class="sub" id="brushBtn">なぞって選ぶ</button>
     <div class="row" style="margin-top:8px">
       <button class="sub" id="undoBtn" style="margin-top:0" disabled>1個もどす</button>
-      <button class="sub" id="markBtn" style="margin-top:0">めじるし切替</button>
+      <button class="sub" id="markBtn" style="margin-top:0">めじるし</button>
       <button class="sub" id="objsFinBtn" style="margin-top:0">おしまい</button>
     </div>
   </div>
@@ -224,7 +226,7 @@
 
 <script>
 "use strict";
-const REV = "v2 rev8";
+const REV = "v3 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============ ログ・エラー ============ */
@@ -367,13 +369,82 @@ function canvasToBlob(cv, q){
    考え方: 一番多い色＝台や床の地の色とみなし、そこから離れた色のまとまりを「物」とする。
    物の名前は当てない（当てられないので当てない）。人がタップするので当てる必要がない。
    ================================================================ */
-let det = null;        // { w,h,scale,label:Int32Array,comps:[{id,size,cx,cy,x0,y0,x1,y1}] }
+let det = null;        // { w,h,scale,rgb,label,comps,bgc,objMask,keptIds }
 let detTh = 62;        // 地の色からどれだけ離れたら「物」とみなすか
-let showMarks = true;
-let picked = null;     // いま選んでいる物 {comp, pad}
+let showMarks = false; // 自動のめじるしは実機で「てんで的外れ」だったので既定オフ
+let picked = null;     // いま選んでいる範囲 {mask, x0,y0,x1,y1, size, compId?, ov?}
 let padExtra = 0;      // もっと広く／せばめる（画素）
+let growTol = 70;      // タップした所から広げるときの色の許容差
+let brushMode = false, brushR = 9;   // なぞって塗るモード（det解像度の半径）
 let erased = 0, erasedArea = 0, totalObjArea = 1;
 const undoStack = [];  // {x,y,cv} 消す前の絵（戻す用）
+
+/* ---- タップした所から、似た色のかたまりを広げる ----
+   自動で物を見つけるのは外れる。**人が指した点から広げる**なら外れようがない。 */
+let growBuf = null, growQ = null;
+function growFrom(sx, sy, tol){
+  if(!det) return null;
+  const w = det.w, h = det.h, d = det.rgb, N = w*h;
+  sx = Math.max(0, Math.min(w-1, Math.round(sx)));
+  sy = Math.max(0, Math.min(h-1, Math.round(sy)));
+  if(!growBuf || growBuf.length !== N){ growBuf = new Uint8Array(N); growQ = new Int32Array(N); }
+  else growBuf.fill(0);
+  // 種の色は3×3の平均（1画素だけだとノイズに引っぱられる）
+  let sr=0,sg=0,sb=0,k=0;
+  for(let y=Math.max(0,sy-1); y<=Math.min(h-1,sy+1); y++)
+    for(let x=Math.max(0,sx-1); x<=Math.min(w-1,sx+1); x++){
+      const i=(y*w+x)*4; sr+=d[i]; sg+=d[i+1]; sb+=d[i+2]; k++;
+    }
+  sr/=k; sg/=k; sb/=k;
+  const maxA = Math.round(N * 0.18);
+  let qs = 0, qe = 0, size = 0;
+  let x0=w, y0=h, x1=-1, y1=-1;
+  const start = sy*w+sx;
+  growBuf[start] = 1; growQ[qe++] = start;
+  while(qs < qe && size < maxA){
+    const p = growQ[qs++];
+    const x = p % w, y = (p - x)/w;
+    size++;
+    if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+    const tryAdd = (q)=>{
+      if(growBuf[q]) return;
+      const i = q*4;
+      if(Math.abs(d[i]-sr) + Math.abs(d[i+1]-sg) + Math.abs(d[i+2]-sb) > tol) return;
+      growBuf[q] = 1; growQ[qe++] = q;
+    };
+    if(x>0)   tryAdd(p-1);
+    if(x<w-1) tryAdd(p+1);
+    if(y>0)   tryAdd(p-w);
+    if(y<h-1) tryAdd(p+w);
+  }
+  if(size < 4) return null;
+  // 上限まで広がった＝色が延々つながっている＝たいてい机や床を掴んでいる
+  return { mask: growBuf.slice(), x0, y0, x1, y1, size, capped: size >= maxA };
+}
+function selFromComp(comp){
+  const N = det.w*det.h, m = new Uint8Array(N);
+  for(let i=0;i<N;i++) if(det.label[i] === comp.id) m[i] = 1;
+  return { mask: m, x0: comp.x0, y0: comp.y0, x1: comp.x1, y1: comp.y1, size: comp.size, compId: comp.id };
+}
+/* ---- なぞって塗る（最後の手段。これなら必ず狙った所が消える） ---- */
+function brushAt(dx, dy){
+  if(!det) return;
+  const w = det.w, h = det.h, N = w*h;
+  if(!picked || !picked.brush){
+    picked = { mask: new Uint8Array(N), x0: w, y0: h, x1: -1, y1: -1, size: 0, brush: true };
+  }
+  const m = picked.mask, r = brushR, r2 = r*r;
+  for(let y=Math.max(0,Math.round(dy-r)); y<=Math.min(h-1,Math.round(dy+r)); y++)
+    for(let x=Math.max(0,Math.round(dx-r)); x<=Math.min(w-1,Math.round(dx+r)); x++){
+      const ddx = x-dx, ddy = y-dy;
+      if(ddx*ddx + ddy*ddy > r2) continue;
+      const i = y*w+x; if(m[i]) continue;
+      m[i] = 1; picked.size++;
+      if(x<picked.x0)picked.x0=x; if(x>picked.x1)picked.x1=x;
+      if(y<picked.y0)picked.y0=y; if(y>picked.y1)picked.y1=y;
+    }
+  picked.ov = null;
+}
 
 function detect(){
   if(!work) return;
@@ -454,11 +525,13 @@ function detect(){
   const keep = comps.slice(0, 60);
   // 小さすぎて「めじるし」にしなかった破片の番号も覚えておく（消すとき一緒に払うため）
   const keptIds = new Set(keep.map(c=>c.id));
-  det = { w, h, scale: s, label, comps: keep, bgc, objMask: mask, keptIds };
-  totalObjArea = Math.max(1, keep.reduce((t,c)=>t + c.size, 0));
+  det = { w, h, scale: s, rgb: d, label, comps: keep, bgc, objMask: mask, keptIds };
+  // 進みぐあいの分母は「物っぽい画素の総数」。めじるしが当たっていなくても数えられる
+  let objPx = 0; for(let i=0;i<w*h;i++) if(mask[i]) objPx++;
+  totalObjArea = Math.max(1, objPx);
   picked = null; padExtra = 0;
   updateObjsUI();
-  log("めじるし " + keep.length + "個（しきい値 " + detTh + "）");
+  log("下じきの色を推定しました（めじるし候補 " + keep.length + "個・しきい値 " + detTh + "）");
 }
 
 /* ---- 貼り元さがし ----
@@ -503,13 +576,13 @@ function findDonor(X0, Y0, W, H){
 
 /* ---- 消す（近くの地の模様を持ってきて貼る／だめならまわりの色でふさぐ） ----
    きれいな修復はできないが「そこにあった物が無くなった」ようには見える。 */
-function eraseComp(comp){
+function eraseSel(sel){
   const s = det.scale;                      // 検出は縮小画像。作業画像へ戻す倍率は 1/s
   const pad = 4 + padExtra;
-  const X0 = Math.max(0, Math.floor((comp.x0 - pad) / s));
-  const Y0 = Math.max(0, Math.floor((comp.y0 - pad) / s));
-  const X1 = Math.min(work.width  - 1, Math.ceil((comp.x1 + pad) / s));
-  const Y1 = Math.min(work.height - 1, Math.ceil((comp.y1 + pad) / s));
+  const X0 = Math.max(0, Math.floor((sel.x0 - pad) / s));
+  const Y0 = Math.max(0, Math.floor((sel.y0 - pad) / s));
+  const X1 = Math.min(work.width  - 1, Math.ceil((sel.x1 + pad) / s));
+  const Y1 = Math.min(work.height - 1, Math.ceil((sel.y1 + pad) / s));
   const W = X1 - X0 + 1, H = Y1 - Y0 + 1;
   if(W < 2 || H < 2) return false;
 
@@ -520,16 +593,13 @@ function eraseComp(comp){
 
   const idata = ctx.getImageData(X0, Y0, W, H);
   const px = idata.data;
-  // この物にあたる画素（検出画像の番号を作業画像の解像度へ拡大）＋ふちを少し太らせる
+  // 選んだ範囲（検出画像の解像度）を作業画像の解像度へ拡大する
   const hole = new Uint8Array(W*H);
   for(let y=0;y<H;y++){
     const dy = Math.min(det.h-1, Math.floor((Y0 + y) * s));
     for(let x=0;x<W;x++){
       const dx = Math.min(det.w-1, Math.floor((X0 + x) * s));
-      const di = dy*det.w + dx, lab = det.label[di];
-      // この物の画素、または「めじるしにならなかった小さい破片」も一緒に払う
-      // （払わないと、隣にくっついた小片が永久に消えず、机に色が残る）
-      if(lab === comp.id || (det.objMask[di] && !det.keptIds.has(lab))) hole[y*W+x] = 1;
+      if(sel.mask[dy*det.w + dx]) hole[y*W+x] = 1;
     }
   }
   const grow = Math.max(1, Math.round(pad / s));
@@ -572,10 +642,7 @@ function eraseComp(comp){
     pc.globalCompositeOperation = "destination-in";
     pc.drawImage(fcv, 0, 0);
     ctx.drawImage(pcv, X0, Y0);
-    undoStack.push({ x: X0, y: Y0, cv: before, size: comp.size, id: comp.id });
-    if(undoStack.length > 30) undoStack.shift();
-    det.comps = det.comps.filter(c => c.id !== comp.id);
-    erased++; erasedArea += comp.size;
+    finishErase(X0, Y0, before, sel);
     return true;
   }
 
@@ -608,12 +675,29 @@ function eraseComp(comp){
     ctx.save(); ctx.globalAlpha = 0.55; ctx.drawImage(bcv, X0, Y0); ctx.restore();
   }catch(_){}
 
-  undoStack.push({ x: X0, y: Y0, cv: before, size: comp.size, id: comp.id });
-  if(undoStack.length > 30) undoStack.shift();
-  // 消した物はめじるしから外す
-  det.comps = det.comps.filter(c => c.id !== comp.id);
-  erased++; erasedArea += comp.size;
+  finishErase(X0, Y0, before, sel);
   return true;
+}
+// 選んだ範囲のうち「物っぽい画素」がどれだけ含まれるか（進みぐあいの分子。
+// 下じきを選んで消しても数が増えないようにするため、面積そのものは使わない）
+function objOverlap(sel){
+  let n = 0;
+  for(let y=sel.y0; y<=sel.y1; y++){
+    const row = y*det.w;
+    for(let x=sel.x0; x<=sel.x1; x++){
+      const i = row + x;
+      if(sel.mask[i] && det.objMask[i]) n++;
+    }
+  }
+  return n;
+}
+// 消したあとの後片づけ（戻す用の絵を積む・数を数える・めじるしから外す）
+function finishErase(X0, Y0, before, sel){
+  const gain = objOverlap(sel);
+  undoStack.push({ x: X0, y: Y0, cv: before, size: gain, id: sel.compId || 0 });
+  if(undoStack.length > 30) undoStack.shift();
+  if(sel.compId) det.comps = det.comps.filter(c => c.id !== sel.compId);
+  erased++; erasedArea += gain;
 }
 function undoErase(){
   const u = undoStack.pop();
@@ -622,8 +706,7 @@ function undoErase(){
   erased = Math.max(0, erased - 1);
   erasedArea = Math.max(0, erasedArea - u.size);
   sndUndo();
-  // 消した物をめじるしに戻す（並びは面積順のまま）
-  recoverComp(u.id);
+  if(u.id) recoverComp(u.id);
   picked = null; padExtra = 0;
   updateObjsUI(); drawObjs();
   log("1個もどしました（消した " + erased + "個）");
@@ -673,21 +756,23 @@ function drawObjs(){
   const k = b.w / det.w;   // 検出画像 → 画面
   if(showMarks){
     for(const c of det.comps){
-      const isSel = picked && picked.comp.id === c.id;
-      if(isSel) continue;
       ctx.beginPath();
       ctx.arc(b.x + c.cx*k, b.y + c.cy*k, Math.max(4, 6*dpr), 0, Math.PI*2);
       ctx.fillStyle = "rgba(255,209,102,0.85)"; ctx.fill();
       ctx.lineWidth = Math.max(1, 1.5*dpr); ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.stroke();
     }
   }
+  // 選んだ範囲を、そのままの形で緑に塗って見せる（四角ではなく実際に消える形）
   if(picked){
-    const c = picked.comp, pad = (4 + padExtra);
-    const x = b.x + (c.x0 - pad)*k, y = b.y + (c.y0 - pad)*k;
-    const w = (c.x1 - c.x0 + pad*2)*k, h = (c.y1 - c.y0 + pad*2)*k;
-    ctx.strokeStyle = "#7ee0a0"; ctx.lineWidth = Math.max(2, 3*dpr);
+    if(!picked.ov) picked.ov = maskToCanvas(picked.mask);
+    ctx.save();
+    ctx.globalAlpha = 0.45; ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(picked.ov, b.x, b.y, b.w, b.h);
+    ctx.restore();
+    const x = b.x + picked.x0*k, y = b.y + picked.y0*k;
+    const w = (picked.x1 - picked.x0 + 1)*k, h = (picked.y1 - picked.y0 + 1)*k;
+    ctx.strokeStyle = "#7ee0a0"; ctx.lineWidth = Math.max(2, 2.5*dpr);
     ctx.setLineDash([8*dpr, 5*dpr]); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(126,224,160,0.16)"; ctx.fillRect(x, y, w, h);
   }
   if(poof){
     const t = poof.t;
@@ -698,58 +783,100 @@ function drawObjs(){
     ctx.restore();
   }
 }
+// 範囲の形をそのまま緑の絵にする（検出解像度の小さな画像なので軽い）
+function maskToCanvas(mask){
+  const cv = document.createElement("canvas"); cv.width = det.w; cv.height = det.h;
+  const c = cv.getContext("2d");
+  const im = c.createImageData(det.w, det.h);
+  const d = im.data;
+  for(let i=0;i<det.w*det.h;i++){
+    if(!mask[i]) continue;
+    d[i*4] = 126; d[i*4+1] = 224; d[i*4+2] = 160; d[i*4+3] = 255;
+  }
+  c.putImageData(im, 0, 0);
+  return cv;
+}
 function updateObjsUI(){
-  const found = det ? det.comps.length : 0;
   $("objsCount").textContent = "消した " + erased + " 個";
-  $("objsInfo").textContent = spotName + "・のこり " + found;
+  $("objsInfo").textContent = spotName + (brushMode ? "・なぞる" : "");
   const pct = Math.min(100, Math.round(erasedArea / totalObjArea * 100));
   $("barIn").style.width = pct + "%";
-  $("eraseBtn").disabled = !picked;
-  $("growBtn").disabled = !picked;
-  $("shrinkBtn").disabled = !picked;
+  const has = !!(picked && picked.size > 0);
+  $("eraseBtn").disabled = !has;
+  $("growBtn").disabled = !has;
+  $("shrinkBtn").disabled = !has;
   $("undoBtn").disabled = undoStack.length === 0;
-  $("objsHint").innerHTML = picked
-    ? "この緑のわくを消します。ずれていたら<b>もっと広く／せばめる</b>、ちがう物なら別のところをタップ。"
-    : (found ? "片づけた物を写真の上でタップしてください。" : "めじるしがありません。<b>めじるし切替</b>で点を出すか、写真を撮り直してください。");
+  $("brushBtn").textContent = brushMode ? "なぞる：オン" : "なぞって選ぶ";
+  $("objsHint").innerHTML = brushMode
+    ? "消したい所を<b>指でなぞって</b>ください。なぞった所がそのまま消えます。"
+    : (has
+      ? "緑の所が消えます。<b>もっと広く／せばめる</b>で調整、ちがう物なら別の所をタップ。うまく取れないときは<b>なぞって選ぶ</b>。"
+      : "片づけた物を、写真の上で<b>タップ</b>してください（その色のかたまりを拾います）。");
 }
-function pickAt(clientX, clientY){
-  if(!det || !objsBox) return;
+// 画面の座標 → 検出画像の座標
+function toDet(clientX, clientY){
+  if(!det || !objsBox) return null;
   const cv = $("objsCv"), r = cv.getBoundingClientRect();
   const dpr = Math.min(devicePixelRatio||1, 2);
   const px = (clientX - r.left) * dpr, py = (clientY - r.top) * dpr;
   const k = objsBox.w / det.w;
   const dx = (px - objsBox.x) / k, dy = (py - objsBox.y) / k;
-  if(dx < 0 || dy < 0 || dx >= det.w || dy >= det.h) return;
-  const id = det.label[Math.floor(dy)*det.w + Math.floor(dx)];
-  let comp = id ? det.comps.find(c=>c.id === id) : null;
-  if(!comp){
-    // 点を外しても、近い物を拾ってあげる
-    let bestD = 1e9;
-    for(const c of det.comps){
-      const d = (c.cx-dx)*(c.cx-dx) + (c.cy-dy)*(c.cy-dy);
-      if(d < bestD){ bestD = d; comp = c; }
-    }
-    if(!comp || bestD > (det.w*0.09)*(det.w*0.09)) { picked = null; updateObjsUI(); drawObjs(); return; }
+  if(dx < 0 || dy < 0 || dx >= det.w || dy >= det.h) return null;
+  return { dx, dy };
+}
+let lastSeed = null;
+function pickAt(clientX, clientY){
+  const p = toDet(clientX, clientY);
+  if(!p) return;
+  pickDet(p.dx, p.dy);
+}
+function pickDet(dx, dy){
+  const p = { dx, dy };
+  lastSeed = p;
+  const sel = growFrom(p.dx, p.dy, growTol);
+  if(!sel){ toast("うまく拾えませんでした。もう一度タップか「なぞって選ぶ」"); return; }
+  // 下じき（机の面）をタップすると、色が続いている限りどこまでも広がってしまう。
+  // 「やたら広い＋物っぽい画素がほとんど無い」なら机を掴んだと判断して断る。
+  const cover = objOverlap(sel) / Math.max(1, sel.size);
+  if(sel.capped || (sel.size > det.w*det.h*0.06 && cover < 0.15)){
+    picked = null; updateObjsUI(); drawObjs();
+    toast("ここは机や床の面みたいです。物の上をタップしてください");
+    return;
   }
-  picked = { comp }; padExtra = 0;
+  picked = sel; padExtra = 0;
   sndPick(); updateObjsUI(); drawObjs();
 }
+// もっと広く／せばめる = 色の許容差を変えて、同じ場所から作り直す
+function regrow(d){
+  growTol = Math.max(20, Math.min(240, growTol + d));
+  if(picked && picked.brush){
+    // なぞりの選択は太さを変える
+    brushR = Math.max(3, Math.min(40, brushR + (d > 0 ? 3 : -3)));
+    toast("なぞる太さ " + brushR);
+    updateObjsUI(); return;
+  }
+  if(!lastSeed) return;
+  const sel = growFrom(lastSeed.dx, lastSeed.dy, growTol);
+  if(sel){ picked = sel; }
+  sndPick(); updateObjsUI(); drawObjs();
+  toast("色の許容差 " + growTol);
+}
 function doErase(){
-  if(!picked) return;
-  const c = picked.comp;
+  if(!picked || !picked.size) return;
+  const sel = picked;
   // 消える前の見た目を取っておいて、吸い込まれるように縮めて見せる
-  const b = objsBox, k = b ? b.w/det.w : 1;
+  const b = objsBox;
   const s = det.scale;
   const pad = 4 + padExtra;
-  const X0 = Math.max(0, Math.floor((c.x0 - pad)/s)), Y0 = Math.max(0, Math.floor((c.y0 - pad)/s));
-  const X1 = Math.min(work.width-1, Math.ceil((c.x1 + pad)/s)), Y1 = Math.min(work.height-1, Math.ceil((c.y1 + pad)/s));
+  const X0 = Math.max(0, Math.floor((sel.x0 - pad)/s)), Y0 = Math.max(0, Math.floor((sel.y0 - pad)/s));
+  const X1 = Math.min(work.width-1, Math.ceil((sel.x1 + pad)/s)), Y1 = Math.min(work.height-1, Math.ceil((sel.y1 + pad)/s));
   const pw = Math.max(1, X1-X0+1), ph = Math.max(1, Y1-Y0+1);
   const snap = document.createElement("canvas"); snap.width = pw; snap.height = ph;
   snap.getContext("2d").drawImage(work, X0, Y0, pw, ph, 0, 0, pw, ph);
 
-  const ok = eraseComp(c);
+  const ok = eraseSel(sel);
   picked = null; padExtra = 0;
-  if(!ok){ toast("この物は消せませんでした"); updateObjsUI(); drawObjs(); return; }
+  if(!ok){ toast("ここは消せませんでした"); updateObjsUI(); drawObjs(); return; }
   sndPop(erased); vib(35);
   if(b){
     const ws = (work.width ? b.w/work.width : 1);
@@ -757,7 +884,6 @@ function doErase(){
     animPoof();
   }
   updateObjsUI(); drawObjs();
-  if(det.comps.length === 0) setTimeout(finishObjs, 700);
 }
 function animPoof(){
   if(!poof) return;
@@ -768,8 +894,9 @@ function animPoof(){
 }
 function finishObjs(){
   sndAll(); vib(120);
-  $("doneHead").textContent = (det && det.comps.length === 0 && erased > 0) ? "ぜんぶ消えました" : "きょうはここまで";
-  $("doneText").textContent = erased + "個 片づけました。" + (det ? "のこり " + det.comps.length + "個。" : "");
+  const pct = Math.min(100, Math.round(erasedArea / totalObjArea * 100));
+  $("doneHead").textContent = (pct >= 85) ? "ほとんど消えました" : "きょうはここまで";
+  $("doneText").textContent = erased + "個 片づけました（写真の中の物が およそ " + pct + "% 消えました）。";
   $("beforeAfterBtn").style.display = erased > 0 ? "block" : "none";
   go("done");
 }
@@ -906,19 +1033,46 @@ $("file").addEventListener("change", async ev=>{
     else { offX = 0; offY = 0; buildOrder(); updateProgress(); go("grid"); }
   }catch(e){ showErr("写真を読めませんでした：" + (e.message || e)); }
 });
-$("objsWrap").addEventListener("pointerdown", e=>{ pickAt(e.clientX, e.clientY); });
+{
+  const wrap = $("objsWrap");
+  let painting = false;
+  wrap.addEventListener("pointerdown", e=>{
+    if(brushMode){
+      painting = true; picked = null;
+      const p = toDet(e.clientX, e.clientY); if(p) brushAt(p.dx, p.dy);
+      wrap.setPointerCapture(e.pointerId);
+      updateObjsUI(); drawObjs();
+    }else{
+      pickAt(e.clientX, e.clientY);
+    }
+  });
+  wrap.addEventListener("pointermove", e=>{
+    if(!brushMode || !painting) return;
+    const p = toDet(e.clientX, e.clientY); if(p) brushAt(p.dx, p.dy);
+    drawObjs();
+  });
+  const stop = ()=>{ if(painting){ painting = false; sndPick(); updateObjsUI(); drawObjs(); } };
+  ["pointerup","pointercancel","pointerleave"].forEach(t=>wrap.addEventListener(t, stop));
+}
 $("eraseBtn").addEventListener("click", doErase);
-$("growBtn").addEventListener("click", ()=>{ if(!picked) return; padExtra = Math.min(24, padExtra + 3); sndPick(); drawObjs(); });
-$("shrinkBtn").addEventListener("click", ()=>{ if(!picked) return; padExtra = Math.max(-2, padExtra - 3); sndPick(); drawObjs(); });
+$("growBtn").addEventListener("click", ()=>regrow(+25));
+$("shrinkBtn").addEventListener("click", ()=>regrow(-25));
+$("brushBtn").addEventListener("click", ()=>{
+  brushMode = !brushMode; picked = null;
+  sndPick(); updateObjsUI(); drawObjs();
+  log(brushMode ? "なぞって選ぶモード" : "タップで選ぶモード");
+});
 $("undoBtn").addEventListener("click", undoErase);
 $("markBtn").addEventListener("click", ()=>{
-  // めじるしが多すぎ／少なすぎのときは、しきい値を回して作り直す
+  // めじるしは「参考の点」。既定オフ。押すと表示→しきい値を回す→…と切り替わる
+  if(!showMarks){ showMarks = true; drawObjs(); toast("めじるしを表示（あくまで参考です）"); return; }
   const steps = [40, 52, 62, 78, 96];
-  let i = steps.indexOf(detTh); i = (i < 0) ? 2 : (i + 1) % steps.length;
-  detTh = steps[i];
-  const keepErased = erased, keepArea = erasedArea;
+  let i = steps.indexOf(detTh);
+  if(i >= steps.length - 1){ showMarks = false; drawObjs(); toast("めじるしを消しました"); return; }
+  detTh = steps[(i < 0 ? 2 : i + 1)];
+  const keepErased = erased, keepArea = erasedArea, keepTotal = totalObjArea;
   detect();
-  erased = keepErased; erasedArea = keepArea;
+  erased = keepErased; erasedArea = keepArea; totalObjArea = keepTotal;
   updateObjsUI(); drawObjs();
   toast("めじるしを作り直しました（" + (det ? det.comps.length : 0) + "個）");
 });
@@ -1016,7 +1170,9 @@ window.__dbg = {
       hasImg: !!img, imgW: img && img.width, imgH: img && img.height,
       found: det ? det.comps.length : 0, detTh, erased,
       erasedArea, totalObjArea, pctText: $("barIn").style.width,
-      picked: picked ? picked.comp.id : null, padExtra, undo: undoStack.length,
+      picked: picked ? (picked.compId || (picked.brush ? "brush" : "grow")) : null,
+      pickedSize: picked ? picked.size : 0, growTol, brushMode, brushR,
+      padExtra, undo: undoStack.length,
       cells, offX: Math.round(offX*1000)/1000, offY: Math.round(offY*1000)/1000,
       total: order.length, idx, doneCount, laterCount, spotName,
       countText: $("objsCount").textContent, infoText: $("objsInfo").textContent,
@@ -1052,8 +1208,15 @@ window.__dbg = {
   setTh(v){ detTh = v; detect(); drawObjs(); return this.state(); },
   comps(){ return det ? det.comps.map(c=>({id:c.id,size:c.size,cx:Math.round(c.cx),cy:Math.round(c.cy)})) : []; },
   // 画面座標を経由せず、番号で直接えらぶ（検証用）
-  pickId(id){ const c = det && det.comps.find(x=>x.id===id); if(!c) return "なし"; picked={comp:c}; padExtra=0; updateObjsUI(); drawObjs(); return this.state(); },
+  pickId(id){ const c = det && det.comps.find(x=>x.id===id); if(!c) return "なし"; picked = selFromComp(c); padExtra=0; updateObjsUI(); drawObjs(); return this.state(); },
   pickFirst(){ return det && det.comps.length ? this.pickId(det.comps[0].id) : "なし"; },
+  // 人がタップしたのと同じ経路（検出画像の座標で指定）
+  tap(dx, dy){ pickDet(dx, dy); return this.state(); },
+  regrow(d){ regrow(d); return this.state(); },
+  brush(on){ brushMode = !!on; picked = null; updateObjsUI(); drawObjs(); return this.state(); },
+  paint(dx, dy){ brushAt(dx, dy); updateObjsUI(); drawObjs(); return this.state(); },
+  sel(){ return picked ? { size: picked.size, box: [picked.x0, picked.y0, picked.x1, picked.y1], brush: !!picked.brush } : null; },
+  det(){ return det ? { w: det.w, h: det.h, scale: Math.round(det.scale*1000)/1000, comps: det.comps.length, bgc: det.bgc.map(v=>Math.round(v)) } : null; },
   erase(){ doErase(); poof = null; return this.state(); },
   undo(){ undoErase(); return this.state(); },
   // 消した所が本当に地の色に近づいたかを測る（1個ずつ消えている証拠）
