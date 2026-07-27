@@ -7,8 +7,10 @@ import {
 } from "../../_lib/handoff.js";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_ITEMS = 30;
 const EXPIRES_MS = 5 * 60 * 1000;
 const CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
+const ID_RE = /^[0-9a-z]{6,24}$/;
 const MAX_NAME_CHARS = 120;
 
 function normalizeCode(value) {
@@ -16,8 +18,12 @@ function normalizeCode(value) {
   return CODE_RE.test(code) ? code : null;
 }
 
-function objectKey(code) {
-  return `filesync/${code}.bin`;
+function keyPrefix(code) {
+  return `filesync/${code}/`;
+}
+
+function objectKey(code, id) {
+  return keyPrefix(code) + id;
 }
 
 function requireBucket(env) {
@@ -67,66 +73,96 @@ function decodeName(metadata) {
   }
 }
 
-async function getLiveObject(bucket, key, withBody) {
-  const object = withBody ? await bucket.get(key) : await bucket.head(key);
+function generateId() {
+  const random = new Uint8Array(6);
+  crypto.getRandomValues(random);
 
-  if (!object) {
-    return null;
+  let suffix = "";
+  for (let i = 0; i < random.length; i++) {
+    suffix += (random[i] % 36).toString(36);
   }
 
-  if (isExpired(object.customMetadata)) {
-    await bucket.delete(key);
-    return null;
+  return Date.now().toString(36) + suffix;
+}
+
+// 置き場の中身を一覧し、期限切れはその場で削除して除外する。
+async function listLiveItems(bucket, code) {
+  const listed = await bucket.list({
+    prefix: keyPrefix(code),
+    include: ["customMetadata"],
+    limit: 1000,
+  });
+
+  const live = [];
+  const expiredKeys = [];
+
+  for (const object of listed.objects || []) {
+    if (isExpired(object.customMetadata)) {
+      expiredKeys.push(object.key);
+      continue;
+    }
+
+    const meta = object.customMetadata || {};
+    live.push({
+      id: object.key.slice(keyPrefix(code).length),
+      name: decodeName(meta),
+      size: object.size,
+      type: meta.type || "application/octet-stream",
+      updatedAt: meta.updatedAt || null,
+    });
   }
 
-  return object;
+  if (expiredKeys.length > 0) {
+    await Promise.all(expiredKeys.map((key) => bucket.delete(key)));
+  }
+
+  live.sort(function (a, b) {
+    return String(a.updatedAt).localeCompare(String(b.updatedAt));
+  });
+
+  return live;
 }
 
 async function handleGet(context) {
   const bucket = requireBucket(context.env);
   const code = requireCode(context);
-  const key = objectKey(code);
   const url = new URL(context.request.url);
-  const wantsBody = url.searchParams.get("body") === "1";
+  const id = url.searchParams.get("id");
 
-  const object = await getLiveObject(bucket, key, wantsBody);
-
-  if (!object) {
-    if (wantsBody) {
-      throw new HandoffError(
-        404,
-        "NOT_FOUND",
-        "ファイルがありません。期限切れ（5分）の可能性があります。",
-      );
-    }
+  if (!id) {
+    const items = await listLiveItems(bucket, code);
 
     return jsonResponse(200, {
       ok: true,
-      updatedAt: null,
-      name: "",
-      size: 0,
-      type: "",
+      items,
     });
+  }
+
+  if (!ID_RE.test(id)) {
+    throw new HandoffError(400, "INVALID_ID", "ファイルの指定が正しくありません。");
+  }
+
+  const object = await bucket.get(objectKey(code, id));
+
+  if (!object || isExpired(object.customMetadata)) {
+    if (object) {
+      await bucket.delete(objectKey(code, id));
+    }
+
+    throw new HandoffError(
+      404,
+      "NOT_FOUND",
+      "このファイルはもうありません。期限切れ（5分）の可能性があります。",
+    );
   }
 
   const meta = object.customMetadata || {};
-
-  if (!wantsBody) {
-    return jsonResponse(200, {
-      ok: true,
-      updatedAt: meta.updatedAt || null,
-      name: decodeName(meta),
-      size: object.size,
-      type: meta.type || "application/octet-stream",
-    });
-  }
 
   return new Response(object.body, {
     status: 200,
     headers: {
       "Content-Type": meta.type || "application/octet-stream",
       "Cache-Control": "no-store",
-      "X-Updated-At": meta.updatedAt || "",
     },
   });
 }
@@ -154,7 +190,17 @@ async function handlePut(context) {
     throw new HandoffError(
       413,
       "TOO_LARGE",
-      "送れるファイルは100MBまでです。",
+      "送れるファイルは1件100MBまでです。",
+    );
+  }
+
+  const existing = await listLiveItems(bucket, code);
+
+  if (existing.length >= MAX_ITEMS) {
+    throw new HandoffError(
+      409,
+      "TOO_MANY_ITEMS",
+      `この合言葉には${MAX_ITEMS}件まで置けます。「内容を消す」で空けるか、5分待ってください。`,
     );
   }
 
@@ -185,8 +231,9 @@ async function handlePut(context) {
   const now = new Date();
   const updatedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + EXPIRES_MS).toISOString();
+  const id = generateId();
 
-  await bucket.put(objectKey(code), request.body, {
+  await bucket.put(objectKey(code, id), request.body, {
     httpMetadata: {
       contentType: type,
       cacheControl: "no-store",
@@ -201,6 +248,7 @@ async function handlePut(context) {
 
   return jsonResponse(200, {
     ok: true,
+    id,
     updatedAt,
   });
 }
@@ -211,7 +259,17 @@ async function handleDelete(context) {
   const code = requireCode(context);
 
   assertSameOrigin(request);
-  await bucket.delete(objectKey(code));
+
+  const listed = await bucket.list({
+    prefix: keyPrefix(code),
+    limit: 1000,
+  });
+
+  const keys = (listed.objects || []).map((object) => object.key);
+
+  if (keys.length > 0) {
+    await Promise.all(keys.map((key) => bucket.delete(key)));
+  }
 
   return jsonResponse(200, {
     ok: true,
