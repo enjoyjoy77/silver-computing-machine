@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>暗号ファイル同期</title>
+<style>
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #f2f4f2;
+    margin: 0;
+    padding: 16px;
+    color: #222;
+  }
+
+  .rev {
+    position: fixed;
+    top: 6px;
+    right: 10px;
+    font-size: 11px;
+    color: #999;
+  }
+
+  .wrap {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 4px;
+  }
+
+  .sub {
+    font-size: 12px;
+    color: #2e7d46;
+    margin: 0 0 14px;
+  }
+
+  .panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .code-label {
+    display: block;
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+
+  .code-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  #codeInput {
+    min-width: 0;
+    flex: 1;
+    box-sizing: border-box;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: Consolas, monospace;
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  button {
+    border: none;
+    border-radius: 8px;
+    background: #2e7d46;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 14px;
+  }
+
+  button:active {
+    background: #1f5931;
+  }
+
+  button:disabled {
+    background: #a8bcae;
+    cursor: default;
+  }
+
+  .secondary {
+    background: #687386;
+  }
+
+  .secondary:active {
+    background: #505967;
+  }
+
+  .danger {
+    background: #c0392b;
+  }
+
+  .danger:active {
+    background: #922b21;
+  }
+
+  .code-info {
+    display: none;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.6;
+  }
+
+  .code-info.visible {
+    display: block;
+  }
+
+  .code-value {
+    font-family: Consolas, monospace;
+    font-weight: bold;
+    letter-spacing: 0.06em;
+  }
+
+  .change-link {
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #2e7d46;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .change-link:active {
+    background: transparent;
+    color: #1f5931;
+  }
+
+  .hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .file-area {
+    margin-top: 14px;
+  }
+
+  .send-panel {
+    background: #fff;
+    border: 2px dashed #a9c6b3;
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+  }
+
+  .send-panel.drag {
+    border-color: #2e7d46;
+    background: #edf6f0;
+  }
+
+  .send-panel p {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.7;
+  }
+
+  .recv-panel {
+    margin-top: 14px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .recv-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 0 0 8px;
+  }
+
+  .recv-title {
+    font-size: 13px;
+    color: #555;
+    margin: 0;
+  }
+
+  #itemCount {
+    font-size: 12px;
+    color: #888;
+  }
+
+  #recvList {
+    max-height: 55vh;
+    overflow: auto;
+  }
+
+  #recvEmpty {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 10px;
+  }
+
+  .item {
+    border: 1px solid #e2e6ec;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+
+  .item img {
+    display: block;
+    max-width: 100%;
+    max-height: 32vh;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    margin-bottom: 8px;
+  }
+
+  .item-name {
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    color: #333;
+    margin: 0 0 8px;
+  }
+
+  .item button {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .button-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .button-row button {
+    flex: 1;
+  }
+
+  .under-text {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  #status {
+    color: #555;
+    overflow-wrap: anywhere;
+  }
+
+  #status.error {
+    color: #c0392b;
+    font-weight: bold;
+  }
+
+  #status.success {
+    color: #237a3b;
+  }
+
+  #startupError {
+    display: none;
+    background: #fff;
+    border: 1px solid #e2b5b0;
+    border-radius: 10px;
+    color: #a93226;
+    padding: 14px;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 420px) {
+    .code-row,
+    .button-row {
+      flex-direction: column;
+    }
+
+    #codeInput {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="rev">rev1</div>
+
+<div class="wrap">
+  <h1>暗号ファイル同期</h1>
+  <p class="sub">🔒 ファイルは暗号化してから送るので、サーバーの運営にも中身は見えません</p>
+
+  <div id="startupError"></div>
+
+  <main id="app">
+    <section class="panel">
+      <div id="codeSetup">
+        <label class="code-label" for="codeInput">合言葉（10文字・暗号の鍵を兼ねます）</label>
+        <div class="code-row">
+          <input
+            id="codeInput"
+            type="text"
+            maxlength="10"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            inputmode="text"
+            placeholder="例: 7K3M2P9X4A"
+          >
+          <button id="useCodeBtn" type="button">この合言葉を使う</button>
+        </div>
+        <button id="makeCodeBtn" class="secondary" type="button">
+          合言葉を作る
+        </button>
+        <p class="hint">
+          もう片方の端末でも同じ合言葉を入力してください。I（アイ）とO（オー）は使用しません。
+          自分で決めるより「合言葉を作る」で作った10文字の方が安全です。
+        </p>
+      </div>
+
+      <div id="codeInfo" class="code-info">
+        合言葉:
+        <span id="currentCode" class="code-value"></span>
+        <button id="changeCodeBtn" class="change-link" type="button">
+          変える
+        </button>
+      </div>
+    </section>
+
+    <section class="file-area">
+      <div class="send-panel" id="dropZone">
+        <button id="pickBtn" type="button" disabled>ファイルを選ぶ（複数OK）</button>
+        <input id="fileInput" type="file" multiple hidden>
+        <p>
+          何件でも追加で送れます（1件100MB・合計30件まで）。<br>
+          暗号化のぶん、ふつう版より少しだけ時間がかかります。<br>
+          パソコンでは、スクリーンショットをコピーして
+          この画面で貼り付け（Ctrl+V）でも、
+          ファイルをこの枠にドラッグしても送れます。
+        </p>
+      </div>
+
+      <div class="recv-panel">
+        <div class="recv-head">
+          <p class="recv-title">届いているファイル</p>
+          <span id="itemCount"></span>
+        </div>
+        <div id="recvList"></div>
+        <p id="recvEmpty">まだありません。</p>
+        <div class="button-row">
+          <button id="saveAllBtn" type="button" disabled>全部保存する</button>
+          <button id="clearBtn" class="danger" type="button" disabled>
+            全部消す
+          </button>
+        </div>
+      </div>
+
+      <div class="under-text">
+        <span id="status">合言葉を設定してください。</span>
+      </div>
+
+      <p class="hint">
+        送ったファイルは1件ずつ、送ってから5分たつと自動で消えます。
+        サーバーには暗号化された状態でしか置かれませんが、
+        合言葉を知っている人はだれでも開けられます。合言葉は人に教えないでください。
+      </p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "fileSyncAngouCode";
+  var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  var CODE_RE = /^[0-9A-HJ-NP-Z]{10}$/;
+  var POLL_INTERVAL_MS = 2500;
+  var MAX_FILE_BYTES = 100 * 1024 * 1024;
+  // 暗号化で少し大きくなるぶんの余裕(ヘッダー+認証タグで数百バイト)
+  var ENC_OVERHEAD = 1024;
+  // これ以下の大きさなら、届いた時に自動で中身を開いて表示する
+  var AUTO_OPEN_BYTES = 10 * 1024 * 1024;
+  var MAGIC = "FSENC1";
+  var PBKDF2_ITER = 300000;
+  var FIXED_SALT = "filesync-angou-v1";
+
+  var appEl = document.getElementById("app");
+  var startupErrorEl = document.getElementById("startupError");
+  var codeSetupEl = document.getElementById("codeSetup");
+  var codeInfoEl = document.getElementById("codeInfo");
+  var codeInputEl = document.getElementById("codeInput");
+  var useCodeBtn = document.getElementById("useCodeBtn");
+  var makeCodeBtn = document.getElementById("makeCodeBtn");
+  var currentCodeEl = document.getElementById("currentCode");
+  var changeCodeBtn = document.getElementById("changeCodeBtn");
+  var dropZone = document.getElementById("dropZone");
+  var pickBtn = document.getElementById("pickBtn");
+  var fileInput = document.getElementById("fileInput");
+  var recvListEl = document.getElementById("recvList");
+  var recvEmptyEl = document.getElementById("recvEmpty");
+  var itemCountEl = document.getElementById("itemCount");
+  var saveAllBtn = document.getElementById("saveAllBtn");
+  var clearBtn = document.getElementById("clearBtn");
+  var statusEl = document.getElementById("status");
+
+  var currentCode = "";
+  var lockerCode = "";
+  var aesKey = null;
+  var pollTimer = null;
+  var sending = false;
+  var requestGeneration = 0;
+
+  // 画面に出している項目。id -> { meta, element, nameEl, imgSlot,
+  //   opened(復号済みか), name, type, dataBlob }
+  var shownItems = {};
+
+  function setStatus(message, kind) {
+    statusEl.textContent = message;
+    statusEl.className = kind || "";
+  }
+
+  function formatTime(date) {
+    function twoDigits(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    return (
+      twoDigits(date.getHours()) +
+      ":" +
+      twoDigits(date.getMinutes()) +
+      ":" +
+      twoDigits(date.getSeconds())
+    );
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + " KB";
+    }
+
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function normalizeCode(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+
+  function isValidCode(value) {
+    return CODE_RE.test(value);
+  }
+
+  function apiUrl(id) {
+    return (
+      "/api/file/" +
+      encodeURIComponent(lockerCode) +
+      (id ? "?id=" + encodeURIComponent(id) : "")
+    );
+  }
+
+  function enableControls(enabled) {
+    pickBtn.disabled = !enabled;
+    clearBtn.disabled = !enabled;
+  }
+
+  function updateListChrome() {
+    var ids = Object.keys(shownItems);
+    recvEmptyEl.style.display = ids.length === 0 ? "block" : "none";
+    itemCountEl.textContent = ids.length === 0 ? "" : ids.length + "件";
+    saveAllBtn.disabled = ids.length === 0;
+  }
+
+  // ---- 暗号まわり ----------------------------------------------------
+
+  function supportsCrypto() {
+    return !!(
+      window.crypto &&
+      crypto.subtle &&
+      typeof crypto.subtle.importKey === "function" &&
+      typeof TextEncoder !== "undefined"
+    );
+  }
+
+  // 合言葉から「サーバーに渡す置き場番号(6文字)」と「暗号の鍵」を別々に作る。
+  // サーバーが受け取るのは置き場番号だけで、そこから合言葉や鍵は逆算できない。
+  async function deriveFromPhrase(phrase) {
+    var encoder = new TextEncoder();
+
+    var locDigest = await crypto.subtle.digest(
+      "SHA-256",
+      encoder.encode("locker:" + FIXED_SALT + ":" + phrase),
+    );
+    var locBytes = new Uint8Array(locDigest);
+    var loc = "";
+
+    for (var i = 0; i < 6; i++) {
+      loc += CODE_ALPHABET.charAt(locBytes[i] % CODE_ALPHABET.length);
+    }
+
+    var baseKey = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(phrase),
+      "PBKDF2",
+      false,
+      ["deriveKey"],
+    );
+
+    var key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: encoder.encode("key:" + FIXED_SALT),
+        iterations: PBKDF2_ITER,
+        hash: "SHA-256",
+      },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+
+    return { loc: loc, key: key };
+  }
+
+  // 送る箱 = MAGIC(6) + iv(12) + 暗号文。
+  // 暗号文の中身 = ヘッダー長(4byte) + ヘッダーJSON({name,type}) + ファイル本体。
+  async function encryptFile(file) {
+    var encoder = new TextEncoder();
+    var headerBytes = encoder.encode(
+      JSON.stringify({
+        name: file.name || "clipboard.png",
+        type: file.type || "application/octet-stream",
+      }),
+    );
+
+    var fileBytes = new Uint8Array(await file.arrayBuffer());
+    var plain = new Uint8Array(4 + headerBytes.length + fileBytes.length);
+    new DataView(plain.buffer).setUint32(0, headerBytes.length, true);
+    plain.set(headerBytes, 4);
+    plain.set(fileBytes, 4 + headerBytes.length);
+
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+
+    var cipher = new Uint8Array(
+      await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aesKey, plain),
+    );
+
+    var magicBytes = encoder.encode(MAGIC);
+    var out = new Uint8Array(magicBytes.length + iv.length + cipher.length);
+    out.set(magicBytes, 0);
+    out.set(iv, magicBytes.length);
+    out.set(cipher, magicBytes.length + iv.length);
+
+    return new Blob([out], { type: "application/octet-stream" });
+  }
+
+  async function decryptBuffer(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var decoder = new TextDecoder();
+
+    if (
+      bytes.length < 6 + 12 + 17 ||
+      decoder.decode(bytes.subarray(0, 6)) !== MAGIC
+    ) {
+      throw new Error("これは暗号ファイル同期のデータではありません。");
+    }
+
+    var iv = bytes.subarray(6, 18);
+    var cipher = bytes.subarray(18);
+
+    var plain;
+
+    try {
+      plain = new Uint8Array(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv },
+          aesKey,
+          cipher,
+        ),
+      );
+    } catch (error) {
+      throw new Error("開けませんでした。合言葉が違う可能性があります。");
+    }
+
+    var headerLength = new DataView(
+      plain.buffer,
+      plain.byteOffset,
+      4,
+    ).getUint32(0, true);
+
+    if (headerLength < 2 || 4 + headerLength > plain.length) {
+      throw new Error("データが壊れています。");
+    }
+
+    var header;
+
+    try {
+      header = JSON.parse(
+        decoder.decode(plain.subarray(4, 4 + headerLength)),
+      );
+    } catch (error) {
+      throw new Error("データが壊れています。");
+    }
+
+    var data = plain.subarray(4 + headerLength);
+
+    return {
+      name: typeof header.name === "string" ? header.name : "received.bin",
+      type: typeof header.type === "string" ? header.type : "application/octet-stream",
+      blob: new Blob([data], {
+        type: typeof header.type === "string" ? header.type : "application/octet-stream",
+      }),
+    };
+  }
+
+  // ---- 通信まわり(ふつう版と同じ型) ---------------------------------
+
+  async function readJsonResponse(response) {
+    var data;
+
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new Error("サーバーから正しい応答を受け取れませんでした。");
+    }
+
+    if (!response.ok || !data || data.ok !== true) {
+      throw new Error(
+        data && data.message
+          ? data.message
+          : "サーバーとの通信に失敗しました。",
+      );
+    }
+
+    return data;
+  }
+
+  async function requestJson(url, options) {
+    var response;
+
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error(
+        "通信できません。この場所のネットワークで止められている可能性があります。",
+      );
+    }
+
+    return readJsonResponse(response);
+  }
+
+  function saveCode(code) {
+    try {
+      localStorage.setItem(STORAGE_KEY, code);
+    } catch (error) {
+      setStatus(
+        "合言葉をブラウザに保存できませんでした。この画面を閉じる前に控えてください。",
+        "error",
+      );
+    }
+  }
+
+  function removeSavedCode() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      // 保存領域が使えなくても、画面の切り替えは続行する。
+    }
+  }
+
+  function loadSavedCode() {
+    try {
+      return normalizeCode(localStorage.getItem(STORAGE_KEY));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function generateCode() {
+    var result = "";
+    var random = new Uint8Array(1);
+    var limit = Math.floor(256 / CODE_ALPHABET.length) *
+      CODE_ALPHABET.length;
+
+    while (result.length < 10) {
+      crypto.getRandomValues(random);
+
+      if (random[0] < limit) {
+        result += CODE_ALPHABET.charAt(
+          random[0] % CODE_ALPHABET.length,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  function stopPolling() {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+
+    if (document.visibilityState === "visible" && currentCode) {
+      pollTimer = setInterval(function () {
+        refreshList(false);
+      }, POLL_INTERVAL_MS);
+    }
+  }
+
+  // ---- 一覧表示 ------------------------------------------------------
+
+  function removeItemFromView(id) {
+    var item = shownItems[id];
+
+    if (!item) {
+      return;
+    }
+
+    if (item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+
+    if (item.element && item.element.parentNode) {
+      item.element.parentNode.removeChild(item.element);
+    }
+
+    delete shownItems[id];
+  }
+
+  function clearAllItemsFromView() {
+    Object.keys(shownItems).forEach(removeItemFromView);
+    updateListChrome();
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name || "received.bin";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 10000);
+  }
+
+  async function fetchAndDecrypt(id) {
+    var item = shownItems[id];
+
+    if (!item) {
+      throw new Error("このファイルはもうありません。");
+    }
+
+    if (item.opened) {
+      return item;
+    }
+
+    var response;
+
+    try {
+      response = await fetch(apiUrl(id), {
+        method: "GET",
+        cache: "no-store",
+      });
+    } catch (error) {
+      throw new Error(
+        "通信できません。この場所のネットワークで止められている可能性があります。",
+      );
+    }
+
+    if (!response.ok) {
+      var data = null;
+
+      try {
+        data = await response.json();
+      } catch (error) {
+        // JSONでない失敗応答は既定文言にする。
+      }
+
+      throw new Error(
+        data && data.message
+          ? data.message
+          : "ファイルを受け取れませんでした。",
+      );
+    }
+
+    var opened = await decryptBuffer(await response.arrayBuffer());
+
+    if (!shownItems[id]) {
+      throw new Error("このファイルはもうありません。");
+    }
+
+    item.opened = true;
+    item.name = opened.name;
+    item.type = opened.type;
+    item.dataBlob = opened.blob;
+    applyOpenedToView(id);
+    return item;
+  }
+
+  function applyOpenedToView(id) {
+    var item = shownItems[id];
+
+    if (!item || !item.opened) {
+      return;
+    }
+
+    item.nameEl.textContent =
+      item.name + "（" + formatSize(item.dataBlob.size) + "）";
+
+    if ((item.type || "").indexOf("image/") === 0 && !item.previewUrl) {
+      var img = document.createElement("img");
+      img.alt = "受信した画像";
+      item.previewUrl = URL.createObjectURL(item.dataBlob);
+      img.src = item.previewUrl;
+      item.element.insertBefore(img, item.nameEl);
+    }
+  }
+
+  function addItemToView(meta, openedInfo) {
+    var element = document.createElement("div");
+    element.className = "item";
+
+    var nameEl = document.createElement("p");
+    nameEl.className = "item-name";
+    nameEl.textContent =
+      "🔒 暗号化ファイル（" + formatSize(meta.size) + "）";
+
+    var saveOneBtn = document.createElement("button");
+    saveOneBtn.type = "button";
+    saveOneBtn.textContent = "保存する";
+    saveOneBtn.addEventListener("click", function () {
+      saveItem(meta.id);
+    });
+
+    element.appendChild(nameEl);
+    element.appendChild(saveOneBtn);
+    recvListEl.appendChild(element);
+
+    shownItems[meta.id] = {
+      meta: meta,
+      element: element,
+      nameEl: nameEl,
+      opened: false,
+      name: "",
+      type: "",
+      dataBlob: null,
+      previewUrl: null,
+    };
+
+    if (openedInfo) {
+      shownItems[meta.id].opened = true;
+      shownItems[meta.id].name = openedInfo.name;
+      shownItems[meta.id].type = openedInfo.type;
+      shownItems[meta.id].dataBlob = openedInfo.blob;
+      applyOpenedToView(meta.id);
+    } else if (meta.size <= AUTO_OPEN_BYTES) {
+      fetchAndDecrypt(meta.id).catch(function (error) {
+        if (shownItems[meta.id]) {
+          shownItems[meta.id].nameEl.textContent =
+            "🔒 " + error.message + "（" + formatSize(meta.size) + "）";
+        }
+      });
+    } else {
+      nameEl.textContent =
+        "🔒 暗号化ファイル（" + formatSize(meta.size) +
+        "・大きいので「保存する」を押した時に開きます）";
+    }
+
+    updateListChrome();
+  }
+
+  async function saveItem(id) {
+    var item = shownItems[id];
+
+    if (!item) {
+      return;
+    }
+
+    try {
+      setStatus("受け取って開いています...");
+      var opened = await fetchAndDecrypt(id);
+      downloadBlob(opened.dataBlob, opened.name);
+      setStatus("保存しました（ダウンロードに入ります）。", "success");
+    } catch (error) {
+      setStatus(error.message, "error");
+    }
+  }
+
+  async function saveAllItems() {
+    var ids = Object.keys(shownItems);
+
+    for (var i = 0; i < ids.length; i++) {
+      var item = shownItems[ids[i]];
+
+      if (!item) {
+        continue;
+      }
+
+      try {
+        setStatus(
+          "受け取って開いています...（" + (i + 1) + "/" + ids.length + "件）",
+        );
+        var opened = await fetchAndDecrypt(ids[i]);
+        downloadBlob(opened.dataBlob, opened.name);
+      } catch (error) {
+        setStatus(error.message, "error");
+        return;
+      }
+    }
+
+    setStatus(
+      "全部保存しました（" + ids.length + "件・ダウンロードに入ります）。",
+      "success",
+    );
+  }
+
+  async function refreshList(initialLoad) {
+    if (
+      !currentCode ||
+      sending ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+
+    try {
+      var data = await requestJson(apiUrl(null), {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      var items = Array.isArray(data.items) ? data.items : [];
+      var serverIds = {};
+      var newCount = 0;
+
+      for (var i = 0; i < items.length; i++) {
+        var meta = items[i];
+
+        if (!meta || typeof meta.id !== "string") {
+          continue;
+        }
+
+        serverIds[meta.id] = true;
+
+        if (!shownItems[meta.id]) {
+          addItemToView(meta, null);
+          newCount += 1;
+        }
+      }
+
+      var removed = 0;
+
+      Object.keys(shownItems).forEach(function (id) {
+        if (!serverIds[id]) {
+          removeItemFromView(id);
+          removed += 1;
+        }
+      });
+
+      updateListChrome();
+
+      if (initialLoad) {
+        setStatus(
+          items.length > 0
+            ? "読み込みました（" + items.length + "件）。"
+            : "準備できました。ファイルを送るか、届くのを待ってください。",
+          "success",
+        );
+      } else if (newCount > 0) {
+        setStatus(
+          newCount + "件受信しました " + formatTime(new Date()),
+          "success",
+        );
+      } else if (removed > 0) {
+        setStatus("期限切れ（5分）のファイルが消えました。");
+      }
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function showCurrentCode() {
+    currentCodeEl.textContent = currentCode;
+    codeSetupEl.style.display = "none";
+    codeInfoEl.className = "code-info visible";
+  }
+
+  function showCodeSetup() {
+    codeInfoEl.className = "code-info";
+    codeSetupEl.style.display = "block";
+  }
+
+  async function setCode(code) {
+    var normalized = normalizeCode(code);
+
+    if (!isValidCode(normalized)) {
+      setStatus(
+        "合言葉は、IとOを除く半角英数字10文字で入力してください。",
+        "error",
+      );
+      codeInputEl.focus();
+      codeInputEl.select();
+      return;
+    }
+
+    requestGeneration += 1;
+    stopPolling();
+
+    currentCode = normalized;
+    lockerCode = "";
+    aesKey = null;
+    clearAllItemsFromView();
+
+    codeInputEl.value = normalized;
+    saveCode(normalized);
+    showCurrentCode();
+    enableControls(false);
+    setStatus("暗号の鍵を準備しています...");
+
+    var generationAtStart = requestGeneration;
+
+    try {
+      var derived = await deriveFromPhrase(normalized);
+
+      if (
+        generationAtStart !== requestGeneration ||
+        normalized !== currentCode
+      ) {
+        return;
+      }
+
+      lockerCode = derived.loc;
+      aesKey = derived.key;
+    } catch (error) {
+      setStatus(
+        "このブラウザでは暗号の準備ができませんでした。最新のChromeかSafariでお試しください。",
+        "error",
+      );
+      return;
+    }
+
+    enableControls(true);
+    setStatus("サーバーを確認しています。");
+
+    await refreshList(true);
+    startPolling();
+  }
+
+  async function sendFiles(files) {
+    if (!currentCode || !aesKey) {
+      setStatus("先に合言葉を設定してください。", "error");
+      return;
+    }
+
+    if (sending) {
+      setStatus("送信中です。終わってからもう一度お試しください。", "error");
+      return;
+    }
+
+    var list = [];
+
+    for (var i = 0; i < files.length; i++) {
+      list.push(files[i]);
+    }
+
+    if (list.length === 0) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+    var sent = 0;
+
+    sending = true;
+
+    try {
+      for (var j = 0; j < list.length; j++) {
+        var file = list[j];
+        var name = file.name || "clipboard.png";
+
+        if (file.size > MAX_FILE_BYTES - ENC_OVERHEAD) {
+          setStatus(
+            "「" + name + "」は" + formatSize(file.size) +
+              "あります。送れるのは1件100MBまでです。" +
+              (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+            "error",
+          );
+          return;
+        }
+
+        if (file.size < 1) {
+          setStatus(
+            "「" + name + "」は中身が空なので送れません。" +
+              (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+            "error",
+          );
+          return;
+        }
+
+        setStatus(
+          "暗号化して送信中...（" + (j + 1) + "/" + list.length + "件・" +
+            formatSize(file.size) +
+            "。大きいファイルは数分かかることがあります）",
+        );
+
+        var encrypted = await encryptFile(file);
+
+        var data = await requestJson(apiUrl(null), {
+          method: "PUT",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/octet-stream",
+            "X-File-Name": "encrypted.bin",
+          },
+          body: encrypted,
+        });
+
+        if (
+          generationAtStart !== requestGeneration ||
+          codeAtStart !== currentCode
+        ) {
+          return;
+        }
+
+        sent += 1;
+
+        addItemToView(
+          {
+            id: data.id,
+            name: "encrypted.bin",
+            size: encrypted.size,
+            type: "application/octet-stream",
+            updatedAt: data.updatedAt || null,
+          },
+          {
+            name: name,
+            type: file.type || "application/octet-stream",
+            blob: file,
+          },
+        );
+      }
+
+      setStatus(
+        "暗号化して送信しました（" + sent + "件） " + formatTime(new Date()) +
+          "（相手の画面に数秒で届きます）",
+        "success",
+      );
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(
+          error.message +
+            (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+          "error",
+        );
+      }
+    } finally {
+      sending = false;
+    }
+  }
+
+  async function clearFiles() {
+    if (!currentCode) {
+      return;
+    }
+
+    if (!window.confirm(
+      "サーバーとこの画面のファイルを全部消します。よろしいですか？",
+    )) {
+      return;
+    }
+
+    requestGeneration += 1;
+
+    var generationAtStart = requestGeneration;
+    var codeAtStart = currentCode;
+
+    setStatus("削除中...");
+
+    try {
+      await requestJson(apiUrl(null), {
+        method: "DELETE",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      clearAllItemsFromView();
+      setStatus("全部消しました。", "success");
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function changeCode() {
+    requestGeneration += 1;
+    stopPolling();
+    removeSavedCode();
+
+    currentCode = "";
+    lockerCode = "";
+    aesKey = null;
+    clearAllItemsFromView();
+    enableControls(false);
+    showCodeSetup();
+
+    codeInputEl.value = "";
+    setStatus("新しい合言葉を入力してください。");
+    codeInputEl.focus();
+  }
+
+  codeInputEl.addEventListener("input", function () {
+    var value = normalizeCode(codeInputEl.value);
+    codeInputEl.value = value.slice(0, 10);
+  });
+
+  codeInputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setCode(codeInputEl.value);
+    }
+  });
+
+  useCodeBtn.addEventListener("click", function () {
+    setCode(codeInputEl.value);
+  });
+
+  makeCodeBtn.addEventListener("click", function () {
+    var code;
+
+    try {
+      code = generateCode();
+    } catch (error) {
+      setStatus(
+        "このブラウザでは安全な合言葉を作れませんでした。",
+        "error",
+      );
+      return;
+    }
+
+    codeInputEl.value = code;
+    setCode(code);
+  });
+
+  changeCodeBtn.addEventListener("click", changeCode);
+
+  pickBtn.addEventListener("click", function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files.length > 0) {
+      sendFiles(fileInput.files);
+    }
+
+    fileInput.value = "";
+  });
+
+  document.addEventListener("paste", function (event) {
+    if (!currentCode || !event.clipboardData) {
+      return;
+    }
+
+    var items = event.clipboardData.items || [];
+    var files = [];
+
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        var file = items[i].getAsFile();
+
+        if (file) {
+          files.push(file);
+        }
+      }
+    }
+
+    if (files.length > 0) {
+      event.preventDefault();
+      sendFiles(files);
+    }
+  });
+
+  dropZone.addEventListener("dragover", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel drag";
+  });
+
+  dropZone.addEventListener("dragleave", function () {
+    dropZone.className = "send-panel";
+  });
+
+  dropZone.addEventListener("drop", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel";
+
+    if (
+      event.dataTransfer &&
+      event.dataTransfer.files &&
+      event.dataTransfer.files.length > 0
+    ) {
+      sendFiles(event.dataTransfer.files);
+    }
+  });
+
+  saveAllBtn.addEventListener("click", saveAllItems);
+  clearBtn.addEventListener("click", clearFiles);
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      refreshList(false);
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  window.addEventListener("beforeunload", function () {
+    stopPolling();
+  });
+
+  function initialize() {
+    if (location.protocol !== "http:" && location.protocol !== "https:") {
+      appEl.style.display = "none";
+      startupErrorEl.style.display = "block";
+      startupErrorEl.textContent =
+        "このページは公開サイト（silver-computing-machine-7ql.pages.dev）から開いてください。";
+      return;
+    }
+
+    if (!supportsCrypto()) {
+      appEl.style.display = "none";
+      startupErrorEl.style.display = "block";
+      startupErrorEl.textContent =
+        "このブラウザは暗号化に対応していません。最新のChromeかSafari本体で開いてください。";
+      return;
+    }
+
+    updateListChrome();
+
+    var savedCode = loadSavedCode();
+
+    if (isValidCode(savedCode)) {
+      codeInputEl.value = savedCode;
+      setCode(savedCode);
+    } else {
+      showCodeSetup();
+      enableControls(false);
+      setStatus("合言葉を設定してください。");
+      codeInputEl.focus();
+    }
+  }
+
+  initialize();
+})();
+</script>
+</body>
+</html>
