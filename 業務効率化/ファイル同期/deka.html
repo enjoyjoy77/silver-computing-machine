@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>でかファイル同期</title>
+<style>
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #f4f3ef;
+    margin: 0;
+    padding: 16px;
+    color: #222;
+  }
+
+  .rev {
+    position: fixed;
+    top: 6px;
+    right: 10px;
+    font-size: 11px;
+    color: #999;
+  }
+
+  .wrap {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 4px;
+  }
+
+  .sub {
+    font-size: 12px;
+    color: #8a6d1a;
+    margin: 0 0 14px;
+  }
+
+  .panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .code-label {
+    display: block;
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+
+  .code-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  #codeInput {
+    min-width: 0;
+    flex: 1;
+    box-sizing: border-box;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: Consolas, monospace;
+    font-size: 20px;
+    font-weight: bold;
+    letter-spacing: 0.12em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  button {
+    border: none;
+    border-radius: 8px;
+    background: #a8842a;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 14px;
+  }
+
+  button:active {
+    background: #83661d;
+  }
+
+  button:disabled {
+    background: #c4b795;
+    cursor: default;
+  }
+
+  .secondary {
+    background: #687386;
+  }
+
+  .secondary:active {
+    background: #505967;
+  }
+
+  .danger {
+    background: #c0392b;
+  }
+
+  .danger:active {
+    background: #922b21;
+  }
+
+  .code-info {
+    display: none;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.6;
+  }
+
+  .code-info.visible {
+    display: block;
+  }
+
+  .code-value {
+    font-family: Consolas, monospace;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+  }
+
+  .change-link {
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #a8842a;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .change-link:active {
+    background: transparent;
+    color: #83661d;
+  }
+
+  .hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .file-area {
+    margin-top: 14px;
+  }
+
+  .send-panel {
+    background: #fff;
+    border: 2px dashed #d1c294;
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+  }
+
+  .send-panel.drag {
+    border-color: #a8842a;
+    background: #faf6ea;
+  }
+
+  .send-panel p {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.7;
+  }
+
+  #progressWrap {
+    display: none;
+    margin-top: 12px;
+    text-align: left;
+  }
+
+  #progressBar {
+    height: 14px;
+    background: #eee;
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  #progressFill {
+    height: 100%;
+    width: 0%;
+    background: #a8842a;
+    transition: width 0.3s;
+  }
+
+  #progressText {
+    font-size: 12px;
+    color: #555;
+    margin: 4px 0 0;
+  }
+
+  .recv-panel {
+    margin-top: 14px;
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .recv-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 0 0 8px;
+  }
+
+  .recv-title {
+    font-size: 13px;
+    color: #555;
+    margin: 0;
+  }
+
+  #itemCount {
+    font-size: 12px;
+    color: #888;
+  }
+
+  #recvList {
+    max-height: 55vh;
+    overflow: auto;
+  }
+
+  #recvEmpty {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 10px;
+  }
+
+  .item {
+    border: 1px solid #e2e6ec;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+
+  .item img {
+    display: block;
+    max-width: 100%;
+    max-height: 32vh;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    margin-bottom: 8px;
+  }
+
+  .item-name {
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    color: #333;
+    margin: 0 0 8px;
+  }
+
+  .item button {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .button-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .button-row button {
+    flex: 1;
+  }
+
+  .under-text {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  #status {
+    color: #555;
+    overflow-wrap: anywhere;
+  }
+
+  #status.error {
+    color: #c0392b;
+    font-weight: bold;
+  }
+
+  #status.success {
+    color: #237a3b;
+  }
+
+  #startupError {
+    display: none;
+    background: #fff;
+    border: 1px solid #e2b5b0;
+    border-radius: 10px;
+    color: #a93226;
+    padding: 14px;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 420px) {
+    .code-row,
+    .button-row {
+      flex-direction: column;
+    }
+
+    #codeInput {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="rev">rev1</div>
+
+<div class="wrap">
+  <h1>でかファイル同期</h1>
+  <p class="sub">📦 100MBの壁を越える版。1件10GBまで・消えるまで60分</p>
+
+  <div id="startupError"></div>
+
+  <main id="app">
+    <section class="panel">
+      <div id="codeSetup">
+        <label class="code-label" for="codeInput">合言葉（6文字）</label>
+        <div class="code-row">
+          <input
+            id="codeInput"
+            type="text"
+            maxlength="6"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            inputmode="text"
+            placeholder="例: 7K3M2P"
+          >
+          <button id="useCodeBtn" type="button">この合言葉を使う</button>
+        </div>
+        <button id="makeCodeBtn" class="secondary" type="button">
+          合言葉を作る
+        </button>
+        <p class="hint">
+          もう片方の端末でも同じ合言葉を入力してください。I（アイ）とO（オー）は使用しません。
+        </p>
+      </div>
+
+      <div id="codeInfo" class="code-info">
+        合言葉:
+        <span id="currentCode" class="code-value"></span>
+        <button id="changeCodeBtn" class="change-link" type="button">
+          変える
+        </button>
+      </div>
+    </section>
+
+    <section class="file-area">
+      <div class="send-panel" id="dropZone">
+        <button id="pickBtn" type="button" disabled>ファイルを選ぶ（複数OK）</button>
+        <input id="fileInput" type="file" multiple hidden>
+        <p>
+          1件10GBまで・同時に10件まで送れます。<br>
+          90MBずつに分けて送るので、大きくても途中経過が見えます。<br>
+          送信中はこの画面を閉じないでください。
+        </p>
+        <div id="progressWrap">
+          <div id="progressBar"><div id="progressFill"></div></div>
+          <p id="progressText"></p>
+        </div>
+      </div>
+
+      <div class="recv-panel">
+        <div class="recv-head">
+          <p class="recv-title">届いているファイル</p>
+          <span id="itemCount"></span>
+        </div>
+        <div id="recvList"></div>
+        <p id="recvEmpty">まだありません。</p>
+        <div class="button-row">
+          <button id="clearBtn" class="danger" type="button" disabled>
+            全部消す
+          </button>
+        </div>
+      </div>
+
+      <div class="under-text">
+        <span id="status">合言葉を設定してください。</span>
+      </div>
+
+      <p class="hint">
+        送ったファイルは1件ずつ、送ってから60分たつと自動で消えます。
+        このページは暗号化しません（サーバーの運営には技術的に中身を見られる状態です）。
+        人に見られて困るものは、100MBまでなら「🔒 暗号ファイル同期」を使ってください。
+        合言葉を知っていれば誰でも受け取れます。
+      </p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "fileSyncBigCode";
+  var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  var CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
+  var POLL_INTERVAL_MS = 4000;
+  var CHUNK_BYTES = 90 * 1024 * 1024;
+  var MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024;
+  var PREVIEW_BYTES = 10 * 1024 * 1024;
+
+  var appEl = document.getElementById("app");
+  var startupErrorEl = document.getElementById("startupError");
+  var codeSetupEl = document.getElementById("codeSetup");
+  var codeInfoEl = document.getElementById("codeInfo");
+  var codeInputEl = document.getElementById("codeInput");
+  var useCodeBtn = document.getElementById("useCodeBtn");
+  var makeCodeBtn = document.getElementById("makeCodeBtn");
+  var currentCodeEl = document.getElementById("currentCode");
+  var changeCodeBtn = document.getElementById("changeCodeBtn");
+  var dropZone = document.getElementById("dropZone");
+  var pickBtn = document.getElementById("pickBtn");
+  var fileInput = document.getElementById("fileInput");
+  var recvListEl = document.getElementById("recvList");
+  var recvEmptyEl = document.getElementById("recvEmpty");
+  var itemCountEl = document.getElementById("itemCount");
+  var clearBtn = document.getElementById("clearBtn");
+  var statusEl = document.getElementById("status");
+  var progressWrap = document.getElementById("progressWrap");
+  var progressFill = document.getElementById("progressFill");
+  var progressText = document.getElementById("progressText");
+
+  var currentCode = "";
+  var pollTimer = null;
+  var sending = false;
+  var requestGeneration = 0;
+
+  // 画面に出している項目。id -> { meta, element, previewUrl }
+  var shownItems = {};
+
+  function setStatus(message, kind) {
+    statusEl.textContent = message;
+    statusEl.className = kind || "";
+  }
+
+  function formatTime(date) {
+    function twoDigits(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    return (
+      twoDigits(date.getHours()) +
+      ":" +
+      twoDigits(date.getMinutes()) +
+      ":" +
+      twoDigits(date.getSeconds())
+    );
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + " KB";
+    }
+
+    if (bytes < 1024 * 1024 * 1024) {
+      return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+  }
+
+  function normalizeCode(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+
+  function isValidCode(value) {
+    return CODE_RE.test(value);
+  }
+
+  function apiUrl(params) {
+    var url = "/api/big/" + encodeURIComponent(currentCode);
+    var query = [];
+
+    if (params) {
+      Object.keys(params).forEach(function (key) {
+        query.push(key + "=" + encodeURIComponent(params[key]));
+      });
+    }
+
+    return query.length > 0 ? url + "?" + query.join("&") : url;
+  }
+
+  function enableControls(enabled) {
+    pickBtn.disabled = !enabled;
+    clearBtn.disabled = !enabled;
+  }
+
+  function updateListChrome() {
+    var ids = Object.keys(shownItems);
+    recvEmptyEl.style.display = ids.length === 0 ? "block" : "none";
+    itemCountEl.textContent = ids.length === 0 ? "" : ids.length + "件";
+  }
+
+  function showProgress(fraction, text) {
+    progressWrap.style.display = "block";
+    progressFill.style.width = Math.round(fraction * 100) + "%";
+    progressText.textContent = text;
+  }
+
+  function hideProgress() {
+    progressWrap.style.display = "none";
+    progressFill.style.width = "0%";
+    progressText.textContent = "";
+  }
+
+  async function readJsonResponse(response) {
+    var data;
+
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new Error("サーバーから正しい応答を受け取れませんでした。");
+    }
+
+    if (!response.ok || !data || data.ok !== true) {
+      throw new Error(
+        data && data.message
+          ? data.message
+          : "サーバーとの通信に失敗しました。",
+      );
+    }
+
+    return data;
+  }
+
+  async function requestJson(url, options) {
+    var response;
+
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error(
+        "通信できません。この場所のネットワークで止められている可能性があります。",
+      );
+    }
+
+    return readJsonResponse(response);
+  }
+
+  function saveCode(code) {
+    try {
+      localStorage.setItem(STORAGE_KEY, code);
+    } catch (error) {
+      setStatus(
+        "合言葉をブラウザに保存できませんでした。この画面を閉じる前に控えてください。",
+        "error",
+      );
+    }
+  }
+
+  function removeSavedCode() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      // 保存領域が使えなくても、画面の切り替えは続行する。
+    }
+  }
+
+  function loadSavedCode() {
+    try {
+      return normalizeCode(localStorage.getItem(STORAGE_KEY));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function generateCode() {
+    var result = "";
+    var random = new Uint8Array(1);
+    var limit = Math.floor(256 / CODE_ALPHABET.length) *
+      CODE_ALPHABET.length;
+
+    while (result.length < 6) {
+      crypto.getRandomValues(random);
+
+      if (random[0] < limit) {
+        result += CODE_ALPHABET.charAt(
+          random[0] % CODE_ALPHABET.length,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  function stopPolling() {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+
+    if (document.visibilityState === "visible" && currentCode) {
+      pollTimer = setInterval(function () {
+        refreshList(false);
+      }, POLL_INTERVAL_MS);
+    }
+  }
+
+  function removeItemFromView(id) {
+    var item = shownItems[id];
+
+    if (!item) {
+      return;
+    }
+
+    if (item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+
+    if (item.element && item.element.parentNode) {
+      item.element.parentNode.removeChild(item.element);
+    }
+
+    delete shownItems[id];
+  }
+
+  function clearAllItemsFromView() {
+    Object.keys(shownItems).forEach(removeItemFromView);
+    updateListChrome();
+  }
+
+  // 巨大ファイルをメモリに載せないため、保存はブラウザの
+  // ふつうのダウンロード(dl=1リンク)に任せる。
+  function saveItem(id) {
+    var link = document.createElement("a");
+    link.href = apiUrl({ id: id, dl: "1" });
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatus("ダウンロードを始めました（ブラウザのダウンロードに入ります）。", "success");
+  }
+
+  function addItemToView(meta) {
+    var element = document.createElement("div");
+    element.className = "item";
+
+    var nameEl = document.createElement("p");
+    nameEl.className = "item-name";
+    nameEl.textContent =
+      (meta.name || "名前なしファイル") + "（" + formatSize(meta.size) + "）";
+
+    var saveOneBtn = document.createElement("button");
+    saveOneBtn.type = "button";
+    saveOneBtn.textContent = "保存する";
+    saveOneBtn.addEventListener("click", function () {
+      saveItem(meta.id);
+    });
+
+    element.appendChild(nameEl);
+    element.appendChild(saveOneBtn);
+    recvListEl.appendChild(element);
+
+    shownItems[meta.id] = {
+      meta: meta,
+      element: element,
+      previewUrl: null,
+    };
+
+    var isImage = (meta.type || "").indexOf("image/") === 0;
+
+    if (isImage && meta.size <= PREVIEW_BYTES) {
+      var img = document.createElement("img");
+      img.alt = "受信した画像";
+      element.insertBefore(img, nameEl);
+
+      fetch(apiUrl({ id: meta.id }), { cache: "no-store" })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("preview failed");
+          }
+          return response.blob();
+        })
+        .then(function (blob) {
+          if (!shownItems[meta.id]) {
+            return;
+          }
+          var previewUrl = URL.createObjectURL(blob);
+          shownItems[meta.id].previewUrl = previewUrl;
+          img.src = previewUrl;
+        })
+        .catch(function () {
+          // サムネイルが出せなくても「保存する」は生きているので黙って続行。
+          img.style.display = "none";
+        });
+    }
+
+    updateListChrome();
+  }
+
+  async function refreshList(initialLoad) {
+    if (
+      !currentCode ||
+      sending ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+
+    try {
+      var data = await requestJson(apiUrl(null), {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      var items = Array.isArray(data.items) ? data.items : [];
+      var serverIds = {};
+      var newCount = 0;
+
+      for (var i = 0; i < items.length; i++) {
+        var meta = items[i];
+
+        if (!meta || typeof meta.id !== "string") {
+          continue;
+        }
+
+        serverIds[meta.id] = true;
+
+        if (!shownItems[meta.id]) {
+          addItemToView(meta);
+          newCount += 1;
+        }
+      }
+
+      var removed = 0;
+
+      Object.keys(shownItems).forEach(function (id) {
+        if (!serverIds[id]) {
+          removeItemFromView(id);
+          removed += 1;
+        }
+      });
+
+      updateListChrome();
+
+      if (initialLoad) {
+        setStatus(
+          items.length > 0
+            ? "読み込みました（" + items.length + "件）。"
+            : "準備できました。ファイルを送るか、届くのを待ってください。",
+          "success",
+        );
+      } else if (newCount > 0) {
+        setStatus(
+          newCount + "件受信しました " + formatTime(new Date()),
+          "success",
+        );
+      } else if (removed > 0) {
+        setStatus("期限切れ（60分）のファイルが消えました。");
+      }
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function showCurrentCode() {
+    currentCodeEl.textContent = currentCode;
+    codeSetupEl.style.display = "none";
+    codeInfoEl.className = "code-info visible";
+  }
+
+  function showCodeSetup() {
+    codeInfoEl.className = "code-info";
+    codeSetupEl.style.display = "block";
+  }
+
+  async function setCode(code) {
+    var normalized = normalizeCode(code);
+
+    if (!isValidCode(normalized)) {
+      setStatus(
+        "合言葉は、IとOを除く半角英数字6文字で入力してください。",
+        "error",
+      );
+      codeInputEl.focus();
+      codeInputEl.select();
+      return;
+    }
+
+    requestGeneration += 1;
+    stopPolling();
+
+    currentCode = normalized;
+    clearAllItemsFromView();
+
+    codeInputEl.value = normalized;
+    saveCode(normalized);
+    showCurrentCode();
+    enableControls(true);
+    setStatus("サーバーを確認しています。");
+
+    await refreshList(true);
+    startPolling();
+  }
+
+  // 1ファイルを90MBずつに分けて送る
+  async function sendOneFile(file, indexText) {
+    var name = file.name || "clipboard.bin";
+    var totalParts = Math.max(1, Math.ceil(file.size / CHUNK_BYTES));
+
+    var created = await requestJson(apiUrl({ action: "create" }), {
+      method: "PUT",
+      headers: {
+        "Accept": "application/json",
+        "X-Total-Size": String(file.size),
+        "X-File-Name": encodeURIComponent(name),
+        "X-File-Type": file.type || "application/octet-stream",
+      },
+    });
+
+    var parts = [];
+
+    for (var partNumber = 1; partNumber <= totalParts; partNumber++) {
+      var start = (partNumber - 1) * CHUNK_BYTES;
+      var chunk = file.slice(start, Math.min(start + CHUNK_BYTES, file.size));
+
+      showProgress(
+        (partNumber - 1) / totalParts,
+        indexText + "「" + name + "」を送信中... " +
+          partNumber + "/" + totalParts +
+          "（" + formatSize(Math.min(start + chunk.size, file.size)) +
+          " / " + formatSize(file.size) + "）",
+      );
+
+      var part = await requestJson(
+        apiUrl({
+          action: "part",
+          id: created.id,
+          uploadId: created.uploadId,
+          part: String(partNumber),
+        }),
+        {
+          method: "PUT",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/octet-stream",
+          },
+          body: chunk,
+        },
+      );
+
+      parts.push({ partNumber: part.partNumber, etag: part.etag });
+    }
+
+    showProgress(1, indexText + "「" + name + "」を組み立てています...");
+
+    await requestJson(
+      apiUrl({
+        action: "complete",
+        id: created.id,
+        uploadId: created.uploadId,
+      }),
+      {
+        method: "PUT",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ parts: parts }),
+      },
+    );
+
+    addItemToView({
+      id: created.id,
+      name: name,
+      size: file.size,
+      type: file.type || "application/octet-stream",
+      updatedAt: created.updatedAt || null,
+    });
+  }
+
+  async function sendFiles(files) {
+    if (!currentCode) {
+      setStatus("先に合言葉を設定してください。", "error");
+      return;
+    }
+
+    if (sending) {
+      setStatus("送信中です。終わってからもう一度お試しください。", "error");
+      return;
+    }
+
+    var list = [];
+
+    for (var i = 0; i < files.length; i++) {
+      list.push(files[i]);
+    }
+
+    if (list.length === 0) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+    var sent = 0;
+
+    sending = true;
+
+    try {
+      for (var j = 0; j < list.length; j++) {
+        var file = list[j];
+        var name = file.name || "clipboard.bin";
+
+        if (file.size > MAX_TOTAL_BYTES) {
+          setStatus(
+            "「" + name + "」は" + formatSize(file.size) +
+              "あります。送れるのは1件10GBまでです。" +
+              (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+            "error",
+          );
+          return;
+        }
+
+        if (file.size < 1) {
+          setStatus(
+            "「" + name + "」は中身が空なので送れません。" +
+              (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+            "error",
+          );
+          return;
+        }
+
+        setStatus(
+          "送信中...（" + (j + 1) + "/" + list.length + "件）画面を閉じないでください。",
+        );
+
+        await sendOneFile(file, "（" + (j + 1) + "/" + list.length + "件）");
+
+        if (
+          generationAtStart !== requestGeneration ||
+          codeAtStart !== currentCode
+        ) {
+          return;
+        }
+
+        sent += 1;
+      }
+
+      hideProgress();
+      setStatus(
+        "送信しました（" + sent + "件） " + formatTime(new Date()) +
+          "（相手の画面に数秒で届きます）",
+        "success",
+      );
+    } catch (error) {
+      hideProgress();
+
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(
+          error.message +
+            (sent > 0 ? "（ここまでの" + sent + "件は送信済み）" : ""),
+          "error",
+        );
+      }
+    } finally {
+      sending = false;
+    }
+  }
+
+  async function clearFiles() {
+    if (!currentCode) {
+      return;
+    }
+
+    if (!window.confirm(
+      "サーバーとこの画面のファイルを全部消します。よろしいですか？",
+    )) {
+      return;
+    }
+
+    requestGeneration += 1;
+
+    var generationAtStart = requestGeneration;
+    var codeAtStart = currentCode;
+
+    setStatus("削除中...");
+
+    try {
+      await requestJson(apiUrl(null), {
+        method: "DELETE",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      clearAllItemsFromView();
+      setStatus("全部消しました。", "success");
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function changeCode() {
+    requestGeneration += 1;
+    stopPolling();
+    removeSavedCode();
+
+    currentCode = "";
+    clearAllItemsFromView();
+    enableControls(false);
+    showCodeSetup();
+
+    codeInputEl.value = "";
+    setStatus("新しい合言葉を入力してください。");
+    codeInputEl.focus();
+  }
+
+  codeInputEl.addEventListener("input", function () {
+    var value = normalizeCode(codeInputEl.value);
+    codeInputEl.value = value.slice(0, 6);
+  });
+
+  codeInputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setCode(codeInputEl.value);
+    }
+  });
+
+  useCodeBtn.addEventListener("click", function () {
+    setCode(codeInputEl.value);
+  });
+
+  makeCodeBtn.addEventListener("click", function () {
+    var code;
+
+    try {
+      code = generateCode();
+    } catch (error) {
+      setStatus(
+        "このブラウザでは安全な合言葉を作れませんでした。",
+        "error",
+      );
+      return;
+    }
+
+    codeInputEl.value = code;
+    setCode(code);
+  });
+
+  changeCodeBtn.addEventListener("click", changeCode);
+
+  pickBtn.addEventListener("click", function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files.length > 0) {
+      sendFiles(fileInput.files);
+    }
+
+    fileInput.value = "";
+  });
+
+  dropZone.addEventListener("dragover", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel drag";
+  });
+
+  dropZone.addEventListener("dragleave", function () {
+    dropZone.className = "send-panel";
+  });
+
+  dropZone.addEventListener("drop", function (event) {
+    event.preventDefault();
+    dropZone.className = "send-panel";
+
+    if (
+      event.dataTransfer &&
+      event.dataTransfer.files &&
+      event.dataTransfer.files.length > 0
+    ) {
+      sendFiles(event.dataTransfer.files);
+    }
+  });
+
+  clearBtn.addEventListener("click", clearFiles);
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      refreshList(false);
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  window.addEventListener("beforeunload", function (event) {
+    if (sending) {
+      event.preventDefault();
+      event.returnValue = "";
+      return;
+    }
+
+    stopPolling();
+  });
+
+  function initialize() {
+    if (location.protocol !== "http:" && location.protocol !== "https:") {
+      appEl.style.display = "none";
+      startupErrorEl.style.display = "block";
+      startupErrorEl.textContent =
+        "このページは公開サイト（silver-computing-machine-7ql.pages.dev）から開いてください。";
+      return;
+    }
+
+    updateListChrome();
+
+    var savedCode = loadSavedCode();
+
+    if (isValidCode(savedCode)) {
+      codeInputEl.value = savedCode;
+      setCode(savedCode);
+    } else {
+      showCodeSetup();
+      enableControls(false);
+      setStatus("合言葉を設定してください。");
+      codeInputEl.focus();
+    }
+  }
+
+  initialize();
+})();
+</script>
+</body>
+</html>

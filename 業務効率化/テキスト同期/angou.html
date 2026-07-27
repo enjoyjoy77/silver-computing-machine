@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>暗号テキスト同期</title>
+<style>
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #f2f4f2;
+    margin: 0;
+    padding: 16px;
+    color: #222;
+  }
+
+  .rev {
+    position: fixed;
+    top: 6px;
+    right: 10px;
+    font-size: 11px;
+    color: #999;
+  }
+
+  .wrap {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 4px;
+  }
+
+  .sub {
+    font-size: 12px;
+    color: #2e7d46;
+    margin: 0 0 14px;
+  }
+
+  .panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .code-label {
+    display: block;
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+
+  .code-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  #codeInput {
+    min-width: 0;
+    flex: 1;
+    box-sizing: border-box;
+    border: 1px solid #bbb;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: Consolas, monospace;
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  button {
+    border: none;
+    border-radius: 8px;
+    background: #2e7d46;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 11px 14px;
+  }
+
+  button:active {
+    background: #1f5931;
+  }
+
+  button:disabled {
+    background: #a8bcae;
+    cursor: default;
+  }
+
+  .secondary {
+    background: #687386;
+  }
+
+  .secondary:active {
+    background: #505967;
+  }
+
+  .danger {
+    background: #c0392b;
+  }
+
+  .danger:active {
+    background: #922b21;
+  }
+
+  .code-info {
+    display: none;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.6;
+  }
+
+  .code-info.visible {
+    display: block;
+  }
+
+  .code-value {
+    font-family: Consolas, monospace;
+    font-weight: bold;
+    letter-spacing: 0.06em;
+  }
+
+  .change-link {
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #2e7d46;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .change-link:active {
+    background: transparent;
+    color: #1f5931;
+  }
+
+  .hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  .memo-area {
+    margin-top: 14px;
+  }
+
+  textarea {
+    width: 100%;
+    height: 50vh;
+    min-height: 240px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 10px;
+    resize: vertical;
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  textarea:focus,
+  #codeInput:focus {
+    border-color: #2e7d46;
+    outline: 2px solid rgba(46, 125, 70, 0.18);
+  }
+
+  .under-text {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 5px;
+    font-size: 12px;
+  }
+
+  #status {
+    color: #555;
+    overflow-wrap: anywhere;
+  }
+
+  #status.error {
+    color: #c0392b;
+    font-weight: bold;
+  }
+
+  #status.success {
+    color: #237a3b;
+  }
+
+  #charCount {
+    flex: none;
+    color: #666;
+  }
+
+  .button-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .button-row button {
+    flex: 1;
+  }
+
+  .auto-copy-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #555;
+  }
+
+  #startupError {
+    display: none;
+    background: #fff;
+    border: 1px solid #e2b5b0;
+    border-radius: 10px;
+    color: #a93226;
+    padding: 14px;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 420px) {
+    .code-row,
+    .button-row {
+      flex-direction: column;
+    }
+
+    #codeInput {
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="rev">rev1</div>
+
+<div class="wrap">
+  <h1>暗号テキスト同期</h1>
+  <p class="sub">🔒 文章は暗号化してから送るので、サーバーの運営にも中身は見えません</p>
+
+  <div id="startupError"></div>
+
+  <main id="app">
+    <section class="panel">
+      <div id="codeSetup">
+        <label class="code-label" for="codeInput">合言葉（10文字・暗号の鍵を兼ねます）</label>
+        <div class="code-row">
+          <input
+            id="codeInput"
+            type="text"
+            maxlength="10"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            inputmode="text"
+            placeholder="例: 7K3M2P9X4A"
+          >
+          <button id="useCodeBtn" type="button">この合言葉を使う</button>
+        </div>
+        <button id="makeCodeBtn" class="secondary" type="button">
+          合言葉を作る
+        </button>
+        <p class="hint">
+          もう片方の端末でも同じ合言葉を入力してください。I（アイ）とO（オー）は使用しません。
+          自分で決めるより「合言葉を作る」で作った10文字の方が安全です。
+        </p>
+      </div>
+
+      <div id="codeInfo" class="code-info">
+        合言葉:
+        <span id="currentCode" class="code-value"></span>
+        <button id="changeCodeBtn" class="change-link" type="button">
+          変える
+        </button>
+      </div>
+    </section>
+
+    <section class="memo-area">
+      <textarea
+        id="memoText"
+        placeholder="ここに文章を入力してください"
+        disabled
+      ></textarea>
+
+      <div class="under-text">
+        <span id="status">合言葉を設定してください。</span>
+        <span id="charCount">0文字</span>
+      </div>
+
+      <div class="button-row">
+        <button id="copyBtn" type="button" disabled>全文コピー</button>
+        <button id="clearBtn" class="danger" type="button" disabled>
+          内容を消す
+        </button>
+      </div>
+
+      <label class="auto-copy-row">
+        <input type="checkbox" id="autoCopyToggle" disabled>
+        新しい内容が届いたら自動でコピーする
+      </label>
+
+      <p class="hint">
+        内容は5分たつと自動で消えます（書いている間は延長されます）。
+        サーバーには暗号化された状態でしか置かれませんが、
+        合言葉を知っている人はだれでも読めます。合言葉は人に教えないでください。
+        合言葉を忘れると誰にも開けません。
+      </p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "memoSyncAngouCode";
+  var AUTO_COPY_KEY = "memoAngouAutoCopy";
+  var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  var CODE_RE = /^[0-9A-HJ-NP-Z]{10}$/;
+  var SEND_DELAY_MS = 500;
+  var POLL_INTERVAL_MS = 2500;
+  // サーバーの上限は64KB。暗号化+base64で約1.37倍になるので、その内側で止める
+  var MAX_CIPHER_CHARS = 64 * 1024;
+  var MAGIC = "MSENC1";
+  var PBKDF2_ITER = 300000;
+  var FIXED_SALT = "filesync-angou-v1";
+
+  var appEl = document.getElementById("app");
+  var startupErrorEl = document.getElementById("startupError");
+  var codeSetupEl = document.getElementById("codeSetup");
+  var codeInfoEl = document.getElementById("codeInfo");
+  var codeInputEl = document.getElementById("codeInput");
+  var useCodeBtn = document.getElementById("useCodeBtn");
+  var makeCodeBtn = document.getElementById("makeCodeBtn");
+  var currentCodeEl = document.getElementById("currentCode");
+  var changeCodeBtn = document.getElementById("changeCodeBtn");
+  var memoEl = document.getElementById("memoText");
+  var statusEl = document.getElementById("status");
+  var countEl = document.getElementById("charCount");
+  var copyBtn = document.getElementById("copyBtn");
+  var clearBtn = document.getElementById("clearBtn");
+  var autoCopyToggle = document.getElementById("autoCopyToggle");
+
+  var currentCode = "";
+  var lockerCode = "";
+  var aesKey = null;
+  var lastUpdatedAt = null;
+  var lastSentText = null;
+  var sendTimer = null;
+  var pollTimer = null;
+  var sending = false;
+  var sendAgain = false;
+  var requestGeneration = 0;
+
+  function setStatus(message, kind) {
+    statusEl.textContent = message;
+    statusEl.className = kind || "";
+  }
+
+  function formatTime(date) {
+    function twoDigits(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    return (
+      twoDigits(date.getHours()) +
+      ":" +
+      twoDigits(date.getMinutes()) +
+      ":" +
+      twoDigits(date.getSeconds())
+    );
+  }
+
+  function normalizeCode(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+
+  function isValidCode(value) {
+    return CODE_RE.test(value);
+  }
+
+  function apiUrl() {
+    return "/api/memo/" + encodeURIComponent(lockerCode);
+  }
+
+  function updateCount() {
+    countEl.textContent = memoEl.value.length + "文字";
+  }
+
+  function enableMemo(enabled) {
+    memoEl.disabled = !enabled;
+    copyBtn.disabled = !enabled;
+    clearBtn.disabled = !enabled;
+    autoCopyToggle.disabled = !enabled;
+  }
+
+  function loadAutoCopyPref() {
+    try {
+      return localStorage.getItem(AUTO_COPY_KEY) !== "false";
+    } catch (error) {
+      return true;
+    }
+  }
+
+  function saveAutoCopyPref(enabled) {
+    try {
+      localStorage.setItem(AUTO_COPY_KEY, enabled ? "true" : "false");
+    } catch (error) {
+      // 保存できなくても、この場での切り替えは続行する。
+    }
+  }
+
+  // ---- 暗号まわり(暗号ファイル同期と同じ方式) ------------------------
+
+  function supportsCrypto() {
+    return !!(
+      window.crypto &&
+      crypto.subtle &&
+      typeof crypto.subtle.importKey === "function" &&
+      typeof TextEncoder !== "undefined"
+    );
+  }
+
+  // 合言葉から「サーバーに渡す置き場番号(6文字)」と「暗号の鍵」を別々に作る。
+  // サーバーが受け取るのは置き場番号だけで、そこから合言葉や鍵は逆算できない。
+  async function deriveFromPhrase(phrase) {
+    var encoder = new TextEncoder();
+
+    var locDigest = await crypto.subtle.digest(
+      "SHA-256",
+      encoder.encode("memo-locker:" + FIXED_SALT + ":" + phrase),
+    );
+    var locBytes = new Uint8Array(locDigest);
+    var loc = "";
+
+    for (var i = 0; i < 6; i++) {
+      loc += CODE_ALPHABET.charAt(locBytes[i] % CODE_ALPHABET.length);
+    }
+
+    var baseKey = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(phrase),
+      "PBKDF2",
+      false,
+      ["deriveKey"],
+    );
+
+    var key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: encoder.encode("memo-key:" + FIXED_SALT),
+        iterations: PBKDF2_ITER,
+        hash: "SHA-256",
+      },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+
+    return { loc: loc, key: key };
+  }
+
+  function bytesToBase64(bytes) {
+    var chunk = 0x8000;
+    var pieces = [];
+
+    for (var i = 0; i < bytes.length; i += chunk) {
+      pieces.push(
+        String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)),
+      );
+    }
+
+    return btoa(pieces.join(""));
+  }
+
+  function base64ToBytes(text) {
+    var binary = atob(text);
+    var bytes = new Uint8Array(binary.length);
+
+    for (var i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  }
+
+  // 送る形 = "MSENC1" + base64( iv(12) + AES-GCM暗号文 )。文字列なのでmemo APIをそのまま使える。
+  async function encryptText(text) {
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+
+    var cipher = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        aesKey,
+        new TextEncoder().encode(text),
+      ),
+    );
+
+    var out = new Uint8Array(iv.length + cipher.length);
+    out.set(iv, 0);
+    out.set(cipher, iv.length);
+
+    return MAGIC + bytesToBase64(out);
+  }
+
+  async function decryptText(payload) {
+    if (payload.indexOf(MAGIC) !== 0) {
+      throw new Error(
+        "この場所には暗号化されていないデータがあります。合言葉を変えてください。",
+      );
+    }
+
+    var bytes;
+
+    try {
+      bytes = base64ToBytes(payload.slice(MAGIC.length));
+    } catch (error) {
+      throw new Error("データが壊れています。");
+    }
+
+    if (bytes.length < 12 + 17) {
+      throw new Error("データが壊れています。");
+    }
+
+    try {
+      var plain = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: bytes.subarray(0, 12) },
+        aesKey,
+        bytes.subarray(12),
+      );
+
+      return new TextDecoder().decode(plain);
+    } catch (error) {
+      throw new Error("開けませんでした。合言葉が違う可能性があります。");
+    }
+  }
+
+  // ---- 通信まわり(テキスト同期と同じ型) ------------------------------
+
+  async function readJsonResponse(response) {
+    var data;
+
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new Error("サーバーから正しい応答を受け取れませんでした。");
+    }
+
+    if (!response.ok || !data || data.ok !== true) {
+      throw new Error(
+        data && data.message
+          ? data.message
+          : "サーバーとの通信に失敗しました。",
+      );
+    }
+
+    return data;
+  }
+
+  async function requestJson(url, options) {
+    var response;
+
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error(
+        "通信できません。この場所のネットワークで止められている可能性があります。",
+      );
+    }
+
+    return readJsonResponse(response);
+  }
+
+  function saveCode(code) {
+    try {
+      localStorage.setItem(STORAGE_KEY, code);
+    } catch (error) {
+      setStatus(
+        "合言葉をブラウザに保存できませんでした。この画面を閉じる前に控えてください。",
+        "error",
+      );
+    }
+  }
+
+  function removeSavedCode() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      // 保存領域が利用できない場合も、画面上の切り替えは続行する。
+    }
+  }
+
+  function loadSavedCode() {
+    try {
+      return normalizeCode(localStorage.getItem(STORAGE_KEY));
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function generateCode() {
+    var result = "";
+    var random = new Uint8Array(1);
+    var limit = Math.floor(256 / CODE_ALPHABET.length) *
+      CODE_ALPHABET.length;
+
+    while (result.length < 10) {
+      crypto.getRandomValues(random);
+
+      if (random[0] < limit) {
+        result += CODE_ALPHABET.charAt(
+          random[0] % CODE_ALPHABET.length,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  function stopPolling() {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+
+    if (document.visibilityState === "visible" && currentCode) {
+      pollTimer = setInterval(function () {
+        receiveMemo(false);
+      }, POLL_INTERVAL_MS);
+    }
+  }
+
+  function cancelPendingSend() {
+    if (sendTimer !== null) {
+      clearTimeout(sendTimer);
+      sendTimer = null;
+    }
+
+    sendAgain = false;
+  }
+
+  function showCurrentCode() {
+    currentCodeEl.textContent = currentCode;
+    codeSetupEl.style.display = "none";
+    codeInfoEl.className = "code-info visible";
+  }
+
+  function showCodeSetup() {
+    codeInfoEl.className = "code-info";
+    codeSetupEl.style.display = "block";
+  }
+
+  async function setCode(code) {
+    var normalized = normalizeCode(code);
+
+    if (!isValidCode(normalized)) {
+      setStatus(
+        "合言葉は、IとOを除く半角英数字10文字で入力してください。",
+        "error",
+      );
+      codeInputEl.focus();
+      codeInputEl.select();
+      return;
+    }
+
+    requestGeneration += 1;
+    cancelPendingSend();
+    stopPolling();
+
+    currentCode = normalized;
+    lockerCode = "";
+    aesKey = null;
+    lastUpdatedAt = null;
+    lastSentText = null;
+    memoEl.value = "";
+    updateCount();
+
+    codeInputEl.value = normalized;
+    saveCode(normalized);
+    showCurrentCode();
+    enableMemo(false);
+    setStatus("暗号の鍵を準備しています...");
+
+    var generationAtStart = requestGeneration;
+
+    try {
+      var derived = await deriveFromPhrase(normalized);
+
+      if (
+        generationAtStart !== requestGeneration ||
+        normalized !== currentCode
+      ) {
+        return;
+      }
+
+      lockerCode = derived.loc;
+      aesKey = derived.key;
+    } catch (error) {
+      setStatus(
+        "このブラウザでは暗号の準備ができませんでした。最新のChromeかSafariでお試しください。",
+        "error",
+      );
+      return;
+    }
+
+    enableMemo(true);
+    autoCopyToggle.checked = loadAutoCopyPref();
+    setStatus("サーバーから読み込んでいます。");
+
+    await receiveMemo(true);
+    startPolling();
+  }
+
+  async function receiveMemo(initialLoad) {
+    if (
+      !currentCode ||
+      !aesKey ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+
+    try {
+      var data = await requestJson(apiUrl(), {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      if (data.updatedAt === lastUpdatedAt) {
+        if (initialLoad) {
+          lastSentText = memoEl.value;
+          setStatus("読み込みました。", "success");
+        }
+        return;
+      }
+
+      if (document.activeElement === memoEl) {
+        if (initialLoad) {
+          setStatus(
+            "編集中のため、サーバーの内容は上書きしていません。",
+          );
+        }
+        return;
+      }
+
+      var payload = typeof data.text === "string" ? data.text : "";
+      var text = "";
+
+      if (payload !== "") {
+        text = await decryptText(payload);
+      }
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode ||
+        document.activeElement === memoEl
+      ) {
+        return;
+      }
+
+      memoEl.value = text;
+      lastUpdatedAt = data.updatedAt || null;
+      lastSentText = memoEl.value;
+      updateCount();
+
+      if (initialLoad) {
+        setStatus("読み込みました。", "success");
+      } else if (autoCopyToggle.checked && memoEl.value) {
+        copyMemo(true);
+      } else {
+        setStatus(
+          "ほかの端末の内容を受信しました " + formatTime(new Date()),
+          "success",
+        );
+      }
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function scheduleSend() {
+    if (!currentCode || !aesKey) {
+      return;
+    }
+
+    if (sendTimer !== null) {
+      clearTimeout(sendTimer);
+    }
+
+    sendTimer = setTimeout(function () {
+      sendTimer = null;
+      sendMemo();
+    }, SEND_DELAY_MS);
+  }
+
+  async function sendMemo() {
+    if (!currentCode || !aesKey) {
+      return;
+    }
+
+    if (sending) {
+      sendAgain = true;
+      return;
+    }
+
+    var textToSend = memoEl.value;
+
+    if (textToSend === lastSentText) {
+      return;
+    }
+
+    var codeAtStart = currentCode;
+    var generationAtStart = requestGeneration;
+
+    sending = true;
+    sendAgain = false;
+    setStatus("暗号化して送信中...");
+
+    try {
+      var payload = textToSend === "" ? "" : await encryptText(textToSend);
+
+      if (payload.length > MAX_CIPHER_CHARS) {
+        setStatus(
+          "文章が長すぎて送れません。暗号化の関係で、およそ4万5千文字(半角換算)が上限です。",
+          "error",
+        );
+        return;
+      }
+
+      var data = await requestJson(apiUrl(), {
+        method: "PUT",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+        body: payload,
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      lastSentText = textToSend;
+      lastUpdatedAt = data.updatedAt || null;
+      setStatus(
+        "暗号化して保存済み " + formatTime(new Date()),
+        "success",
+      );
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    } finally {
+      sending = false;
+
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode &&
+        (sendAgain || memoEl.value !== lastSentText)
+      ) {
+        sendAgain = false;
+        scheduleSend();
+      }
+    }
+  }
+
+  async function copyMemo(isAuto) {
+    var text = memoEl.value;
+
+    try {
+      if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+      ) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error("Clipboard APIを利用できません。");
+      }
+
+      setStatus(
+        (isAuto ? "自動でコピーしました " : "コピーしました ") +
+          formatTime(new Date()),
+        "success",
+      );
+      return;
+    } catch (error) {
+      if (isAuto) {
+        setStatus(
+          "自動コピーに失敗しました。「全文コピー」を押してください。",
+          "error",
+        );
+        return;
+      }
+
+      var start = memoEl.selectionStart;
+      var end = memoEl.selectionEnd;
+
+      try {
+        memoEl.focus();
+        memoEl.select();
+
+        if (!document.execCommand("copy")) {
+          throw new Error("コピーに失敗しました。");
+        }
+
+        memoEl.setSelectionRange(start, end);
+        setStatus("コピーしました。", "success");
+      } catch (fallbackError) {
+        setStatus(
+          "コピーできませんでした。文章を選択してコピーしてください。",
+          "error",
+        );
+      }
+    }
+  }
+
+  async function clearMemo() {
+    if (!currentCode) {
+      return;
+    }
+
+    if (!window.confirm(
+      "サーバーとこの画面の内容をすべて消します。よろしいですか？",
+    )) {
+      return;
+    }
+
+    requestGeneration += 1;
+    cancelPendingSend();
+
+    var generationAtStart = requestGeneration;
+    var codeAtStart = currentCode;
+
+    setStatus("削除中...");
+
+    try {
+      await requestJson(apiUrl(), {
+        method: "DELETE",
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      if (
+        generationAtStart !== requestGeneration ||
+        codeAtStart !== currentCode
+      ) {
+        return;
+      }
+
+      memoEl.value = "";
+      lastSentText = "";
+      lastUpdatedAt = null;
+      updateCount();
+      setStatus("内容を消しました。", "success");
+    } catch (error) {
+      if (
+        generationAtStart === requestGeneration &&
+        codeAtStart === currentCode
+      ) {
+        setStatus(error.message, "error");
+      }
+    }
+  }
+
+  function changeCode() {
+    requestGeneration += 1;
+    cancelPendingSend();
+    stopPolling();
+    removeSavedCode();
+
+    currentCode = "";
+    lockerCode = "";
+    aesKey = null;
+    lastUpdatedAt = null;
+    lastSentText = null;
+    memoEl.value = "";
+    updateCount();
+    enableMemo(false);
+    showCodeSetup();
+
+    codeInputEl.value = "";
+    setStatus("新しい合言葉を入力してください。");
+    codeInputEl.focus();
+  }
+
+  codeInputEl.addEventListener("input", function () {
+    var value = normalizeCode(codeInputEl.value);
+    codeInputEl.value = value.slice(0, 10);
+  });
+
+  codeInputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      setCode(codeInputEl.value);
+    }
+  });
+
+  useCodeBtn.addEventListener("click", function () {
+    setCode(codeInputEl.value);
+  });
+
+  makeCodeBtn.addEventListener("click", function () {
+    var code;
+
+    try {
+      code = generateCode();
+    } catch (error) {
+      setStatus(
+        "このブラウザでは安全な合言葉を作れませんでした。",
+        "error",
+      );
+      return;
+    }
+
+    codeInputEl.value = code;
+    setCode(code);
+  });
+
+  changeCodeBtn.addEventListener("click", changeCode);
+
+  memoEl.addEventListener("input", function () {
+    updateCount();
+    scheduleSend();
+  });
+
+  memoEl.addEventListener("blur", function () {
+    receiveMemo(false);
+  });
+
+  copyBtn.addEventListener("click", function () {
+    copyMemo(false);
+  });
+  clearBtn.addEventListener("click", clearMemo);
+
+  autoCopyToggle.addEventListener("change", function () {
+    saveAutoCopyPref(autoCopyToggle.checked);
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      receiveMemo(false);
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  });
+
+  window.addEventListener("beforeunload", function () {
+    cancelPendingSend();
+    stopPolling();
+  });
+
+  function initialize() {
+    updateCount();
+
+    if (location.protocol !== "http:" && location.protocol !== "https:") {
+      appEl.style.display = "none";
+      startupErrorEl.style.display = "block";
+      startupErrorEl.textContent =
+        "このページは公開サイト（silver-computing-machine-7ql.pages.dev）から開いてください。";
+      return;
+    }
+
+    if (!supportsCrypto()) {
+      appEl.style.display = "none";
+      startupErrorEl.style.display = "block";
+      startupErrorEl.textContent =
+        "このブラウザは暗号化に対応していません。最新のChromeかSafari本体で開いてください。";
+      return;
+    }
+
+    var savedCode = loadSavedCode();
+
+    if (isValidCode(savedCode)) {
+      codeInputEl.value = savedCode;
+      setCode(savedCode);
+    } else {
+      showCodeSetup();
+      enableMemo(false);
+      setStatus("合言葉を設定してください。");
+      codeInputEl.focus();
+    }
+  }
+
+  initialize();
+})();
+</script>
+</body>
+</html>
