@@ -359,6 +359,65 @@
     line-height:1.8;
     text-align:center;
   }
+
+  #calib{
+    position:fixed;
+    inset:0;
+    z-index:60;
+    display:none;
+    place-items:center;
+    padding:16px;
+    background:rgba(4,8,12,.92);
+    overflow:auto;
+  }
+  #calib.show{display:grid}
+  .calib-card{
+    width:min(560px,100%);
+    padding:18px 18px 16px;
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:var(--panel);
+    text-align:center;
+  }
+  .calib-card h2{margin:0 0 4px;font-size:16px}
+  .calib-step{margin:0 0 10px;color:var(--dim);font-size:11px}
+  .calib-card p{margin:0 0 12px;color:var(--dim);font-size:12px;line-height:1.7}
+  .calib-card b{color:var(--ink)}
+  #calibCard{
+    margin:0 auto 12px;
+    border:2px dashed var(--accent);
+    border-radius:10px;
+    background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(255,255,255,.02));
+  }
+  .calib-row{
+    display:grid;
+    grid-template-columns:1fr 78px;
+    align-items:center;
+    gap:10px;
+    margin:0 0 12px;
+  }
+  .calib-row output{
+    color:var(--ink);
+    font-variant-numeric:tabular-nums;
+    font-size:12px;
+    text-align:right;
+  }
+  .calib-nav{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .calib-nav button{
+    padding:10px 16px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:transparent;
+    color:var(--ink);
+    font:800 12px/1.2 inherit;
+    cursor:pointer;
+  }
+  .calib-nav button.main{
+    border-color:var(--accent);
+    background:var(--accent);
+    color:#0b1410;
+  }
+  #calibMsg{min-height:16px;margin:0 0 8px;color:var(--accent);font-size:11px}
   #splatAdjust,#depthAdjust{
     position:fixed;
     z-index:25;
@@ -623,6 +682,60 @@
   </label>
 </section>
 
+<div id="calib" aria-label="画面のあわせかた">
+  <div class="calib-card">
+    <p class="calib-step" id="calibStep">1 / 3</p>
+    <h2 id="calibTitle">画面の実物の大きさ</h2>
+
+    <div id="calibPane1">
+      <p>
+        <b>クレジットカード（または交通系ICカード）</b>を画面に当ててください。<br>
+        下の枠がカードとぴったり同じ大きさになるまで、つまみを動かします。
+      </p>
+      <div id="calibCard"></div>
+      <div class="calib-row">
+        <input id="calibCardSize" type="range" min="120" max="900" step="1">
+        <output id="calibInchValue">--</output>
+      </div>
+    </div>
+
+    <div id="calibPane2">
+      <p>
+        カメラで顔の位置を測ります。<b>ふだん覗く姿勢</b>で座り、
+        <b>腕をまっすぐ画面へ伸ばして、指先が画面に触れる</b>ところまで顔を下げてください。<br>
+        その位置のまま「いまの位置で合わせる」を押します。
+      </p>
+      <div class="calib-row">
+        <input id="calibArm" type="range" min="0.40" max="0.90" step="0.01">
+        <output id="calibArmValue">0.62m</output>
+      </div>
+      <div class="calib-nav" style="margin-bottom:12px">
+        <button id="calibFace" type="button">📷 カメラを入れる</button>
+        <button id="calibDo" type="button" class="main">いまの位置で合わせる</button>
+      </div>
+    </div>
+
+    <div id="calibPane3">
+      <p>
+        顔を<b>ゆっくり左右に動かし</b>ながら、つまみを合わせます。<br>
+        標本が<b>窓の向こうに止まって見える</b>ところが正解です。
+        絵ごとついてくるなら下げ、動きが足りないなら上げます。
+      </p>
+      <div class="calib-row">
+        <input id="calibGain" type="range" min="0.4" max="3" step="0.05">
+        <output id="calibGainValue">1.80</output>
+      </div>
+    </div>
+
+    <p id="calibMsg"></p>
+    <div class="calib-nav">
+      <button id="calibBack" type="button">← もどる</button>
+      <button id="calibNext" type="button" class="main">次へ →</button>
+      <button id="calibClose" type="button">やめる</button>
+    </div>
+  </div>
+</div>
+
 <div id="permission">
   <div class="permission-card">
     <div class="mark">👁</div>
@@ -663,7 +776,8 @@
     <input id="screenInchInput" type="number" min="1" max="200" step="0.1" inputmode="decimal">
   </label>
   <p id="eyeCalibrationState">未校正: 標準設定で動作中</p>
-  <button id="calibrateEye" type="button">📏 距離をあわせる（約60cmで押す）</button>
+  <button id="openCalib" type="button">📐 画面を合わせる（案内つき）</button>
+  <button id="calibrateEye" type="button">📏 距離だけあわせる（約60cmで押す）</button>
   <button id="closeEyeSettings" type="button">閉じる</button>
 </section>
 <button id="recordShow" type="button">🎬 動画にする</button>
@@ -674,7 +788,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev33-depth";
+const REV = "rev34-calib";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -690,7 +804,7 @@ const SHOW_TUNE = {
 // 顔トラッキングの角度誇張: 実寸1:1だと写真1枚では動きが平坦に感じる
 // (2.5Dは本物の視点変化ほど絵が変わらないため)。目の横位置をこの倍率で
 // 増幅して「首を振った分ちゃんと動く」体感に寄せる。1.0で物理忠実
-const EYE_GAIN = 1.8;
+let EYE_GAIN = 1.8;   // 調整ウィザードで変えられる(hyohon-gainに保存)
 // スマホ用フュージョン: ジャイロ(速い・相対)を顔位置(正確・遅い)に重ねる相補フィルタ。
 // ジャイロ成分はFUSION_DECAY_S秒で減衰して顔の絶対位置に収束する(ドリフトしない)。
 // 実機で動きが左右/上下逆なら FUSION_SIGN_X/Y を -1 に。
@@ -5069,6 +5183,19 @@ window.__dbg = {
     return {ex:eyeX, ey:eyeY, ez:eyeZ, head:{...headPose}};
   },
 
+  calib(step) {
+    if (step) { calibOpen(); calibShowStep(step); }
+    return {
+      step:calibStep,
+      open:$("calib")?.classList.contains("show") ?? null,
+      screenInch,
+      calibratedFpx,
+      eyeGain:EYE_GAIN,
+      arm:calibArmLength(),
+      cardWidthPx:Number($("calibCardSize")?.value || 0)
+    };
+  },
+
   depthTune(patch) {
     if (patch) {
       if ("strength" in patch) RELIEF_TUNE.auto = false;
@@ -5578,6 +5705,166 @@ $("depthAuto")?.addEventListener("click", () => {
   RELIEF_TUNE.strength = autoDepthStrength();
   localStorage.removeItem(DEPTH_KEY);
   syncDepthUi(false);
+});
+
+// ---- 調整ウィザード(PS5の画面調整のように、見ながら合わせる3段階) ----
+const GAIN_KEY = "hyohon-gain";
+const ARM_KEY = "hyohon-arm";
+const CARD_MM = {w:85.60, h:53.98};   // クレジットカードの国際規格(ID-1)
+let calibStep = 1;
+
+{
+  const saved = Number(localStorage.getItem(GAIN_KEY));
+  if (Number.isFinite(saved) && saved > 0) EYE_GAIN = saved;
+}
+
+function calibArmLength() {
+  const saved = Number(localStorage.getItem(ARM_KEY));
+  return Number.isFinite(saved) && saved >= 0.4 && saved <= 0.9 ? saved : 0.62;
+}
+
+// 画面の対角インチ ⇔ カード枠の幅(CSSピクセル)の変換
+function calibScreenDiagonalPx() {
+  return Math.hypot(
+    screen.width || innerWidth || 0,
+    screen.height || innerHeight || 0
+  );
+}
+
+function calibCardWidthFromInch(inch) {
+  const mmPerPx = inch * 25.4 / Math.max(1, calibScreenDiagonalPx());
+  return CARD_MM.w / Math.max(mmPerPx, 1e-6);
+}
+
+function calibInchFromCardWidth(widthPx) {
+  const mmPerPx = CARD_MM.w / Math.max(widthPx, 1);
+  return calibScreenDiagonalPx() * mmPerPx / 25.4;
+}
+
+function calibMessage(text) {
+  const element = $("calibMsg");
+  if (element) element.textContent = text || "";
+}
+
+function calibShowStep(step) {
+  calibStep = Math.min(3, Math.max(1, step));
+  const titles = [
+    "画面の実物の大きさ",
+    "顔までの距離",
+    "動きの強さ"
+  ];
+  $("calibStep").textContent = calibStep + " / 3";
+  $("calibTitle").textContent = titles[calibStep - 1];
+  for (let i = 1; i <= 3; i++) {
+    const pane = $("calibPane" + i);
+    if (pane) pane.style.display = i === calibStep ? "" : "none";
+  }
+  $("calibBack").style.display = calibStep === 1 ? "none" : "";
+  $("calibNext").textContent = calibStep === 3 ? "できあがり" : "次へ →";
+  calibMessage("");
+
+  if (calibStep === 1) {
+    if (calibScreenDiagonalPx() < 100) {
+      calibMessage("この画面の大きさを取得できません。視点設定でインチを直接入れてください");
+    }
+    const slider = $("calibCardSize");
+    const width = calibCardWidthFromInch(screenInch);
+    slider.value = String(Math.round(
+      Math.min(Number(slider.max), Math.max(Number(slider.min), width))
+    ));
+    calibSyncCard();
+  }
+  if (calibStep === 2) {
+    $("calibArm").value = String(calibArmLength());
+    calibSyncArm();
+    calibMessage(
+      faceActive ? "カメラは動いています" : "先に「カメラを入れる」を押してください"
+    );
+  }
+  if (calibStep === 3) {
+    $("calibGain").value = String(EYE_GAIN);
+    $("calibGainValue").textContent = EYE_GAIN.toFixed(2);
+  }
+}
+
+function calibSyncCard() {
+  const width = Number($("calibCardSize").value);
+  const card = $("calibCard");
+  card.style.width = width + "px";
+  card.style.height = (width * CARD_MM.h / CARD_MM.w) + "px";
+  const inch = calibInchFromCardWidth(width);
+  $("calibInchValue").textContent =
+    inch >= 1 ? inch.toFixed(1) + "型" : "--";
+}
+
+function calibSyncArm() {
+  $("calibArmValue").textContent =
+    Number($("calibArm").value).toFixed(2) + "m";
+}
+
+function calibOpen() {
+  $("calib").classList.add("show");
+  $("eyeSettingsPanel").classList.remove("show");
+  calibShowStep(1);
+}
+
+function calibClose() {
+  $("calib").classList.remove("show");
+}
+
+$("openCalib")?.addEventListener("click", calibOpen);
+$("calibClose")?.addEventListener("click", calibClose);
+$("calibCardSize")?.addEventListener("input", calibSyncCard);
+$("calibArm")?.addEventListener("input", calibSyncArm);
+
+$("calibGain")?.addEventListener("input", event => {
+  EYE_GAIN = Number(event.target.value);
+  $("calibGainValue").textContent = EYE_GAIN.toFixed(2);
+  localStorage.setItem(GAIN_KEY, String(EYE_GAIN));
+  renderFrame();
+});
+
+$("calibFace")?.addEventListener("click", () => {
+  if (faceActive) {
+    calibMessage("カメラはもう動いています");
+    return;
+  }
+  startFaceLook();
+  calibMessage("カメラを準備しています…");
+});
+
+$("calibDo")?.addEventListener("click", () => {
+  if (!faceActive || !lastIrisPx) {
+    calibMessage("顔が写っていません。カメラを入れて、顔が画面に入るようにしてください");
+    return;
+  }
+  const arm = Number($("calibArm").value);
+  localStorage.setItem(ARM_KEY, String(arm));
+  calibratedFpx = lastIrisPx * arm / IRIS_DIAMETER_M;
+  localStorage.setItem(FPX_KEY, String(calibratedFpx));
+  syncEyeSettingsUi();
+  calibMessage("合いました: " + arm.toFixed(2) + "m の位置として保存しました");
+});
+
+$("calibBack")?.addEventListener("click", () => calibShowStep(calibStep - 1));
+
+$("calibNext")?.addEventListener("click", () => {
+  if (calibStep === 1) {
+    const inch = calibInchFromCardWidth(Number($("calibCardSize").value));
+    if (!Number.isFinite(inch) || inch < 1 || inch > 200) {
+      calibMessage("枠の大きさが極端です。カードに合わせ直してください");
+      return;
+    }
+    screenInch = inch;
+    localStorage.setItem(SCREEN_INCH_KEY, String(screenInch));
+    syncEyeSettingsUi();
+    if (camera) frameCamera();
+  }
+  if (calibStep === 3) {
+    calibClose();
+    return;
+  }
+  calibShowStep(calibStep + 1);
 });
 
 // 視線追従: 毎フレーム、虹彩の板のUVを視点方向へずらす(rev18と同じ再代入ラップ)
