@@ -200,6 +200,7 @@ const CHARACTERS = [
 ];
 
 let S;
+let ROUNDS = 3;   // タイトルで選ぶラウンド数(3〜6)。次の対戦にも引き継ぐ
 
 function shuffle(g, array) {
   let i;
@@ -1115,26 +1116,62 @@ function tierColor(tier) {
   return "#b44f91";
 }
 
+// タイトルから対戦を始める(Sは作り直さず中身を入れ替える)
+function startGame(g) {
+  S.round = 1;
+  S.maxRounds = ROUNDS;
+  S.players = makePlayers(g);
+  S.path = [];
+  S.startTurn = Math.floor(g.rand(0, 4));
+  resetRound(g);
+  S.scene = "play";
+  g.se("click");
+}
+
 function drawTitle(g) {
   let i;
   let x;
+  let y;
+  let on;
 
   g.bg("#061d35");
-  g.text("海底探検", g.W / 2, 105, 54, "#dffaff", "center");
-  g.emoji("🚢", g.W / 2, 176, 76);
-  g.emoji("🤿", g.W / 2, 252, 52, {rot:-0.12});
+  drawFx(g);
+
+  g.text("海底探検", g.W / 2, 74, 46, "#dffaff", "center");
+  g.emoji("🚢", g.W / 2, 128, 62);
+  g.text("酸素はみんなの共有。欲張ると全員沈む", g.W / 2, 186, 21, "#b9eaff", "center");
 
   for (i = 0; i < CHARACTERS.length; i += 1) {
     x = g.W / 2 - (CHARACTERS.length - 1) * 66 / 2 + i * 66;
-    g.emoji(CHARACTERS[i].icon, x, 320, 36);
-    g.text(CHARACTERS[i].name, x, 350, 10, "#9fd0e8", "center");
+    g.emoji(CHARACTERS[i].icon, x, 234, 34);
+    g.text(CHARACTERS[i].name, x, 262, 10, "#9fd0e8", "center");
   }
 
-  g.text("この" + CHARACTERS.length + "人から3人が参加(毎回かわる)", g.W / 2, 382, 17, "#7fb8d4", "center");
-  g.text("進む数 = サイコロ1〜3が2個 − 荷物の数。他の人がいるマスは数えずに飛び越える", g.W / 2, 408, 14, "#6f9bb5", "center");
-  g.text("酸素はみんなの共有。欲張ると全員沈む", g.W / 2, 440, 22, "#b9eaff", "center");
-  g.rect(300, 474, 360, 48, "#19a6b3");
-  g.text("クリックして潜る", g.W / 2, 506, 25, "#ffffff", "center");
+  g.text("この" + CHARACTERS.length + "人から3人が参加(毎回かわる)", g.W / 2, 288, 16, "#7fb8d4", "center");
+  g.text("進む数 = サイコロ1〜3が2個 − 荷物の数。他の人がいるマスは数えずに飛び越える", g.W / 2, 312, 13, "#6f9bb5", "center");
+
+  // ラウンド数えらび
+  g.text("何ラウンド遊ぶ?", g.W / 2, 352, 17, "#dffaff", "center");
+  for (i = 3; i <= 6; i += 1) {
+    x = g.W / 2 - 2 * 76 + (i - 3) * 76 + 38;
+    y = 366;
+    on = (ROUNDS === i);
+    g.rect(x - 32, y, 64, 40, on ? "#ffcc4d" : "#14496b");
+    g.text(String(i), x, y + 29, 24, on ? "#20304a" : "#cfe9f7", "center");
+
+    if (insidePointer(g, x - 32, y, 64, 40) && g.pointer.justDown) {
+      ROUNDS = i;
+      g.se("click");
+    }
+  }
+  g.text("ラウンドを重ねるほど道が短くなり底の高得点まで届く", g.W / 2, 428, 13, "#6f9bb5", "center");
+
+  // スタート
+  g.rect(300, 452, 360, 52, "#19a6b3");
+  g.text("クリックして潜る", g.W / 2, 486, 25, "#ffffff", "center");
+  if (insidePointer(g, 300, 452, 360, 52) && g.pointer.justDown) {
+    startGame(g);
+  }
 }
 
 function drawOxygen(g) {
@@ -1145,7 +1182,7 @@ function drawOxygen(g) {
   g.rect(330, 34, 300, 24, "#16364d");
   g.rect(334, 38, 292 * ratio, 16, color);
   g.text(String(S.oxygen) + " / 25", 480, 53, 17, "#ffffff", "center");
-  g.text("ROUND " + S.round + " / 3", 835, 36, 19, "#d9f5ff", "center");
+  g.text("ROUND " + S.round + " / " + S.maxRounds, 835, 36, 19, "#d9f5ff", "center");
 }
 
 function sortedScorePlayers() {
@@ -1271,8 +1308,8 @@ function drawPath(g) {
 
   // 海の帯と潜水艦(左端)
   g.rect(SEA_LEFT, TILE_Y - 52, g.W - SEA_LEFT, 118, "#082a48");
-  g.emoji("🚢", 260, TILE_Y - 18, 42);
-  g.text("潜水艦", 260, TILE_Y + 14, 12, "#dffaff", "center");
+  g.emoji("🚢", 262, TILE_Y + 8, 38);
+  g.text("潜水艦", 262, TILE_Y + 38, 11, "#dffaff", "center");
   g.rect(292, TILE_Y - 22, 2, 44, "#2f6e94");
 
   for (i = first; i <= last; i += 1) {
@@ -1286,6 +1323,11 @@ function drawPath(g) {
         diamonds += "◆";
       }
       g.text(diamonds, x, TILE_Y + 5, tile.chip.tier >= 4 ? 9 : 11, "#ffffff", "center");
+      if (tile.chip.parts > 1) {
+        // 沈んだ人が落として、まとめられた宝(1マス=荷物1個ぶんの重さ)
+        g.rect(x - 19, TILE_Y - 20, 38, 12, "#ffcc4d");
+        g.text("×" + tile.chip.parts + " まとめ", x, TILE_Y - 11, 9, "#3a2a00", "center");
+      }
     } else {
       g.rect(x - 17, TILE_Y - 4, 34, 8, "#123a58");
       g.rect(x - 3, TILE_Y - 2, 6, 4, "#4d7d99");
@@ -1312,10 +1354,10 @@ function playerScreenPosition(player, stack) {
   }
 
   if (player.pos === 0) {
-    x = 260;
-  } else {
-    x = screenXForPosition(player.pos, first);
+    return { x: 248 + stack * 22, y: TILE_Y - 28, off: false };
   }
+
+  x = screenXForPosition(player.pos, first);
 
   return {
     x: x,
@@ -1395,6 +1437,9 @@ function drawMinimap(g) {
     x = left + (i - 1) * step;
     if (tile && tile.chip) {
       g.rect(x, 408, Math.max(2, step - 1), 14, tierColor(tile.chip.tier));
+      if (tile.chip.parts > 1) {
+        g.rect(x, 408, Math.max(2, step - 1), 4, "#ffcc4d");
+      }
     } else {
       g.rect(x, 413, Math.max(2, step - 1), 4, "#1d4a6a");
     }
@@ -1627,7 +1672,7 @@ function drawRound(g) {
   }
 
   if (S.revealed >= S.roundSummary.length) {
-    if (S.round < 3) {
+    if (S.round < S.maxRounds) {
       if (S.removedTiles > 0) {
         g.text(
           "空になった" + S.removedTiles + "マスを取り除いて道が縮んだ(残り" + S.path.length + "マス)",
@@ -1852,6 +1897,7 @@ function freshState(g) {
     lostThisRound: [],
     roundReason: "",
     removedTiles: 0,
+    maxRounds: ROUNDS,
     fx: [],
     flash: 0,
     shake: 0,
@@ -1880,12 +1926,9 @@ EmojiEngine.register({
     dt = g.clamp(dt, 0, 0.1);
 
     if (S.scene === "title") {
-      if (g.pointer.justDown || g.pressed("action")) {
-        S = freshState(g);
-        this._state = S;
-        resetRound(g);
-        S.scene = "play";
-        g.se("click");
+      updateFx(dt);
+      if (g.pressed("action")) {
+        startGame(g);
       }
       return;
     }
@@ -1900,7 +1943,7 @@ EmojiEngine.register({
       updateResult(g, dt);
 
       if ((g.pointer.justDown || g.pressed("action")) && S.revealed >= S.roundSummary.length) {
-        if (S.round >= 3) {
+        if (S.round >= S.maxRounds) {
           S.scene = "over";
           S.resultTime = 0;
           S.revealed = 0;
@@ -1921,8 +1964,11 @@ EmojiEngine.register({
       updateOver(g, dt);
 
       if ((g.pointer.justDown || g.pressed("action")) && S.revealed >= S.players.length) {
-        S = freshState(g);
-        this._state = S;
+        S.scene = "title";
+        S.fx = [];
+        S.flash = 0;
+        S.path = [];
+        S.round = 1;
         g.se("click");
       }
     }
