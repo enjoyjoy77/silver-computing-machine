@@ -417,6 +417,15 @@
     background:var(--accent);
     color:#0b1410;
   }
+  #calibRef{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:9px;
+    background:rgba(255,255,255,.05);
+    color:var(--ink);
+    font:700 12px/1.2 inherit;
+  }
   #calibMsg{min-height:16px;margin:0 0 8px;color:var(--accent);font-size:11px}
   #splatAdjust,#depthAdjust{
     position:fixed;
@@ -689,12 +698,16 @@
 
     <div id="calibPane1">
       <p>
-        <b>クレジットカード（または交通系ICカード）</b>を画面に当ててください。<br>
-        下の枠がカードとぴったり同じ大きさになるまで、つまみを動かします。
+        手元にある<b>大きさが決まっている物</b>を画面に当てて、
+        下の枠とぴったり重なるまでつまみを動かします。<br>
+        <span id="calibRefNote"></span>
       </p>
+      <div class="calib-row" style="grid-template-columns:1fr">
+        <select id="calibRef"></select>
+      </div>
       <div id="calibCard"></div>
       <div class="calib-row">
-        <input id="calibCardSize" type="range" min="120" max="900" step="1">
+        <input id="calibCardSize" type="range" min="40" max="900" step="1">
         <output id="calibInchValue">--</output>
       </div>
     </div>
@@ -788,7 +801,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev34-calib";
+const REV = "rev35-ref";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -5710,7 +5723,42 @@ $("depthAuto")?.addEventListener("click", () => {
 // ---- 調整ウィザード(PS5の画面調整のように、見ながら合わせる3段階) ----
 const GAIN_KEY = "hyohon-gain";
 const ARM_KEY = "hyohon-arm";
-const CARD_MM = {w:85.60, h:53.98};   // クレジットカードの国際規格(ID-1)
+const REF_KEY = "hyohon-calib-ref";
+
+// 大きさが規格で決まっていて、たいてい手元にある物。画面が小さいときは硬貨が使える
+const CALIB_REFS = [
+  {
+    id:"card", w:85.60, h:53.98, round:false,
+    name:"カード類（85.6 × 54mm）",
+    note:"交通系IC・免許証・診察券・ポイントカードでも同じ大きさです。一番正確なので、入るならこれ。"
+  },
+  {
+    id:"coin500", w:26.5, h:26.5, round:true,
+    name:"500円玉（直径26.5mm）",
+    note:"金色の大きいほう。ふちがギザギザでない、いまの500円玉です。"
+  },
+  {
+    id:"coin100", w:22.6, h:22.6, round:true,
+    name:"100円玉（直径22.6mm）",
+    note:"銀色でふちがギザギザのほう。50円玉（穴あき）と間違えないでください。"
+  },
+  {
+    id:"coin1", w:20.0, h:20.0, round:true,
+    name:"1円玉（直径20.0mm）",
+    note:"アルミの軽いもの。ちょうど20mmと決まっています。小さいぶん、ずれやすいので慎重に。"
+  },
+  {
+    id:"bill", w:76.0, h:30.0, round:false,
+    name:"お札の短いほうの辺（76mm）",
+    note:"千円・五千円・一万円、どれも短い辺は76mmです。枠の横幅にお札の短い辺を合わせます。"
+  }
+];
+
+function calibRef() {
+  const saved = localStorage.getItem(REF_KEY);
+  return CALIB_REFS.find(item => item.id === saved) || CALIB_REFS[0];
+}
+
 let calibStep = 1;
 
 {
@@ -5733,12 +5781,23 @@ function calibScreenDiagonalPx() {
 
 function calibCardWidthFromInch(inch) {
   const mmPerPx = inch * 25.4 / Math.max(1, calibScreenDiagonalPx());
-  return CARD_MM.w / Math.max(mmPerPx, 1e-6);
+  return calibRef().w / Math.max(mmPerPx, 1e-6);
 }
 
 function calibInchFromCardWidth(widthPx) {
-  const mmPerPx = CARD_MM.w / Math.max(widthPx, 1);
+  const mmPerPx = calibRef().w / Math.max(widthPx, 1);
   return calibScreenDiagonalPx() * mmPerPx / 25.4;
+}
+
+function calibFillRefList() {
+  const select = $("calibRef");
+  if (!select || select.options.length) return;
+  for (const item of CALIB_REFS) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    select.appendChild(option);
+  }
 }
 
 function calibMessage(text) {
@@ -5767,6 +5826,8 @@ function calibShowStep(step) {
     if (calibScreenDiagonalPx() < 100) {
       calibMessage("この画面の大きさを取得できません。視点設定でインチを直接入れてください");
     }
+    calibFillRefList();
+    $("calibRef").value = calibRef().id;
     const slider = $("calibCardSize");
     const width = calibCardWidthFromInch(screenInch);
     slider.value = String(Math.round(
@@ -5788,10 +5849,13 @@ function calibShowStep(step) {
 }
 
 function calibSyncCard() {
+  const reference = calibRef();
   const width = Number($("calibCardSize").value);
   const card = $("calibCard");
   card.style.width = width + "px";
-  card.style.height = (width * CARD_MM.h / CARD_MM.w) + "px";
+  card.style.height = (width * reference.h / reference.w) + "px";
+  card.style.borderRadius = reference.round ? "50%" : "10px";
+  $("calibRefNote").textContent = reference.note;
   const inch = calibInchFromCardWidth(width);
   $("calibInchValue").textContent =
     inch >= 1 ? inch.toFixed(1) + "型" : "--";
@@ -5815,6 +5879,18 @@ function calibClose() {
 $("openCalib")?.addEventListener("click", calibOpen);
 $("calibClose")?.addEventListener("click", calibClose);
 $("calibCardSize")?.addEventListener("input", calibSyncCard);
+
+$("calibRef")?.addEventListener("change", event => {
+  const slider = $("calibCardSize");
+  // 物を変えても、いま合わせかけている実寸は捨てない(切替の前に読んでおく)
+  const inchNow = calibInchFromCardWidth(Number(slider.value));
+  localStorage.setItem(REF_KEY, event.target.value);
+  const width = calibCardWidthFromInch(inchNow);
+  slider.value = String(Math.round(
+    Math.min(Number(slider.max), Math.max(Number(slider.min), width))
+  ));
+  calibSyncCard();
+});
 $("calibArm")?.addEventListener("input", calibSyncArm);
 
 $("calibGain")?.addEventListener("input", event => {

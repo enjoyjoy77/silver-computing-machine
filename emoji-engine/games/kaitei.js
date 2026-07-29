@@ -66,11 +66,53 @@ const LINES = {
 };
 
 
+// ===== あなたが出せるセリフ(エモート) =====
+// 画面右下の4つのボタン。押すと吹き出しが出て、CPUが返事をする。
+// 増やしたいときはここに1つ足す(ボタンは自動で並ぶ)。
+const EMOTES = [
+  { icon: "😤", label: "まだ潜る", text: "まだ潜るぞ!", kind: "replyDive" },
+  { icon: "🙏", label: "戻ってくれ", text: "頼む、そろそろ戻ってくれ", kind: "replyBack" },
+  { icon: "👋", label: "先に上がる", text: "悪いな、先に上がらせてもらう", kind: "replyBye" },
+  { icon: "😱", label: "あぶない!", text: "酸素が無い! みんな急げ!", kind: "replyDanger" }
+];
+
+// エモートへの返事(キャラ固有が無ければこの共通から出る)
+const REPLY_LINES = {
+  replyDive: [
+    "その意気やよし",
+    "ならこっちも降りるか",
+    "無茶をするな…",
+    "付き合いきれん"
+  ],
+  replyBack: [
+    "断る",
+    "あと1マスだけ待て",
+    "分かった、戻る",
+    "自分が先に戻れよ"
+  ],
+  replyBye: [
+    "抜け駆けか!",
+    "見送ってやる",
+    "運が良かったな",
+    "こっちはまだ拾うぞ"
+  ],
+  replyDanger: [
+    "分かってる!",
+    "騒ぐな、集中できん",
+    "うわ、本当だ",
+    "誰のせいだと思ってる"
+  ]
+};
+
 // ===== 参加キャラ(この6人から毎回3人が抽選で参加。増やすときはここに足す) =====
 const CHARACTERS = [
   {
     type: "greedy", name: "よくばり", icon: "😎",
     lines: {
+      replyDive: ["いいねえ、道連れだ"],
+      replyBack: ["断る。まだ足りない"],
+      replyBye: ["その程度で満足か?"],
+      replyDanger: ["まだ2、3マスいけるだろ"],
       dive: ["まだイケる…!", "宝は下にあるんだよ", "引き返す奴は二流だ", "1枚多く持つのが勝ちだ", "空気なら余ってるだろ"],
       turn: ["ちっ、ここまでか", "今回は預けておいてやる", "潮の流れが悪い"],
       pickup: ["これは当たりだ!", "全部おれのだ", "もっとよこせ", "重い=高いってことだ"],
@@ -83,6 +125,10 @@ const CHARACTERS = [
   {
     type: "smart", name: "かしこい", icon: "🧐",
     lines: {
+      replyDive: ["君の残り酸素では厳しい"],
+      replyBack: ["言われる前に戻っている"],
+      replyBye: ["賢明だ。真似させてもらう"],
+      replyDanger: ["把握済みだ。落ち着け"],
       dive: ["計算上まだ余裕がある", "酸素の配分は把握済みだ", "あと2手は安全圏だ", "期待値はまだプラスだ"],
       turn: ["ここが損益分岐点だ", "確率が悪くなった。撤退する", "欲は数字で切る"],
       pickup: ["価値のあるものだけ頂く", "これは持ち帰る価値がある", "重さの元は取れる"],
@@ -96,6 +142,10 @@ const CHARACTERS = [
   {
     type: "scared", name: "びびり", icon: "😰",
     lines: {
+      replyDive: ["ぼ、僕は無理です…"],
+      replyBack: ["それ僕が言いたかった!"],
+      replyBye: ["待って、置いてかないで"],
+      replyDanger: ["ひぃぃ! 帰る!"],
       dive: ["こ、怖くないもん", "もうちょっとだけ…", "み、みんな行くなら…"],
       turn: ["やっぱ帰る! 帰る!", "無理無理無理", "命だけは持って帰ります"],
       pickup: ["ふ、震えが止まらない", "これで十分です…", "え、拾っていいんですか"],
@@ -109,6 +159,10 @@ const CHARACTERS = [
   {
     type: "gambler", name: "ばくち", icon: "🤠",
     lines: {
+      replyDive: ["おっ、勝負するねえ"],
+      replyBack: ["博打に降りろとは言うなよ"],
+      replyBye: ["逃げ足で勝つのも勝ちだ"],
+      replyDanger: ["こういう場面が一番燃える"],
       dive: ["いくぜ、一発勝負!", "運は俺の味方だ", "ここで降りたら男が廃る", "ツキが来てる、乗るぜ"],
       turn: ["熱いうちに引くのが博打だ", "勝ち逃げさせてもらうぜ", "引き際で人生が決まる"],
       pickup: ["きたきたきた!", "この手ごたえ、大物だ", "当たりを引く男でね"],
@@ -122,6 +176,10 @@ const CHARACTERS = [
   {
     type: "copycat", name: "しのび", icon: "🥷",
     lines: {
+      replyDive: ["…ならば追う"],
+      replyBack: ["…考えておく"],
+      replyBye: ["…ならば我も"],
+      replyDanger: ["…承知"],
       dive: ["…追う", "まだだ", "…影は離れぬ"],
       turn: ["…潮時", "…引く"],
       pickup: ["…いただく", "…この一枚で足りる"],
@@ -135,6 +193,10 @@ const CHARACTERS = [
   {
     type: "veteran", name: "せんぱい", icon: "👴",
     lines: {
+      replyDive: ["若いのは無茶をする"],
+      replyBack: ["言われんでも戻る頃合いだ"],
+      replyBye: ["それが正しい引き際だ"],
+      replyDanger: ["騒ぐな。手が乱れる"],
       dive: ["浅い所の石など宝ではない", "本物は下にしかない", "若いのは焦りすぎだ", "40年潜れば分かる"],
       turn: ["いい物は取った。帰るぞ", "引き際こそ腕の見せ所だ", "欲をかいた奴から沈む"],
       pickup: ["これが本物の遺跡だ", "40年探してきた甲斐がある", "ようやく巡り会えた"],
@@ -148,6 +210,10 @@ const CHARACTERS = [
   {
     type: "robot", name: "きかいじん", icon: "🤖",
     lines: {
+      replyDive: ["潜行継続を確認"],
+      replyBack: ["要求を受理。浮上を検討する"],
+      replyBye: ["離脱を記録した"],
+      replyDanger: ["警告は既に出している"],
       dive: ["規定深度まで潜行を継続", "許容範囲内。続行", "目標まであと少し"],
       turn: ["目標数を確保。浮上する", "任務完了。帰投"],
       pickup: ["回収完了", "積載量、あと少し", "サンプル確保"],
@@ -161,6 +227,10 @@ const CHARACTERS = [
   {
     type: "rookie", name: "しんじん", icon: "👶",
     lines: {
+      replyDive: ["オレも行きます!"],
+      replyBack: ["え、もうダメなんすか"],
+      replyBye: ["ずるいっすよ!"],
+      replyDanger: ["どうすればいいんすか!"],
       dive: ["まだ行けます!", "先輩、ここ宝だらけっす", "オレ、才能あるかも"],
       turn: ["あ、これヤバいやつだ", "戻ります戻ります"],
       pickup: ["やった、初の宝!", "全部持って帰りたい", "これ高いやつでしょ?"],
@@ -174,6 +244,10 @@ const CHARACTERS = [
   {
     type: "moody", name: "きまぐれ", icon: "😇",
     lines: {
+      replyDive: ["ふーん"],
+      replyBack: ["やだ"],
+      replyBye: ["ばいばい"],
+      replyDanger: ["さわがしい"],
       dive: ["なんとなく、もぐる", "そんな気分", "呼ばれた気がする"],
       turn: ["飽きた", "そろそろ帰ろっと", "なんとなく、いや"],
       pickup: ["きれいだから拾う", "これ好き"],
@@ -187,6 +261,10 @@ const CHARACTERS = [
   {
     type: "tycoon", name: "しゃちょう", icon: "🤑",
     lines: {
+      replyDive: ["度胸は評価する"],
+      replyBack: ["指図を受ける立場ではない"],
+      replyBye: ["利益確定か。悪くない"],
+      replyDanger: ["損失は最小化する"],
       dive: ["安い物には興味が無くてね", "投資は深い所にする主義だ", "下だ。下まで行きたまえ"],
       turn: ["利益は確定させるものだ", "十分だ。撤収する"],
       pickup: ["これは値が付く", "資産として持ち帰る"],
@@ -288,6 +366,8 @@ function resetRound(g) {
   S.lowOxygenReacted = false;
   S.deepReacted = false;
   S.lastTurn = false;
+  S.replies = [];
+  S.emoteCd = 0;
   S.bubbles = [];
   S.roundSummary = [];
   S.lostThisRound = [];
@@ -393,6 +473,14 @@ function insidePointer(g, x, y, w, h) {
     g.pointer.y <= y + h;
 }
 
+function pushBubble(g, player, text) {
+  S.bubbles = S.bubbles.filter(function(bubble) {
+    return bubble.playerId !== player.id;
+  });
+
+  S.bubbles.push({ playerId: player.id, text: text, time: 1.6 });
+}
+
 function addBubble(g, player, kind) {
   let pool;
 
@@ -401,7 +489,7 @@ function addBubble(g, player, kind) {
   }
 
   // キャラ固有のセリフがあればそれを、無ければ共通のセリフを使う
-  pool = (player.lines && player.lines[kind]) ? player.lines[kind] : LINES[kind];
+  pool = (player.lines && player.lines[kind]) ? player.lines[kind] : (LINES[kind] || REPLY_LINES[kind]);
 
   if (!pool || pool.length === 0) {
     return;
@@ -416,6 +504,65 @@ function addBubble(g, player, kind) {
     text: g.pick(pool),
     time: 1.6
   });
+}
+
+// あなたがエモートを出す。数人のCPUが少し遅れて返事をする
+function sayEmote(g, index) {
+  const emote = EMOTES[index];
+  const me = S.players[0];
+  const others = [];
+  let i;
+  let delay = 0.45;
+
+  if (!emote || S.emoteCd > 0) {
+    return;
+  }
+
+  S.emoteCd = 1.1;
+  pushBubble(g, me, emote.text);
+  g.se("click");
+
+  for (i = 1; i < S.players.length; i += 1) {
+    if (!S.players[i].returned) {
+      others.push(S.players[i]);
+    }
+  }
+
+  shuffle(g, others);
+
+  // 全員が一斉に喋るとうるさいので、最大2人が返す
+  for (i = 0; i < others.length && i < 2; i += 1) {
+    if (i === 0 || g.rand(0, 1) < 0.6) {
+      S.replies.push({ playerId: others[i].id, kind: emote.kind, delay: delay });
+      delay += 0.55;
+    }
+  }
+}
+
+function updateReplies(g, dt) {
+  let i;
+  let r;
+  const ready = [];
+
+  if (S.emoteCd > 0) {
+    S.emoteCd -= dt;
+  }
+
+  for (i = 0; i < S.replies.length; i += 1) {
+    r = S.replies[i];
+    r.delay -= dt;
+    if (r.delay <= 0) {
+      ready.push(r);
+    }
+  }
+
+  S.replies = S.replies.filter(function(x) {
+    return x.delay > 0;
+  });
+
+  for (i = 0; i < ready.length; i += 1) {
+    addBubble(g, S.players[ready[i].playerId], ready[i].kind);
+  }
 }
 
 function updateBubbles(dt) {
@@ -1480,11 +1627,18 @@ function drawMinimap(g) {
   g.text("全体マップ", 232, 419, 12, "#8bb6ca", "right");
 }
 
-function drawBubbles(g) {
+// 吹き出しを横に並べて、はみ出したら上の段へ送る(誰の発言かは引き出し線で示す)
+function layoutBubbles(g) {
+  const items = [];
+  const rows = [268, 224, 180];
+  const left = 246;
+  const right = 950;
   let i;
   let bubble;
   let player;
   let point;
+  let row = 0;
+  let cursor = left;
   let width;
 
   for (i = 0; i < S.bubbles.length; i += 1) {
@@ -1496,14 +1650,46 @@ function drawBubbles(g) {
     }
 
     point = bubblePlayerScreenPosition(player);
+    width = Math.max(120, bubble.text.length * 16 + 24);
 
-    if (point.off) {
-      continue;
+    if (cursor + width > right && row < rows.length - 1) {
+      row += 1;
+      cursor = left;
     }
 
-    width = Math.max(145, bubble.text.length * 17 + 26);
-    g.rect(point.x - width / 2, point.y - 30, width, 38, "#ffffff");
-    g.text(bubble.text, point.x, point.y - 5, 16, "#173047", "center");
+    items.push({
+      text: bubble.text,
+      cpu: player.cpu,
+      w: width,
+      x: cursor + width / 2,
+      y: rows[row],
+      px: point.off ? cursor + width / 2 : point.x,
+      py: point.off ? rows[row] + 20 : point.y + 22,
+      off: point.off
+    });
+
+    cursor += width + 10;
+  }
+
+  return items;
+}
+
+function drawBubbles(g) {
+  const items = layoutBubbles(g);
+  let i;
+  let b;
+
+  for (i = 0; i < items.length; i += 1) {
+    b = items[i];
+
+    // 誰が言ったかの引き出し線
+    if (!b.off) {
+      g.rect(b.px - 1, b.y + 12, 2, Math.max(2, b.py - b.y - 14), b.cpu ? "#ffffff88" : "#ffeaa088");
+      g.rect(Math.min(b.x, b.px), b.y + 12, Math.abs(b.x - b.px) + 2, 2, b.cpu ? "#ffffff88" : "#ffeaa088");
+    }
+
+    g.rect(b.x - b.w / 2, b.y - 26, b.w, 38, b.cpu ? "#ffffff" : "#ffeaa0");
+    g.text(b.text, b.x, b.y - 1, 16, "#173047", "center");
   }
 }
 
@@ -1589,19 +1775,44 @@ function drawPlayerControls(g) {
   }
 }
 
+function drawEmoteButtons(g) {
+  const w = 56;
+  const h = 50;
+  const top = 474;
+  let i;
+  let x;
+  let hover;
+
+  g.text("ひとこと(いつでも押せる)", 821, 466, 12, "#7fb8d4", "center");
+
+  for (i = 0; i < EMOTES.length; i += 1) {
+    x = 700 + i * (w + 6);
+    hover = insidePointer(g, x, top, w, h);
+
+    g.rect(x, top, w, h, S.emoteCd > 0 ? "#1b3247" : (hover ? "#2f6e94" : "#14496b"));
+    g.emoji(EMOTES[i].icon, x + w / 2, top + 19, 24, { alpha: S.emoteCd > 0 ? 0.45 : 1 });
+    g.text(EMOTES[i].label, x + w / 2, top + 44, 10, "#cfe9f7", "center");
+
+    if (hover && g.pointer.justDown) {
+      sayEmote(g, i);
+    }
+  }
+}
+
 function drawPlay(g) {
   g.bg("#061d35");
   handleView(g);
   drawOxygen(g);
   drawScoreboard(g);
   drawPath(g);
-  drawBubbles(g);
   drawPlayers(g);
   drawMinimap(g);
   drawViewControls(g);
   drawDice(g);
   drawTurnInfo(g);
+  drawBubbles(g);
   drawPlayerControls(g);
+  drawEmoteButtons(g);
   drawFx(g);
   drawFlash(g, "#ff2b2b");
 
@@ -1846,6 +2057,7 @@ function updatePlay(g, dt) {
 
   updateBubbles(dt);
   updateFx(dt);
+  updateReplies(g, dt);
 
   if (S.messageTimer > 0) {
     S.messageTimer -= dt;
@@ -1932,6 +2144,8 @@ function freshState(g) {
     removedTiles: 0,
     maxRounds: ROUNDS,
     lastTurn: false,
+    replies: [],
+    emoteCd: 0,
     fx: [],
     flash: 0,
     shake: 0,
