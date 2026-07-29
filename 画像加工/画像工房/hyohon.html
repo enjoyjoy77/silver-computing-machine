@@ -569,6 +569,11 @@
       <span id="depthName">白いほど手前の深度画像を選択</span>
       <input id="depthInput" type="file" accept="image/*">
     </label>
+    <label class="pick" id="vrmPick">
+      <b>🧍 VRMアバターを開く</b>
+      <span id="vrmName">.vrm（本物の3D・こちらを見ます）</span>
+      <input id="vrmInput" type="file" accept=".vrm">
+    </label>
     <label class="pick" id="splatPick">
       <b>🧊 3D標本を開く</b>
       <span id="splatName">.ply / .splat / .ksplat</span>
@@ -648,7 +653,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev27-zoom";
+const REV = "rev28-vrm";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -1683,6 +1688,7 @@ function showLookView() {
 
 async function showShelfView() {
   await disposeSplat();
+  await disposeVrm();
   currentView = "shelf";
   stopFaceLook();
   permission.classList.remove("show");
@@ -1956,6 +1962,182 @@ function syncSplatAdjust() {
   splatViewer.position.y = y;
   splatViewer.position.z = -depth;
   renderFrame();
+}
+
+// ---- VRMアバター(本物の3D。写真1枚の2.5Dと違い、横から見ても崩れない) ----
+const VRM_TUNE = {
+  fitRatio:0.85,   // 窓の高さに対する身長の割合
+  depth:0.35,      // 窓からどれだけ奥に置くか(窓の高さ比)
+  turnGain:1.0,    // 長押しドラッグで回す量の倍率
+  lookAtViewer:true // 見ている人の目を追わせる
+};
+let vrmModel = null;
+let vrmRoot = null;
+let vrmLookTarget = null;
+let vrmObjectURL = "";
+let vrmBaseScale = 1;
+let vrmModelHeight = 1.5;
+let vrmLoading = false;
+let vrmFailed = false;
+let lastVrmFit = null;
+const vrmClock = new THREE.Clock();
+
+async function disposeVrm() {
+  const root = vrmRoot;
+  vrmRoot = null;
+  vrmModel = null;
+  vrmFailed = false;
+
+  if (root) {
+    scene?.remove(root);
+    const disposed = new Set();
+    root.traverse(object => {
+      object.geometry?.dispose?.();
+      const materials = object.material
+        ? (Array.isArray(object.material) ? object.material : [object.material])
+        : [];
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (value?.isTexture && !disposed.has(value)) {
+            value.dispose();
+            disposed.add(value);
+          }
+        }
+        material.dispose?.();
+      }
+    });
+  }
+
+  if (vrmObjectURL) {
+    URL.revokeObjectURL(vrmObjectURL);
+    vrmObjectURL = "";
+  }
+
+  if (specimen) specimen.visible = true;
+}
+
+async function loadVrm(file) {
+  if (!file || vrmLoading) return;
+
+  vrmLoading = true;
+  showNotice("VRMアバターを読み込んでいます…");
+
+  try {
+    await disposeSplat();
+    await disposeVrm();
+
+    const [gltfModule, vrmLib] = await Promise.all([
+      import("./lib/GLTFLoader.js"),
+      import("./lib/three-vrm.module.js")
+    ]);
+
+    const loader = new gltfModule.GLTFLoader();
+    loader.register(parser => new vrmLib.VRMLoaderPlugin(parser));
+
+    vrmObjectURL = URL.createObjectURL(file);
+    const gltf = await loader.loadAsync(vrmObjectURL);
+    const vrm = gltf.userData?.vrm;
+
+    if (!vrm) {
+      throw new Error("VRMの情報が入っていないファイルです");
+    }
+
+    vrmLib.VRMUtils.removeUnnecessaryVertices?.(gltf.scene);
+    vrmLib.VRMUtils.removeUnnecessaryJoints?.(gltf.scene);
+    // VRM0.xは後ろを向いているので直す
+    vrmLib.VRMUtils.rotateVRM0?.(vrm);
+
+    vrm.scene.traverse(object => {
+      object.frustumCulled = false;
+    });
+
+    // 窓に収まる大きさへ(向きを直した後で測る)。
+    // 骨の変換を先に確定させないと、実際より小さく測れて頭がはみ出す
+    vrm.scene.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const winH = camera?.userData?.winH || 1.3;
+    const modelHeight = Number.isFinite(size.y) && size.y > 1e-4
+      ? size.y
+      : 1.5;
+
+    vrm.scene.position.set(-center.x, -center.y, -center.z);
+    // 窓の実寸(メートル)はframeCameraが決めるので、大きさは毎フレーム計算する。
+    // ここで固定すると、窓サイズ確定前の仮値で焼き付いて画面からはみ出す
+    vrmModelHeight = modelHeight;
+    vrmBaseScale = (winH * VRM_TUNE.fitRatio) / modelHeight;
+    lastVrmFit = {
+      size:[+size.x.toFixed(3), +size.y.toFixed(3), +size.z.toFixed(3)],
+      center:[+center.x.toFixed(3), +center.y.toFixed(3), +center.z.toFixed(3)],
+      winH:+winH.toFixed(3),
+      modelHeight:+modelHeight.toFixed(3),
+      scale:+vrmBaseScale.toFixed(4)
+    };
+
+    const holder = new THREE.Group();
+    holder.add(vrm.scene);
+
+    vrmRoot = new THREE.Group();
+    vrmRoot.add(holder);
+    vrmRoot.scale.setScalar(vrmBaseScale);
+    vrmRoot.position.set(0, 0, -winH * VRM_TUNE.depth);
+    scene.add(vrmRoot);
+
+    // 視線追従: 見る人の目の位置(=カメラ)を毎フレーム狙わせる
+    if (!vrmLookTarget) {
+      vrmLookTarget = new THREE.Object3D();
+      scene.add(vrmLookTarget);
+    }
+    if (vrm.lookAt && VRM_TUNE.lookAtViewer) {
+      vrm.lookAt.target = vrmLookTarget;
+    }
+
+    vrmModel = vrm;
+    vrmClock.getDelta();   // 溜まった時間を捨てる
+    if (specimen) specimen.visible = false;
+    loaded = true;
+
+    frameCamera();
+    hideNotice();
+    showLookView();
+  } catch (error) {
+    await disposeVrm();
+    showManualPicker();
+    showError(
+      "VRMを読み込めませんでした: " + (error?.message || error)
+    );
+  } finally {
+    vrmLoading = false;
+    $("vrmInput").value = "";
+  }
+}
+
+function updateVrm() {
+  if (!vrmModel || !vrmRoot || vrmFailed) return;
+
+  try {
+    if (vrmLookTarget && camera) {
+      vrmLookTarget.position.copy(camera.position);
+    }
+
+    // 窓の実寸から毎フレーム決める(読み込み時の仮値に引きずられない)
+    const winH = camera?.userData?.winH || 1.3;
+    vrmBaseScale = (winH * VRM_TUNE.fitRatio) / Math.max(vrmModelHeight, 1e-6);
+    vrmRoot.position.z = -winH * VRM_TUNE.depth;
+    vrmRoot.scale.setScalar(vrmBaseScale * userZoomSmooth);
+    vrmRoot.rotation.set(
+      manualPitch * VRM_TUNE.turnGain,
+      manualYaw * VRM_TUNE.turnGain,
+      0
+    );
+
+    vrmModel.update(Math.min(vrmClock.getDelta(), 0.1));
+  } catch (error) {
+    vrmFailed = true;
+    console.warn("VRMの更新に失敗したため停止します", error);
+  }
 }
 
 async function disposeSplat() {
@@ -4256,6 +4438,15 @@ $("openFiles").addEventListener("click", () => {
   loadPair(sourceFile, depthFile, false);
 });
 
+$("vrmInput").addEventListener("change", event => {
+  const file = event.target.files?.[0] || null;
+  $("vrmPick").classList.toggle("set", !!file);
+  $("vrmName").textContent =
+    file?.name || ".vrm（本物の3D・こちらを見ます）";
+
+  if (file) loadVrm(file);
+});
+
 $("splatInput").addEventListener("change", event => {
   const file = event.target.files?.[0] || null;
   $("splatPick").classList.toggle("set", !!file);
@@ -5071,6 +5262,7 @@ const baseRenderFrameGaze = renderFrame;
 renderFrame = function() {
   updateGazeSprites();
   applySpecimenTurn();
+  updateVrm();
   baseRenderFrameGaze();
 };
 
@@ -5090,6 +5282,16 @@ Object.assign(window.__dbg, {
 
   wollaston() {
     return WOLLASTON;
+  },
+
+  vrmState() {
+    return {
+      loaded:!!vrmModel,
+      fit:lastVrmFit,
+      tune:VRM_TUNE,
+      rootScale:vrmRoot ? +vrmRoot.scale.x.toFixed(4) : null,
+      rootZ:vrmRoot ? +vrmRoot.position.z.toFixed(3) : null
+    };
   },
 
   dragTurn() {
