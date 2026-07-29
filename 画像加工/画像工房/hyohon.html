@@ -550,6 +550,7 @@
   <a href="index.html">← トップ</a>
   <a href="depth.html">深度ページ</a>
   <button id="shelfNav" type="button">← 3Dラック</button>
+  <button id="depthBtn" type="button">⛰ 立体の強さ</button>
   <button id="moveBtn" type="button">⬌⬍ 動かす</button>
   <button id="toMitate" type="button">🧊 ミタテで調整</button>
   <span id="rev">rev1</span>
@@ -5554,13 +5555,17 @@ function applyDepthStrength() {
   }
 
   if (relief) relief.scale.z = RELIEF_TUNE.strength;
-  if (panel) {
-    panel.classList.toggle(
-      "show",
-      Boolean(relief) && currentView === "look" && !splatViewer && !vrmModel
-    );
-  }
+  const usable =
+    Boolean(relief) && currentView === "look" && !splatViewer && !vrmModel;
+  const button = $("depthBtn");
+  if (button) button.style.display = usable ? "" : "none";
+  if (panel && !usable) panel.classList.remove("show");
 }
+
+// 覗いている画をふさがないよう、つまみは呼んだときだけ出す
+$("depthBtn")?.addEventListener("click", () => {
+  $("depthAdjust")?.classList.toggle("show");
+});
 
 $("depthStrength")?.addEventListener("input", event => {
   RELIEF_TUNE.auto = false;
