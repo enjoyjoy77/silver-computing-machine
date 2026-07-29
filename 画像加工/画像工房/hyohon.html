@@ -653,7 +653,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev28-vrm";
+const REV = "rev29-thumb";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -1709,6 +1709,66 @@ function showManualPicker() {
   fallback.classList.add("show");
 }
 
+// 棚のサムネイル。元画像(数千×数千)をそのまま並べると、その枚数だけ
+// 巨大画像を展開することになり極端に重くなるので、小さく作り直して使い回す
+const SHELF_THUMB_MAX = 360;
+const shelfThumbCache = new Map();
+
+async function shelfThumbUrl(item) {
+  const key = String(item.id) + ":" + (item.ts || 0);
+  const cached = shelfThumbCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("サムネイル用canvasを作成できません");
+
+  let done = false;
+
+  if (typeof createImageBitmap === "function") {
+    try {
+      // 縮小しながら展開するので、元の大きさのまま持たずに済む
+      const bitmap = await createImageBitmap(item.thumb, {
+        resizeWidth:SHELF_THUMB_MAX,
+        resizeQuality:"low"
+      });
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close?.();
+      done = true;
+    } catch (error) {
+      done = false;
+    }
+  }
+
+  if (!done) {
+    const objectURL = URL.createObjectURL(item.thumb);
+    try {
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("画像を読み込めませんでした"));
+        image.src = objectURL;
+      });
+
+      const scale = Math.min(
+        1,
+        SHELF_THUMB_MAX / Math.max(image.naturalWidth, image.naturalHeight, 1)
+      );
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    } finally {
+      URL.revokeObjectURL(objectURL);
+    }
+  }
+
+  const url = canvas.toDataURL("image/jpeg", 0.75);
+  shelfThumbCache.set(key, url);
+  return url;
+}
+
 async function renderShelf() {
   const grid = $("shelfGrid");
   const empty = $("shelfEmpty");
@@ -1718,6 +1778,8 @@ async function renderShelf() {
   shelfSaved = items.length;
   grid.replaceChildren();
   empty.style.display = items.length ? "none" : "block";
+
+  const pendingThumbs = [];
 
   for (const item of items) {
     const card = document.createElement("article");
@@ -1730,18 +1792,9 @@ async function renderShelf() {
 
     const image = document.createElement("img");
     image.alt = item.name || "保存した標本";
-    const thumbUrl = URL.createObjectURL(item.thumb);
-    image.src = thumbUrl;
-    image.addEventListener(
-      "load",
-      () => URL.revokeObjectURL(thumbUrl),
-      {once:true}
-    );
-    image.addEventListener(
-      "error",
-      () => URL.revokeObjectURL(thumbUrl),
-      {once:true}
-    );
+    image.loading = "lazy";
+    image.decoding = "async";
+    pendingThumbs.push({item, image});
 
     const name = document.createElement("span");
     name.className = "shelf-name";
@@ -1760,6 +1813,16 @@ async function renderShelf() {
     openButton.append(image, name);
     card.append(openButton, deleteButton);
     grid.append(card);
+  }
+
+  // 先に棚の枠を出してから、サムネイルを1枚ずつ作って入れる
+  // (まとめて展開すると、その瞬間だけ極端に重くなる)
+  for (const {item, image} of pendingThumbs) {
+    try {
+      image.src = await shelfThumbUrl(item);
+    } catch (error) {
+      console.warn("サムネイルを作れませんでした", error);
+    }
   }
 }
 
