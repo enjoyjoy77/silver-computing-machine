@@ -4,13 +4,13 @@
 // あなた + AI3人。同じ数字の線を2本ずつ切って全部外す。ミス3回で爆発。
 
 var REV = "rev1";
-var VMAX = 5;            // 数字は 1〜5
+var VMAX = 6;            // 数字は 1〜6
 var COPIES = 4;          // 各数字は4本(=2ペア)
-var SLOTS = 6;           // 1人6本
+var SLOTS = 7;           // 1人7本
 var NAMES = ["あなた", "ネコ", "クマ", "ウサギ"];
 var ICONS = ["🙂", "🐱", "🐻", "🐰"];
 var ROW_Y = [352, 118, 188, 258];   // 0=自分, 1..3=AI
-var SLOT_X0 = 200, SLOT_W = 84, SLOT_GAP = 96;
+var SLOT_X0 = 178, SLOT_W = 76, SLOT_GAP = 86;
 var HINT_BTN = { x: 786, y: 336, w: 152, h: 46 };
 
 var S;
@@ -81,7 +81,8 @@ function knownCountIn(p, v){
 // 並び順(小さい順)と公開情報から、そのマスに入りうる数字を出す
 function cands(p, i){
   var h = hand(p);
-  if (h[i].bomb) return [];
+  if (h[i].bomb || h[i].cut) return [];
+  if (h[i].revealed) return [h[i].v];   // 一度ばれた線は数字が分かっている
   var lo = 1, hi = VMAX, j;
   for (j = i - 1; j >= 0; j--) if (isKnown(h[j])){ lo = Math.max(lo, h[j].v); break; }
   for (j = i + 1; j < h.length; j++) if (isKnown(h[j])){ hi = Math.min(hi, h[j].v); break; }
@@ -332,11 +333,11 @@ EmojiEngine.register({
 
     // 残り本数の表
     for (var v = 1; v <= VMAX; v++){
-      var x = 620 + (v - 1) * 66;
+      var x = 588 + (v - 1) * 60;
       var r = remainingGlobal(v);
-      g.rect(x, 8, 58, 36, r > 0 ? "#26304a" : "#1a1f2c");
-      g.text(String(v), x + 18, 34, 24, r > 0 ? "#fff" : "#555");
-      g.text("残" + r, x + 42, 32, 16, r > 0 ? "#9fd" : "#555");
+      g.rect(x, 8, 54, 36, r > 0 ? "#26304a" : "#1a1f2c");
+      g.text(String(v), x + 16, 34, 22, r > 0 ? "#fff" : "#555");
+      g.text("残" + r, x + 40, 32, 15, r > 0 ? "#9fd" : "#555");
     }
 
     // 各プレイヤーの列
