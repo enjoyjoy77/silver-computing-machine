@@ -673,7 +673,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev32-head";
+const REV = "rev33-depth";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -5068,6 +5068,20 @@ window.__dbg = {
     return {ex:eyeX, ey:eyeY, ez:eyeZ, head:{...headPose}};
   },
 
+  depthTune(patch) {
+    if (patch) {
+      if ("strength" in patch) RELIEF_TUNE.auto = false;
+      Object.assign(RELIEF_TUNE, patch);
+      syncDepthUi(false);
+    }
+    return {
+      ...RELIEF_TUNE,
+      auto候補:autoDepthStrength(),
+      reliefScaleZ:specimen?.userData?.relief?.scale?.z ?? null,
+      panel:$("depthAdjust")?.classList.contains("show") ?? null
+    };
+  },
+
   headTune(patch) {
     if (patch) Object.assign(HEAD_TUNE, patch);
     return {...HEAD_TUNE};
@@ -5488,7 +5502,7 @@ renderFrame = function() {
 
 // ---- 立体の強さ(でこぼこ量)。強すぎると紙が反ったようにゆがむので手元で下げられる ----
 const DEPTH_KEY = "hyohon-depth";
-const DEPTH_TUNE = {strength:0.45, auto:true};
+const RELIEF_TUNE = {strength:0.45, auto:true};
 
 // 画面が小さいほど頭を動かせる幅に対して窓が小さく、でこぼこが暴れて見える
 function autoDepthStrength() {
@@ -5501,11 +5515,11 @@ function loadDepthTune() {
   const saved = localStorage.getItem(DEPTH_KEY);
   const value = saved === null ? NaN : Number(saved);
   if (Number.isFinite(value)) {
-    DEPTH_TUNE.auto = false;
-    DEPTH_TUNE.strength = value;
+    RELIEF_TUNE.auto = false;
+    RELIEF_TUNE.strength = value;
   } else {
-    DEPTH_TUNE.auto = true;
-    DEPTH_TUNE.strength = autoDepthStrength();
+    RELIEF_TUNE.auto = true;
+    RELIEF_TUNE.strength = autoDepthStrength();
   }
   syncDepthUi(false);
 }
@@ -5513,12 +5527,12 @@ function loadDepthTune() {
 function syncDepthUi(save) {
   const slider = $("depthStrength");
   const output = $("depthStrengthValue");
-  if (slider) slider.value = String(DEPTH_TUNE.strength);
+  if (slider) slider.value = String(RELIEF_TUNE.strength);
   if (output) {
     output.textContent =
-      DEPTH_TUNE.strength.toFixed(2) + (DEPTH_TUNE.auto ? " 自動" : "");
+      RELIEF_TUNE.strength.toFixed(2) + (RELIEF_TUNE.auto ? " 自動" : "");
   }
-  if (save) localStorage.setItem(DEPTH_KEY, String(DEPTH_TUNE.strength));
+  if (save) localStorage.setItem(DEPTH_KEY, String(RELIEF_TUNE.strength));
   renderFrame();
 }
 
@@ -5528,10 +5542,10 @@ function applyDepthStrength() {
   const panel = $("depthAdjust");
 
   // 自動のときは画面の大きさ(インチ設定・向き)の変更に追従させる
-  if (DEPTH_TUNE.auto) {
+  if (RELIEF_TUNE.auto) {
     const auto = autoDepthStrength();
-    if (Math.abs(auto - DEPTH_TUNE.strength) > 0.005) {
-      DEPTH_TUNE.strength = auto;
+    if (Math.abs(auto - RELIEF_TUNE.strength) > 0.005) {
+      RELIEF_TUNE.strength = auto;
       const slider = $("depthStrength");
       const output = $("depthStrengthValue");
       if (slider) slider.value = String(auto);
@@ -5539,7 +5553,7 @@ function applyDepthStrength() {
     }
   }
 
-  if (relief) relief.scale.z = DEPTH_TUNE.strength;
+  if (relief) relief.scale.z = RELIEF_TUNE.strength;
   if (panel) {
     panel.classList.toggle(
       "show",
@@ -5549,14 +5563,14 @@ function applyDepthStrength() {
 }
 
 $("depthStrength")?.addEventListener("input", event => {
-  DEPTH_TUNE.auto = false;
-  DEPTH_TUNE.strength = Number(event.target.value);
+  RELIEF_TUNE.auto = false;
+  RELIEF_TUNE.strength = Number(event.target.value);
   syncDepthUi(true);
 });
 
 $("depthAuto")?.addEventListener("click", () => {
-  DEPTH_TUNE.auto = true;
-  DEPTH_TUNE.strength = autoDepthStrength();
+  RELIEF_TUNE.auto = true;
+  RELIEF_TUNE.strength = autoDepthStrength();
   localStorage.removeItem(DEPTH_KEY);
   syncDepthUi(false);
 });
