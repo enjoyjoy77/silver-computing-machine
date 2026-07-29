@@ -200,14 +200,15 @@ function resetRound(g) {
   if (!S.path || S.path.length === 0) {
     S.path = makePath(g);
   }
-  S.turn = 0;
+  S.turn = S.startTurn;
   S.phase = "turnStart";
   S.timer = 0.55;
   S.dice = null;
   S.moveSteps = 0;
   S.pendingPlayerChoice = "";
-  S.message = "第" + S.round + "ラウンド開始";
-  S.messageTimer = 1.5;
+  S.message = "第" + S.round + "ラウンド開始 / 先攻は " +
+    S.players[S.startTurn].icon + " " + S.players[S.startTurn].name;
+  S.messageTimer = 2.4;
   S.lowOxygenReacted = false;
   S.deepReacted = false;
   S.bubbles = [];
@@ -491,6 +492,9 @@ function finishRound(drowned) {
       success: S.players[i].returned
     });
   }
+
+  // 次のラウンドの先攻は左どなりへ(毎回あなたが先攻だと不公平なため)
+  S.startTurn = (S.startTurn + 1) % S.players.length;
 
   S.roundReason = drowned ? "酸素が尽きた!" : "全員が潜水艦に帰還";
   S.scene = "round";
@@ -908,6 +912,7 @@ function drawScoreboard(g) {
   let i;
   let player;
   let y;
+  let x;
 
   g.rect(12, 72, 205, 225, "#0c2a43");
   g.text("順位 / 探検隊", 24, 99, 18, "#aeeaff", "left");
@@ -924,6 +929,17 @@ function drawScoreboard(g) {
       g.text("持" + player.held.length, 155, y, 14, "#ffd966", "right");
     }
     g.text(player.score + "点", 205, y, 15, "#8fffc9", "right");
+  }
+
+  // このラウンドの手番の順(先攻はラウンドごとに1人ずつずれる)
+  g.text("手番の順", 24, 283, 12, "#7fb8d4", "left");
+  for (i = 0; i < S.players.length; i += 1) {
+    player = S.players[(S.startTurn + i) % S.players.length];
+    x = 96 + i * 30;
+    if (i === 0) {
+      g.rect(x - 14, 265, 28, 28, "#6b5a1c");   // 先攻に印
+    }
+    g.emoji(player.icon, x, 279, 22);
   }
 }
 
@@ -1459,7 +1475,8 @@ function freshState(g) {
     roundEndPending: false,
     viewFirst: 1,
     viewFollow: true,
-    dragX: null
+    dragX: null,
+    startTurn: Math.floor(g.rand(0, 4))
   };
 }
 

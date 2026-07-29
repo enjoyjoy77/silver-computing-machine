@@ -11,7 +11,7 @@
       name: "コンロを増やす",
       effect: "同時調理数 +1",
       base: 120,
-      mult: 2.2,
+      mult: 2.9,
       max: 3
     },
     {
@@ -19,7 +19,7 @@
       name: "具を豪華に",
       effect: "1皿の単価 +6円",
       base: 80,
-      mult: 1.9,
+      mult: 2.3,
       max: Infinity
     },
     {
@@ -27,7 +27,7 @@
       name: "席を増やす",
       effect: "行列の上限 +2人",
       base: 60,
-      mult: 1.9,
+      mult: 2.3,
       max: 4
     },
     {
@@ -35,15 +35,46 @@
       name: "バイトを雇う",
       effect: "調理時間 ×0.82",
       base: 150,
-      mult: 2.2,
+      mult: 2.9,
       max: 5
     }
   ];
 
-  const WAVES = [
-    { start: 60, end: 75 },
-    { start: 120, end: 135 },
-    { start: 165, end: 180 }
+  const DAY_TIME = 90;
+
+  // 1日90秒 × 3日。設備と所持金は翌日へ引き継ぐ(初日の投資が後半で効く)
+  const DAYS = [
+    {
+      label: "1日目",
+      sub: "ふつうの日",
+      arrivalBase: 1.2,
+      waitTime: 10,
+      quota: 800,
+      waves: [{ start: 55, end: 70 }]
+    },
+    {
+      label: "2日目",
+      sub: "せっかちな客(待ってくれない)",
+      arrivalBase: 1.05,
+      waitTime: 7,
+      quota: 2000,
+      waves: [
+        { start: 35, end: 50 },
+        { start: 70, end: 85 }
+      ]
+    },
+    {
+      label: "3日目",
+      sub: "大波の日(客足が止まらない)",
+      arrivalBase: 0.9,
+      waitTime: 7,
+      quota: 4500,
+      waves: [
+        { start: 20, end: 35 },
+        { start: 50, end: 65 },
+        { start: 78, end: 90 }
+      ]
+    }
   ];
 
   function reset(g) {
@@ -51,15 +82,19 @@
       scene: "title",
       money: 30,
       totalEarned: 0,
+      dayEarned: 0,
+      dayIndex: 0,
+      quota: DAYS[0].quota,
+      cleared: false,
       elapsed: 0,
-      timeLimit: 180,
+      timeLimit: DAY_TIME,
       stoveCount: 1,
       cookTime: 2.0,
       pricePerDish: 10,
       queueMax: 4,
-      waitTime: 10,
-      arrivalBase: 1.2,
-      arrivalTimer: 1.2,
+      waitTime: DAYS[0].waitTime,
+      arrivalBase: DAYS[0].arrivalBase,
+      arrivalTimer: DAYS[0].arrivalBase,
       queue: [],
       stoves: [{ progress: 0 }],
       upgradeCounts: [0, 0, 0, 0],
@@ -72,16 +107,52 @@
       messageTimer: 0,
       clickSeCooldown: 0,
       overTimer: 0,
+      waves: DAYS[0].waves,
       activeWave: -1,
-      startedWaves: [false, false, false],
-      endedWaves: [false, false, false],
+      startedWaves: [],
+      endedWaves: [],
       digitHeld: [false, false, false, false]
     };
   }
 
+  // 1日ぶんの店を開ける。設備(stoveCount/cookTime/pricePerDish/queueMax)と
+  // 所持金・累計売上はそのまま引き継ぎ、その日ごとの条件だけ差し替える
+  function startDay(index) {
+    const day = DAYS[index];
+
+    S.dayIndex = index;
+    S.quota = day.quota;
+    S.arrivalBase = day.arrivalBase;
+    S.arrivalTimer = day.arrivalBase;
+    S.waitTime = day.waitTime;
+    S.waves = day.waves;
+    S.startedWaves = day.waves.map(function () {
+      return false;
+    });
+    S.endedWaves = day.waves.map(function () {
+      return false;
+    });
+    S.activeWave = -1;
+    S.elapsed = 0;
+    S.timeLimit = DAY_TIME;
+    S.dayEarned = 0;
+    S.queue = [];
+    S.stoves = [];
+    for (let i = 0; i < S.stoveCount; i++) {
+      S.stoves.push({ progress: 0 });
+    }
+    S.angry = [];
+    S.flights = [];
+    S.floats = [];
+    S.message = "";
+    S.messageTimer = 0;
+    S.overTimer = 0;
+    S.scene = "play";
+  }
+
   function beginPlay(g) {
     reset(g);
-    S.scene = "play";
+    startDay(0);
   }
 
   function upgradePrice(index) {
@@ -108,28 +179,28 @@
   }
 
   function isWaveActiveAt(time) {
-    for (let i = 0; i < WAVES.length; i++) {
-      if (time >= WAVES[i].start && time < WAVES[i].end) return i;
+    for (let i = 0; i < S.waves.length; i++) {
+      if (time >= S.waves[i].start && time < S.waves[i].end) return i;
     }
     return -1;
   }
 
   function upcomingWaveAt(time) {
-    for (let i = 0; i < WAVES.length; i++) {
-      const until = WAVES[i].start - time;
+    for (let i = 0; i < S.waves.length; i++) {
+      const until = S.waves[i].start - time;
       if (until > 0 && until <= 3) return i;
     }
     return -1;
   }
 
   function updateWaveState(g) {
-    for (let i = 0; i < WAVES.length; i++) {
-      if (!S.startedWaves[i] && S.elapsed >= WAVES[i].start) {
+    for (let i = 0; i < S.waves.length; i++) {
+      if (!S.startedWaves[i] && S.elapsed >= S.waves[i].start) {
         S.startedWaves[i] = true;
         S.activeWave = i;
         g.se("boom");
       }
-      if (!S.endedWaves[i] && S.elapsed >= WAVES[i].end) {
+      if (!S.endedWaves[i] && S.elapsed >= S.waves[i].end) {
         S.endedWaves[i] = true;
         if (S.activeWave === i) S.activeWave = -1;
         g.se("clear");
@@ -208,6 +279,7 @@
 
     S.money += earned;
     S.totalEarned += earned;
+    S.dayEarned += earned;
     S.dishesServed += 1;
     S.flights.push({
       fromX: stoveX,
@@ -371,9 +443,30 @@
     updateEffects(dt);
 
     if (S.elapsed >= S.timeLimit) {
-      S.scene = "over";
-      S.overTimer = 0;
+      finishDay(g);
     }
+  }
+
+  function finishDay(g) {
+    S.overTimer = 0;
+
+    if (S.dayEarned < S.quota) {
+      // ノルマ未達で閉店
+      S.cleared = false;
+      S.scene = "over";
+      g.se("hit");
+      return;
+    }
+
+    if (S.dayIndex >= DAYS.length - 1) {
+      S.cleared = true;
+      S.scene = "over";
+      g.se("clear");
+      return;
+    }
+
+    S.scene = "dayend";
+    g.se("clear");
   }
 
   function drawTopBar(g) {
@@ -388,17 +481,27 @@
       "left"
     );
 
+    const reached = S.dayEarned >= S.quota;
+    g.text(
+      DAYS[S.dayIndex].label + " ノルマ " + S.dayEarned + "/" + S.quota + "円",
+      380,
+      35,
+      21,
+      reached ? "#7ee08f" : "#ffffff",
+      "left"
+    );
+
     if (S.activeWave >= 0) {
-      const remaining = Math.max(0, Math.ceil(WAVES[S.activeWave].end - S.elapsed));
-      g.text("🌊 大波! 残り" + remaining + "秒", 575, 35, 24, "#ffb347", "center");
+      const remaining = Math.max(0, Math.ceil(S.waves[S.activeWave].end - S.elapsed));
+      g.text("🌊 大波! 残り" + remaining + "秒", 790, 35, 22, "#ffb347", "center");
     } else {
       const upcoming = upcomingWaveAt(S.elapsed);
       if (upcoming >= 0 && Math.floor(g.time * 4) % 2 === 0) {
-        g.text("🌊 まもなく大波!", 575, 35, 24, "#ffd166", "center");
+        g.text("🌊 まもなく大波!", 790, 35, 22, "#ffd166", "center");
       }
     }
 
-    g.text("rev4", 945, 22, 12, "#8f879f", "right");
+    g.text("rev5", 945, 22, 12, "#8f879f", "right");
   }
 
   function drawStoves(g) {
@@ -558,27 +661,83 @@
       "#d9cce8",
       "center"
     );
-    g.text("設備を買って将来に備える", 480, 330, 20, "#ffcf70", "center");
-    g.text("盛り付けを連打して今すぐ稼ぐ", 480, 362, 20, "#ffcf70", "center");
-    g.text("クリックで開店", 480, 420, 25, "#ffffff", "center");
-    g.text("rev4", 945, 525, 12, "#665e73", "right");
+    g.text("設備を買って将来に備える", 480, 322, 20, "#ffcf70", "center");
+    g.text("盛り付けを連打して今すぐ稼ぐ", 480, 352, 20, "#ffcf70", "center");
+    g.text(
+      "1日90秒 × 3日間。設備とお金は翌日へ引き継ぐ",
+      480,
+      388,
+      19,
+      "#9fe7c0",
+      "center"
+    );
+    g.text("その日のノルマに届かないと閉店", 480, 414, 19, "#ff9aa6", "center");
+    g.text("クリックで開店", 480, 448, 25, "#ffffff", "center");
+    g.text("rev5", 945, 525, 12, "#665e73", "right");
+  }
+
+  function drawDayEnd(g) {
+    const nextDay = DAYS[S.dayIndex + 1];
+
+    g.bg("#1b1626");
+    g.rect(160, 60, 640, 420, "#251d33");
+    g.text(DAYS[S.dayIndex].label + " 終了!", 480, 118, 36, "#fff2c7", "center");
+    g.emoji("🎉", 480, 178, 60);
+    g.text(
+      "本日の売上 " + S.dayEarned + "円(ノルマ " + S.quota + "円)",
+      480,
+      248,
+      24,
+      "#7ee08f",
+      "center"
+    );
+    g.text("所持金 " + S.money + "円 は明日も使えます", 480, 288, 20, "#d9cce8", "center");
+    g.text("明日 " + nextDay.label + ": " + nextDay.sub, 480, 340, 22, "#ffcf70", "center");
+    g.text("明日のノルマ " + nextDay.quota + "円", 480, 374, 22, "#ffcf70", "center");
+    g.text("クリックで翌日へ", 480, 440, 25, "#ffffff", "center");
+    g.text("rev5", 945, 525, 12, "#665e73", "right");
   }
 
   function resultRank() {
-    if (S.totalEarned >= 8000) return "🌟伝説の屋台";
-    if (S.totalEarned >= 4500) return "🏆繁盛店";
-    if (S.totalEarned >= 2000) return "😄人気屋台";
-    if (S.totalEarned >= 900) return "🙂ふつうの屋台";
+    if (S.totalEarned >= 13500) return "🌟伝説の屋台";
+    if (S.totalEarned >= 11500) return "🏆繁盛店";
+    if (S.totalEarned >= 8000) return "😄人気屋台";
+    if (S.totalEarned >= 3000) return "🙂ふつうの屋台";
     return "😢閑古鳥";
   }
 
   function drawOver(g) {
     g.bg("#1b1626");
     g.rect(180, 55, 600, 430, "#251d33");
-    g.text("本日の営業終了", 480, 112, 36, "#fff2c7", "center");
-    g.emoji("🍜", 480, 172, 66);
+
+    if (S.cleared) {
+      g.text("3日間の営業をやりきった!", 480, 112, 32, "#fff2c7", "center");
+    } else {
+      g.text(
+        DAYS[S.dayIndex].label + " ノルマ未達で閉店",
+        480,
+        112,
+        32,
+        "#ff9aa6",
+        "center"
+      );
+    }
+
+    g.emoji(S.cleared ? "🏮" : "🍜", 480, 172, 66);
     g.text(resultRank(), 480, 245, 37, "#ffd166", "center");
-    g.text("総売上 " + S.totalEarned + "円", 480, 306, 27, "#ffffff", "center");
+
+    if (!S.cleared) {
+      g.text(
+        "この日の売上 " + S.dayEarned + "円 / ノルマ " + S.quota + "円",
+        480,
+        282,
+        19,
+        "#c9bcd8",
+        "center"
+      );
+    }
+
+    g.text("総売上 " + S.totalEarned + "円", 480, 312, 27, "#ffffff", "center");
     g.text(
       "渡した皿の数 " + S.dishesServed + "皿",
       480,
@@ -595,15 +754,15 @@
       "#d9cce8",
       "center"
     );
-    g.text("クリックでもう一度", 480, 450, 23, "#ffcf70", "center");
-    g.text("rev4", 945, 525, 12, "#665e73", "right");
+    g.text("クリックで初日からもう一度", 480, 450, 23, "#ffcf70", "center");
+    g.text("rev5", 945, 525, 12, "#665e73", "right");
   }
 
   EmojiEngine.register({
     id: "yatai",
     name: "絵文字屋台",
     icon: "🍜",
-    desc: "増やすか、今さばくか。3分の屋台経営",
+    desc: "増やすか、今さばくか。3日間の屋台経営",
 
     init(g) {
       reset(g);
@@ -615,6 +774,15 @@
         if (g.pointer.justDown || g.pressed("action")) {
           beginPlay(g);
           this._state = S;
+        }
+        return;
+      }
+
+      if (S.scene === "dayend") {
+        // 連打で画面を読む前に翌日が始まらないよう1秒待つ
+        S.overTimer += dt;
+        if (S.overTimer >= 1.0 && (g.pointer.justDown || g.pressed("action"))) {
+          startDay(S.dayIndex + 1);
         }
         return;
       }
@@ -635,6 +803,11 @@
     draw(g) {
       if (S.scene === "title") {
         drawTitle(g);
+        return;
+      }
+
+      if (S.scene === "dayend") {
+        drawDayEnd(g);
         return;
       }
 
