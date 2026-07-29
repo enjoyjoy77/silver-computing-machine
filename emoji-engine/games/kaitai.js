@@ -34,7 +34,7 @@ function reset(g){
     hand.sort(function(a, b2){ return a.v - b2.v; });
     var ann = [];
     for (var k = 0; k <= VMAX; k++) ann.push(-1);   // -1 = 未申告
-    players.push({ name: NAMES[p], icon: ICONS[p], hand: hand, ann: ann });
+    players.push({ name: NAMES[p], icon: ICONS[p], hand: hand, ann: ann, tells: 2 });
   }
   S = {
     scene: "title",
@@ -42,7 +42,8 @@ function reset(g){
     turn: 0,
     mistakes: 0,
     maxMistakes: 3,
-    hints: 4,
+    hints: 3,
+    noAction: 0,
     sel: null,          // {p, i}
     mode: "normal",     // "normal" | "hint"
     log: ["数字が同じ2本を切って、全部外そう。"],
@@ -166,8 +167,10 @@ function aiTurn(g, p){
       }
     }
   }
-  // 3) 確実な手がなければ、自分の持ち数を正直に申告する(情報提供)
+  // 3) 確実な手がなければ、自分の持ち数を正直に申告する(1人2回まで)
   var best = -1;
+  if (S.players[p].tells <= 0) best = -99;
+  if (best !== -99)
   for (var v = 1; v <= VMAX; v++){
     if (S.players[p].ann[v] >= 0) continue;
     if (remainingGlobal(v) <= 0) continue;
@@ -177,6 +180,7 @@ function aiTurn(g, p){
     if (best < 0) best = v;
   }
   if (best > 0){
+    S.players[p].tells--;
     var cnt = 0;
     for (i = 0; i < h.length; i++) if (!h[i].bomb && h[i].v === best) cnt++;
     S.players[p].ann[best] = cnt;
@@ -200,7 +204,9 @@ function aiTurn(g, p){
       }
     }
   }
-  if (bestMove) return declare(g, p, bestMove.i, bestMove.q, bestMove.k);
+  // 半々より分が良いときだけ賭ける。ただし全員が動けない状態が続いたら賭ける
+  if (bestMove && (bestP >= 0.5 || S.noAction >= 3)){ S.noAction = 0; return declare(g, p, bestMove.i, bestMove.q, bestMove.k); }
+  if (bestMove){ S.noAction++; pushLog(S.players[p].icon + " 「自信がない…まかせた」"); return false; }
   pushLog(S.players[p].icon + " 「…わからない、まかせた」");
   return false;
 }
