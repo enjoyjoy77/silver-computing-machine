@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>そらペン</title>
+<style>
+  :root{
+    --bg:#101018; --panel:#1a1a26; --line:#30304a; --ink:#f0f0f6;
+    --dim:#9a9ab0; --accent:#7aa2ff; --accent2:#b8ccff; --danger:#ff8f8f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+    overflow:hidden;}
+  canvas#view{position:fixed;inset:0;display:block;touch-action:none;}
+  #rev{position:fixed;top:8px;right:12px;z-index:40;font-size:11px;letter-spacing:.1em;
+    color:var(--dim);pointer-events:none;}
+  #start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;background:var(--bg);
+    padding:26px 22px;overflow-y:auto;text-align:center;}
+  #start .mark{font-size:12px;letter-spacing:.35em;color:var(--accent);}
+  #start h1{margin:0;font-size:25px;font-weight:900;line-height:1.4;}
+  #start p{margin:0;color:var(--dim);font-size:13px;line-height:1.9;max-width:440px;}
+  #goBtn,#pcBtn{border:none;border-radius:16px;padding:19px 44px;font:inherit;font-size:19px;
+    font-weight:900;letter-spacing:.06em;cursor:pointer;background:var(--accent);
+    color:#0a0f1e;box-shadow:0 6px 22px rgba(122,162,255,.35);transition:opacity .2s,transform .1s;}
+  #goBtn:active,#pcBtn:active{transform:translateY(1px);}
+  #goBtn:disabled{opacity:.4;cursor:default;box-shadow:none;}
+  #pcBtn{display:none;background:#2a2a3e;color:var(--ink);box-shadow:none;font-size:14px;padding:13px 26px;}
+  #note{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:13px 18px;font-size:12.5px;line-height:1.85;color:var(--ink);max-width:440px;}
+  #note b{color:var(--accent2);}
+  #logWrap{position:fixed;left:10px;bottom:10px;z-index:40;width:min(88vw,420px);}
+  #logTitle{font-size:10px;letter-spacing:.15em;color:var(--dim);margin-bottom:4px;}
+  #log{background:rgba(12,12,20,.82);border:1px solid var(--line);border-radius:10px;
+    padding:9px 11px;font-size:11px;line-height:1.65;color:var(--ink);
+    height:104px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    font-family:"Consolas","Courier New",monospace;}
+  #log .e{color:var(--danger);}
+  #err{position:fixed;left:50%;top:54px;transform:translateX(-50%);z-index:50;
+    display:none;background:#3a1420;border:1px solid #8a2e46;color:#ffdae4;
+    padding:12px 18px;border-radius:12px;font-size:13px;line-height:1.7;
+    max-width:92vw;text-align:center;box-shadow:0 6px 22px rgba(0,0,0,.4);}
+  /* PC確認モードの道具バー */
+  #pcBar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:40;display:none;
+    gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 10px;}
+  #pcBar button{border:1px solid var(--line);background:#22223a;color:var(--ink);border-radius:9px;
+    padding:8px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+  #pcBar button.col{width:40px;height:36px;padding:0;}
+  #pcBar button.on{outline:3px solid #fff;}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<span id="rev"></span>
+
+<div id="start">
+  <div class="mark">そらペン</div>
+  <h1>空中に、そのまま描く</h1>
+  <p>トリガー（素手ならつまむ）を押している間、手の先から線が出ます。<br>
+     目の前のパレットで色（黒・赤・青）を替えたり、消したりできます。<br>
+     「ボール」を出すと、ボールの表面に沿って曲がった線が描けます。</p>
+  <button id="goBtn" disabled>はじめる</button>
+  <button id="pcBtn">PCで確認する（マウスで描く）</button>
+  <div id="note">
+    <b>英語の画面が出たら</b>「<b>Allow</b>（許可）」や「<b>OK</b>」を押してください。<br>
+    うまくいかない時は、下の黒い枠（記録）の文をそのまま教えてください。
+  </div>
+</div>
+
+<div id="pcBar"></div>
+<div id="logWrap">
+  <div id="logTitle">記録（うまくいかない時はこの文を教えてください）</div>
+  <div id="log"></div>
+</div>
+<div id="err"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import { setupHands, isHandInput } from "./lib/hands.js";
+import { createPen } from "./lib/pen.js";
+
+const REV = "v2 rev2";
+document.getElementById("rev").textContent = REV;
+
+/* ============ 画面内ログ（DOM＋AR中は3Dパネル） ============ */
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  logLines.push({ t: msg, e: !!isErr });
+  if(logLines.length > 40) logLines.shift();
+  const div = document.createElement("div");
+  if(isErr) div.className = "e";
+  div.textContent = "・" + msg;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  drawLogPanel();
+}
+function showErr(msg){
+  const e = $("err"); e.textContent = msg; e.style.display = "block";
+  log(msg, true);
+}
+addEventListener("error", ev => { log("エラー: " + (ev.message || ev.error || "不明"), true); });
+addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (ev.reason && ev.reason.message || ev.reason || "不明"), true); });
+
+/* ============ 音（その場で合成・音声ファイル無し） ============ */
+let actx = null;
+function initAudio(){
+  try{
+    if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if(actx && actx.state === "suspended") actx.resume();
+  }catch(_){}
+}
+function beep(freq, dur, type, vol){
+  if(!actx) return;
+  try{
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.25, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }catch(_){}
+}
+const playColor = ()=>beep(740, 0.10, "triangle", 0.28);
+const playUndo  = ()=>beep(320, 0.13, "sine", 0.22);
+const playClear = ()=>{ beep(300,0.12,"sine",0.2); setTimeout(()=>beep(240,0.16,"sine",0.2), 90); };
+
+function pulse(ms, intensity){
+  try{
+    const s = renderer && renderer.xr.getSession(); if(!s) return;
+    for(const src of s.inputSources){
+      const g = src.gamepad;
+      if(g && g.hapticActuators && g.hapticActuators[0] && g.hapticActuators[0].pulse){
+        g.hapticActuators[0].pulse(intensity || 0.6, ms || 40);
+      }
+    }
+  }catch(_){}
+}
+
+/* ============ Three.js 基本 ============ */
+const canvas = $("view");
+let renderer = null;
+function init3D(){
+  if(renderer) return;
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.xr.enabled = true;
+  renderer.setAnimationLoop(renderLoop);
+}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445044, 1.0));
+
+/* ============ ペン本体（共通部品） ============ */
+const pen = createPen(THREE, scene);
+const MAX_STROKE_WARN = "線がいっぱいです。「ぜんぶけす」で消してから描いてください";
+
+/* ============ おためしボール（面に描く確認用。表面をなぞると線が曲面に沿う） ============ */
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(0.12, 24, 16),
+  new THREE.MeshLambertMaterial({ color: 0xead9c8, transparent: true, opacity: 0.85 })
+);
+ball.visible = false; scene.add(ball);
+function placeBall(){
+  if(renderer && renderer.xr.isPresenting){
+    const cam = renderer.xr.getCamera();
+    const camPos = new THREE.Vector3(), camQ = new THREE.Quaternion();
+    cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
+    const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
+    if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
+    ball.position.set(camPos.x + fwd.x*0.5, camPos.y - 0.05, camPos.z + fwd.z*0.5);
+  }else{
+    ball.position.set(0, 0, -0.6);
+  }
+  ball.updateMatrixWorld(true); // 置いた直後の当たり判定が古い位置(原点)を見ないように
+}
+let pendingHideBall = false;
+function hideBall(){
+  pendingHideBall = false;
+  ball.visible = false; pen.removeSurface(ball);
+  ballBtn.draw(false); refreshPcBar();
+  log("ボールをしまいました");
+}
+function toggleBall(){
+  if(ball.visible){
+    // 描いている最中に面を外すと線がその場で手の位置へ飛ぶ→描き終わってからしまう
+    if(pen.isDrawing){ pendingHideBall = true; log("描き終わったらしまいます"); return; }
+    hideBall();
+    return;
+  }else{
+    placeBall();
+    if(!pen.addSurface(ball)){ log("ボールを登録できませんでした", true); return; }
+    ball.visible = true;
+    log("ボールを出しました。表面をなぞると線が曲面に沿います");
+  }
+  ballBtn.draw(ball.visible); // 実行時にはballBtnは定義済み(押されて初めて呼ばれるため)
+  refreshPcBar();
+}
+
+/* ============ 手先のいろじるし（今の色が分かる小さな球） ============ */
+const tipMat = new THREE.MeshBasicMaterial({ color: pen.colors[0].hex });
+const tips = [];
+function refreshTipColor(){ tipMat.color.setHex(pen.colors[pen.colorIndex].hex); }
+
+/* ============ 文字パネル・ボタン（canvasテクスチャ） ============ */
+function makePanelTexture(w, h){
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  return { cv, ctx: cv.getContext("2d"), tex };
+}
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+/* ---- パレット（3Dボタンの集まり。色ボタンは pen.colors から自動生成） ---- */
+const palette = new THREE.Group();
+palette.visible = false; scene.add(palette);
+const uiButtons = [];   // {mesh, onClick, draw}
+function makeButton(label, w, h, onClick, opt){
+  const P = makePanelTexture(Math.round(w*1280), Math.round(h*1280));
+  const swatch = opt && opt.swatch;
+  const draw = (on)=>{
+    const c = P.ctx, W = P.cv.width, H = P.cv.height;
+    c.clearRect(0,0,W,H);
+    c.fillStyle = on ? "#3a3a5c" : "#1d1d30";
+    roundRect(c, 5,5,W-10,H-10, 24); c.fill();
+    c.strokeStyle = on ? "#ffffff" : "#5a5a80"; c.lineWidth = on ? 10 : 5;
+    roundRect(c,5,5,W-10,H-10,24); c.stroke();
+    c.textAlign="center"; c.textBaseline="middle";
+    if(swatch !== undefined){
+      c.fillStyle = "#" + swatch.toString(16).padStart(6,"0");
+      c.beginPath(); c.arc(W/2, H*0.40, H*0.22, 0, Math.PI*2); c.fill();
+      c.strokeStyle = "#ffffff"; c.lineWidth = 3; c.stroke();
+      c.fillStyle = "#f0f0f6"; c.font = "bold " + (H*0.20) + "px sans-serif";
+      c.fillText(label, W/2, H*0.78);
+    }else{
+      c.fillStyle = "#f0f0f6"; c.font = "bold " + (H*0.34) + "px sans-serif";
+      c.fillText(label, W/2, H/2);
+    }
+    P.tex.needsUpdate = true;
+  };
+  draw(false);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map:P.tex, transparent:true }));
+  palette.add(mesh);
+  const entry = { mesh, onClick, draw };
+  uiButtons.push(entry);
+  return entry;
+}
+// 色ボタン（pen.colors に色を足せばボタンも自動で増える）
+const colorBtns = pen.colors.map((c, i) =>
+  makeButton(c.name, 0.10, 0.10, ()=>{ pen.setColor(i); refreshColorBtns(); refreshTipColor(); playColor(); pulse(30,0.4); log("色：" + c.name); }, { swatch: c.hex })
+);
+function refreshColorBtns(){ colorBtns.forEach((b, i)=>b.draw(i === pen.colorIndex)); }
+refreshColorBtns();
+const undoBtn  = makeButton("1本けす", 0.16, 0.075, ()=>{ if(pen.undo()){ playUndo(); pulse(40,0.5); log("1本けしました（のこり" + pen.strokeCount() + "本）"); } else log("けす線がありません"); });
+const clearBtn = makeButton("ぜんぶけす", 0.18, 0.075, ()=>{ pen.clear(); drawingCtrl = -1; playClear(); pulse(60,0.6); log("ぜんぶけしました"); }); // 描画中の手が残るとロックするのでリセット
+const ballBtn  = makeButton("ボール", 0.12, 0.075, ()=>toggleBall());
+const hereBtn  = makeButton("パレットを手元に", 0.26, 0.075, ()=>{ placePalette(); log("パレットを呼びました"); });
+const endBtn   = makeButton("おわる", 0.12, 0.075, ()=>{ if(xrSession) xrSession.end(); });
+// 並べる（色の数が変わっても中央ぞろえ）
+{
+  const n = colorBtns.length, gap = 0.115;
+  colorBtns.forEach((b, i)=>{ b.mesh.position.set((i - (n-1)/2) * gap, 0.10, 0); });
+  undoBtn.mesh.position.set(-0.155, -0.01, 0);
+  clearBtn.mesh.position.set( 0.03, -0.01, 0);
+  ballBtn.mesh.position.set( 0.20, -0.01, 0);
+  hereBtn.mesh.position.set(-0.06, -0.10, 0);
+  endBtn.mesh.position.set( 0.15, -0.10, 0);
+}
+const _camPos = new THREE.Vector3();
+function placePalette(){
+  const cam = renderer.xr.getCamera();
+  const camPos = new THREE.Vector3(), camQ = new THREE.Quaternion();
+  cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
+  const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
+  if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
+  palette.position.set(camPos.x + fwd.x*0.85, camPos.y - 0.18, camPos.z + fwd.z*0.85);
+  palette.rotation.set(0, Math.atan2(camPos.x - palette.position.x, camPos.z - palette.position.z), 0);
+  palette.visible = true;
+}
+
+/* ============ AR中に読める3Dログパネル ============ */
+const lP = makePanelTexture(640, 320);
+const logPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.5, 0.25),
+  new THREE.MeshBasicMaterial({ map: lP.tex, transparent:true })
+);
+logPanel.visible = false; scene.add(logPanel);
+function drawLogPanel(){
+  const c = lP.ctx, W = lP.cv.width, H = lP.cv.height;
+  c.clearRect(0,0,W,H);
+  c.fillStyle = "rgba(12,12,20,0.88)"; c.fillRect(0,0,W,H);
+  c.strokeStyle = "#30304a"; c.lineWidth = 4; c.strokeRect(2,2,W-4,H-4);
+  c.font = "18px 'Consolas','Courier New',monospace"; c.textAlign = "left"; c.textBaseline = "top";
+  const last = logLines.slice(-11); let y = 12;
+  for(const ln of last){
+    c.fillStyle = ln.e ? "#ff9a9a" : "#e2e6f5";
+    let t = ln.t; if(t.length > 46) t = t.slice(0,45) + "…";
+    c.fillText(t, 12, y); y += 27;
+  }
+  lP.tex.needsUpdate = true;
+}
+
+/* ============ コントローラ（トリガー／素手つまみ＝select） ============ */
+const controllers = [];
+const ctrlConnected = [false, false];
+const raycaster = new THREE.Raycaster();
+const _origin = new THREE.Vector3();
+const _dirv = new THREE.Vector3();
+let drawingCtrl = -1;   // いま描いている手（-1=なし。1本ずつ）
+function setupControllers(){
+  if(controllers.length) return;
+  for(let i=0;i<2;i++){
+    const c = renderer.xr.getController(i);
+    c.addEventListener("selectstart", ()=>onSelectStart(c, i));
+    c.addEventListener("selectend", ()=>onSelectEnd(i));
+    c.addEventListener("connected", (e)=>{
+      ctrlConnected[i] = true;
+      const hand = isHandInput(e);
+      c.userData.rayLine.visible = !hand;
+    });
+    c.addEventListener("disconnected", ()=>{
+      ctrlConnected[i] = false;
+      if(drawingCtrl === i){ pen.up(); drawingCtrl = -1; }
+    });
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-2.5)]);
+    const rayLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x7aa2ff, transparent:true, opacity:0.4 }));
+    c.add(rayLine); c.userData.rayLine = rayLine;
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.007, 12, 8), tipMat);
+    c.add(tip); tips.push(tip);
+    scene.add(c); controllers.push(c);
+  }
+}
+const _cw = new THREE.Vector3();
+function controllerWorldPos(i, out){ return out.setFromMatrixPosition(controllers[i].matrixWorld); }
+function raycastFrom(c){
+  _origin.setFromMatrixPosition(c.matrixWorld);
+  _dirv.set(0,0,-1).transformDirection(c.matrixWorld).normalize();
+  raycaster.set(_origin, _dirv);
+}
+function onSelectStart(c, i){
+  // 1) パレットのボタンを狙っていれば押す（そのときは描かない）
+  if(palette.visible){
+    raycastFrom(c);
+    const hit = raycaster.intersectObjects(uiButtons.map(b=>b.mesh), false);
+    if(hit.length){
+      const entry = uiButtons.find(b=>b.mesh === hit[0].object);
+      if(entry && entry.onClick){ entry.onClick(); return; }
+    }
+  }
+  // 2) それ以外は描き始め（描けるのは同時に1本）
+  if(drawingCtrl !== -1) return;
+  if(!pen.down(controllerWorldPos(i, _cw))){ log(MAX_STROKE_WARN, true); return; }
+  drawingCtrl = i;
+}
+function onSelectEnd(i){
+  if(drawingCtrl === i){
+    pen.up(); drawingCtrl = -1;
+    if(pendingHideBall) hideBall(); // 「しまう」を描き終わりまで待たせていた分
+  }
+}
+
+/* ============ AR開始 ============ */
+let xrSession = null, pendingPlace = false;
+async function startAR(){
+  if(xrSession){ xrSession.end(); return; }
+  if(!navigator.xr){
+    showErr("このブラウザはMR（AR）に対応していません。Quest 3のブラウザで開いてください。"); return;
+  }
+  init3D(); initAudio();
+  try{
+    log("ARを開始します…");
+    const session = await navigator.xr.requestSession("immersive-ar", {
+      optionalFeatures: ["local-floor", "hand-tracking"],
+    });
+    xrSession = session;
+    renderer.xr.setReferenceSpaceType("local");
+    await renderer.xr.setSession(session);
+    scene.background = null;
+    setupControllers();
+    setupHands(renderer, scene);
+    $("start").style.display = "none";
+    $("goBtn").textContent = "AR中…";
+    log("AR開始OK。トリガー（つまむ）を押している間、線が出ます");
+    pendingPlace = true;
+    session.addEventListener("end", ()=>{
+      xrSession = null;
+      pen.up(); drawingCtrl = -1;
+      pen.clear(); // 「描いた線は次回まで残りません」の案内どおり実際に消す(基準空間も次回はズレるため)
+      pendingHideBall = false;
+      scene.background = null;
+      logPanel.visible = false; palette.visible = false;
+      ball.visible = false; pen.removeSurface(ball); ballBtn.draw(false);
+      $("start").style.display = "flex";
+      $("goBtn").textContent = "もう一度ひらく"; $("goBtn").disabled = false;
+      log("ARを終了しました（描いた線は次回まで残りません）");
+    });
+  }catch(e){
+    showErr("AR開始に失敗しました：" + (e && e.message ? e.message : e));
+    log("ヒント：Quest 3のブラウザでURLを開いてから「はじめる」を押してください");
+    try{ xrSession && xrSession.end(); }catch(_){}
+    xrSession = null;
+  }
+}
+function placeLogPanelInFront(){
+  const cam = renderer.xr.getCamera();
+  const camPos = new THREE.Vector3(), camQ = new THREE.Quaternion();
+  cam.getWorldPosition(camPos); cam.getWorldQuaternion(camQ);
+  const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camQ); fwd.y = 0;
+  if(fwd.lengthSq() < 1e-6) fwd.set(0,0,-1); else fwd.normalize();
+  logPanel.position.set(camPos.x + fwd.x*1.3, camPos.y - 0.5, camPos.z + fwd.z*1.3);
+  logPanel.lookAt(camPos.x, camPos.y - 0.5, camPos.z);
+  logPanel.visible = true; drawLogPanel();
+}
+
+/* ============ PC確認モード（マウスで描く） ============ */
+let pcMode = false;
+const PC_DEPTH = 0.6;
+function startPC(){
+  pcMode = true;
+  init3D(); initAudio();
+  scene.background = new THREE.Color(0x181822);
+  camera.position.set(0, 0, 0);
+  // 読み込み時に画面サイズ0だと縦横比がNaNのまま残る(非表示タブ等)→ここで取り直す
+  camera.aspect = (innerHeight > 0) ? innerWidth / innerHeight : 1;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth || 1280, innerHeight || 720);
+  $("start").style.display = "none";
+  buildPcBar();
+  $("pcBar").style.display = "flex";
+  log("PC確認モード：マウスのドラッグで描けます（1/2/3=色、U=1本けす、C=ぜんぶけす）");
+}
+function pcPointFromEvent(ev){
+  const iw = innerWidth || 1280, ih = innerHeight || 720; // 非表示タブでサイズ0のときの守り
+  const x = (ev.clientX / iw) * 2 - 1;
+  const y = -(ev.clientY / ih) * 2 + 1;
+  const v = new THREE.Vector3(x, y, 0.5).unproject(camera);
+  v.sub(camera.position).normalize();
+  if(ball.visible){ // ボールがあればまずボールに当てる(表面に描くおためし)
+    raycaster.set(camera.position, v);
+    const hit = raycaster.intersectObject(ball, false);
+    if(hit.length) return hit[0].point;
+  }
+  return camera.position.clone().add(v.multiplyScalar(PC_DEPTH));
+}
+let pcDrawing = false;
+canvas.addEventListener("pointerdown", ev=>{
+  if(!pcMode) return;
+  if(!pen.down(pcPointFromEvent(ev))){ log(MAX_STROKE_WARN, true); return; }
+  pcDrawing = true;
+});
+canvas.addEventListener("pointermove", ev=>{ if(pcMode && pcDrawing) pen.move(pcPointFromEvent(ev)); });
+addEventListener("pointerup", ()=>{ if(pcMode && pcDrawing){ pen.up(); pcDrawing = false; if(pendingHideBall) hideBall(); } });
+addEventListener("keydown", ev=>{
+  if(!pcMode) return;
+  const n = parseInt(ev.key, 10);
+  if(n >= 1 && n <= pen.colors.length){ pen.setColor(n-1); refreshColorBtns(); refreshTipColor(); refreshPcBar(); log("色：" + pen.colors[n-1].name); }
+  if(ev.key === "u" || ev.key === "U"){ if(pen.undo()) log("1本けしました"); }
+  if(ev.key === "c" || ev.key === "C"){ pen.clear(); log("ぜんぶけしました"); }
+  if(ev.key === "b" || ev.key === "B"){ toggleBall(); }
+});
+function buildPcBar(){
+  const bar = $("pcBar");
+  if(bar.childElementCount) return;
+  pen.colors.forEach((c, i)=>{
+    const b = document.createElement("button");
+    b.className = "col"; b.style.background = "#" + c.hex.toString(16).padStart(6,"0");
+    b.title = c.name;
+    b.addEventListener("click", ()=>{ pen.setColor(i); refreshTipColor(); refreshPcBar(); log("色：" + c.name); });
+    bar.appendChild(b);
+  });
+  const undo = document.createElement("button"); undo.textContent = "1本けす";
+  undo.addEventListener("click", ()=>{ if(pen.undo()) log("1本けしました"); });
+  bar.appendChild(undo);
+  const clr = document.createElement("button"); clr.textContent = "ぜんぶけす";
+  clr.addEventListener("click", ()=>{ pen.clear(); log("ぜんぶけしました"); });
+  bar.appendChild(clr);
+  const bb = document.createElement("button"); bb.textContent = "ボール"; bb.id = "pcBall";
+  bb.addEventListener("click", ()=>toggleBall());
+  bar.appendChild(bb);
+  refreshPcBar();
+}
+function refreshPcBar(){
+  const cols = $("pcBar").querySelectorAll("button.col");
+  cols.forEach((b, i)=>b.classList.toggle("on", i === pen.colorIndex));
+  const bb = $("pcBall"); if(bb) bb.classList.toggle("on", ball.visible);
+}
+
+/* ============ ボタン有効化 ============ */
+$("goBtn").addEventListener("click", startAR);
+$("pcBtn").addEventListener("click", startPC);
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{
+    if(ok){ $("goBtn").disabled = false; log("準備OK。「はじめる」を押せます"); }
+    else {
+      $("pcBtn").style.display = "inline-block";
+      showErr("この端末ではMR（AR）を開始できません。Quest 3のブラウザで開くか、「PCで確認する」を押してください。");
+    }
+  }).catch(err=>{ $("pcBtn").style.display = "inline-block"; showErr("AR対応の確認に失敗：" + (err && err.message || err)); });
+}else{
+  $("pcBtn").style.display = "inline-block";
+  showErr("このブラウザはWebXR（MR）に対応していません。Quest 3のブラウザで開いてください。");
+}
+
+/* ============ 毎フレーム ============ */
+let loopErrLogged = false;
+function renderLoop(t, frame){
+ try{
+  if(frame && renderer.xr.isPresenting){
+    if(pendingPlace){ pendingPlace = false; placeLogPanelInFront(); placePalette(); }
+    if(drawingCtrl !== -1) pen.move(controllerWorldPos(drawingCtrl, _cw));
+  }
+  renderer.render(scene, camera);
+ }catch(err){
+  if(!loopErrLogged){ loopErrLogged = true; showErr("描画エラー：" + (err && err.message || err)); }
+ }
+}
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  if(renderer) renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============ 検証窓口（__dbg・ヘッドレス確認用） ============ */
+window.__dbg = {
+  pen,
+  ball,
+  state(){ return { rev: REV, strokes: pen.strokeCount(), points: pen.pointCount(), color: pen.colorIndex, drawing: pen.isDrawing, meshes: pen.group.children.length, surfaces: pen.surfaceCount, ballVisible: ball.visible }; },
+  toggleBall(){ toggleBall(); return __dbg.state(); },
+  lastStroke(){ return pen.lastStrokePoints(); },
+  stroke(pts, colorIdx){  // pts=[[x,y,z],...] を1本描く
+    if(typeof colorIdx === "number") pen.setColor(colorIdx);
+    pen.down({x:pts[0][0], y:pts[0][1], z:pts[0][2]});
+    for(let i=1;i<pts.length;i++) pen.move({x:pts[i][0], y:pts[i][1], z:pts[i][2]});
+    pen.up();
+    return __dbg.state();
+  },
+  undo(){ pen.undo(); return __dbg.state(); },
+  clear(){ pen.clear(); return __dbg.state(); },
+  render(){ init3D(); renderer.render(scene, camera); return "rendered"; },
+  snap(){ init3D(); renderer.render(scene, camera); return canvas.toDataURL("image/jpeg", 0.7); },
+};
+
+log("読み込みOK（版：" + REV + "）");
+</script>
+</body>
+</html>
