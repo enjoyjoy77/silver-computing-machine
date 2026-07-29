@@ -653,7 +653,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev29-thumb";
+const REV = "rev30-vrmui";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -1662,7 +1662,9 @@ function setLookControlsVisible(visible) {
   $("shelfNav").style.display = visible ? "inline-block" : "none";
   $("toMitate").style.display = visible ? "inline-block" : "none";
   $("saveShelf").style.display =
-    visible && loaded && storageOk && !splatViewer ? "block" : "none";
+    visible && loaded && storageOk && !splatViewer && !vrmModel
+      ? "block"
+      : "none";
   $("splatAdjust").classList.toggle(
     "show",
     visible && !!splatViewer
@@ -2083,6 +2085,8 @@ async function loadVrm(file) {
   if (!file || vrmLoading) return;
 
   vrmLoading = true;
+  clearError();
+  fallback.classList.remove("show");   // 選択パネルを閉じる(これが無いと操作できない)
   showNotice("VRMアバターを読み込んでいます…");
 
   try {
@@ -3723,9 +3727,10 @@ function updateGazeSprites() {
 // 標本の回し: ①長押しドラッグで限界を超えた分の手動回転 ②顔があるときのWollaston補正
 // この2つを足して relief に反映する。虹彩の板はreliefの子なので一緒に回りズレない
 function applySpecimenTurn() {
-  const relief = specimen?.userData?.relief;
-  if (!relief || !camera) return;
+  if (!camera) return;
 
+  // 戻しは写真が無いとき(VRMだけのとき)も必ず走らせる。
+  // ここをreliefの有無で止めると、離しても回ったままになる
   if (!dragging) {
     manualYaw *= DRAG_TURN.decay;
     manualPitch *= DRAG_TURN.decay;
@@ -3735,10 +3740,10 @@ function applySpecimenTurn() {
 
   let yaw = manualYaw;
   let pitch = manualPitch;
-  let wollastonYaw = 0;
+  const relief = specimen?.userData?.relief;
 
   // 顔が見つかっているとき(虹彩の板があるとき)だけWollaston補正を足す
-  if (gazeSprites.length && WOLLASTON.gain > 0) {
+  if (relief && gazeSprites.length && WOLLASTON.gain > 0) {
     const worldPosition = new THREE.Vector3();
     const direction = new THREE.Vector3();
     relief.getWorldPosition(worldPosition);
@@ -3746,12 +3751,11 @@ function applySpecimenTurn() {
 
     const depth = Math.max(Math.abs(direction.z), 1e-6);
     const limit = WOLLASTON.maxTurnDeg * Math.PI / 180;
-    wollastonYaw = clamp(
+    yaw += clamp(
       Math.atan2(direction.x, depth) * WOLLASTON.gain,
       -limit,
       limit
     );
-    yaw += wollastonYaw;
     pitch += clamp(
       -Math.atan2(direction.y, depth) * WOLLASTON.gain,
       -limit,
@@ -3759,7 +3763,8 @@ function applySpecimenTurn() {
     );
   }
 
-  relief.rotation.set(pitch, yaw, 0);
+  if (relief) relief.rotation.set(pitch, yaw, 0);
+
   lastTurn = {
     on:yaw !== 0 || pitch !== 0,
     yawDeg:yaw * 180 / Math.PI,
