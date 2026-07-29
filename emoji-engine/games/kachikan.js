@@ -228,12 +228,23 @@ function startRound(g){
   for(var i=0;i<cast.length;i++){
     var c = cast[i];
     var pool = DECK[c.id][t.id];
-    var avail = [];
-    for(var k=0;k<pool.length;k++){
-      var key = t.id+"_"+pool[k].n;
-      if(!S.used[c.id][key]) avail.push(pool[k]);
+    // まだ出していない札のうち、既に配った数字と4以上離れているものだけ
+    // (数字が近すぎると並べようがなくなり、運ゲーになる)
+    function farEnough(card){
+      for(var z=0;z<taken.length;z++) if(Math.abs(taken[z]-card.n)<4) return false;
+      return true;
     }
-    if(!avail.length) avail = pool.slice();
+    var fresh = [], avail = [];
+    for(var k=0;k<pool.length;k++){
+      if(S.used[c.id][t.id+"_"+pool[k].n]) continue;
+      fresh.push(pool[k]);
+      if(farEnough(pool[k])) avail.push(pool[k]);
+    }
+    if(!avail.length){                       // 使い切ったら順に条件をゆるめる
+      for(var y=0;y<fresh.length;y++) if(farEnough(fresh[y])) avail.push(fresh[y]);
+      if(!avail.length){ for(var x=0;x<pool.length;x++) if(farEnough(pool[x])) avail.push(pool[x]); }
+      if(!avail.length) avail = fresh.length ? fresh : pool.slice();
+    }
     var pick = avail[Math.min(avail.length-1, Math.floor(g.rand(0,avail.length)))];
     S.used[c.id][t.id+"_"+pick.n] = true;
     cards.push({ kind:"ai", ch:c, n:pick.n, e:pick.e, s:pick.s, prev:S.history[c.id]||null });

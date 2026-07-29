@@ -796,25 +796,32 @@ function drawTitle(g) {
   g.rect(300, 365, 360, 68, "#31495b");
   g.text("クリックして始める", 480, 408, 27, "#ffffff", "center");
   g.text("開拓者・畑・工房・神殿で島を育てよう", 480, 474, 18, "#94aebe", "center");
-  g.text("rev20", 936, 522, 12, "#6f8796", "right");
+  g.text("rev21", 936, 522, 12, "#6f8796", "right");
 }
 
 function drawTop(g) {
   const city = selectedCity();
-  const value = cityYield(city);
-  const needFood = foodNeed(city);
-  const item = itemById(city.producing);
 
   g.rect(0, 0, 960, 90, "#1d2c38");
   g.text("🗓️ " + S.turn + "/30ターン", 20, 31, 21, "#ffffff", "left");
 
-  g.text("🌾食料 " + city.food + "/" + needFood, 190, 22, 16, "#f4e7a1", "left");
-  drawBar(g, 190, 31, 205, 13, city.food, needFood, "#d9bd52");
-  g.text("産出 +" + value.food, 395, 43, 12, "#adbec8", "right");
+  if (!city) {
+    // 都市でないマスを選んでいるとき
+    g.text("マスを選んでいます", 190, 40, 17, "#9eb5c1", "left");
+    g.text("都市をクリックすると、その都市の様子が出ます", 190, 68, 14, "#7d919d", "left");
+  } else {
+    const value = cityYield(city);
+    const needFood = foodNeed(city);
+    const item = itemById(city.producing);
 
-  g.text("🔨生産 " + city.production + "/" + item.cost + " (" + item.name + ")", 190, 62, 15, "#e7d7c4", "left");
-  drawBar(g, 190, 70, 205, 13, city.production, item.cost, "#d78d52");
-  g.text("産出 +" + value.production, 395, 83, 12, "#adbec8", "right");
+    g.text("🌾食料 " + city.food + "/" + needFood, 190, 22, 16, "#f4e7a1", "left");
+    drawBar(g, 190, 31, 205, 13, city.food, needFood, "#d9bd52");
+    g.text("産出 +" + value.food, 395, 43, 12, "#adbec8", "right");
+
+    g.text("🔨生産 " + city.production + "/" + item.cost + " (" + item.name + ")", 190, 62, 15, "#e7d7c4", "left");
+    drawBar(g, 190, 70, 205, 13, city.production, item.cost, "#d78d52");
+    g.text("産出 +" + value.production, 395, 83, 12, "#adbec8", "right");
+  }
 
   g.text("🔬技術 " + S.tech, 430, 28, 20, "#b9e4ff", "left");
   g.text(
@@ -850,7 +857,7 @@ function drawTop(g) {
   } else {
     g.text("🗡️襲来まで " + untilRaid + "ターン", 668, 31, 15, "#9fb3bf", "left");
   }
-  g.text("rev20", 944, 18, 11, "#758c99", "right");
+  g.text("rev21", 944, 18, 11, "#758c99", "right");
 }
 
 function nextUnlockText() {
@@ -1078,7 +1085,7 @@ function drawOver(g) {
   if (S.overTimer >= 1.0) {
     g.text("クリックでもう一度", 480, 488, 23, "#ffffff", "center");
   }
-  g.text("rev20", 936, 522, 12, "#6f8796", "right");
+  g.text("rev21", 936, 522, 12, "#6f8796", "right");
 }
 
 EmojiEngine.register({

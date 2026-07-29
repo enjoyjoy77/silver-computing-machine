@@ -1,7 +1,13 @@
 (function(){
 "use strict";
 
-// ===== CPUのセリフ(1行足すだけで増やせる) =====
+// ===== CPUのセリフ =====
+// 場面(kind)は8種類:
+//   dive=もぐり続ける / turn=引き返す / pickup=遺跡を拾った / pass=拾わなかった
+//   lowOxygen=酸素10未満 / drowned=酸素切れで全ロスト / deepPlayer=あなたが深追い
+//   rival=誰かが先に帰還した
+// LINES は全員の共通セリフ。キャラ固有のセリフは下の CHARACTERS の lines に書く。
+// どちらも「1行足すだけ」で増える(固有があればそちらが優先。無い場面は共通から出る)。
 const LINES = {
   dive: [
     "まだイケる…!",
@@ -18,6 +24,11 @@ const LINES = {
     "重いが持ってく",
     "もらった"
   ],
+  pass: [
+    "こんな石ころ要らん",
+    "見送りだ",
+    "荷物は増やさない"
+  ],
   lowOxygen: [
     "おい、誰か戻れよ",
     "息が…",
@@ -30,9 +41,88 @@ const LINES = {
   ],
   deepPlayer: [
     "あいつ正気か?",
-    "巻き添えはごめんだ"
+    "巻き添えはごめんだ",
+    "あの深さから戻れると思うなよ"
+  ],
+  rival: [
+    "先に上がりやがった",
+    "抜け駆けか",
+    "こっちはまだ海の中だぞ"
   ]
 };
+
+// ===== 参加キャラ(この6人から毎回3人が抽選で参加。増やすときはここに足す) =====
+const CHARACTERS = [
+  {
+    type: "greedy", name: "よくばり", icon: "😎",
+    lines: {
+      dive: ["まだイケる…!", "宝は下にあるんだよ", "引き返す奴は二流だ"],
+      turn: ["ちっ、ここまでか", "今回は預けておいてやる"],
+      pickup: ["これは当たりだ!", "全部おれのだ", "もっとよこせ"],
+      drowned: ["うわああああ", "あと1マスだったのに…"],
+      rival: ["逃げ足だけは速いな"]
+    }
+  },
+  {
+    type: "smart", name: "かしこい", icon: "🧐",
+    lines: {
+      dive: ["計算上まだ余裕がある", "酸素の配分は把握済みだ", "あと2手は安全圏だ"],
+      turn: ["ここが損益分岐点だ", "確率が悪くなった。撤退する"],
+      pickup: ["価値のあるものだけ頂く", "これは持ち帰る価値がある"],
+      pass: ["割に合わない", "重さに見合わないな"],
+      lowOxygen: ["残り酸素、明らかに足りていない", "誰か1人は捨て駒になるぞ"],
+      drowned: ["計算が甘かった…"]
+    }
+  },
+  {
+    type: "scared", name: "びびり", icon: "😰",
+    lines: {
+      dive: ["こ、怖くないもん", "もうちょっとだけ…"],
+      turn: ["やっぱ帰る! 帰る!", "無理無理無理"],
+      pickup: ["ふ、震えが止まらない", "これで十分です…"],
+      pass: ["触ったら呪われそう", "持てません…"],
+      lowOxygen: ["息が…!", "誰か助けて"],
+      drowned: ["だから言ったのに…"],
+      rival: ["ずるい! 待ってよ!"]
+    }
+  },
+  {
+    type: "gambler", name: "ばくち", icon: "🤠",
+    lines: {
+      dive: ["いくぜ、一発勝負!", "運は俺の味方だ", "ここで降りたら男が廃る"],
+      turn: ["熱いうちに引くのが博打だ", "勝ち逃げさせてもらうぜ"],
+      pickup: ["きたきたきた!", "この手ごたえ、大物だ"],
+      lowOxygen: ["残り少ないほど燃えるな"],
+      drowned: ["ハハッ、大負けだ!"],
+      deepPlayer: ["おっ、いい度胸じゃねえか"]
+    }
+  },
+  {
+    type: "copycat", name: "しのび", icon: "🥷",
+    lines: {
+      dive: ["…追う", "まだだ"],
+      turn: ["…潮時"],
+      pickup: ["…いただく"],
+      pass: ["…不要"],
+      lowOxygen: ["…息が続かぬ"],
+      drowned: ["…無念"],
+      deepPlayer: ["…あの者、正気ではない"],
+      rival: ["…先を越された"]
+    }
+  },
+  {
+    type: "veteran", name: "せんぱい", icon: "👴",
+    lines: {
+      dive: ["浅い所の石など宝ではない", "本物は下にしかない", "若いのは焦りすぎだ"],
+      turn: ["いい物は取った。帰るぞ", "引き際こそ腕の見せ所だ"],
+      pickup: ["これが本物の遺跡だ", "40年探してきた甲斐がある"],
+      pass: ["こんなものは土産にもならん"],
+      lowOxygen: ["昔はもっと粘れたがな", "そろそろ全員上がる頃合いだ"],
+      drowned: ["…海はいつもこうだ"],
+      deepPlayer: ["死ぬぞ、そこは"]
+    }
+  }
+];
 
 let S;
 
@@ -49,13 +139,31 @@ function shuffle(g, array) {
   return array;
 }
 
-function makePlayers() {
-  return [
-    { id: 0, name: "あなた", icon: "🤿", cpu: false, type: "player", pos: 0, returning: false, returned: false, held: [], score: 0 },
-    { id: 1, name: "よくばり", icon: "😎", cpu: true, type: "greedy", pos: 0, returning: false, returned: false, held: [], score: 0 },
-    { id: 2, name: "かしこい", icon: "🧐", cpu: true, type: "smart", pos: 0, returning: false, returned: false, held: [], score: 0 },
-    { id: 3, name: "びびり", icon: "😰", cpu: true, type: "scared", pos: 0, returning: false, returned: false, held: [], score: 0 }
+// 6人のキャラから3人を抽選して、あなた＋CPU3人の並びを作る
+function makePlayers(g) {
+  const pool = shuffle(g, CHARACTERS.slice());
+  const players = [
+    { id: 0, name: "あなた", icon: "🤿", cpu: false, type: "player", lines: null, pos: 0, returning: false, returned: false, held: [], score: 0 }
   ];
+  let i;
+
+  for (i = 0; i < 3; i += 1) {
+    players.push({
+      id: i + 1,
+      name: pool[i].name,
+      icon: pool[i].icon,
+      cpu: true,
+      type: pool[i].type,
+      lines: pool[i].lines,
+      pos: 0,
+      returning: false,
+      returned: false,
+      held: [],
+      score: 0
+    });
+  }
+
+  return players;
 }
 
 function makePath(g) {
@@ -123,7 +231,16 @@ function insidePointer(g, x, y, w, h) {
 }
 
 function addBubble(g, player, kind) {
-  if (!player || !player.cpu || !LINES[kind] || LINES[kind].length === 0) {
+  let pool;
+
+  if (!player || !player.cpu) {
+    return;
+  }
+
+  // キャラ固有のセリフがあればそれを、無ければ共通のセリフを使う
+  pool = (player.lines && player.lines[kind]) ? player.lines[kind] : LINES[kind];
+
+  if (!pool || pool.length === 0) {
     return;
   }
 
@@ -133,7 +250,7 @@ function addBubble(g, player, kind) {
 
   S.bubbles.push({
     playerId: player.id,
-    text: g.pick(LINES[kind]),
+    text: g.pick(pool),
     time: 1.6
   });
 }
@@ -206,15 +323,17 @@ function gSafeClamp(value, low, high) {
 }
 
 // 他人のいるマスだけ飛ばして数える(空白マスは1マスとして数え、止まれる)
+// 飛ばしたマスの数を返す(出目より多く進んで見えるのはこれが理由)
 function movePlayer(player, steps) {
   let position = player.pos;
   let counted = 0;
+  let skipped = 0;
   let candidate;
   let guard = 0;
   const direction = player.returning ? -1 : 1;
 
   if (steps <= 0) {
-    return;
+    return 0;
   }
 
   while (counted < steps && guard < 256) {
@@ -233,6 +352,7 @@ function movePlayer(player, steps) {
     position = candidate;
 
     if (occupiedByOther(position, player.id)) {
+      skipped += 1;
       continue;
     }
 
@@ -240,6 +360,8 @@ function movePlayer(player, steps) {
   }
 
   player.pos = gSafeClamp(position, 0, S.path.length);
+
+  return skipped;
 }
 
 function heldValue(player) {
@@ -443,29 +565,68 @@ function beginTurn(g) {
   }
 }
 
+// 今から引き返した場合、潜水艦に着くまでに消える酸素の見積もり。
+// 帰りは「4 − 持ち枚数」マスずつしか進めず、その間ずっと海にいる全員が酸素を吸う。
+function returnCost(player) {
+  const speed = Math.max(1, 4 - player.held.length);
+  const turns = Math.ceil(player.pos / speed);
+  let load = 0;
+  let i;
+
+  for (i = 0; i < S.players.length; i += 1) {
+    if (!S.players[i].returned) {
+      load += S.players[i].held.length;
+    }
+  }
+
+  return turns * Math.max(1, load);
+}
+
+// 性格ごとの「粘り具合」。小さいほど無謀に粘る
+const NERVE = {
+  greedy: 0.8,
+  smart: 1.4,
+  scared: 1.8,
+  gambler: 0.9,
+  copycat: 1.2,
+  veteran: 1.3
+};
+
 function shouldCpuReturn(player) {
-  let share;
-  let risk;
-  let returnDistance;
+  let i;
 
   if (player.returning) {
     return true;
   }
 
-  returnDistance = player.pos;
-
-  if (player.type === "greedy") {
-    return S.oxygen < returnDistance + 2;
+  // 共通の生き残り判断: 帰り道に必要な酸素が残っていなければ引き返す
+  if (S.oxygen <= returnCost(player) * (NERVE[player.type] || 1)) {
+    return true;
   }
 
-  if (player.type === "smart") {
-    share = S.oxygen / Math.max(1, livingCount());
-    risk = returnDistance * (player.held.length + 1) / 2;
-    return risk >= share;
-  }
-
+  // ここから性格ごとの上乗せ(まだ酸素に余裕があっても戻りたがる理由)
   if (player.type === "scared") {
     return player.held.length >= 2;
+  }
+
+  // ばくち: 2枚持ったら勝ち逃げ
+  if (player.type === "gambler") {
+    return player.held.length >= 2;
+  }
+
+  // しのび: あなたの真似をする。あなたが引き返したら追って戻る
+  if (player.type === "copycat") {
+    return S.players[0].returning || S.players[0].returned;
+  }
+
+  // せんぱい: 段階3以上の本物を1枚確保したら即帰還
+  if (player.type === "veteran") {
+    for (i = 0; i < player.held.length; i += 1) {
+      if (player.held[i].tier >= 3) {
+        return true;
+      }
+    }
+    return false;
   }
 
   return false;
@@ -505,9 +666,17 @@ function rollDice(g, player) {
 
 function resolveMovement(g) {
   const player = S.players[S.turn];
+  let i;
+  let skipped;
 
-  movePlayer(player, S.moveSteps);
+  skipped = movePlayer(player, S.moveSteps);
   g.se("jump");
+
+  // 出目より多く進んで見えるときの説明を出す
+  if (skipped > 0) {
+    S.message = "他の人がいる" + skipped + "マスを飛び越えた(数えない)";
+    S.messageTimer = 1.6;
+  }
 
   if (player.returning && player.pos <= 0) {
     player.pos = 0;
@@ -515,6 +684,15 @@ function resolveMovement(g) {
     S.message = player.name + "が帰還!";
     S.messageTimer = 1.1;
     g.se("clear");
+
+    // 先に上がられた奴のくやしがり(海に残っている1人だけが反応する)
+    for (i = 0; i < S.players.length; i += 1) {
+      if (S.players[i].cpu && !S.players[i].returned) {
+        addBubble(g, S.players[i], "rival");
+        break;
+      }
+    }
+
     nextTurn();
     return;
   }
@@ -545,8 +723,27 @@ function resolveMovement(g) {
   S.timer = player.cpu ? 0.55 : 0.25;
 }
 
+// 性格ごとの「持ちすぎない上限」。持つほど足が遅くなり帰れなくなる
+const MAX_HOLD = {
+  greedy: 4,
+  smart: 3,
+  scared: 2,
+  gambler: 2,
+  copycat: 3,
+  veteran: 3
+};
+
 function shouldCpuPickup(player, chip) {
   if (!chip) {
+    return false;
+  }
+
+  if (player.held.length >= (MAX_HOLD[player.type] || 3)) {
+    return false;
+  }
+
+  // 帰り道が苦しくなるなら、もう拾わない
+  if (S.oxygen <= returnCost(player) * 1.2) {
     return false;
   }
 
@@ -560,6 +757,18 @@ function shouldCpuPickup(player, chip) {
 
   if (player.type === "scared") {
     return player.held.length < 2;
+  }
+
+  if (player.type === "gambler") {
+    return true;
+  }
+
+  if (player.type === "copycat") {
+    return chip.tier >= 2;
+  }
+
+  if (player.type === "veteran") {
+    return chip.tier >= 2;
   }
 
   return false;
@@ -601,8 +810,12 @@ function dropChip(player) {
 function handleCpuPickup(g, player) {
   const tile = S.path[player.pos - 1];
 
-  if (tile && shouldCpuPickup(player, tile.chip)) {
-    pickupChip(g, player);
+  if (tile && tile.chip) {
+    if (shouldCpuPickup(player, tile.chip)) {
+      pickupChip(g, player);
+    } else {
+      addBubble(g, player, "pass");
+    }
   }
 
   S.phase = "afterMove";
@@ -642,13 +855,22 @@ function tierColor(tier) {
 }
 
 function drawTitle(g) {
+  let i;
+  let x;
+
   g.bg("#061d35");
   g.text("海底探検", g.W / 2, 105, 54, "#dffaff", "center");
   g.emoji("🚢", g.W / 2, 190, 84);
-  g.emoji("🤿", g.W / 2 - 115, 275, 55, {rot:-0.12});
-  g.emoji("😎", g.W / 2 - 38, 315, 48);
-  g.emoji("🧐", g.W / 2 + 40, 350, 46);
-  g.emoji("😰", g.W / 2 + 118, 390, 44);
+  g.emoji("🤿", g.W / 2, 268, 60, {rot:-0.12});
+
+  for (i = 0; i < CHARACTERS.length; i += 1) {
+    x = g.W / 2 - (CHARACTERS.length - 1) * 42 / 2 + i * 42;
+    g.emoji(CHARACTERS[i].icon, x, 340, 40);
+    g.text(CHARACTERS[i].name, x, 372, 11, "#9fd0e8", "center");
+  }
+
+  g.text("この6人から3人が参加(毎回かわる)", g.W / 2, 404, 17, "#7fb8d4", "center");
+  g.text("進む数 = サイコロ1〜3が2個 − 荷物の数。他の人がいるマスは数えずに飛び越える", g.W / 2, 424, 14, "#6f9bb5", "center");
   g.text("酸素はみんなの共有。欲張ると全員沈む", g.W / 2, 442, 22, "#b9eaff", "center");
   g.rect(300, 474, 360, 48, "#19a6b3");
   g.text("クリックして潜る", g.W / 2, 506, 25, "#ffffff", "center");
@@ -745,6 +967,7 @@ function drawPath(g) {
 
   g.text("浅い", 240, 420, 14, "#71d6e3", "left");
   g.text("深い →", 925, 420, 14, "#d990cf", "right");
+  g.text("サイコロは1〜3が2個。他の人がいるマスは数えずに飛び越える(出目より進むのはこのため)", 480, 420, 14, "#6f9bb5", "center");
 }
 
 function drawPlayers(g) {
@@ -1073,13 +1296,13 @@ function updatePlay(g, dt) {
   }
 }
 
-function freshState() {
+function freshState(g) {
   return {
     scene: "title",
     round: 1,
     oxygen: 25,
     path: [],
-    players: makePlayers(),
+    players: makePlayers(g),
     turn: 0,
     phase: "",
     timer: 0,
@@ -1105,7 +1328,7 @@ EmojiEngine.register({
   desc: "酸素はみんなの共有。欲張ると全員沈む",
 
   init: function(g) {
-    S = freshState();
+    S = freshState(g);
     this._state = S;
   },
 
@@ -1114,7 +1337,7 @@ EmojiEngine.register({
 
     if (S.scene === "title") {
       if (g.pointer.justDown || g.pressed("action")) {
-        S = freshState();
+        S = freshState(g);
         this._state = S;
         resetRound(g);
         S.scene = "play";
@@ -1148,7 +1371,7 @@ EmojiEngine.register({
 
     if (S.scene === "over") {
       if (g.pointer.justDown || g.pressed("action")) {
-        S = freshState();
+        S = freshState(g);
         this._state = S;
         g.se("click");
       }
