@@ -1,9 +1,9 @@
 (function(){
 "use strict";
-// 絵文字ボム解体 rev1 — 協力推理(ボムバスターズ型)
+// 絵文字ボム解体 rev2 — 協力推理(ボムバスターズ型)
 // あなた + AI3人。同じ数字の線を2本ずつ切って全部外す。ミス3回で爆発。
 
-var REV = "rev1";
+var REV = "rev2";
 var VMAX = 8;            // 数字は 1〜8
 var COPIES = 4;          // 各数字は4本(=2ペア)
 var SLOTS = 9;           // 1人9本
@@ -38,6 +38,7 @@ function reset(g){
   }
   S = {
     scene: "title",
+    page: 0,
     players: players,
     turn: 0,
     mistakes: 0,
@@ -223,6 +224,9 @@ function aiTurn(g, p){
   return false;
 }
 
+/* ---------- 説明画面用のカード枠 ---------- */
+function card(g, x, y, w, h, col){ g.rect(x, y, w, h, col || "#2a3350"); }
+
 /* ---------- クリック位置 ---------- */
 function slotRect(p, i){
   return { x: SLOT_X0 + i * SLOT_GAP, y: ROW_Y[p], w: SLOT_W, h: p === 0 ? 58 : 48 };
@@ -256,7 +260,11 @@ EmojiEngine.register({
     if (S.flash > 0) S.flash -= dt;
 
     if (S.scene === "title"){
-      if (g.pressed("action") || g.pointer.justDown){ S.scene = "play"; g.se("click"); }
+      if (g.pressed("action") || g.pointer.justDown){
+        g.se("click");
+        S.page++;
+        if (S.page > 2) S.scene = "play";
+      }
       return;
     }
     if (S.scene === "over"){
@@ -331,13 +339,60 @@ EmojiEngine.register({
     g.bg(S.flash > 0 ? "#4a1420" : "#141b2e");
 
     if (S.scene === "title"){
-      g.emoji("💣", g.W / 2, 150, 88);
-      g.text("絵文字ボム解体", g.W / 2, 250, 46);
-      g.text("AI3人と協力。同じ数字の線を2本ずつ切っていく", g.W / 2, 300, 22, "#ffd");
-      g.text("自分の線をえらぶ → 同じ数字だと思う相手の線をクリック", g.W / 2, 336, 20, "#9fd");
-      g.text("外れたらミス。3回で爆発。💣は切れない", g.W / 2, 368, 20, "#f9a");
-      g.text("クリック か スペース でスタート", g.W / 2, 440, 24, "#fff");
       g.text(REV, g.W - 12, 24, 16, "#889", "right");
+
+      if (S.page === 0){
+        g.emoji("💣", g.W / 2, 148, 88);
+        g.text("絵文字ボム解体", g.W / 2, 248, 46);
+        g.text("AI3人と協力して、爆弾の線を全部切る推理ゲーム", g.W / 2, 300, 22, "#ffd");
+        g.text("ルールを2枚で説明します", g.W / 2, 350, 20, "#9fd");
+        g.text("クリックで次へ", g.W / 2, 452, 24, "#fff");
+        return;
+      }
+
+      if (S.page === 1){
+        g.text("① なにをするの?", g.W / 2, 56, 30, "#ffd76a");
+        g.text("同じ数字の線を「2本セット」で切る", g.W / 2, 108, 28, "#fff");
+
+        // 図: あなたの3 と 相手の?
+        card(g, 200, 150, 90, 74, "#2a3350"); g.text("3", 245, 194, 40);
+        g.text("あなた", 245, 246, 18, "#bbb");
+        g.text("＋", 330, 190, 30, "#ffd");
+        card(g, 380, 150, 90, 74, "#2a3350"); g.text("🎴", 425, 188, 30); g.text("3〜5", 425, 218, 16, "#8f9ac0");
+        g.text("ネコ", 425, 246, 18, "#bbb");
+        g.text("→", 500, 190, 30, "#ffd");
+        card(g, 550, 150, 90, 74, "#1b2233"); g.text("✂", 595, 196, 34, "#7dfba0");
+        card(g, 650, 150, 90, 74, "#1b2233"); g.text("✂", 695, 196, 34, "#7dfba0");
+        g.text("同じ数字なら2本とも切れる", 645, 246, 18, "#7dfba0");
+
+        g.text("切れるのは「自分の1本」＋「だれかの1本」。数字がちがったらミス。", g.W / 2, 300, 21, "#fff");
+        g.text("ミス3回で爆発。💣は切れない(でも並び順のヒントになる)", g.W / 2, 336, 21, "#f9a");
+        g.text("数字が見えているのは自分の手札だけ。相手の札は裏向き", g.W / 2, 372, 21, "#9fd");
+        g.text("クリックで次へ", g.W / 2, 452, 24, "#fff");
+        return;
+      }
+
+      g.text("② どうやって当てるの?", g.W / 2, 56, 30, "#ffd76a");
+      g.text("手札は必ず「小さい順」に並んでいる", g.W / 2, 104, 28, "#fff");
+
+      // 図: 3番目が4と分かっているとき、その左右が絞れる
+      var bx = 250;
+      for (var d = 0; d < 5; d++){
+        var known = (d === 2);
+        card(g, bx + d * 96, 140, 84, 70, known ? "#2a3350" : "#2a3350");
+        if (known){
+          g.text("4", bx + d * 96 + 42, 178, 34, "#ffd76a");
+        } else {
+          g.text("🎴", bx + d * 96 + 42, 172, 26);
+          g.text(d < 2 ? "1〜4" : "4〜8", bx + d * 96 + 42, 198, 15, "#8f9ac0");
+        }
+      }
+      g.text("← ここが 4 とわかると、左は4以下・右は4以上に絞れる →", g.W / 2, 234, 20, "#9fd");
+
+      g.text("画面上の「残り本数」で、まだ切れていない数字も分かる", g.W / 2, 288, 21, "#fff");
+      g.text("📢ヒントを使うと「その数字を何本持ってる?」と相手に聞ける(3回)", g.W / 2, 324, 21, "#fff");
+      g.text("札の下の小さい数字は、その札にありうる数字の範囲です", g.W / 2, 360, 21, "#8ad");
+      g.text("クリックではじめる", g.W / 2, 452, 26, "#7dfba0");
       return;
     }
 
@@ -404,9 +459,24 @@ EmojiEngine.register({
     g.rect(HINT_BTN.x, HINT_BTN.y, HINT_BTN.w, HINT_BTN.h, hcol);
     g.text("📢 ヒント×" + S.hints, HINT_BTN.x + HINT_BTN.w / 2, HINT_BTN.y + 30, 20, "#fff");
 
+    // 凡例と、いま何をすればいいかの案内
+    g.text("札の下の数字＝ありうる範囲", 782, 100, 14, "#8ad", "left");
+    var guide;
+    if (S.turn !== 0){
+      guide = "🤖 " + S.players[S.turn].name + " が考えています…";
+    } else if (S.mode === "hint"){
+      guide = "📢 だれに聞く? 🐱🐻🐰 の列をクリック";
+    } else if (!S.sel){
+      guide = "① あなたの線を1本クリック(数字が見えているのがあなたの手札)";
+    } else {
+      guide = "② 「" + hand(0)[S.sel.i].v + "」と同じだと思う線をクリック(自分の別の線でもOK / もう一度押すと取消)";
+    }
+    g.rect(20, 416, 920, 30, "#1d2740");
+    g.text(guide, 32, 431, 19, "#ffd76a", "left");
+
     // ログ
     for (var L = 0; L < S.log.length; L++){
-      g.text(S.log[L], 24, 452 + L * 26, 18, L === S.log.length - 1 ? "#fff" : "#98a2c0", "left");
+      g.text(S.log[L], 24, 466 + L * 24, 18, L === S.log.length - 1 ? "#fff" : "#98a2c0", "left");
     }
 
     if (S.scene === "over"){
