@@ -287,6 +287,7 @@ function resetRound(g) {
   S.messageTimer = 2.4;
   S.lowOxygenReacted = false;
   S.deepReacted = false;
+  S.lastTurn = false;
   S.bubbles = [];
   S.roundSummary = [];
   S.lostThisRound = [];
@@ -549,8 +550,14 @@ function allReturned() {
   return true;
 }
 
-function nextTurn() {
+function nextTurn(g) {
   let tries = 0;
+
+  // 酸素が尽きた人の手番が終わった瞬間にラウンド終了(その人の行動は済んでいる)
+  if (S.lastTurn) {
+    triggerOxygenEnd(g);
+    return;
+  }
 
   if (allReturned()) {
     finishRound(false);
@@ -726,7 +733,7 @@ function beginTurn(g) {
   let i;
 
   if (player.returned) {
-    nextTurn();
+    nextTurn(g);
     return;
   }
 
@@ -745,9 +752,14 @@ function beginTurn(g) {
     }
   }
 
-  if (S.oxygen <= 0) {
-    triggerOxygenEnd(g);
-    return;
+  // 酸素が尽きても、この人の手番だけは最後まで行える(帰り着ければ助かる)
+  if (S.oxygen <= 0 && !S.lastTurn) {
+    S.lastTurn = true;
+    S.message = "酸素が尽きた! " + player.name + "の手番が最後だ";
+    S.messageTimer = 2.4;
+    S.flash = 0.8;
+    spawnFx(g, "🫧", 480, 300, 14, { spread: 260, vy0: -200, vy1: -80, grav: 20, size0: 12, size1: 26 });
+    g.se("hit");
   }
 
   if (!S.deepReacted && S.players[0].pos >= 15 && !S.players[0].returning) {
@@ -929,7 +941,7 @@ function resolveMovement(g) {
       }
     }
 
-    nextTurn();
+    nextTurn(g);
     return;
   }
 
@@ -1181,7 +1193,14 @@ function drawOxygen(g) {
   g.text("共有酸素", 480, 24, 18, "#d9f5ff", "center");
   g.rect(330, 34, 300, 24, "#16364d");
   g.rect(334, 38, 292 * ratio, 16, color);
-  g.text(String(S.oxygen) + " / 25", 480, 53, 17, "#ffffff", "center");
+  g.text(
+    S.oxygen <= 0 ? "0 / 25  酸素切れ!" : String(S.oxygen) + " / 25",
+    480,
+    53,
+    17,
+    S.oxygen <= 0 && Math.sin(g.time * 12) > 0 ? "#ff6b6b" : "#ffffff",
+    "center"
+  );
   g.text("ROUND " + S.round + " / " + S.maxRounds, 835, 36, 19, "#d9f5ff", "center");
 }
 
@@ -1586,6 +1605,20 @@ function drawPlay(g) {
   drawFx(g);
   drawFlash(g, "#ff2b2b");
 
+  // 酸素が尽きた後の「最後の手番」を知らせる
+  if (S.lastTurn && S.phase !== "drownedPause") {
+    g.rect(300, 196, 360, 44, "#7a1420dd");
+    g.text("酸素ゼロ! これが最後の手番", 480, 214, 19, "#ffd7d7", "center");
+    g.text(
+      S.players[S.turn].id === 0 ? "帰り着ければ助かる" : S.players[S.turn].name + "の行動が終わると全員沈む",
+      480,
+      234,
+      14,
+      "#ffb0b0",
+      "center"
+    );
+  }
+
   // 酸素切れの瞬間だけ、大きく出す
   if (S.phase === "drownedPause") {
     g.rect(240, 84, 480, 92, "#5a0f1acc");
@@ -1861,7 +1894,7 @@ function updatePlay(g, dt) {
   if (S.phase === "afterMove") {
     S.timer -= dt;
     if (S.timer <= 0) {
-      nextTurn();
+      nextTurn(g);
     }
     return;
   }
@@ -1898,6 +1931,7 @@ function freshState(g) {
     roundReason: "",
     removedTiles: 0,
     maxRounds: ROUNDS,
+    lastTurn: false,
     fx: [],
     flash: 0,
     shake: 0,
