@@ -214,6 +214,9 @@ function resetRound(g) {
   S.roundSummary = [];
   S.lostThisRound = [];
   S.roundReason = "";
+  S.viewFirst = 1;
+  S.viewFollow = true;
+  S.dragX = null;
 
   for (i = 0; i < S.players.length; i += 1) {
     S.players[i].pos = 0;
@@ -915,122 +918,232 @@ function drawScoreboard(g) {
     g.text((i + 1) + ".", 25, y, 17, "#ffffff", "left");
     g.emoji(player.icon, 55, y - 6, 25);
     g.text(player.name, 75, y, 16, "#ffffff", "left");
-    g.text("持" + player.held.length, 151, y, 14, "#ffd966", "right");
+    if (player.returned) {
+      g.text("帰還", 155, y, 13, "#8fffc9", "right");
+    } else {
+      g.text("持" + player.held.length, 155, y, 14, "#ffd966", "right");
+    }
     g.text(player.score + "点", 205, y, 15, "#8fffc9", "right");
   }
 }
 
-function cameraCenter() {
-  const player = S.players[0];
+// ===== 海の道の表示(見える範囲・スクロール) =====
+const SEA_LEFT = 228;       // 海の帯の左端(ここより左は情報パネル)
+const VIEW_LEFT = 348;      // 一番左のマスの中心x
+const VIEW_STEP = 42;       // マスの間隔
+const VIEW_COUNT = 14;      // 一度に見えるマスの数
+const TILE_Y = 336;         // マスの帯の中心y
 
-  if (player.returned) {
-    return 1;
-  }
-
-  return gSafeClamp(player.pos, 1, Math.max(1, S.path.length));
+function viewMaxFirst() {
+  return Math.max(1, S.path.length - VIEW_COUNT + 1);
 }
 
-function screenXForPosition(position, center) {
-  return 535 + (position - center) * 54;
+// あなたを追いかける表示位置(左から5マス目にあなたが来るように)
+function followFirst() {
+  const player = S.players[0];
+  const base = player.returned ? 1 : player.pos - 4;
+
+  return gSafeClamp(base, 1, viewMaxFirst());
+}
+
+function viewFirst() {
+  if (S.viewFollow) {
+    return followFirst();
+  }
+
+  return gSafeClamp(S.viewFirst, 1, viewMaxFirst());
+}
+
+function screenXForPosition(position, first) {
+  return VIEW_LEFT + (position - first) * VIEW_STEP;
+}
+
+function scrollView(amount) {
+  S.viewFollow = false;
+  S.viewFirst = gSafeClamp(viewFirst() + amount, 1, viewMaxFirst());
+}
+
+// スクロール操作(ドラッグ・◀▶ボタン・矢印キー)。drawより先に呼ぶ
+function handleView(g) {
+  const dragging = g.pointer.down && g.pointer.y > 300 && g.pointer.y < 400;
+  let delta;
+
+  if (dragging) {
+    if (S.dragX === null) {
+      S.dragX = g.pointer.x;
+    } else {
+      delta = g.pointer.x - S.dragX;
+      if (Math.abs(delta) >= VIEW_STEP) {
+        scrollView(-Math.round(delta / VIEW_STEP));
+        S.dragX = g.pointer.x;
+      }
+    }
+  } else {
+    S.dragX = null;
+  }
+
+  if (g.pressed("left")) {
+    scrollView(-3);
+  }
+  if (g.pressed("right")) {
+    scrollView(3);
+  }
 }
 
 function drawPath(g) {
-  const center = cameraCenter();
-  const start = Math.max(1, center - 5);
-  const end = Math.min(S.path.length, center + 7);
+  const first = viewFirst();
+  const last = Math.min(S.path.length, first + VIEW_COUNT - 1);
   let i;
   let x;
   let tile;
   let diamonds;
   let j;
 
-  g.text("🚢 潜水艦", 245, 335, 21, "#dffaff", "left");
-  g.rect(230, 354, 710, 5, "#3b7699");
+  // 海の帯と潜水艦(左端)
+  g.rect(SEA_LEFT, TILE_Y - 52, g.W - SEA_LEFT, 118, "#082a48");
+  g.emoji("🚢", 260, TILE_Y - 18, 42);
+  g.text("潜水艦", 260, TILE_Y + 14, 12, "#dffaff", "center");
+  g.rect(292, TILE_Y - 22, 2, 44, "#2f6e94");
 
-  for (i = start; i <= end; i += 1) {
-    x = screenXForPosition(i, center);
+  for (i = first; i <= last; i += 1) {
+    x = screenXForPosition(i, first);
     tile = S.path[i - 1];
 
     if (tile && tile.chip) {
-      g.rect(x - 21, 334, 42, 42, tierColor(tile.chip.tier));
+      g.rect(x - 19, TILE_Y - 20, 38, 40, tierColor(tile.chip.tier));
       diamonds = "";
       for (j = 0; j < tile.chip.tier; j += 1) {
         diamonds += "◆";
       }
-      g.text(diamonds, x, 362, 11, "#ffffff", "center");
+      g.text(diamonds, x, TILE_Y + 5, tile.chip.tier >= 4 ? 9 : 11, "#ffffff", "center");
     } else {
-      g.rect(x - 4, 351, 8, 8, "#7094aa");
+      g.rect(x - 17, TILE_Y - 4, 34, 8, "#123a58");
+      g.rect(x - 3, TILE_Y - 2, 6, 4, "#4d7d99");
     }
 
-    g.text(String(i), x, 393, 12, "#8bb6ca", "center");
+    g.text(String(i), x, TILE_Y + 34, 11, "#7ba3ba", "center");
   }
 
-  g.text("浅い", 240, 420, 14, "#71d6e3", "left");
-  g.text("深い →", 925, 420, 14, "#d990cf", "right");
-  g.text("サイコロは1〜3が2個。他の人がいるマスは数えずに飛び越える(出目より進むのはこのため)", 480, 420, 14, "#6f9bb5", "center");
+  // ◀▶ スクロールボタン
+  g.rect(298, TILE_Y - 18, 24, 36, "#14496b");
+  g.text("◀", 310, TILE_Y + 6, 17, "#cfe9f7", "center");
+  g.rect(926, TILE_Y - 18, 24, 36, "#14496b");
+  g.text("▶", 938, TILE_Y + 6, 17, "#cfe9f7", "center");
+}
+
+// コマを置く座標(同じマスに重なったら上に積む。マスとは重ならない高さに出す)
+function playerScreenPosition(player, stack) {
+  const first = viewFirst();
+  let x;
+
+  if (player.returned) {
+    // 帰還した人はコマを出さない(順位表に「帰還」と出る)
+    return { x: 0, y: 0, off: true };
+  }
+
+  if (player.pos === 0) {
+    x = 260;
+  } else {
+    x = screenXForPosition(player.pos, first);
+  }
+
+  return {
+    x: x,
+    y: TILE_Y - 44 - stack * 30,
+    off: x < 250 || x > VIEW_LEFT + (VIEW_COUNT - 1) * VIEW_STEP + 10
+  };
+}
+
+function playerStackIndex(player) {
+  let count = 0;
+  let i;
+
+  for (i = 0; i < S.players.length; i += 1) {
+    if (S.players[i].id === player.id) {
+      break;
+    }
+    if (!S.players[i].returned && S.players[i].pos === player.pos) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 function drawPlayers(g) {
-  const center = cameraCenter();
-  const grouped = {};
   let i;
   let player;
-  let key;
-  let offset;
-  let x;
-  let y;
+  let point;
 
   for (i = 0; i < S.players.length; i += 1) {
     player = S.players[i];
+    point = playerScreenPosition(player, playerStackIndex(player));
 
-    if (player.returned) {
-      x = 247 + player.id * 34;
-      y = 317;
-      g.emoji(player.icon, x, y, 27);
-      continue;
+    if (point.off) {
+      continue;   // 画面の外(スクロール中)は描かない
     }
 
-    key = String(player.pos);
-    if (!grouped[key]) {
-      grouped[key] = 0;
-    }
-    offset = grouped[key];
-    grouped[key] += 1;
-
-    if (player.pos === 0) {
-      x = 270;
-    } else {
-      x = screenXForPosition(player.pos, center);
+    if (player.id === S.turn && S.scene === "play") {
+      g.rect(point.x - 21, point.y - 20, 42, 42, "#2a5f86");
     }
 
-    y = 315 - offset * 28;
-    g.emoji(player.icon, x, y, 31, {
-      flipX: player.returning
-    });
+    g.emoji(player.icon, point.x, point.y, 30, { flipX: player.returning });
 
-    if (player.id === S.turn) {
-      g.text("▼", x, y - 25, 14, "#fff46a", "center");
+    if (player.held.length > 0) {
+      g.text("◆" + player.held.length, point.x, point.y + 24, 12, "#ffd966", "center");
     }
   }
 }
 
 function bubblePlayerScreenPosition(player) {
-  const center = cameraCenter();
-  let x;
-  let y;
-
-  if (player.returned || player.pos === 0) {
-    x = 270 + player.id * 34;
-    y = 270;
-  } else {
-    x = screenXForPosition(player.pos, center);
-    y = 245;
-  }
+  const stack = playerStackIndex(player);
+  const point = playerScreenPosition(player, stack);
 
   return {
-    x: gSafeClamp(x, 310, 810),
-    y: y
+    x: gSafeClamp(point.x + stack * 30, 350, 790),
+    y: point.y - 46,
+    off: point.off
   };
+}
+
+// 全体マップ: 道の全部を1本のバーに縮めて、誰がどこにいるかと今見ている範囲を出す
+function drawMinimap(g) {
+  const left = 240;
+  const width = 660;
+  const len = Math.max(1, S.path.length);
+  const step = width / len;
+  const first = viewFirst();
+  let i;
+  let x;
+  let tile;
+  let player;
+
+  g.rect(left, 404, width, 22, "#0b2c47");
+
+  for (i = 1; i <= len; i += 1) {
+    tile = S.path[i - 1];
+    x = left + (i - 1) * step;
+    if (tile && tile.chip) {
+      g.rect(x, 408, Math.max(2, step - 1), 14, tierColor(tile.chip.tier));
+    } else {
+      g.rect(x, 413, Math.max(2, step - 1), 4, "#1d4a6a");
+    }
+  }
+
+  // 今見えている範囲の枠
+  g.rect(left + (first - 1) * step, 402, step * VIEW_COUNT, 2, "#ffe36e");
+  g.rect(left + (first - 1) * step, 426, step * VIEW_COUNT, 2, "#ffe36e");
+
+  for (i = 0; i < S.players.length; i += 1) {
+    player = S.players[i];
+    if (player.returned) {
+      continue;
+    }
+    x = left + Math.max(0, player.pos - 1) * step;
+    g.emoji(player.icon, x + step / 2, 397, 15);
+  }
+
+  g.text("全体マップ", 232, 419, 12, "#8bb6ca", "right");
 }
 
 function drawBubbles(g) {
@@ -1049,7 +1162,12 @@ function drawBubbles(g) {
     }
 
     point = bubblePlayerScreenPosition(player);
-    width = Math.max(145, bubble.text.length * 18 + 28);
+
+    if (point.off) {
+      continue;
+    }
+
+    width = Math.max(145, bubble.text.length * 17 + 26);
     g.rect(point.x - width / 2, point.y - 30, width, 38, "#ffffff");
     g.text(bubble.text, point.x, point.y - 5, 16, "#173047", "center");
   }
@@ -1060,14 +1178,15 @@ function drawDice(g) {
     return;
   }
 
-  g.rect(392, 82, 176, 76, "#f3f7fa");
-  g.text("🎲 " + S.dice.a + "  🎲 " + S.dice.b, 480, 116, 25, "#173047", "center");
+  g.rect(360, 78, 240, 96, "#f3f7fa");
+  g.text("🎲 " + S.dice.a + "  🎲 " + S.dice.b, 480, 112, 25, "#173047", "center");
+  g.text("他の人がいるマスは数えず飛び越える", 480, 165, 12, "#5b7a90", "center");
   g.text(
     "移動 " + S.dice.raw + " − 荷物 " +
       S.players[S.dice.playerId].held.length +
       " = " + S.dice.steps,
     480,
-    145,
+    142,
     14,
     "#35526a",
     "center"
@@ -1077,17 +1196,12 @@ function drawDice(g) {
 function drawTurnInfo(g) {
   const player = S.players[S.turn];
 
-  g.text(
-    player.icon + " " + player.name + " の手番",
-    480,
-    458,
-    20,
-    "#ffffff",
-    "center"
-  );
+  g.rect(12, 302, 205, 30, "#14496b");
+  g.emoji(player.icon, 32, 316, 22);
+  g.text(player.name + " の手番", 50, 323, 16, "#ffffff", "left");
 
   if (S.messageTimer > 0) {
-    g.text(S.message, 480, 188, 20, "#fff0a8", "center");
+    g.text(S.message, 480, 452, 18, "#fff0a8", "center");
   }
 }
 
@@ -1140,14 +1254,39 @@ function drawPlayerControls(g) {
 
 function drawPlay(g) {
   g.bg("#061d35");
+  handleView(g);
   drawOxygen(g);
   drawScoreboard(g);
   drawPath(g);
-  drawPlayers(g);
   drawBubbles(g);
+  drawPlayers(g);
+  drawMinimap(g);
+  drawViewControls(g);
   drawDice(g);
   drawTurnInfo(g);
   drawPlayerControls(g);
+}
+
+// ◀▶ボタンと「現在地へ」ボタンの当たり判定
+function drawViewControls(g) {
+  if (insidePointer(g, 298, TILE_Y - 18, 24, 36) && g.pointer.justDown) {
+    scrollView(-3);
+  }
+
+  if (insidePointer(g, 926, TILE_Y - 18, 24, 36) && g.pointer.justDown) {
+    scrollView(3);
+  }
+
+  if (!S.viewFollow) {
+    g.rect(760, 434, 140, 26, "#1c6f8c");
+    g.text("現在地へもどる", 830, 452, 14, "#ffffff", "center");
+    if (insidePointer(g, 760, 434, 140, 26) && g.pointer.justDown) {
+      S.viewFollow = true;
+      g.se("click");
+    }
+  } else if (S.messageTimer <= 0) {
+    g.text("◀▶ か 左右キー か 道をドラッグで先まで見られる", 480, 452, 13, "#6f9bb5", "center");
+  }
 }
 
 function drawRound(g) {
@@ -1317,7 +1456,10 @@ function freshState(g) {
     roundSummary: [],
     lostThisRound: [],
     roundReason: "",
-    roundEndPending: false
+    roundEndPending: false,
+    viewFirst: 1,
+    viewFollow: true,
+    dragX: null
   };
 }
 
