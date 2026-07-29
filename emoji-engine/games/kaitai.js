@@ -183,6 +183,23 @@ function aiTurn(g, p){
     pushLog(S.players[p].icon + " 「" + best + " は " + cnt + "本 持ってる」");
     return false;
   }
+  // 4) 教えられる情報も尽きたら、いちばん当たりそうな組に賭ける
+  var bestMove = null, bestP = -1;
+  for (i = 0; i < h.length; i++){
+    if (h[i].bomb || h[i].cut) continue;
+    for (var q2 = 0; q2 < 4; q2++){
+      if (q2 === p) continue;
+      var hq2 = hand(q2);
+      for (var k2 = 0; k2 < hq2.length; k2++){
+        if (hq2[k2].bomb || hq2[k2].cut) continue;
+        var c2 = cands(q2, k2);
+        if (c2.indexOf(h[i].v) < 0) continue;
+        var pr = 1 / c2.length;
+        if (pr > bestP){ bestP = pr; bestMove = { i: i, q: q2, k: k2 }; }
+      }
+    }
+  }
+  if (bestMove) return declare(g, p, bestMove.i, bestMove.q, bestMove.k);
   pushLog(S.players[p].icon + " 「…わからない、まかせた」");
   return false;
 }
