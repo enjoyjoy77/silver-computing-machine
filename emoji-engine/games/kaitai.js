@@ -4,13 +4,13 @@
 // あなた + AI3人。同じ数字の線を2本ずつ切って全部外す。ミス3回で爆発。
 
 var REV = "rev1";
-var VMAX = 6;            // 数字は 1〜6
+var VMAX = 8;            // 数字は 1〜8
 var COPIES = 4;          // 各数字は4本(=2ペア)
-var SLOTS = 7;           // 1人7本
+var SLOTS = 9;           // 1人9本
 var NAMES = ["あなた", "ネコ", "クマ", "ウサギ"];
 var ICONS = ["🙂", "🐱", "🐻", "🐰"];
 var ROW_Y = [352, 118, 188, 258];   // 0=自分, 1..3=AI
-var SLOT_X0 = 178, SLOT_W = 76, SLOT_GAP = 86;
+var SLOT_X0 = 150, SLOT_W = 62, SLOT_GAP = 70;
 var HINT_BTN = { x: 786, y: 336, w: 152, h: 46 };
 
 var S;
@@ -207,6 +207,18 @@ function aiTurn(g, p){
   // 半々より分が良いときだけ賭ける。ただし全員が動けない状態が続いたら賭ける
   if (bestMove && (bestP >= 0.5 || S.noAction >= 3)){ S.noAction = 0; return declare(g, p, bestMove.i, bestMove.q, bestMove.k); }
   if (bestMove){ S.noAction++; pushLog(S.players[p].icon + " 「自信がない…まかせた」"); return false; }
+  // 5) それでも手が無いなら、行き止まりを避けるため適当な組に賭ける
+  for (i = 0; i < h.length; i++){
+    if (h[i].bomb || h[i].cut) continue;
+    for (var q3 = 0; q3 < 4; q3++){
+      if (q3 === p) continue;
+      var hq3 = hand(q3);
+      for (var k3 = 0; k3 < hq3.length; k3++){
+        if (hq3[k3].bomb || hq3[k3].cut) continue;
+        return declare(g, p, i, q3, k3);
+      }
+    }
+  }
   pushLog(S.players[p].icon + " 「…わからない、まかせた」");
   return false;
 }
@@ -335,31 +347,35 @@ EmojiEngine.register({
     var mtxt = "";
     for (var m = 0; m < S.maxMistakes; m++) mtxt += (m < S.mistakes ? "❌" : "・");
     g.text("ミス " + mtxt, 250, 26, 22, "#f99", "left");
-    g.text("📢ヒント 残り " + S.hints, 420, 26, 22, "#9df", "left");
+    g.text("📢ヒント 残り " + S.hints, 430, 26, 22, "#9df", "left");
+    g.text("残り本数", 30, 71, 16, "#8ad", "left");
 
     // 残り本数の表
     for (var v = 1; v <= VMAX; v++){
-      var x = 588 + (v - 1) * 60;
+      var x = SLOT_X0 + (v - 1) * SLOT_GAP;
       var r = remainingGlobal(v);
-      g.rect(x, 8, 54, 36, r > 0 ? "#26304a" : "#1a1f2c");
-      g.text(String(v), x + 16, 34, 22, r > 0 ? "#fff" : "#555");
-      g.text("残" + r, x + 40, 32, 15, r > 0 ? "#9fd" : "#555");
+      g.rect(x, 54, SLOT_W, 32, r > 0 ? "#26304a" : "#1a1f2c");
+      g.text(String(v), x + 16, 71, 20, r > 0 ? "#fff" : "#555");
+      g.text("残" + r, x + 42, 70, 14, r > 0 ? "#9fd" : "#555");
     }
 
     // 各プレイヤーの列
     for (var p = 0; p < 4; p++){
       var yy = ROW_Y[p];
       var mine = (p === 0);
-      g.emoji(S.players[p].icon, 60, yy + (mine ? 28 : 22), mine ? 46 : 38);
-      g.text(S.players[p].name, 120, yy + (mine ? 34 : 28), 20, S.turn === p ? "#ffd76a" : "#bbb", "left");
-      if (S.turn === p) g.text("▶", 24, yy + (mine ? 30 : 24), 22, "#ffd76a");
+      g.emoji(S.players[p].icon, 46, yy + (mine ? 28 : 22), mine ? 40 : 34);
+      g.text(S.players[p].name, 70, yy + (mine ? 34 : 28), 17, S.turn === p ? "#ffd76a" : "#bbb", "left");
+      if (S.turn === p) g.text("▶", 12, yy + (mine ? 30 : 24), 18, "#ffd76a");
 
-      // 申告メモ
-      var memo = "";
+      // 申告メモ(2段に分けて右側に置く)
+      var memo = [];
       for (var v2 = 1; v2 <= VMAX; v2++){
-        if (S.players[p].ann[v2] >= 0) memo += v2 + ":" + S.players[p].ann[v2] + "本 ";
+        if (S.players[p].ann[v2] >= 0) memo.push(v2 + ":" + S.players[p].ann[v2] + "本");
       }
-      if (memo) g.text(memo, 790, yy + (mine ? 18 : 16), 15, "#8ad", "left");
+      if (memo.length && !mine){
+        g.text(memo.slice(0, 4).join(" "), 782, yy + 12, 13, "#8ad", "left");
+        if (memo.length > 4) g.text(memo.slice(4).join(" "), 782, yy + 30, 13, "#8ad", "left");
+      }
 
       for (var i = 0; i < SLOTS; i++){
         var rc = slotRect(p, i), w = hand(p)[i];
