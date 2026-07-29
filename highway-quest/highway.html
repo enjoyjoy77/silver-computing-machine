@@ -1,0 +1,2105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>はいうぇい</title>
+<style>
+html,body{
+  width:100%;
+  height:100%;
+  margin:0;
+  overflow:hidden;
+  background:#d8e5ea;
+  color:#fff;
+  font-family:system-ui,-apple-system,"Yu Gothic",sans-serif;
+}
+#stage{
+  position:fixed;
+  inset:0;
+}
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+#rev{
+  position:fixed;
+  z-index:20;
+  top:10px;
+  right:12px;
+  padding:5px 9px;
+  border:1px solid rgba(255,255,255,.75);
+  border-radius:5px;
+  background:rgba(0,0,0,.72);
+  font:700 13px/1.2 monospace;
+  pointer-events:none;
+}
+#entry{
+  position:fixed;
+  z-index:18;
+  left:50%;
+  top:50%;
+  width:min(440px,calc(100% - 32px));
+  transform:translate(-50%,-50%);
+  box-sizing:border-box;
+  padding:22px;
+  border:2px solid #fff;
+  border-radius:12px;
+  background:rgba(0,0,0,.84);
+  text-align:center;
+}
+#entry h1{
+  margin:0 0 10px;
+  font-size:25px;
+}
+#entry p{
+  margin:8px 0 16px;
+  line-height:1.6;
+}
+#start{
+  appearance:none;
+  min-width:180px;
+  padding:12px 20px;
+  border:2px solid #fff;
+  border-radius:8px;
+  background:#1676d2;
+  color:#fff;
+  font:700 17px/1 system-ui,sans-serif;
+  cursor:pointer;
+}
+#start:disabled{
+  opacity:.55;
+  cursor:default;
+}
+#mode{
+  min-height:1.5em;
+  margin-top:12px;
+  color:#ffe274;
+}
+#log{
+  position:fixed;
+  z-index:15;
+  left:10px;
+  bottom:10px;
+  width:min(560px,calc(100% - 20px));
+  max-height:150px;
+  overflow:auto;
+  box-sizing:border-box;
+  padding:8px 10px;
+  border:2px solid #777;
+  border-radius:5px;
+  background:#050505;
+  color:#e9f0e9;
+  font:12px/1.45 monospace;
+  white-space:pre-wrap;
+  pointer-events:none;
+}
+body.xr-active #entry,
+body.xr-active #log{
+  display:none;
+}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="rev">v1 rev2</div>
+<div id="entry">
+  <h1>はいうぇい</h1>
+  <p>柱を立て、2本の柱の間に板を渡します。操作はピンチだけです。</p>
+  <button id="start" type="button">はじめる</button>
+  <div id="mode"></div>
+</div>
+<div id="log" aria-live="polite"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import RAPIER from "./lib/rapier.mjs";
+import { setupHands, isHandInput } from "./lib/hands.js";
+
+const FIXED_DT = 1 / 60;
+const MAX_STEPS = 3;
+const PILLAR_WIDTH = 0.014;
+const PILLAR_HALF_WIDTH = PILLAR_WIDTH * 0.5;
+const PILLAR_HEIGHTS = [0.04, 0.07, 0.10];
+const PLATE_LENGTH = 0.12;
+const PLATE_HALF_LENGTH = PLATE_LENGTH * 0.5;
+const PLATE_WIDTH = 0.025;
+const PLATE_HALF_WIDTH = PLATE_WIDTH * 0.5;
+const PLATE_THICKNESS = 0.008;
+const PLATE_HALF_THICKNESS = PLATE_THICKNESS * 0.5;
+const PLATE_MIN_DISTANCE = PLATE_LENGTH * 0.70;
+const PLATE_MAX_DISTANCE = PLATE_LENGTH * 1.30;
+const NEIGHBOR_DISTANCE = 0.16;
+const SELECT_DISTANCE = 0.045;
+const HISTORY_LIMIT = 20;
+const UNDO_SECONDS = 0.2;
+const TABLE_DEFAULT_Y = 0;
+const TILT_YELLOW = 5;
+const TILT_RED = 12;
+const COLLAPSE_TILT = 35;
+
+const stage = document.getElementById("stage");
+const entry = document.getElementById("entry");
+const startButton = document.getElementById("start");
+const modeLabel = document.getElementById("mode");
+const logBox = document.getElementById("log");
+
+const logLines = [];
+const capturedErrors = [];
+
+let renderer = null;
+let scene = null;
+let camera = null;
+let world = null;
+let clock = null;
+let audioContext = null;
+let tableY = TABLE_DEFAULT_Y;
+let tableBody = null;
+let tableKnown = false;
+let pcMode = false;
+let xrSession = null;
+let xrRefSpace = null;
+let xrViewerSpace = null;
+let xrHitSource = null;
+let firstXRFrame = true;
+let accumulator = 0;
+let lastFrameTime = 0;
+let nextId = 1;
+let maxTiltDeg = 0;
+let collapsed = false;
+let restoreAnimation = null;
+let heldObject = null;
+let ghostTarget = null;
+let selectedPillar = null;
+let highlightedPillar = null;
+let ghostMode = "pillar";
+let currentPillarHeight = PILLAR_HEIGHTS[1];
+let ghostValid = false;
+let ghostReason = "";
+let hudDirty = true;
+let hudFrameCounter = 0;
+let creakTimer = 0;
+let started = false;
+
+const pillars = [];
+const plates = [];
+const history = [];
+const controllers = [];
+const controllerIsHand = [false, false];
+
+let pillarGhost = null;
+let pillarGhostLabel = null;
+let plateGhost = null;
+let undoButton = null;
+let undoButtonMaterial = null;
+let hudPanel = null;
+let hudCanvas = null;
+let hudContext = null;
+let hudTexture = null;
+
+const pillarGeometry = new THREE.BoxGeometry(
+  PILLAR_WIDTH,
+  1,
+  PILLAR_WIDTH
+);
+const plateGeometry = new THREE.BoxGeometry(
+  PLATE_LENGTH,
+  PLATE_THICKNESS,
+  PLATE_WIDTH
+);
+const shadowGeometry = new THREE.CircleGeometry(0.025, 20);
+const undoGeometry = new THREE.BoxGeometry(0.075, 0.025, 0.045);
+const hudGeometry = new THREE.PlaneGeometry(0.48, 0.22);
+
+const pillarColor = new THREE.Color(0xeeeeee);
+const plateColor = new THREE.Color(0x35393d);
+const yellowColor = new THREE.Color(0xffd339);
+const redColor = new THREE.Color(0xff3030);
+const ghostGoodColor = new THREE.Color(0xffffff);
+const ghostBadColor = new THREE.Color(0xff3030);
+const highlightColor = new THREE.Color(0x6fe8ff);
+
+const tempV0 = new THREE.Vector3();
+const tempV1 = new THREE.Vector3();
+const tempV2 = new THREE.Vector3();
+const tempV3 = new THREE.Vector3();
+const tempScale = new THREE.Vector3();
+const tempQ0 = new THREE.Quaternion();
+const tempQ1 = new THREE.Quaternion();
+const tempQ2 = new THREE.Quaternion();
+const identityQ = new THREE.Quaternion();
+const xAxis = new THREE.Vector3(1, 0, 0);
+const forwardAxis = new THREE.Vector3(0, 0, -1);
+const upAxis = new THREE.Vector3(0, 1, 0);
+const mouseNdc = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const mousePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const mousePoint = new THREE.Vector3();
+const cameraForward = new THREE.Vector3();
+const cameraPosition = new THREE.Vector3();
+const cameraQuaternion = new THREE.Quaternion();
+// 板を置くとき専用。共有の temp を使うと pushHistory() が途中で上書きする
+const platePosition = new THREE.Vector3();
+const plateQuaternion = new THREE.Quaternion();
+
+function valueText(value) {
+  if (value instanceof Error) {
+    return value.stack || value.message || String(value);
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+function appendLog(message) {
+  const line = valueText(message);
+  logLines.push(line);
+  if (logLines.length > 12) {
+    logLines.shift();
+  }
+  logBox.textContent = logLines.join("\n");
+  logBox.scrollTop = logBox.scrollHeight;
+  hudDirty = true;
+}
+
+function recordError(kind, value) {
+  const text = kind + ": " + valueText(value);
+  capturedErrors.push(text);
+  appendLog(text);
+}
+
+window.addEventListener("error", function (event) {
+  recordError("error", event.error || event.message || "不明なエラー");
+});
+
+window.addEventListener("unhandledrejection", function (event) {
+  recordError("unhandledrejection", event.reason || "不明な拒否");
+});
+
+function setModeMessage(text) {
+  modeLabel.textContent = text;
+}
+
+function initAudio() {
+  if (audioContext) {
+    if (audioContext.state === "suspended") {
+      audioContext.resume().catch(function (error) {
+        recordError("audio.resume", error);
+      });
+    }
+    return;
+  }
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) {
+    appendLog("WebAudioを利用できません。");
+    return;
+  }
+  try {
+    audioContext = new AudioCtor();
+  } catch (error) {
+    recordError("initAudio", error);
+  }
+}
+
+function tone(frequency, duration, volume, endFrequency) {
+  if (!audioContext) {
+    return;
+  }
+  try {
+    const now = audioContext.currentTime;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, now);
+    if (endFrequency && endFrequency !== frequency) {
+      oscillator.frequency.exponentialRampToValueAtTime(
+        Math.max(1, endFrequency),
+        now + duration
+      );
+    }
+    gain.gain.setValueAtTime(Math.max(0.0001, volume), now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+  } catch (error) {
+    recordError("tone", error);
+  }
+}
+
+function noise(duration, volume) {
+  if (!audioContext) {
+    return;
+  }
+  try {
+    const sampleCount = Math.max(
+      1,
+      Math.floor(audioContext.sampleRate * duration)
+    );
+    const buffer = audioContext.createBuffer(
+      1,
+      sampleCount,
+      audioContext.sampleRate
+    );
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < sampleCount; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const source = audioContext.createBufferSource();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+    source.buffer = buffer;
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    source.connect(gain);
+    gain.connect(audioContext.destination);
+    source.start(now);
+    source.stop(now + duration);
+  } catch (error) {
+    recordError("noise", error);
+  }
+}
+
+function playPillarSound() {
+  tone(200, 0.07, 0.10, 170);
+}
+
+function playPlateSound() {
+  tone(150, 0.10, 0.10, 120);
+}
+
+function playCreak(tilt) {
+  tone(105 + Math.min(tilt, 30) * 2, 0.12, 0.035, 75);
+}
+
+function playCollapse() {
+  noise(0.28, 0.12);
+}
+
+function playUndo() {
+  tone(180, 0.20, 0.08, 520);
+}
+
+function pulseController(index, strength, milliseconds) {
+  if (controllerIsHand[index]) {
+    return;
+  }
+  try {
+    const controller = controllers[index];
+    const inputSource = controller && controller.userData
+      ? controller.userData.inputSource
+      : null;
+    const gamepad = inputSource ? inputSource.gamepad : null;
+    const actuators = gamepad ? gamepad.hapticActuators : null;
+    if (
+      actuators &&
+      actuators[0] &&
+      typeof actuators[0].pulse === "function"
+    ) {
+      const result = actuators[0].pulse(strength, milliseconds);
+      if (result && typeof result.catch === "function") {
+        result.catch(function (error) {
+          recordError("haptics", error);
+        });
+      }
+    }
+  } catch (error) {
+    recordError("haptics", error);
+  }
+}
+
+function createMaterial(color, transparent, opacity) {
+  return new THREE.MeshLambertMaterial({
+    color: color,
+    transparent: !!transparent,
+    opacity: opacity === undefined ? 1 : opacity,
+    depthWrite: !transparent
+  });
+}
+
+function createShadow() {
+  const material = new THREE.MeshLambertMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.20,
+    depthWrite: false
+  });
+  const mesh = new THREE.Mesh(shadowGeometry, material);
+  mesh.rotation.x = -Math.PI * 0.5;
+  mesh.renderOrder = -1;
+  scene.add(mesh);
+  return mesh;
+}
+
+function disposeObjectMaterial(object) {
+  if (object && object.material && object.material.dispose) {
+    object.material.dispose();
+  }
+}
+
+function makeRigidBody(kind, position, quaternion, height) {
+  const description = RAPIER.RigidBodyDesc.dynamic()
+    .setTranslation(position.x, position.y, position.z)
+    .setRotation({
+      x: quaternion.x,
+      y: quaternion.y,
+      z: quaternion.z,
+      w: quaternion.w
+    })
+    .setCcdEnabled(true)
+    .setLinvel(0, 0, 0);
+  const body = world.createRigidBody(description);
+  let colliderDescription;
+  if (kind === "pillar") {
+    colliderDescription = RAPIER.ColliderDesc.cuboid(
+      PILLAR_HALF_WIDTH,
+      height * 0.5,
+      PILLAR_HALF_WIDTH
+    ).setDensity(6);
+  } else {
+    colliderDescription = RAPIER.ColliderDesc.cuboid(
+      PLATE_HALF_LENGTH,
+      PLATE_HALF_THICKNESS,
+      PLATE_HALF_WIDTH
+    ).setDensity(1);
+  }
+  colliderDescription
+    .setRestitution(0)
+    .setFriction(0.9);
+  world.createCollider(colliderDescription, body);
+  return body;
+}
+
+function createPillar(position, quaternion, height, id) {
+  const material = createMaterial(pillarColor, false, 1);
+  const mesh = new THREE.Mesh(pillarGeometry, material);
+  mesh.scale.set(1, height, 1);
+  mesh.position.copy(position);
+  mesh.quaternion.copy(quaternion);
+  scene.add(mesh);
+
+  const object = {
+    id: id === undefined ? nextId++ : id,
+    kind: "pillar",
+    height: height,
+    body: makeRigidBody("pillar", position, quaternion, height),
+    mesh: mesh,
+    shadow: createShadow(),
+    baseColor: pillarColor.getHex(),
+    sinkTime: 0,
+    alive: true
+  };
+  if (object.id >= nextId) {
+    nextId = object.id + 1;
+  }
+  pillars.push(object);
+  return object;
+}
+
+function createPlate(position, quaternion, id) {
+  const material = createMaterial(plateColor, false, 1);
+  const mesh = new THREE.Mesh(plateGeometry, material);
+  mesh.position.copy(position);
+  mesh.quaternion.copy(quaternion);
+  scene.add(mesh);
+
+  const object = {
+    id: id === undefined ? nextId++ : id,
+    kind: "plate",
+    height: PLATE_THICKNESS,
+    body: makeRigidBody(
+      "plate",
+      position,
+      quaternion,
+      PLATE_THICKNESS
+    ),
+    mesh: mesh,
+    shadow: createShadow(),
+    baseColor: plateColor.getHex(),
+    settleTime: 0.18,
+    alive: true
+  };
+  if (object.id >= nextId) {
+    nextId = object.id + 1;
+  }
+  plates.push(object);
+  return object;
+}
+
+function clearReferencesTo(object) {
+  if (heldObject === object) {
+    heldObject = null;
+  }
+  if (ghostTarget === object) {
+    ghostTarget = null;
+  }
+  if (selectedPillar === object) {
+    selectedPillar = null;
+  }
+  if (highlightedPillar === object) {
+    highlightedPillar = null;
+  }
+}
+
+function removeObject(object) {
+  clearReferencesTo(object);
+
+  const array = object.kind === "pillar" ? pillars : plates;
+  const index = array.indexOf(object);
+  if (index < 0) {
+    return false;
+  }
+
+  array.splice(index, 1);
+  object.alive = false;
+
+  if (object.mesh) {
+    scene.remove(object.mesh);
+  }
+  if (object.shadow) {
+    scene.remove(object.shadow);
+  }
+
+  const body = object.body;
+  object.body = null;
+  object.mesh = null;
+  object.shadow = null;
+
+  if (body) {
+    world.removeRigidBody(body);
+  }
+
+  disposeObjectMaterial(object.mesh);
+  return true;
+}
+
+function clearAllObjects() {
+  heldObject = null;
+  ghostTarget = null;
+  selectedPillar = null;
+  highlightedPillar = null;
+
+  while (plates.length > 0) {
+    removeObject(plates[plates.length - 1]);
+  }
+  while (pillars.length > 0) {
+    removeObject(pillars[pillars.length - 1]);
+  }
+}
+
+function getBodyPose(object, targetPosition, targetQuaternion) {
+  if (!object || !object.body) {
+    return false;
+  }
+  const array = object.kind === "pillar" ? pillars : plates;
+  if (array.indexOf(object) < 0) {
+    return false;
+  }
+  const translation = object.body.translation();
+  const rotation = object.body.rotation();
+  targetPosition.set(
+    translation.x,
+    translation.y,
+    translation.z
+  );
+  targetQuaternion.set(
+    rotation.x,
+    rotation.y,
+    rotation.z,
+    rotation.w
+  );
+  return true;
+}
+
+function captureSnapshot() {
+  const snapshot = {
+    tableY: tableY,
+    tableKnown: tableKnown,
+    nextId: nextId,
+    objects: []
+  };
+
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0) {
+      continue;
+    }
+    if (!getBodyPose(object, tempV0, tempQ0)) {
+      continue;
+    }
+    snapshot.objects.push({
+      id: object.id,
+      kind: "pillar",
+      height: object.height,
+      x: tempV0.x,
+      y: tempV0.y,
+      z: tempV0.z,
+      qx: tempQ0.x,
+      qy: tempQ0.y,
+      qz: tempQ0.z,
+      qw: tempQ0.w
+    });
+  }
+
+  for (let i = 0; i < plates.length; i += 1) {
+    const object = plates[i];
+    if (plates.indexOf(object) < 0) {
+      continue;
+    }
+    if (!getBodyPose(object, tempV0, tempQ0)) {
+      continue;
+    }
+    snapshot.objects.push({
+      id: object.id,
+      kind: "plate",
+      height: PLATE_THICKNESS,
+      x: tempV0.x,
+      y: tempV0.y,
+      z: tempV0.z,
+      qx: tempQ0.x,
+      qy: tempQ0.y,
+      qz: tempQ0.z,
+      qw: tempQ0.w
+    });
+  }
+  return snapshot;
+}
+
+function pushHistory() {
+  history.push(captureSnapshot());
+  if (history.length > HISTORY_LIMIT) {
+    history.shift();
+  }
+  hudDirty = true;
+}
+
+function collectCurrentVisualPositions() {
+  const positions = new Map();
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0 || !object.mesh) {
+      continue;
+    }
+    positions.set(object.id, {
+      x: object.mesh.position.x,
+      y: object.mesh.position.y,
+      z: object.mesh.position.z
+    });
+  }
+  for (let i = 0; i < plates.length; i += 1) {
+    const object = plates[i];
+    if (plates.indexOf(object) < 0 || !object.mesh) {
+      continue;
+    }
+    positions.set(object.id, {
+      x: object.mesh.position.x,
+      y: object.mesh.position.y,
+      z: object.mesh.position.z
+    });
+  }
+  return positions;
+}
+
+function restoreSnapshot(snapshot) {
+  const visualStarts = collectCurrentVisualPositions();
+
+  heldObject = null;
+  ghostTarget = null;
+  selectedPillar = null;
+  highlightedPillar = null;
+  clearAllObjects();
+
+  tableY = snapshot.tableY;
+  updateTableBody();
+  tableKnown = snapshot.tableKnown;
+  nextId = snapshot.nextId;
+
+  const animated = [];
+  for (let i = 0; i < snapshot.objects.length; i += 1) {
+    const saved = snapshot.objects[i];
+    tempV0.set(saved.x, saved.y, saved.z);
+    tempQ0.set(saved.qx, saved.qy, saved.qz, saved.qw);
+
+    let object;
+    if (saved.kind === "pillar") {
+      object = createPillar(tempV0, tempQ0, saved.height, saved.id);
+    } else {
+      object = createPlate(tempV0, tempQ0, saved.id);
+    }
+
+    const oldPosition = visualStarts.get(saved.id);
+    if (oldPosition) {
+      object.mesh.position.set(
+        oldPosition.x,
+        oldPosition.y,
+        oldPosition.z
+      );
+    } else {
+      object.mesh.position.set(saved.x, tableY - 0.02, saved.z);
+    }
+
+    animated.push({
+      object: object,
+      fromX: object.mesh.position.x,
+      fromY: object.mesh.position.y,
+      fromZ: object.mesh.position.z,
+      toX: saved.x,
+      toY: saved.y,
+      toZ: saved.z
+    });
+  }
+
+  restoreAnimation = {
+    elapsed: 0,
+    duration: UNDO_SECONDS,
+    objects: animated
+  };
+  collapsed = false;
+  maxTiltDeg = 0;
+  updateUndoButtonPosition();
+  appendLog("巻き戻し");
+  playUndo();
+  hudDirty = true;
+}
+
+function undoMove() {
+  if (history.length === 0) {
+    appendLog("巻き戻せる手がありません。");
+    return false;
+  }
+  const snapshot = history.pop();
+  restoreSnapshot(snapshot);
+  return true;
+}
+
+function highestSupportAt(x, z) {
+  let support = tableY;
+
+  for (let i = 0; i < plates.length; i += 1) {
+    const plate = plates[i];
+    if (plates.indexOf(plate) < 0) {
+      continue;
+    }
+    if (!getBodyPose(plate, tempV0, tempQ0)) {
+      continue;
+    }
+
+    tempV1.set(x - tempV0.x, support - tempV0.y, z - tempV0.z);
+    tempQ1.copy(tempQ0).invert();
+    tempV1.applyQuaternion(tempQ1);
+
+    if (
+      Math.abs(tempV1.x) <= PLATE_HALF_LENGTH &&
+      Math.abs(tempV1.z) <= PLATE_HALF_WIDTH
+    ) {
+      const top = tempV0.y + PLATE_HALF_THICKNESS;
+      if (top > support) {
+        support = top;
+      }
+    }
+  }
+  return support;
+}
+
+function choosePillarHeight(pointerY, supportY) {
+  const wanted = Math.max(
+    PILLAR_HEIGHTS[0],
+    pointerY - supportY
+  );
+  let best = PILLAR_HEIGHTS[0];
+  let bestDelta = Math.abs(wanted - best);
+  for (let i = 1; i < PILLAR_HEIGHTS.length; i += 1) {
+    const delta = Math.abs(wanted - PILLAR_HEIGHTS[i]);
+    if (delta < bestDelta) {
+      best = PILLAR_HEIGHTS[i];
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+function nearestPillar(x, y, z, maximumDistance) {
+  let best = null;
+  let bestDistanceSquared = maximumDistance * maximumDistance;
+
+  for (let i = 0; i < pillars.length; i += 1) {
+    const pillar = pillars[i];
+    if (pillars.indexOf(pillar) < 0) {
+      continue;
+    }
+    if (!getBodyPose(pillar, tempV0, tempQ0)) {
+      continue;
+    }
+
+    const topY = tempV0.y + pillar.height * 0.5;
+    const dx = x - tempV0.x;
+    const dy = y - topY;
+    const dz = z - tempV0.z;
+    const distanceSquared = dx * dx + dy * dy + dz * dz;
+
+    if (distanceSquared < bestDistanceSquared) {
+      best = pillar;
+      bestDistanceSquared = distanceSquared;
+    }
+  }
+  return best;
+}
+
+function validatePillar(x, z, height) {
+  for (let i = 0; i < pillars.length; i += 1) {
+    const pillar = pillars[i];
+    if (pillars.indexOf(pillar) < 0) {
+      continue;
+    }
+    if (!getBodyPose(pillar, tempV0, tempQ0)) {
+      continue;
+    }
+
+    const dx = x - tempV0.x;
+    const dz = z - tempV0.z;
+    if (
+      dx * dx + dz * dz <= NEIGHBOR_DISTANCE * NEIGHBOR_DISTANCE &&
+      Math.abs(pillar.height - height) < 0.001
+    ) {
+      return "高さ違いルール: 高さを変えて";
+    }
+  }
+  return true;
+}
+
+function pillarTop(object, target) {
+  if (!object || pillars.indexOf(object) < 0) {
+    return false;
+  }
+  if (!getBodyPose(object, target, tempQ2)) {
+    return false;
+  }
+  target.y += object.height * 0.5;
+  return true;
+}
+
+function validatePlate(first, second) {
+  if (!first || pillars.indexOf(first) < 0) {
+    return "1本目の柱を選んで";
+  }
+  if (!second || pillars.indexOf(second) < 0) {
+    return "2本目の柱を選んで";
+  }
+  if (first === second) {
+    return "別の柱を選んで";
+  }
+  if (!pillarTop(first, tempV0) || !pillarTop(second, tempV1)) {
+    return "柱を確認できません";
+  }
+
+  const dx = tempV1.x - tempV0.x;
+  const dz = tempV1.z - tempV0.z;
+  const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+
+  if (
+    horizontalDistance < PLATE_MIN_DISTANCE ||
+    horizontalDistance > PLATE_MAX_DISTANCE
+  ) {
+    return "板の長さに合わせて";
+  }
+  return true;
+}
+
+function platePose(first, second, position, quaternion) {
+  if (!pillarTop(first, tempV0) || !pillarTop(second, tempV1)) {
+    return false;
+  }
+
+  position.copy(tempV0).add(tempV1).multiplyScalar(0.5);
+  position.y += PLATE_HALF_THICKNESS;
+
+  tempV2.copy(tempV1).sub(tempV0);
+  const length = tempV2.length();
+  if (length < 0.0001) {
+    return false;
+  }
+  tempV2.multiplyScalar(1 / length);
+  quaternion.setFromUnitVectors(xAxis, tempV2);
+  return true;
+}
+
+function placePillar(x, z, height, supportOverride) {
+  const validation = validatePillar(x, z, height);
+  if (validation !== true) {
+    return validation;
+  }
+
+  const supportY = supportOverride === undefined
+    ? highestSupportAt(x, z)
+    : supportOverride;
+
+  pushHistory();
+  tempV0.set(x, supportY + height * 0.5, z);
+  tempQ0.identity();
+  const object = createPillar(tempV0, tempQ0, height);
+  object.sinkTime = 0.10;
+  appendLog("柱を置きました: " + Math.round(height * 100) + "cm");
+  playPillarSound();
+  collapsed = false;
+  hudDirty = true;
+  return true;
+}
+
+function placePlateBetween(first, second) {
+  const validation = validatePlate(first, second);
+  if (validation !== true) {
+    return validation;
+  }
+  if (!platePose(first, second, platePosition, plateQuaternion)) {
+    return "板の位置を決められません";
+  }
+
+  pushHistory();
+  createPlate(platePosition, plateQuaternion);
+  selectedPillar = null;
+  ghostTarget = null;
+  appendLog("板を置きました。");
+  playPlateSound();
+  collapsed = false;
+  hudDirty = true;
+  return true;
+}
+
+function nearestTwoPillars(x, y, z) {
+  let first = null;
+  let second = null;
+  let firstDistance = Infinity;
+  let secondDistance = Infinity;
+
+  for (let i = 0; i < pillars.length; i += 1) {
+    const pillar = pillars[i];
+    if (pillars.indexOf(pillar) < 0) {
+      continue;
+    }
+    if (!pillarTop(pillar, tempV0)) {
+      continue;
+    }
+    const dx = x - tempV0.x;
+    const dy = y - tempV0.y;
+    const dz = z - tempV0.z;
+    const distance = dx * dx + dy * dy + dz * dz;
+
+    if (distance < firstDistance) {
+      second = first;
+      secondDistance = firstDistance;
+      first = pillar;
+      firstDistance = distance;
+    } else if (distance < secondDistance) {
+      second = pillar;
+      secondDistance = distance;
+    }
+  }
+  return [first, second];
+}
+
+function setHighlightedPillar(object) {
+  if (highlightedPillar && pillars.indexOf(highlightedPillar) >= 0) {
+    highlightedPillar.mesh.material.color.setHex(
+      highlightedPillar.baseColor
+    );
+  }
+  highlightedPillar = object;
+  if (highlightedPillar && pillars.indexOf(highlightedPillar) >= 0) {
+    highlightedPillar.mesh.material.color.copy(highlightColor);
+  }
+}
+
+function setGhostMaterial(material, valid) {
+  material.color.copy(valid ? ghostGoodColor : ghostBadColor);
+  material.opacity = valid ? 0.78 : 0.36;
+}
+
+function updateGhostLabel(height, valid, message) {
+  if (!pillarGhostLabel) {
+    return;
+  }
+  const canvas = pillarGhostLabel.userData.canvas;
+  const context = pillarGhostLabel.userData.context;
+  const texture = pillarGhostLabel.userData.texture;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(0,0,0,.76)";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = valid ? "#ffffff" : "#ff6969";
+  context.font = "700 28px sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(
+    message || Math.round(height * 100) + "cm",
+    canvas.width * 0.5,
+    canvas.height * 0.5
+  );
+  texture.needsUpdate = true;
+}
+
+function createTextSprite() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.09, 0.0225, 1);
+  sprite.userData.canvas = canvas;
+  sprite.userData.context = context;
+  sprite.userData.texture = texture;
+  return sprite;
+}
+
+function createSceneObjects() {
+  const pillarGhostMaterial = createMaterial(
+    ghostGoodColor,
+    true,
+    0.78
+  );
+  pillarGhost = new THREE.Mesh(
+    pillarGeometry,
+    pillarGhostMaterial
+  );
+  pillarGhost.visible = false;
+  pillarGhost.renderOrder = 2;
+  scene.add(pillarGhost);
+
+  pillarGhostLabel = createTextSprite();
+  pillarGhostLabel.visible = false;
+  scene.add(pillarGhostLabel);
+
+  const plateGhostMaterial = createMaterial(
+    ghostGoodColor,
+    true,
+    0.78
+  );
+  plateGhost = new THREE.Mesh(
+    plateGeometry,
+    plateGhostMaterial
+  );
+  plateGhost.visible = false;
+  plateGhost.renderOrder = 2;
+  scene.add(plateGhost);
+
+  undoButtonMaterial = createMaterial(0x2368c4, false, 1);
+  undoButton = new THREE.Mesh(undoGeometry, undoButtonMaterial);
+  undoButton.visible = false;
+  undoButton.userData.isUndoButton = true;
+  scene.add(undoButton);
+
+  const undoLabel = createTextSprite();
+  undoLabel.scale.set(0.075, 0.01875, 1);
+  undoLabel.position.set(0, 0.014, 0);
+  undoLabel.rotation.x = -Math.PI * 0.5;
+  undoLabel.userData.context.fillStyle = "rgba(0,0,0,.72)";
+  undoLabel.userData.context.fillRect(0, 0, 256, 64);
+  undoLabel.userData.context.fillStyle = "#ffffff";
+  undoLabel.userData.context.font = "700 22px sans-serif";
+  undoLabel.userData.context.textAlign = "center";
+  undoLabel.userData.context.textBaseline = "middle";
+  undoLabel.userData.context.fillText("巻き戻し", 128, 32);
+  undoLabel.userData.texture.needsUpdate = true;
+  undoButton.add(undoLabel);
+
+  hudCanvas = document.createElement("canvas");
+  hudCanvas.width = 768;
+  hudCanvas.height = 352;
+  hudContext = hudCanvas.getContext("2d");
+  hudTexture = new THREE.CanvasTexture(hudCanvas);
+  hudTexture.colorSpace = THREE.SRGBColorSpace;
+  const hudMaterial = new THREE.MeshLambertMaterial({
+    map: hudTexture,
+    transparent: true,
+    side: THREE.DoubleSide
+  });
+  hudPanel = new THREE.Mesh(hudGeometry, hudMaterial);
+  hudPanel.visible = false;
+  scene.add(hudPanel);
+}
+
+function updateUndoButtonPosition() {
+  if (!undoButton || !tableKnown) {
+    return;
+  }
+  undoButton.position.set(-0.20, tableY + 0.014, 0.04);
+  undoButton.rotation.set(0, 0, 0);
+  undoButton.visible = true;
+}
+
+function updateHudTexture() {
+  if (!hudDirty || !hudContext) {
+    return;
+  }
+  hudDirty = false;
+  hudContext.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  hudContext.fillStyle = "rgba(0,0,0,.84)";
+  hudContext.fillRect(0, 0, hudCanvas.width, hudCanvas.height);
+  hudContext.strokeStyle = "#ffffff";
+  hudContext.lineWidth = 5;
+  hudContext.strokeRect(3, 3, hudCanvas.width - 6, hudCanvas.height - 6);
+
+  hudContext.fillStyle = "#ffffff";
+  hudContext.font = "700 34px sans-serif";
+  hudContext.textAlign = "left";
+  hudContext.textBaseline = "top";
+  hudContext.fillText("はいうぇい  v1 rev2", 24, 18);
+
+  hudContext.font = "25px sans-serif";
+  const start = Math.max(0, logLines.length - 6);
+  let y = 72;
+  for (let i = start; i < logLines.length; i += 1) {
+    hudContext.fillText(logLines[i].slice(0, 46), 24, y);
+    y += 41;
+  }
+  hudTexture.needsUpdate = true;
+}
+
+function positionHudAtFirstXRFrame() {
+  if (!hudPanel || !firstXRFrame) {
+    return;
+  }
+  firstXRFrame = false;
+
+  const xrCamera = renderer.xr.getCamera(camera);
+  xrCamera.getWorldPosition(cameraPosition);
+  xrCamera.getWorldQuaternion(cameraQuaternion);
+  cameraForward.copy(forwardAxis).applyQuaternion(cameraQuaternion);
+
+  hudPanel.position.copy(cameraPosition);
+  tempV0.copy(cameraForward).multiplyScalar(0.62);
+  hudPanel.position.add(tempV0);
+  hudPanel.position.y -= 0.03;
+  hudPanel.quaternion.copy(cameraQuaternion);
+  hudPanel.visible = true;
+  hudDirty = true;
+}
+
+function updatePointer(x, y, z) {
+  if (!tableKnown) {
+    return;
+  }
+
+  if (undoButton && undoButton.visible) {
+    const dx = x - undoButton.position.x;
+    const dy = y - undoButton.position.y;
+    const dz = z - undoButton.position.z;
+    const nearUndo = dx * dx + dy * dy + dz * dz < 0.0064;
+    undoButtonMaterial.color.setHex(nearUndo ? 0x48a2ff : 0x2368c4);
+  }
+
+  const near = nearestPillar(x, y, z, SELECT_DISTANCE);
+  setHighlightedPillar(near);
+
+  if (selectedPillar && pillars.indexOf(selectedPillar) < 0) {
+    selectedPillar = null;
+  }
+
+  if (selectedPillar) {
+    ghostMode = "plate";
+    ghostTarget = near && near !== selectedPillar ? near : null;
+    pillarGhost.visible = false;
+    pillarGhostLabel.visible = false;
+
+    if (ghostTarget && pillars.indexOf(ghostTarget) >= 0) {
+      const validation = validatePlate(selectedPillar, ghostTarget);
+      ghostValid = validation === true;
+      ghostReason = ghostValid ? "" : validation;
+      if (platePose(selectedPillar, ghostTarget, tempV0, tempQ0)) {
+        plateGhost.position.copy(tempV0);
+        plateGhost.quaternion.copy(tempQ0);
+        plateGhost.visible = true;
+        setGhostMaterial(plateGhost.material, ghostValid);
+      } else {
+        plateGhost.visible = false;
+      }
+    } else {
+      ghostValid = false;
+      ghostReason = "2本目の柱を選んで";
+      plateGhost.visible = false;
+    }
+    return;
+  }
+
+  if (near) {
+    ghostMode = "select";
+    ghostTarget = near;
+    pillarGhost.visible = false;
+    pillarGhostLabel.visible = false;
+    plateGhost.visible = false;
+    ghostValid = true;
+    ghostReason = "";
+    return;
+  }
+
+  ghostMode = "pillar";
+  ghostTarget = null;
+  plateGhost.visible = false;
+
+  const supportY = highestSupportAt(x, z);
+  currentPillarHeight = choosePillarHeight(y, supportY);
+  const validation = validatePillar(x, z, currentPillarHeight);
+  ghostValid = validation === true;
+  ghostReason = ghostValid ? "" : validation;
+
+  pillarGhost.position.set(
+    x,
+    supportY + currentPillarHeight * 0.5,
+    z
+  );
+  pillarGhost.quaternion.identity();
+  pillarGhost.scale.set(1, currentPillarHeight, 1);
+  pillarGhost.visible = true;
+  setGhostMaterial(pillarGhost.material, ghostValid);
+
+  pillarGhostLabel.position.set(
+    x,
+    supportY + currentPillarHeight + 0.018,
+    z
+  );
+  pillarGhostLabel.visible = true;
+  updateGhostLabel(
+    currentPillarHeight,
+    ghostValid,
+    ghostValid ? "" : "高さを変えて"
+  );
+}
+
+function pointerNearUndo(x, y, z) {
+  if (!undoButton || !undoButton.visible) {
+    return false;
+  }
+  const dx = x - undoButton.position.x;
+  const dy = y - undoButton.position.y;
+  const dz = z - undoButton.position.z;
+  return dx * dx + dy * dy + dz * dz < 0.0064;
+}
+
+function confirmAt(x, y, z, controllerIndex) {
+  if (pointerNearUndo(x, y, z)) {
+    if (undoMove()) {
+      pulseController(controllerIndex, 0.45, 45);
+    }
+    return;
+  }
+
+  updatePointer(x, y, z);
+
+  if (ghostMode === "select") {
+    if (!ghostTarget || pillars.indexOf(ghostTarget) < 0) {
+      return;
+    }
+    selectedPillar = ghostTarget;
+    appendLog("1本目の柱を選びました。");
+    pulseController(controllerIndex, 0.25, 30);
+    return;
+  }
+
+  if (ghostMode === "plate") {
+    if (!selectedPillar || pillars.indexOf(selectedPillar) < 0) {
+      selectedPillar = null;
+      return;
+    }
+    if (!ghostTarget || pillars.indexOf(ghostTarget) < 0) {
+      appendLog(ghostReason || "2本目の柱を選んで");
+      return;
+    }
+    if (!ghostValid) {
+      appendLog(ghostReason);
+      return;
+    }
+    const result = placePlateBetween(selectedPillar, ghostTarget);
+    if (result === true) {
+      pulseController(controllerIndex, 0.5, 45);
+    } else {
+      appendLog(result);
+    }
+    return;
+  }
+
+  if (!ghostValid) {
+    appendLog(ghostReason);
+    return;
+  }
+
+  const supportY = highestSupportAt(x, z);
+  const result = placePillar(
+    x,
+    z,
+    currentPillarHeight,
+    supportY
+  );
+  if (result === true) {
+    pulseController(controllerIndex, 0.5, 45);
+  } else {
+    appendLog(result);
+  }
+}
+
+function onSelectStart(event, index) {
+  const controller = controllers[index];
+  if (!controller) {
+    return;
+  }
+  heldObject = ghostTarget;
+  controller.getWorldPosition(tempV0);
+  confirmAt(tempV0.x, tempV0.y, tempV0.z, index);
+}
+
+function onSelectEnd() {
+  if (heldObject) {
+    const array = heldObject.kind === "pillar" ? pillars : plates;
+    if (array.indexOf(heldObject) < 0) {
+      heldObject = null;
+      return;
+    }
+  }
+  heldObject = null;
+}
+
+function setupControllers() {
+  setupHands(renderer, scene);
+
+  for (let i = 0; i < 2; i += 1) {
+    const controller = renderer.xr.getController(i);
+    controller.userData.inputSource = null;
+
+    controller.addEventListener("connected", function (event) {
+      controllerIsHand[i] = isHandInput(event);
+      controller.userData.inputSource = event.data || null;
+    });
+
+    controller.addEventListener("disconnected", function () {
+      controllerIsHand[i] = false;
+      controller.userData.inputSource = null;
+      heldObject = null;
+    });
+
+    controller.addEventListener("selectstart", function (event) {
+      onSelectStart(event, i);
+    });
+
+    controller.addEventListener("selectend", function () {
+      onSelectEnd();
+    });
+
+    scene.add(controller);
+    controllers.push(controller);
+  }
+}
+
+function updateControllers() {
+  if (!xrSession || !tableKnown) {
+    return;
+  }
+  for (let i = 0; i < controllers.length; i += 1) {
+    const controller = controllers[i];
+    if (!controller.visible) {
+      continue;
+    }
+    controller.getWorldPosition(tempV0);
+    updatePointer(tempV0.x, tempV0.y, tempV0.z);
+  }
+}
+
+function handleXRHitTest(frame) {
+  if (tableKnown || !xrHitSource || !xrRefSpace) {
+    return;
+  }
+  const results = frame.getHitTestResults(xrHitSource);
+  if (!results || results.length === 0) {
+    return;
+  }
+  const pose = results[0].getPose(xrRefSpace);
+  if (!pose) {
+    return;
+  }
+
+  tableY = pose.transform.position.y;
+  updateTableBody();
+  tableKnown = true;
+  updateUndoButtonPosition();
+  appendLog("机の面を決めました。柱を置けます。");
+}
+
+// 机の面(柱と板が載る土台)。tableY が変わるたびに作り直す。
+// これが無いと柱も板も落ち続ける(段階1の実装で実際に起きた)。
+const TABLE_HALF_SIZE = 2.0;
+const TABLE_HALF_THICKNESS = 0.05;
+
+function updateTableBody() {
+  if (!world) {
+    return;
+  }
+  if (tableBody) {
+    world.removeRigidBody(tableBody);
+    tableBody = null;
+  }
+  const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(
+    0,
+    tableY - TABLE_HALF_THICKNESS,
+    0
+  );
+  tableBody = world.createRigidBody(desc);
+  const colDesc = RAPIER.ColliderDesc.cuboid(
+    TABLE_HALF_SIZE,
+    TABLE_HALF_THICKNESS,
+    TABLE_HALF_SIZE
+  )
+    .setRestitution(0)
+    .setFriction(0.9);
+  world.createCollider(colDesc, tableBody);
+}
+
+function setObjectVisualFromBody(object) {
+  if (!object || !object.body || !object.mesh) {
+    return;
+  }
+  const array = object.kind === "pillar" ? pillars : plates;
+  if (array.indexOf(object) < 0) {
+    return;
+  }
+
+  const translation = object.body.translation();
+  const rotation = object.body.rotation();
+  object.mesh.position.set(
+    translation.x,
+    translation.y,
+    translation.z
+  );
+  object.mesh.quaternion.set(
+    rotation.x,
+    rotation.y,
+    rotation.z,
+    rotation.w
+  );
+
+  if (object.kind === "pillar" && object.sinkTime > 0) {
+    const phase = 1 - object.sinkTime / 0.10;
+    object.mesh.position.y -= Math.sin(phase * Math.PI) * 0.02;
+  }
+
+  if (object.kind === "plate" && object.settleTime > 0) {
+    const phase = 1 - object.settleTime / 0.18;
+    object.mesh.rotation.z +=
+      Math.sin(phase * Math.PI * 4) *
+      (1 - phase) *
+      0.035;
+  }
+
+  if (object.shadow) {
+    object.shadow.position.set(
+      translation.x,
+      tableY + 0.0005,
+      translation.z
+    );
+  }
+}
+
+function pillarTilt(object) {
+  if (!object || pillars.indexOf(object) < 0 || !object.body) {
+    return 0;
+  }
+  const rotation = object.body.rotation();
+  tempQ0.set(rotation.x, rotation.y, rotation.z, rotation.w);
+  tempV0.copy(upAxis).applyQuaternion(tempQ0);
+  const clamped = Math.max(-1, Math.min(1, tempV0.y));
+  return Math.acos(clamped) * 180 / Math.PI;
+}
+
+function updateStability(dt) {
+  let currentMax = 0;
+  let hasCollapse = false;
+
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0) {
+      continue;
+    }
+
+    const tilt = pillarTilt(object);
+    if (tilt > currentMax) {
+      currentMax = tilt;
+    }
+
+    if (tilt >= TILT_RED) {
+      object.mesh.material.color.copy(redColor);
+    } else if (tilt >= TILT_YELLOW) {
+      object.mesh.material.color.copy(yellowColor);
+    } else if (object !== highlightedPillar) {
+      object.mesh.material.color.setHex(object.baseColor);
+    }
+
+    if (tilt >= COLLAPSE_TILT) {
+      hasCollapse = true;
+    }
+
+    if (object.body) {
+      const translation = object.body.translation();
+      if (translation.y < tableY - 0.08) {
+        hasCollapse = true;
+      }
+    }
+  }
+
+  if (currentMax > maxTiltDeg) {
+    maxTiltDeg = currentMax;
+  }
+
+  if (currentMax >= TILT_YELLOW) {
+    creakTimer -= dt;
+    const interval = Math.max(
+      0.16,
+      0.80 - Math.min(currentMax, 30) * 0.02
+    );
+    if (creakTimer <= 0) {
+      playCreak(currentMax);
+      creakTimer = interval;
+      appendLog("きしみ");
+    }
+  } else {
+    creakTimer = 0;
+  }
+
+  if (hasCollapse && !collapsed) {
+    collapsed = true;
+    appendLog("崩れました。巻き戻しできます。");
+    playCollapse();
+  }
+}
+
+function updateRestoreAnimation(dt) {
+  if (!restoreAnimation) {
+    return;
+  }
+
+  restoreAnimation.elapsed += dt;
+  const raw = Math.min(
+    1,
+    restoreAnimation.elapsed / restoreAnimation.duration
+  );
+  const t = raw * raw * (3 - 2 * raw);
+
+  for (let i = 0; i < restoreAnimation.objects.length; i += 1) {
+    const item = restoreAnimation.objects[i];
+    const object = item.object;
+    const array = object.kind === "pillar" ? pillars : plates;
+    if (array.indexOf(object) < 0) {
+      continue;
+    }
+    object.mesh.position.set(
+      item.fromX + (item.toX - item.fromX) * t,
+      item.fromY + (item.toY - item.fromY) * t,
+      item.fromZ + (item.toZ - item.fromZ) * t
+    );
+  }
+
+  if (raw >= 1) {
+    restoreAnimation = null;
+  }
+}
+
+function updateEffects(dt) {
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0) {
+      continue;
+    }
+    object.sinkTime = Math.max(0, object.sinkTime - dt);
+  }
+  for (let i = 0; i < plates.length; i += 1) {
+    const object = plates[i];
+    if (plates.indexOf(object) < 0) {
+      continue;
+    }
+    object.settleTime = Math.max(0, object.settleTime - dt);
+  }
+}
+
+function simulate(seconds) {
+  if (!world || !Number.isFinite(seconds) || seconds <= 0) {
+    return;
+  }
+
+  let remaining = seconds;
+  let guard = 0;
+  while (remaining >= FIXED_DT && guard < 36000) {
+    world.step();
+    updateEffects(FIXED_DT);
+    updateStability(FIXED_DT);
+    updateRestoreAnimation(FIXED_DT);
+    remaining -= FIXED_DT;
+    guard += 1;
+  }
+
+  if (remaining > 0 && guard < 36000) {
+    updateEffects(remaining);
+    updateStability(remaining);
+    updateRestoreAnimation(remaining);
+  }
+}
+
+function stepRealtime(dt) {
+  accumulator += Math.min(Math.max(dt, 0), 0.25);
+  let steps = 0;
+
+  while (accumulator >= FIXED_DT && steps < MAX_STEPS) {
+    world.step();
+    updateEffects(FIXED_DT);
+    updateStability(FIXED_DT);
+    updateRestoreAnimation(FIXED_DT);
+    accumulator -= FIXED_DT;
+    steps += 1;
+  }
+
+  if (accumulator >= FIXED_DT) {
+    accumulator = 0;
+  }
+}
+
+function syncVisuals() {
+  if (restoreAnimation) {
+    return;
+  }
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0) {
+      continue;
+    }
+    setObjectVisualFromBody(object);
+  }
+  for (let i = 0; i < plates.length; i += 1) {
+    const object = plates[i];
+    if (plates.indexOf(object) < 0) {
+      continue;
+    }
+    setObjectVisualFromBody(object);
+  }
+}
+
+function renderOnce() {
+  if (!renderer || !scene || !camera) {
+    return false;
+  }
+  syncVisuals();
+  updateHudTexture();
+  renderer.render(scene, camera);
+  return true;
+}
+
+function animate(time, frame) {
+  if (!world) {
+    return;
+  }
+
+  const seconds = time * 0.001;
+  let dt = lastFrameTime === 0 ? 0 : seconds - lastFrameTime;
+  lastFrameTime = seconds;
+
+  if (!Number.isFinite(dt) || dt < 0) {
+    dt = 0;
+  }
+
+  if (frame) {
+    handleXRHitTest(frame);
+    positionHudAtFirstXRFrame();
+    updateControllers();
+  }
+
+  stepRealtime(dt);
+  syncVisuals();
+
+  hudFrameCounter += 1;
+  if (hudFrameCounter >= 8) {
+    hudFrameCounter = 0;
+    updateHudTexture();
+  }
+
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  if (!renderer || !camera) {
+    return;
+  }
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function onMouseMove(event) {
+  if (!pcMode || !tableKnown) {
+    return;
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNdc, camera);
+
+  mousePlane.constant = -tableY;
+  if (!raycaster.ray.intersectPlane(mousePlane, mousePoint)) {
+    return;
+  }
+
+  const pointerHeight = tableY + 0.075;
+  updatePointer(mousePoint.x, pointerHeight, mousePoint.z);
+}
+
+function onMouseDown(event) {
+  if (!pcMode || event.button !== 0 || !tableKnown) {
+    return;
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNdc, camera);
+
+  mousePlane.constant = -tableY;
+  if (!raycaster.ray.intersectPlane(mousePlane, mousePoint)) {
+    return;
+  }
+
+  confirmAt(
+    mousePoint.x,
+    tableY + 0.075,
+    mousePoint.z,
+    -1
+  );
+}
+
+function enterPCMode(reason) {
+  pcMode = true;
+  tableY = TABLE_DEFAULT_Y;
+  updateTableBody();
+  tableKnown = true;
+  camera.position.set(0.26, 0.28, 0.32);
+  camera.lookAt(0, 0.035, 0);
+  updateUndoButtonPosition();
+
+  entry.style.display = "none";
+  setModeMessage("");
+  appendLog("PC確認モード: " + reason);
+  appendLog("マウスを動かしてゴーストを移動し、クリックで確定します。");
+
+  renderer.domElement.addEventListener("mousemove", onMouseMove);
+  renderer.domElement.addEventListener("mousedown", onMouseDown);
+  renderer.setAnimationLoop(animate);
+}
+
+async function checkXRSupport() {
+  if (!navigator.xr) {
+    setModeMessage("immersive-ar非対応のためPC確認モードで開始します。");
+    startButton.textContent = "PC確認モードをはじめる";
+    return false;
+  }
+  try {
+    const supported = await navigator.xr.isSessionSupported("immersive-ar");
+    if (!supported) {
+      setModeMessage("immersive-ar非対応のためPC確認モードで開始します。");
+      startButton.textContent = "PC確認モードをはじめる";
+    }
+    return supported;
+  } catch (error) {
+    recordError("isSessionSupported", error);
+    setModeMessage("XR確認に失敗したためPC確認モードで開始します。");
+    startButton.textContent = "PC確認モードをはじめる";
+    return false;
+  }
+}
+
+async function beginXR() {
+  try {
+    const session = await navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"],
+      optionalFeatures: ["local-floor", "hand-tracking"]
+    });
+
+    xrSession = session;
+    firstXRFrame = true;
+    renderer.xr.setFramebufferScaleFactor(0.85);
+    await renderer.xr.setSession(session);
+
+    xrRefSpace = await session.requestReferenceSpace("local");
+    xrViewerSpace = await session.requestReferenceSpace("viewer");
+    xrHitSource = await session.requestHitTestSource({
+      space: xrViewerSpace
+    });
+
+    document.body.classList.add("xr-active");
+    entry.style.display = "";
+    appendLog("ARを開始しました。机の面を探しています。");
+    setupControllers();
+
+    session.addEventListener("end", function () {
+      document.body.classList.remove("xr-active");
+      xrSession = null;
+      xrRefSpace = null;
+      xrViewerSpace = null;
+      if (xrHitSource) {
+        try {
+          xrHitSource.cancel();
+        } catch (error) {
+          recordError("hitTestSource.cancel", error);
+        }
+      }
+      xrHitSource = null;
+      heldObject = null;
+      appendLog("ARを終了しました。");
+      entry.style.display = "";
+      startButton.disabled = false;
+      startButton.textContent = "もう一度はじめる";
+      started = false;
+    });
+
+    renderer.setAnimationLoop(animate);
+  } catch (error) {
+    recordError("requestSession", error);
+    enterPCMode("ARを開始できませんでした。");
+  }
+}
+
+async function startExperience() {
+  if (started) {
+    return;
+  }
+  started = true;
+  startButton.disabled = true;
+  initAudio();
+
+  const supported = await checkXRSupport();
+  if (supported) {
+    await beginXR();
+  } else {
+    enterPCMode("immersive-arを利用できません。");
+  }
+}
+
+function makeSnapshotDataUrl(width, height) {
+  const source = renderer.domElement;
+  const w = Math.max(1, Math.floor(Number(width) || 640));
+  const h = Math.max(1, Math.floor(Number(height) || 360));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#d8e5ea";
+  context.fillRect(0, 0, w, h);
+  context.drawImage(source, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", 0.86);
+}
+
+function debugPlace(kind, x, y, z, height) {
+  if (!world) {
+    return "物理世界が未初期化です";
+  }
+
+  const px = Number(x);
+  const py = Number(y);
+  const pz = Number(z);
+  const ph = Number(height);
+
+  if (
+    !Number.isFinite(px) ||
+    !Number.isFinite(py) ||
+    !Number.isFinite(pz)
+  ) {
+    return "座標が不正です";
+  }
+
+  if (!tableKnown) {
+    tableY = TABLE_DEFAULT_Y;
+    updateTableBody();
+    tableKnown = true;
+    updateUndoButtonPosition();
+  }
+
+  if (kind === "pillar") {
+    let chosen = PILLAR_HEIGHTS[0];
+    if (Number.isFinite(ph)) {
+      let bestDelta = Math.abs(ph - chosen);
+      for (let i = 1; i < PILLAR_HEIGHTS.length; i += 1) {
+        const delta = Math.abs(ph - PILLAR_HEIGHTS[i]);
+        if (delta < bestDelta) {
+          chosen = PILLAR_HEIGHTS[i];
+          bestDelta = delta;
+        }
+      }
+    } else {
+      chosen = choosePillarHeight(py, highestSupportAt(px, pz));
+    }
+
+    const supportY = Number.isFinite(py)
+      ? py
+      : highestSupportAt(px, pz);
+    return placePillar(px, pz, chosen, supportY);
+  }
+
+  if (kind === "plate") {
+    const pair = nearestTwoPillars(px, py, pz);
+    if (!pair[0] || !pair[1]) {
+      return "板には柱が2本必要です";
+    }
+    return placePlateBetween(pair[0], pair[1]);
+  }
+
+  return "kindは pillar または plate を指定してください";
+}
+
+function debugState() {
+  let currentMax = 0;
+  for (let i = 0; i < pillars.length; i += 1) {
+    const object = pillars[i];
+    if (pillars.indexOf(object) < 0) {
+      continue;
+    }
+    const tilt = pillarTilt(object);
+    if (tilt > currentMax) {
+      currentMax = tilt;
+    }
+  }
+  if (currentMax > maxTiltDeg) {
+    maxTiltDeg = currentMax;
+  }
+  return {
+    pillars: pillars.length,
+    plates: plates.length,
+    history: history.length,
+    maxTiltDeg: maxTiltDeg,
+    errors: capturedErrors.length
+  };
+}
+
+async function initialize() {
+  await RAPIER.init();
+
+  scene = new THREE.Scene();
+  scene.background = null;
+
+  camera = new THREE.PerspectiveCamera(
+    55,
+    window.innerWidth / window.innerHeight,
+    0.01,
+    20
+  );
+
+  renderer = new THREE.WebGLRenderer({
+    alpha: true,
+    antialias: true,
+    preserveDrawingBuffer: true
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 0);
+  renderer.xr.enabled = true;
+  stage.appendChild(renderer.domElement);
+
+  const ambient = new THREE.HemisphereLight(
+    0xffffff,
+    0x6b7880,
+    0.72
+  );
+  scene.add(ambient);
+
+  const directional = new THREE.DirectionalLight(0xffffff, 1.25);
+  directional.position.set(0.35, 0.75, 0.25);
+  scene.add(directional);
+
+  world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+  world.timestep = FIXED_DT;
+  world.numSolverIterations = 16;
+  updateTableBody();
+
+  clock = new THREE.Clock();
+  createSceneObjects();
+
+  window.addEventListener("resize", onResize);
+  startButton.addEventListener("click", function () {
+    startExperience().catch(function (error) {
+      recordError("startExperience", error);
+      started = false;
+      startButton.disabled = false;
+    });
+  });
+
+  window.__dbg = {
+    tick: function (sec) {
+      const seconds = Number(sec);
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        throw new TypeError("tick(sec)には0以上の秒数が必要です");
+      }
+      simulate(seconds);
+      syncVisuals();
+      return debugState();
+    },
+    state: function () {
+      return debugState();
+    },
+    dump: function () {
+      const one = function (o) {
+        const t = o.body.translation();
+        return {
+          kind: o.kind,
+          x: Number(t.x.toFixed(4)),
+          y: Number(t.y.toFixed(4)),
+          z: Number(t.z.toFixed(4)),
+          meshVisible: o.mesh.visible,
+          meshY: Number(o.mesh.position.y.toFixed(4)),
+          color: "#" + o.mesh.material.color.getHexString()
+        };
+      };
+      return {
+        camera: {
+          x: Number(camera.position.x.toFixed(3)),
+          y: Number(camera.position.y.toFixed(3)),
+          z: Number(camera.position.z.toFixed(3))
+        },
+        pillars: pillars.map(one),
+        plates: plates.map(one)
+      };
+    },
+    place: function (kind, x, y, z, h) {
+      return debugPlace(kind, x, y, z, h);
+    },
+    undo: function () {
+      return undoMove();
+    },
+    render: function () {
+      return renderOnce();
+    },
+    snap: function (w, h) {
+      renderOnce();
+      return makeSnapshotDataUrl(w, h);
+    }
+  };
+
+  appendLog("準備できました。");
+  const supported = await checkXRSupport();
+  if (!supported) {
+    enterPCMode("immersive-arを利用できません。");
+    started = true;
+    startButton.disabled = true;
+  }
+}
+
+initialize().catch(function (error) {
+  recordError("initialize", error);
+  startButton.disabled = true;
+  setModeMessage("初期化に失敗しました。黒枠ログを確認してください。");
+});
+</script>
+</body>
+</html>

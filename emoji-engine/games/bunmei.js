@@ -3,7 +3,18 @@
 
 let S;
 
-const TERRAINS = ["plain","plain","plain","plain","forest","forest","forest","mountain","mountain","mountain","sea","sea"];
+const COLS = 6;
+const ROWS = 4;
+const TILE_W = 104;
+const TILE_H = 87;
+const TILE_X = 22;
+const TILE_Y = 96;
+const TERRAINS = [
+  "plain","plain","plain","plain","plain","plain","plain","plain",
+  "forest","forest","forest","forest","forest","forest",
+  "mountain","mountain","mountain","mountain","mountain",
+  "sea","sea","sea","sea","sea"
+];
 const TERRAIN_EMOJI = {
   plain: "🌾",
   forest: "🌲",
@@ -11,16 +22,17 @@ const TERRAIN_EMOJI = {
   sea: "🌊"
 };
 const TERRAIN_YIELD = {
-  plain: { food: 2, production: 0, tech: 0 },
-  forest: { food: 0, production: 2, tech: 0 },
-  mountain: { food: 0, production: 1, tech: 1 },
-  sea: { food: 1, production: 0, tech: 1 }
+  plain: { food: 3, production: 0, tech: 0 },
+  forest: { food: 0, production: 3, tech: 0 },
+  mountain: { food: 0, production: 2, tech: 1 },
+  sea: { food: 2, production: 0, tech: 2 }
 };
 const ITEMS = [
   { id: "settler", emoji: "🚶", name: "開拓者", cost: 35, unlock: 0 },
-  { id: "farm", emoji: "🌾", name: "畑", cost: 20, unlock: 30 },
-  { id: "workshop", emoji: "🔨", name: "工房", cost: 30, unlock: 90 },
-  { id: "temple", emoji: "🏛️", name: "神殿", cost: 50, unlock: 180 }
+  { id: "soldier", emoji: "⚔️", name: "兵", cost: 15, unlock: 0 },
+  { id: "farm", emoji: "🌾", name: "畑", cost: 20, unlock: 40 },
+  { id: "workshop", emoji: "🔨", name: "工房", cost: 30, unlock: 115 },
+  { id: "temple", emoji: "🏛️", name: "神殿", cost: 50, unlock: 240 }
 ];
 
 function shuffledTerrains(g) {
@@ -41,6 +53,7 @@ function makeCity(index) {
     food: 0,
     production: 0,
     producing: "settler",
+    soldiers: 0,
     buildings: {
       farm: false,
       workshop: false,
@@ -51,7 +64,7 @@ function makeCity(index) {
 
 function reset(g) {
   const terrains = shuffledTerrains(g);
-  let startIndex = 5;
+  let startIndex = 8;
 
   if (terrains[startIndex] === "sea") {
     let bestIndex = -1;
@@ -59,7 +72,7 @@ function reset(g) {
 
     for (let i = 0; i < terrains.length; i++) {
       if (terrains[i] !== "sea") {
-        const distance = Math.abs(i - 5);
+        const distance = Math.abs(i - 8);
         if (distance < bestDistance) {
           bestDistance = distance;
           bestIndex = i;
@@ -78,6 +91,10 @@ function reset(g) {
     tech: 0,
     settlers: 0,
     templeScore: 0,
+    barbarians: [],
+    nextRaidTurn: 8,
+    lostCities: 0,
+    raidWarning: false,
     logs: ["絵文字文明を始めよう", "30ターンで島を育てよう"],
     message: "",
     messageTimer: 0,
@@ -110,31 +127,31 @@ function itemById(id) {
 }
 
 function foodNeed(city) {
-  return 20 + (city.population - 1) * 14;
+  return 14 + (city.population - 1) * 9;
 }
 
 function cityPenalty() {
-  return Math.max(0.5, 1 - (S.cities.length - 1) * 0.12);
+  return 1 / (1 + (S.cities.length - 1) * 0.13);
 }
 
 function cityYield(city) {
-  let food = 1;
-  let production = 1;
-  let tech = 1;
-  const row = Math.floor(city.index / 4);
-  const col = city.index % 4;
+  let food = 2;
+  let production = 2;
+  let tech = 2;
+  const row = Math.floor(city.index / COLS);
+  const col = city.index % COLS;
   const neighbors = [];
 
   if (row > 0) {
-    neighbors.push(city.index - 4);
+    neighbors.push(city.index - COLS);
   }
-  if (row < 2) {
-    neighbors.push(city.index + 4);
+  if (row < ROWS - 1) {
+    neighbors.push(city.index + COLS);
   }
   if (col > 0) {
     neighbors.push(city.index - 1);
   }
-  if (col < 3) {
+  if (col < COLS - 1) {
     neighbors.push(city.index + 1);
   }
 
@@ -168,6 +185,9 @@ function isItemAvailable(city, item) {
   if (item.id === "settler") {
     return true;
   }
+  if (item.id === "soldier") {
+    return city.soldiers < 3;
+  }
   if (S.tech < item.unlock) {
     return false;
   }
@@ -197,6 +217,13 @@ function completeItem(g, city, item) {
     return;
   }
 
+  if (item.id === "soldier") {
+    city.soldiers += 1;
+    addLog("⚔️兵ができた(この都市に" + city.soldiers + "人)");
+    g.se("jump");
+    return;
+  }
+
   city.buildings[item.id] = true;
 
   if (item.id === "farm") {
@@ -204,12 +231,134 @@ function completeItem(g, city, item) {
   } else if (item.id === "workshop") {
     addLog("🔨工房が完成!");
   } else if (item.id === "temple") {
-    S.templeScore += 40;
-    addLog("🏛️神殿が完成! スコア+40");
+    S.templeScore += 50;
+    addLog("🏛️神殿が完成! スコア+50");
   }
 
   city.producing = "settler";
   g.se("clear");
+}
+
+
+// ===== 蛮族(段階2) =====
+
+function isEdgeTile(index) {
+  const row = Math.floor(index / COLS);
+  const col = index % COLS;
+  return row === 0 || row === ROWS - 1 || col === 0 || col === COLS - 1;
+}
+
+function raidInterval() {
+  if (S.turn >= 20) {
+    return 2;
+  }
+  return 3;
+}
+
+function raidCount() {
+  return 1 + Math.floor(S.cities.length / 3);
+}
+
+function spawnBarbarians(g) {
+  if (S.cities.length === 0) {
+    return;
+  }
+
+  const spots = [];
+  for (let i = 0; i < COLS * ROWS; i++) {
+    if (isEdgeTile(i) && !cityAt(i)) {
+      spots.push(i);
+    }
+  }
+  if (spots.length === 0) {
+    return;
+  }
+
+  const count = raidCount();
+  for (let n = 0; n < count; n++) {
+    const from = g.pick(spots);
+    const target = g.pick(S.cities).index;
+    S.barbarians.push({ index: from, target: target });
+  }
+
+  addLog("🗡️蛮族が" + count + "体あらわれた!");
+  g.se("boom");
+}
+
+function stepToward(from, to) {
+  const fr = Math.floor(from / COLS);
+  const fc = from % COLS;
+  const tr = Math.floor(to / COLS);
+  const tc = to % COLS;
+
+  if (Math.abs(tc - fc) >= Math.abs(tr - fr) && tc !== fc) {
+    return from + (tc > fc ? 1 : -1);
+  }
+  if (tr !== fr) {
+    return from + (tr > fr ? COLS : -COLS);
+  }
+  return from;
+}
+
+function attackCity(g, city) {
+  if (city.soldiers > 0) {
+    city.soldiers -= 1;
+    addLog("⚔️兵が蛮族を追い返した(残り" + city.soldiers + "人)");
+    g.se("ping");
+    return;
+  }
+
+  // 人口1の都市は滅びない(蓄えを奪われるだけ)。事故で一発退場にしないため
+  if (city.population <= 1) {
+    city.food = 0;
+    city.production = 0;
+    addLog("🗡️蓄えを奪われた! (人口1の都市は滅びない)");
+    g.se("hit");
+    return;
+  }
+
+  city.population -= 1;
+  city.production = 0;
+  addLog("🗡️略奪された! 人口-1、つくりかけも失った");
+  g.se("hit");
+
+  if (city.population <= 0) {
+    S.cities = S.cities.filter(function (c) { return c !== city; });
+    S.lostCities += 1;
+    addLog("💀都市がひとつ滅びた…");
+    g.se("boom");
+    if (S.selectedIndex === city.index && S.cities.length > 0) {
+      S.selectedIndex = S.cities[0].index;
+    }
+  }
+}
+
+function updateBarbarians(g) {
+  const survivors = [];
+
+  for (let i = 0; i < S.barbarians.length; i++) {
+    const b = S.barbarians[i];
+    let targetCity = cityAt(b.target);
+
+    // 目標の都市が消えていたら、いちばん近い都市を狙い直す
+    if (!targetCity) {
+      if (S.cities.length === 0) {
+        continue;
+      }
+      targetCity = S.cities[0];
+      b.target = targetCity.index;
+    }
+
+    b.index = stepToward(b.index, b.target);
+
+    if (b.index === b.target) {
+      attackCity(g, targetCity);
+      continue;
+    }
+    survivors.push(b);
+  }
+
+  S.barbarians = survivors;
 }
 
 function advanceTurn(g) {
@@ -261,10 +410,26 @@ function advanceTurn(g) {
     }
   }
 
+  // 蛮族: まず動いて攻撃、そのあと次の襲来が湧く
+  updateBarbarians(g);
+
   S.turn += 1;
+
+  if (S.cities.length > 0 && S.turn >= S.nextRaidTurn) {
+    spawnBarbarians(g);
+    S.nextRaidTurn = S.turn + raidInterval();
+  }
+  S.raidWarning = S.cities.length > 0 && S.nextRaidTurn - S.turn <= 1;
+
   S.pulse = 0.35;
   addLog("🌾食料+" + totalFood + " 🔨生産+" + totalProduction + " 🔬技術+" + totalTech);
   g.se("click");
+
+  if (S.cities.length === 0) {
+    addLog("文明は滅びた…");
+    finishGame(g);
+    return;
+  }
 
   if (S.turn >= 30) {
     finishGame(g);
@@ -273,13 +438,13 @@ function advanceTurn(g) {
 
 function techStage() {
   let stage = 0;
-  if (S.tech >= 30) {
+  if (S.tech >= 40) {
     stage += 1;
   }
-  if (S.tech >= 90) {
+  if (S.tech >= 115) {
     stage += 1;
   }
-  if (S.tech >= 180) {
+  if (S.tech >= 240) {
     stage += 1;
   }
   return stage;
@@ -304,17 +469,18 @@ function finishGame(g) {
 
   const stage = techStage();
   const baseScore =
-    population * 12 +
-    buildings * 30 +
-    stage * 25;
+    population * 20 +
+    stage * 40;
   const score = baseScore + S.templeScore;
   let rank = "🌱小さな集落";
 
-  if (score >= 420) {
+  if (S.cities.length === 0) {
+    rank = "💀滅亡";
+  } else if (score >= 1200) {
     rank = "🏛️黄金時代";
-  } else if (score >= 300) {
+  } else if (score >= 800) {
     rank = "🌟栄えた文明";
-  } else if (score >= 180) {
+  } else if (score >= 450) {
     rank = "🙂ふつうの文明";
   }
 
@@ -325,6 +491,7 @@ function finishGame(g) {
     cities: S.cities.length,
     stage: stage,
     templeScore: S.templeScore,
+    lostCities: S.lostCities,
     rank: rank
   };
   S.scene = "over";
@@ -336,14 +503,17 @@ function pointIn(px, py, x, y, w, h) {
   return px >= x && px <= x + w && py >= y && py <= y + h;
 }
 
+function tilePos(index) {
+  const row = Math.floor(index / COLS);
+  const col = index % COLS;
+  return { x: TILE_X + col * TILE_W, y: TILE_Y + row * TILE_H };
+}
+
 function mapIndexAt(px, py) {
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 4; col++) {
-      const x = 30 + col * 155;
-      const y = 105 + row * 118;
-      if (pointIn(px, py, x, y, 145, 108)) {
-        return row * 4 + col;
-      }
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const p = tilePos(i);
+    if (pointIn(px, py, p.x, p.y, TILE_W - 5, TILE_H - 5)) {
+      return i;
     }
   }
   return -1;
@@ -389,8 +559,8 @@ function handlePlayClick(g) {
   const city = selectedCity();
 
   for (let i = 0; i < ITEMS.length; i++) {
-    const buttonY = 258 + i * 47;
-    if (pointIn(px, py, 700, buttonY, 238, 39)) {
+    const buttonY = 248 + i * 43;
+    if (pointIn(px, py, 690, buttonY, 258, 36)) {
       const item = ITEMS[i];
       if (isItemAvailable(city, item)) {
         city.producing = item.id;
@@ -457,7 +627,7 @@ function drawTitle(g) {
   g.rect(300, 365, 360, 68, "#31495b");
   g.text("クリックして始める", 480, 408, 27, "#ffffff", "center");
   g.text("開拓者・畑・工房・神殿で島を育てよう", 480, 474, 18, "#94aebe", "center");
-  g.text("rev7", 936, 522, 12, "#6f8796", "right");
+  g.text("rev17", 936, 522, 12, "#6f8796", "right");
 }
 
 function drawTop(g) {
@@ -480,9 +650,9 @@ function drawTop(g) {
   g.text("🔬技術 " + S.tech, 430, 28, 20, "#b9e4ff", "left");
   g.text(
     "解禁 " +
-    (S.tech >= 30 ? "🌾" : "▫") +
-    (S.tech >= 90 ? "🔨" : "▫") +
-    (S.tech >= 180 ? "🏛️" : "▫"),
+    (S.tech >= 40 ? "🌾" : "▫") +
+    (S.tech >= 115 ? "🔨" : "▫") +
+    (S.tech >= 240 ? "🏛️" : "▫"),
     430,
     57,
     17,
@@ -493,28 +663,38 @@ function drawTop(g) {
 
   g.text("🚶開拓者 " + S.settlers, 592, 31, 17, "#ffffff", "right");
   g.text("都市 " + S.cities.length, 592, 57, 16, "#cddce4", "right");
-  g.text("rev7", 944, 18, 11, "#758c99", "right");
+
+  const untilRaid = S.nextRaidTurn - S.turn;
+  if (S.barbarians.length > 0) {
+    g.text("🗡️蛮族 " + S.barbarians.length + "体 接近中!", 668, 31, 17, "#ff9b9b", "left");
+  } else if (untilRaid <= 1) {
+    g.text("🗡️次のターンに襲来!", 668, 31, 16, "#ffbc6b", "left");
+  } else {
+    g.text("🗡️襲来まで " + untilRaid + "ターン", 668, 31, 15, "#9fb3bf", "left");
+  }
+  g.text("rev17", 944, 18, 11, "#758c99", "right");
 }
 
 function nextUnlockText() {
-  if (S.tech < 30) {
-    return "技術30で畑";
+  if (S.tech < 40) {
+    return "技術40で畑";
   }
-  if (S.tech < 90) {
-    return "技術90で工房";
+  if (S.tech < 115) {
+    return "技術115で工房";
   }
-  if (S.tech < 180) {
-    return "技術180で神殿";
+  if (S.tech < 240) {
+    return "技術240で神殿";
   }
   return "すべて解禁済み";
 }
 
 function drawMap(g) {
-  for (let i = 0; i < 12; i++) {
-    const row = Math.floor(i / 4);
-    const col = i % 4;
-    const x = 30 + col * 155;
-    const y = 105 + row * 118;
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const p = tilePos(i);
+    const x = p.x;
+    const y = p.y;
+    const w = TILE_W - 5;
+    const h = TILE_H - 5;
     const terrain = S.map[i];
     const city = cityAt(i);
     let tileColor = "#263947";
@@ -529,24 +709,28 @@ function drawMap(g) {
       tileColor = "#213f57";
     }
 
-    g.rect(x, y, 145, 108, tileColor);
+    g.rect(x, y, w, h, tileColor);
 
     if (city) {
       const borderColor = city.index === S.selectedIndex ? "#f6da62" : "#dcebf0";
-      g.rect(x, y, 145, 5, borderColor);
-      g.rect(x, y + 103, 145, 5, borderColor);
-      g.rect(x, y, 5, 108, borderColor);
-      g.rect(x + 140, y, 5, 108, borderColor);
+      g.rect(x, y, w, 4, borderColor);
+      g.rect(x, y + h - 4, w, 4, borderColor);
+      g.rect(x, y, 4, h, borderColor);
+      g.rect(x + w - 4, y, 4, h, borderColor);
     }
 
-    g.emoji(TERRAIN_EMOJI[terrain], x + 72, y + 54, 60, {
-      alpha: city ? 0.42 : 0.90
+    g.emoji(TERRAIN_EMOJI[terrain], x + w / 2, y + h / 2, 44, {
+      alpha: city ? 0.38 : 0.90
     });
 
     if (city) {
-      g.emoji("🏛️", x + 67, y + 51, 52);
-      g.rect(x + 104, y + 70, 31, 27, "#15212a");
-      g.text(String(city.population), x + 119, y + 91, 19, "#ffffff", "center");
+      g.emoji("🏛️", x + w / 2 - 4, y + h / 2 - 3, 40);
+      g.rect(x + w - 28, y + h - 26, 24, 22, "#15212a");
+      g.text(String(city.population), x + w - 16, y + h - 9, 16, "#ffffff", "center");
+
+      if (city.soldiers > 0) {
+        g.text("⚔️".repeat(city.soldiers), x + 6, y + 18, 13, "#ffffff", "left");
+      }
 
       let buildingText = "";
       if (city.buildings.farm) {
@@ -559,9 +743,18 @@ function drawMap(g) {
         buildingText += "🏛️";
       }
       if (buildingText) {
-        g.text(buildingText, x + 9, y + 98, 16, "#ffffff", "left");
+        g.text(buildingText, x + 6, y + h - 8, 13, "#ffffff", "left");
       }
     }
+  }
+
+  for (let i = 0; i < S.barbarians.length; i++) {
+    const b = S.barbarians[i];
+    const p = tilePos(b.index);
+    const wob = Math.sin(g.time * 6 + i) * 3;
+    g.emoji("🗡️", p.x + (TILE_W - 5) / 2, p.y + 20 + wob, 34);
+    const tp = tilePos(b.target);
+    g.text("→", (p.x + tp.x) / 2 + 40, (p.y + tp.y) / 2 + 40, 15, "#ff8080", "center");
   }
 }
 
@@ -570,9 +763,9 @@ function drawPanel(g) {
   const value = cityYield(city);
   const current = itemById(city.producing);
 
-  g.rect(680, 90, 280, 380, "#1b2934");
+  g.rect(672, 90, 288, 380, "#1b2934");
   g.text("選択中の都市", 700, 119, 18, "#f6d873", "left");
-  g.text("🏛️ 人口 " + city.population, 700, 148, 22, "#ffffff", "left");
+  g.text("🏛️ 人口 " + city.population + "   ⚔️ 兵 " + city.soldiers, 700, 148, 21, "#ffffff", "left");
   g.text("産出  🌾" + value.food + "  🔨" + value.production + "  🔬" + value.tech, 700, 178, 18, "#d7e5ec", "left");
   g.text("食料は都市数で " + Math.round(cityPenalty() * 100) + "% に", 700, 201, 13, "#91a8b5", "left");
   g.text("今つくっているもの", 700, 226, 15, "#9eb5c1", "left");
@@ -580,7 +773,7 @@ function drawPanel(g) {
 
   for (let i = 0; i < ITEMS.length; i++) {
     const item = ITEMS[i];
-    const y = 258 + i * 47;
+    const y = 248 + i * 43;
     const available = isItemAvailable(city, item);
     const active = city.producing === item.id;
     let color = "#314858";
@@ -591,15 +784,17 @@ function drawPanel(g) {
       color = "#765f25";
     }
 
-    g.rect(700, y, 238, 39, color);
-    g.text(item.emoji + " " + item.name, 710, y + 26, 17, available ? "#ffffff" : "#69767d", "left");
-    g.text(String(item.cost), 925, y + 25, 15, available ? "#d8e4ea" : "#69767d", "right");
+    g.rect(690, y, 258, 36, color);
+    g.text(item.emoji + " " + item.name, 700, y + 24, 16, available ? "#ffffff" : "#69767d", "left");
+    g.text(String(item.cost), 940, y + 24, 14, available ? "#d8e4ea" : "#69767d", "right");
 
     if (!available) {
-      if (item.id !== "settler" && city.buildings[item.id]) {
-        g.text("建設済み", 852, y + 25, 12, "#737f85", "right");
+      if (item.id === "soldier") {
+        g.text("上限3人", 862, y + 24, 12, "#737f85", "right");
+      } else if (city.buildings[item.id]) {
+        g.text("建設済み", 862, y + 24, 12, "#737f85", "right");
       } else {
-        g.text("技術" + item.unlock, 852, y + 25, 12, "#737f85", "right");
+        g.text("技術" + item.unlock, 862, y + 24, 12, "#737f85", "right");
       }
     }
   }
@@ -615,8 +810,8 @@ function drawBottom(g) {
   g.text("▶ 次のターン", 814, 511, 24, "#ffffff", "center");
 
   if (S.messageTimer > 0) {
-    g.rect(233, 417, 240, 42, "#7b3535");
-    g.text(S.message, 353, 445, 20, "#ffffff", "center");
+    g.rect(210, 205, 240, 42, "#7b3535");
+    g.text(S.message, 330, 233, 20, "#ffffff", "center");
   }
 }
 
@@ -637,16 +832,17 @@ function drawOver(g) {
   g.text("スコア " + result.score, 480, 252, 43, "#f6d873", "center");
 
   g.rect(285, 282, 390, 155, "#21313d");
-  g.text("人口合計  " + result.population + " × 12", 320, 315, 19, "#dce8ed", "left");
-  g.text("建物数    " + result.buildings + " × 30", 320, 345, 19, "#dce8ed", "left");
-  g.text("技術段階  " + result.stage + " × 25", 320, 375, 19, "#dce8ed", "left");
+  g.text("人口合計  " + result.population + " × 20", 320, 315, 19, "#dce8ed", "left");
+  g.text("技術段階  " + result.stage + " × 40", 320, 345, 19, "#dce8ed", "left");
+  g.text("建物数    " + result.buildings + "(人口に効いています)", 320, 375, 17, "#9db2bd", "left");
+  g.text("滅んだ都市 " + result.lostCities, 320, 402, 17, "#c98d8d", "left");
   g.text("都市数    " + result.cities + "(人口に効いています)", 320, 405, 17, "#9db2bd", "left");
   g.text("神殿ボーナス +" + result.templeScore, 640, 405, 16, "#f0d77b", "right");
 
   if (S.overTimer >= 1.0) {
     g.text("クリックでもう一度", 480, 488, 23, "#ffffff", "center");
   }
-  g.text("rev7", 936, 522, 12, "#6f8796", "right");
+  g.text("rev17", 936, 522, 12, "#6f8796", "right");
 }
 
 EmojiEngine.register({
