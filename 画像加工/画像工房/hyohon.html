@@ -208,7 +208,7 @@
     font:900 16px/1.2 inherit;
     cursor:pointer;
   }
-  #shelfNav,#toMitate{
+  #shelfNav,#toMitate,#moveBtn{
     display:none;
     padding:6px 11px;
     border:1px solid var(--line);
@@ -218,6 +218,11 @@
     font:800 11px/1.2 inherit;
     pointer-events:auto;
     cursor:pointer;
+  }
+  #moveBtn.on{
+    border-color:var(--accent);
+    background:var(--accent);
+    color:#0b1410;
   }
   #saveShelf{
     position:fixed;
@@ -545,6 +550,7 @@
   <a href="index.html">← トップ</a>
   <a href="depth.html">深度ページ</a>
   <button id="shelfNav" type="button">← 3Dラック</button>
+  <button id="moveBtn" type="button">⬌⬍ 動かす</button>
   <button id="toMitate" type="button">🧊 ミタテで調整</button>
   <span id="rev">rev1</span>
 </div>
@@ -653,7 +659,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev30-vrmui";
+const REV = "rev31-move";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -760,6 +766,38 @@ const DRAG_TURN = {
 };
 let manualYaw = 0;
 let manualPitch = 0;
+
+// 「⬌⬍ 動かす」モード(ミタテと同じ): ドラッグで標本そのものを上下左右へずらす。
+// 覗くだけでは足元や頭の上まで見られないため
+const HINT_LOOK =
+  "端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと標本ごと回せます。ホイールで拡大縮小";
+const PAN_GAIN = 0.6;
+let moveArmed = false;
+let panX = 0;
+let panY = 0;
+let panOriginX = 0;
+let panOriginY = 0;
+
+function resetPan() {
+  panX = 0;
+  panY = 0;
+}
+
+// ずらした量を、いま表示しているもの(写真・VRM・3D標本)へ反映する
+function applyPan() {
+  if (specimen) {
+    specimen.position.x = panX;
+    specimen.position.y = panY;
+  }
+  if (vrmRoot) {
+    vrmRoot.position.x = panX;
+    vrmRoot.position.y = panY;
+  }
+  if (splatViewer) {
+    splatViewer.position.x = panX;
+    splatViewer.position.y = Number($("splatY").value || 0) + panY;
+  }
+}
 let lastTurn = {on:false, yawDeg:0, pitchDeg:0, manualYawDeg:0};
 
 let personSegmenter = null;
@@ -1661,6 +1699,7 @@ function defaultSpecimenName(blob) {
 function setLookControlsVisible(visible) {
   $("shelfNav").style.display = visible ? "inline-block" : "none";
   $("toMitate").style.display = visible ? "inline-block" : "none";
+  $("moveBtn").style.display = visible && loaded ? "inline-block" : "none";
   $("saveShelf").style.display =
     visible && loaded && storageOk && !splatViewer && !vrmModel
       ? "block"
@@ -2048,6 +2087,7 @@ let lastVrmFit = null;
 const vrmClock = new THREE.Clock();
 
 async function disposeVrm() {
+  resetPan();
   const root = vrmRoot;
   vrmRoot = null;
   vrmModel = null;
@@ -2208,6 +2248,7 @@ function updateVrm() {
 }
 
 async function disposeSplat() {
+  resetPan();
   const viewer = splatViewer;
   splatViewer = null;
   splatSceneCount = 0;
@@ -3774,6 +3815,7 @@ function applySpecimenTurn() {
 }
 
 function disposeSpecimen() {
+  resetPan();
   gazeSprites = [];
   gazeUpdateFailed = false;
   manualYaw = 0;
@@ -4632,6 +4674,8 @@ canvas.addEventListener("pointerdown", event => {
   dragStartY = event.clientY;
   dragOriginX = targetX;
   dragOriginY = targetY;
+  panOriginX = panX;
+  panOriginY = panY;
 });
 
 canvas.addEventListener("pointermove", event => {
@@ -4642,6 +4686,14 @@ canvas.addEventListener("pointermove", event => {
   const dragRef = Math.max(1, Math.min(innerWidth, innerHeight));
   const dx = (event.clientX - dragStartX) / dragRef * 2;
   const dy = (event.clientY - dragStartY) / dragRef * 2;
+
+  // 「動かす」モード中は、覗く向きを変えずに標本そのものをずらす
+  if (moveArmed) {
+    const winH = camera?.userData?.winH || 1.3;
+    panX = panOriginX + dx * winH * PAN_GAIN;
+    panY = panOriginY - dy * winH * PAN_GAIN;
+    return;
+  }
 
   const rawX = dragOriginX + dx;
   const rawY = dragOriginY + dy;
@@ -4783,13 +4835,22 @@ function stopFaceLook() {
   btn.disabled = false;
   btn.classList.remove("on");
   btn.textContent = "🎥 顔で覗く";
-  $("hint").textContent = "端末を傾ける／マウスを動かすと覗けます。押したまま大きく動かすと標本ごと回せます。ホイールで拡大縮小";
+  $("hint").textContent = HINT_LOOK;
   resetEyeFilters();
   targetX = 0; targetY = 0;
   zoomTarget = 1;
   fusionX = 0; fusionY = 0;
   lastOrientation = null;
 }
+
+$("moveBtn").addEventListener("click", () => {
+  moveArmed = !moveArmed;
+  $("moveBtn").classList.toggle("on", moveArmed);
+  $("hint").textContent = moveArmed
+    ? "動かすモード: ドラッグで上下左右に移動(足元や頭の上も見られます)。もう一度押すと戻ります"
+    : HINT_LOOK;
+  renderFrame();
+});
 
 $("shelfNav").addEventListener("click", () => {
   showShelfView().catch(error => {
@@ -5331,6 +5392,7 @@ renderFrame = function() {
   updateGazeSprites();
   applySpecimenTurn();
   updateVrm();
+  applyPan();
   baseRenderFrameGaze();
 };
 
