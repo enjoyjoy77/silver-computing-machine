@@ -350,7 +350,12 @@ function makePath(g) {
 function resetRound(g) {
   let i;
 
-  S.oxygen = 25;
+  // 道が短くなるラウンドほど酸素を増やす(装備が良くなる想定)。
+  // これが無いと、手前に高得点が並ぶ後半で全員が重さに潰れて全滅する。
+  // ラウンドごとに酸素タンクを増やす。道が縮んで宝が手前に来ると、
+  // 4人ぶんの荷物で酸素が一気に溶けるため、25固定では後半が必ず全滅する(計測で確認)
+  S.oxygen = 25 + Math.round((S.round - 1) * 6.5);
+  S.oxygenMax = S.oxygen;
   if (!S.path || S.path.length === 0) {
     S.path = makePath(g);
   }
@@ -780,28 +785,39 @@ function loseTreasuresAndRestack(g) {
   }
 }
 
-// ラウンド終わりに、空になったマスを取り除いて道を詰める(原作どおり)。
-// これで次のラウンドは同じ酸素でもっと深くまで届く。
+// ラウンド終わりの道の整理。原作の「空マスを取り除いて詰める」に加えて、
+// 浅い側の2マスが土砂で埋まる(こうしないと深部が射程に入らないまま3ラウンドが終わる)。
+const BURY_PER_ROUND = 0;   // 浅い側を埋めると入口が宝の山になり、チキンレースが消えた(2026-07-29の計測)
+const MIN_PATH = 8;
+
 function compactPath() {
   const before = S.path.length;
+  let buried = 0;
   let i;
 
   S.path = S.path.filter(function(tile) {
     return !!tile.chip;
   });
 
+  S.removedTiles = before - S.path.length;
+
+  while (buried < BURY_PER_ROUND && S.path.length > MIN_PATH) {
+    S.path.shift();
+    buried += 1;
+  }
+
+  S.buriedTiles = buried;
+
   for (i = 0; i < S.path.length; i += 1) {
     S.path[i].index = i + 1;
   }
-
-  return before - S.path.length;
 }
 
 function finishRound(drowned) {
   let i;
   let gained;
 
-  S.removedTiles = compactPath();
+  compactPath();
   S.roundSummary = [];
 
   for (i = 0; i < S.players.length; i += 1) {
@@ -929,19 +945,29 @@ function beginTurn(g) {
 
 // 今から引き返した場合、潜水艦に着くまでに消える酸素の見積もり。
 // 帰りは「4 − 持ち枚数」マスずつしか進めず、その間ずっと海にいる全員が酸素を吸う。
-function returnCost(player) {
-  const speed = Math.max(1, 4 - player.held.length);
+// extra枚を追加で持った場合の見積もり(拾う判断は「拾った後」で考えないと帰れなくなる)
+function returnCostWith(player, extra) {
+  const held = player.held.length + extra;
+  const speed = Math.max(1, 4 - held);
   const turns = Math.ceil(player.pos / speed);
-  let load = 0;
+  let load = extra;
   let i;
 
   for (i = 0; i < S.players.length; i += 1) {
     if (!S.players[i].returned) {
       load += S.players[i].held.length;
+      // まだ海にいる人はこの先も拾う。その分を織り込まないと全員で酸素を食い潰す
+      if (!S.players[i].returning) {
+        load += 1;
+      }
     }
   }
 
   return turns * Math.max(1, load);
+}
+
+function returnCost(player) {
+  return returnCostWith(player, 0);
 }
 
 // 性格ごとの「粘り具合」。小さいほど無謀に粘る
@@ -1120,14 +1146,14 @@ function resolveMovement(g) {
 
 // 性格ごとの「持ちすぎない上限」。持つほど足が遅くなり帰れなくなる
 const MAX_HOLD = {
-  greedy: 4,
+  greedy: 3,
   smart: 3,
   scared: 2,
   gambler: 2,
   copycat: 3,
   veteran: 3,
   robot: 3,
-  rookie: 4,
+  rookie: 3,
   moody: 3,
   tycoon: 2
 };
@@ -1141,8 +1167,8 @@ function shouldCpuPickup(player, chip) {
     return false;
   }
 
-  // 帰り道が苦しくなるなら、もう拾わない
-  if (S.oxygen <= returnCost(player) * 1.2) {
+  // 拾った後の帰り道が苦しくなるなら、もう拾わない
+  if (S.oxygen <= returnCostWith(player, 1)) {
     return false;
   }
 
@@ -1155,7 +1181,7 @@ function shouldCpuPickup(player, chip) {
   }
 
   if (player.type === "scared") {
-    return player.held.length < 2;
+    return chip.tier >= 2 && player.held.length < 2;
   }
 
   if (player.type === "gambler") {
@@ -1179,7 +1205,7 @@ function shouldCpuPickup(player, chip) {
   }
 
   if (player.type === "moody") {
-    return chip.tier !== 2;
+    return chip.tier >= 2;
   }
 
   if (player.type === "tycoon") {
@@ -1334,14 +1360,14 @@ function drawTitle(g) {
 }
 
 function drawOxygen(g) {
-  const ratio = g.clamp(S.oxygen / 25, 0, 1);
+  const ratio = g.clamp(S.oxygen / S.oxygenMax, 0, 1);
   const color = S.oxygen < 10 ? "#ef4141" : "#35d39a";
 
   g.text("共有酸素", 480, 24, 18, "#d9f5ff", "center");
   g.rect(330, 34, 300, 24, "#16364d");
   g.rect(334, 38, 292 * ratio, 16, color);
   g.text(
-    S.oxygen <= 0 ? "0 / 25  酸素切れ!" : String(S.oxygen) + " / 25",
+    S.oxygen <= 0 ? "0 / " + S.oxygenMax + "  酸素切れ!" : String(S.oxygen) + " / " + S.oxygenMax,
     480,
     53,
     17,
@@ -1917,17 +1943,16 @@ function drawRound(g) {
 
   if (S.revealed >= S.roundSummary.length) {
     if (S.round < S.maxRounds) {
-      if (S.removedTiles > 0) {
-        g.text(
-          "空になった" + S.removedTiles + "マスを取り除いて道が縮んだ(残り" + S.path.length + "マス)",
-          480,
-          428,
-          18,
-          "#8fd8ff",
-          "center"
-        );
-        g.text("次のラウンドはもっと深くまで届く", 480, 452, 16, "#7fb8d4", "center");
-      }
+      g.text(
+        "空になった" + S.removedTiles + "マスを撤去、浅い側の" + S.buriedTiles +
+          "マスが土砂で埋まった(残り" + S.path.length + "マス)",
+        480,
+        428,
+        17,
+        "#8fd8ff",
+        "center"
+      );
+      g.text("道が縮むぶん、次は深い高得点に手が届く", 480, 452, 16, "#7fb8d4", "center");
       g.text("クリックで次のラウンド", 480, 492, 23, "#ffffff", "center");
     } else {
       g.text("クリックで最終結果", 480, 492, 23, "#ffffff", "center");
@@ -2142,6 +2167,8 @@ function freshState(g) {
     lostThisRound: [],
     roundReason: "",
     removedTiles: 0,
+    buriedTiles: 0,
+    oxygenMax: 25,
     maxRounds: ROUNDS,
     lastTurn: false,
     replies: [],

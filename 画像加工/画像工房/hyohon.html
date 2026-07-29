@@ -801,7 +801,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev35-ref";
+const REV = "rev36-ref3";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -5730,27 +5730,22 @@ const CALIB_REFS = [
   {
     id:"card", w:85.60, h:53.98, round:false,
     name:"カード類（85.6 × 54mm）",
-    note:"交通系IC・免許証・診察券・ポイントカードでも同じ大きさです。一番正確なので、入るならこれ。"
-  },
-  {
-    id:"coin500", w:26.5, h:26.5, round:true,
-    name:"500円玉（直径26.5mm）",
-    note:"金色の大きいほう。ふちがギザギザでない、いまの500円玉です。"
-  },
-  {
-    id:"coin100", w:22.6, h:22.6, round:true,
-    name:"100円玉（直径22.6mm）",
-    note:"銀色でふちがギザギザのほう。50円玉（穴あき）と間違えないでください。"
-  },
-  {
-    id:"coin1", w:20.0, h:20.0, round:true,
-    name:"1円玉（直径20.0mm）",
-    note:"アルミの軽いもの。ちょうど20mmと決まっています。小さいぶん、ずれやすいので慎重に。"
+    note:"交通系IC・免許証・診察券・ポイントカードも同じ大きさです。大きいぶん一番正確なので、画面に入るならこれ。"
   },
   {
     id:"bill", w:76.0, h:30.0, round:false,
     name:"お札の短いほうの辺（76mm）",
-    note:"千円・五千円・一万円、どれも短い辺は76mmです。枠の横幅にお札の短い辺を合わせます。"
+    note:"千円・五千円・一万円、どれも短い辺は76mmです。枠の横幅に、お札の短い辺を合わせます。"
+  },
+  {
+    id:"coin10", w:23.5, h:23.5, round:true,
+    name:"10円玉（直径23.5mm）",
+    note:"銅色のもの。100円玉とは0.9mm違うので、選び間違えないでください。"
+  },
+  {
+    id:"coin100", w:22.6, h:22.6, round:true,
+    name:"100円玉（直径22.6mm）",
+    note:"銀色でふちがギザギザのもの。10円玉とは0.9mm違うので、選び間違えないでください。"
   }
 ];
 
