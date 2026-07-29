@@ -659,7 +659,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { figuresAll, figuresAdd, figuresRemove } from "./assets/common.js";
 
-const REV = "rev31-move";
+const REV = "rev32-head";
 
 const SHOW_TUNE = {
   lightIntensity:1.1,
@@ -1400,6 +1400,62 @@ function irisDiameterPx(landmarks, indices, width, height) {
   return maximum;
 }
 
+// 頭の「回転」と「平行移動」を分けるための調整つまみ
+const HEAD_TUNE = {
+  // true: 位置を目頭・目尻(骨に固定)から取る。目玉だけ動いても視点が動かない
+  skullAnchor:true
+};
+let headPose = {yawDeg:0, pitchDeg:0, gazeX:0, gazeY:0};
+
+// 目頭・目尻の中点。眼球の回転では動かない = 頭そのものの位置
+const SKULL_EYE_CORNERS = [33, 133, 362, 263];
+function skullAnchorPx(landmarks, videoWidth, videoHeight) {
+  const points = SKULL_EYE_CORNERS
+    .map(index => landmarks[index])
+    .filter(point =>
+      point && Number.isFinite(point.x) && Number.isFinite(point.y)
+    );
+  if (points.length < 3) return null;
+  const sumX = points.reduce((sum, point) => sum + point.x, 0);
+  const sumY = points.reduce((sum, point) => sum + point.y, 0);
+  return {
+    x:sumX / points.length * videoWidth,
+    y:sumY / points.length * videoHeight
+  };
+}
+
+// 顔の向き。目尻どうしの幅に対して鼻すじがどちらへ寄っているかで測る
+function estimateHeadPose(landmarks, videoWidth, videoHeight) {
+  const left = landmarks[33];
+  const right = landmarks[263];
+  const nose = landmarks[1];
+  const brow = landmarks[168];
+  const chin = landmarks[152];
+  if (!left || !right || !nose || !brow || !chin) return null;
+
+  const lx = left.x * videoWidth;
+  const rx = right.x * videoWidth;
+  const midX = (lx + rx) * 0.5;
+  const span = Math.abs(rx - lx);
+  if (!(span > 1)) return null;
+
+  // 鼻すじの左右のずれ / 目尻の幅 → 横向きの角度
+  const yaw = clamp((nose.x * videoWidth - midX) / (span * 0.5), -1, 1);
+
+  const browY = brow.y * videoHeight;
+  const chinY = chin.y * videoHeight;
+  const faceH = Math.abs(chinY - browY);
+  const midY = (browY + chinY) * 0.5;
+  const pitch = faceH > 1
+    ? clamp((nose.y * videoHeight - midY) / (faceH * 0.5), -1, 1)
+    : 0;
+
+  return {
+    yawDeg:yaw * 50,
+    pitchDeg:pitch * 50
+  };
+}
+
 function updateMeasuredEye(landmarks, videoWidth, videoHeight, timeMs) {
   const leftCenter = landmarks[468];
   const rightCenter = landmarks[473];
@@ -1416,12 +1472,28 @@ function updateMeasuredEye(landmarks, videoWidth, videoHeight, timeMs) {
     diameters.reduce((sum, value) => sum + value, 0) /
     diameters.length;
   const centers = [leftCenter, rightCenter].filter(Boolean);
-  const centerX =
+  const irisCenterX =
     centers.reduce((sum, point) => sum + point.x, 0) /
     centers.length * videoWidth;
-  const centerY =
+  const irisCenterY =
     centers.reduce((sum, point) => sum + point.y, 0) /
     centers.length * videoHeight;
+
+  // 目玉が眼窩の中で回っただけの動きを、頭の平行移動と取り違えないようにする
+  const skull = HEAD_TUNE.skullAnchor
+    ? skullAnchorPx(landmarks, videoWidth, videoHeight)
+    : null;
+  const centerX = skull ? skull.x : irisCenterX;
+  const centerY = skull ? skull.y : irisCenterY;
+
+  const pose = estimateHeadPose(landmarks, videoWidth, videoHeight);
+  headPose = {
+    yawDeg:pose ? pose.yawDeg : 0,
+    pitchDeg:pose ? pose.pitchDeg : 0,
+    gazeX:irisCenterX - centerX,
+    gazeY:irisCenterY - centerY
+  };
+
   const fpx = currentFpx(videoWidth);
   const physicalScreen = screenPhysicalSize();
   const z = fpx * IRIS_DIAMETER_M / irisPx;
@@ -4969,8 +5041,21 @@ window.__dbg = {
       ez:eyeZ,
       fpx:videoWidth ? currentFpx(videoWidth) : calibratedFpx,
       screenInch,
-      filtered:{...filteredEye}
+      filtered:{...filteredEye},
+      head:{...headPose},
+      skullAnchor:HEAD_TUNE.skullAnchor
     };
+  },
+
+  // 検証用: 顔の点を直に流し込んで視点計算だけを試す
+  feedFace(landmarks, width, height, timeMs) {
+    updateMeasuredEye(landmarks, width, height, timeMs);
+    return {ex:eyeX, ey:eyeY, ez:eyeZ, head:{...headPose}};
+  },
+
+  headTune(patch) {
+    if (patch) Object.assign(HEAD_TUNE, patch);
+    return {...HEAD_TUNE};
   },
 
   setParallax(x, y) {
