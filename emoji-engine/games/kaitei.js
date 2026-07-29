@@ -468,10 +468,28 @@ function loseTreasuresAndRestack(g) {
   }
 }
 
+// ラウンド終わりに、空になったマスを取り除いて道を詰める(原作どおり)。
+// これで次のラウンドは同じ酸素でもっと深くまで届く。
+function compactPath() {
+  const before = S.path.length;
+  let i;
+
+  S.path = S.path.filter(function(tile) {
+    return !!tile.chip;
+  });
+
+  for (i = 0; i < S.path.length; i += 1) {
+    S.path[i].index = i + 1;
+  }
+
+  return before - S.path.length;
+}
+
 function finishRound(drowned) {
   let i;
   let gained;
 
+  S.removedTiles = compactPath();
   S.roundSummary = [];
 
   for (i = 0; i < S.players.length; i += 1) {
@@ -1333,9 +1351,20 @@ function drawRound(g) {
   }
 
   if (S.round < 3) {
-    g.text("クリックで次のラウンド", 480, 470, 23, "#ffffff", "center");
+    if (S.removedTiles > 0) {
+      g.text(
+        "空になった" + S.removedTiles + "マスを取り除いて道が縮んだ(残り" + S.path.length + "マス)",
+        480,
+        432,
+        18,
+        "#8fd8ff",
+        "center"
+      );
+      g.text("次のラウンドはもっと深くまで届く", 480, 456, 16, "#7fb8d4", "center");
+    }
+    g.text("クリックで次のラウンド", 480, 490, 23, "#ffffff", "center");
   } else {
-    g.text("クリックで最終結果", 480, 470, 23, "#ffffff", "center");
+    g.text("クリックで最終結果", 480, 490, 23, "#ffffff", "center");
   }
 }
 
@@ -1472,6 +1501,7 @@ function freshState(g) {
     roundSummary: [],
     lostThisRound: [],
     roundReason: "",
+    removedTiles: 0,
     roundEndPending: false,
     viewFirst: 1,
     viewFollow: true,

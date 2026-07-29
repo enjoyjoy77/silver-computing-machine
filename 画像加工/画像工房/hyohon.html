@@ -359,7 +359,7 @@
     line-height:1.8;
     text-align:center;
   }
-  #splatAdjust{
+  #splatAdjust,#depthAdjust{
     position:fixed;
     z-index:25;
     left:50%;
@@ -373,12 +373,12 @@
     background:var(--panel);
     box-shadow:0 12px 38px rgba(0,0,0,.38);
   }
-  #splatAdjust.show{display:grid}
-  #splatAdjust h2{
+  #splatAdjust.show,#depthAdjust.show{display:grid}
+  #splatAdjust h2,#depthAdjust h2{
     margin:0 0 7px;
     font-size:12px;
   }
-  #splatAdjust label{
+  #splatAdjust label,#depthAdjust label{
     display:grid;
     grid-template-columns:58px 1fr 48px;
     align-items:center;
@@ -386,8 +386,8 @@
     color:var(--dim);
     font-size:10px;
   }
-  #splatAdjust input{width:100%}
-  #splatAdjust output{
+  #splatAdjust input,#depthAdjust input{width:100%}
+  #splatAdjust output,#depthAdjust output{
     color:var(--ink);
     font-variant-numeric:tabular-nums;
     text-align:right;
@@ -605,6 +605,20 @@
     奥行き
     <input id="splatDepth" type="range" min="0" max="1.5" step="0.01" value="0.3">
     <output id="splatDepthValue">0.30m</output>
+  </label>
+</section>
+
+<section id="depthAdjust" aria-label="立体の強さ">
+  <h2>立体の強さ（強すぎるとゆがみます）</h2>
+  <label>
+    でこぼこ
+    <input id="depthStrength" type="range" min="0" max="1.2" step="0.05" value="0.45">
+    <output id="depthStrengthValue">0.45</output>
+  </label>
+  <label>
+    <span></span>
+    <button id="depthAuto" type="button">この画面に合わせて自動</button>
+    <span></span>
   </label>
 </section>
 
@@ -3146,10 +3160,11 @@ function buildLayerGeometry(
         y / segmentsY,
         1 - y / segmentsY
       );
+      // ふちを広めに平らへ戻す。狭いと紙が反り返ったようなゆがみが目立つ
       const edgeFade = THREE.MathUtils.smoothstep(
         Math.min(edgeX, edgeY),
         0,
-        0.075
+        0.14
       );
 
       positions.setZ(
@@ -5471,6 +5486,81 @@ renderFrame = function() {
   renderer?.render(scene, camera);
 };
 
+// ---- 立体の強さ(でこぼこ量)。強すぎると紙が反ったようにゆがむので手元で下げられる ----
+const DEPTH_KEY = "hyohon-depth";
+const DEPTH_TUNE = {strength:0.45, auto:true};
+
+// 画面が小さいほど頭を動かせる幅に対して窓が小さく、でこぼこが暴れて見える
+function autoDepthStrength() {
+  const height = screenPhysicalSize()?.height;
+  if (!Number.isFinite(height) || height <= 0) return 0.45;
+  return Math.min(0.75, Math.max(0.25, 0.20 + height * 0.85));
+}
+
+function loadDepthTune() {
+  const saved = localStorage.getItem(DEPTH_KEY);
+  const value = saved === null ? NaN : Number(saved);
+  if (Number.isFinite(value)) {
+    DEPTH_TUNE.auto = false;
+    DEPTH_TUNE.strength = value;
+  } else {
+    DEPTH_TUNE.auto = true;
+    DEPTH_TUNE.strength = autoDepthStrength();
+  }
+  syncDepthUi(false);
+}
+
+function syncDepthUi(save) {
+  const slider = $("depthStrength");
+  const output = $("depthStrengthValue");
+  if (slider) slider.value = String(DEPTH_TUNE.strength);
+  if (output) {
+    output.textContent =
+      DEPTH_TUNE.strength.toFixed(2) + (DEPTH_TUNE.auto ? " 自動" : "");
+  }
+  if (save) localStorage.setItem(DEPTH_KEY, String(DEPTH_TUNE.strength));
+  renderFrame();
+}
+
+// 焼き込んだ凹凸をそのまま使い、奥行き方向に縮めるだけ。作り直しが要らない
+function applyDepthStrength() {
+  const relief = specimen?.userData?.relief;
+  const panel = $("depthAdjust");
+
+  // 自動のときは画面の大きさ(インチ設定・向き)の変更に追従させる
+  if (DEPTH_TUNE.auto) {
+    const auto = autoDepthStrength();
+    if (Math.abs(auto - DEPTH_TUNE.strength) > 0.005) {
+      DEPTH_TUNE.strength = auto;
+      const slider = $("depthStrength");
+      const output = $("depthStrengthValue");
+      if (slider) slider.value = String(auto);
+      if (output) output.textContent = auto.toFixed(2) + " 自動";
+    }
+  }
+
+  if (relief) relief.scale.z = DEPTH_TUNE.strength;
+  if (panel) {
+    panel.classList.toggle(
+      "show",
+      Boolean(relief) && currentView === "look" && !splatViewer && !vrmModel
+    );
+  }
+}
+
+$("depthStrength")?.addEventListener("input", event => {
+  DEPTH_TUNE.auto = false;
+  DEPTH_TUNE.strength = Number(event.target.value);
+  syncDepthUi(true);
+});
+
+$("depthAuto")?.addEventListener("click", () => {
+  DEPTH_TUNE.auto = true;
+  DEPTH_TUNE.strength = autoDepthStrength();
+  localStorage.removeItem(DEPTH_KEY);
+  syncDepthUi(false);
+});
+
 // 視線追従: 毎フレーム、虹彩の板のUVを視点方向へずらす(rev18と同じ再代入ラップ)
 const baseRenderFrameGaze = renderFrame;
 renderFrame = function() {
@@ -5478,8 +5568,11 @@ renderFrame = function() {
   applySpecimenTurn();
   updateVrm();
   applyPan();
+  applyDepthStrength();
   baseRenderFrameGaze();
 };
+
+loadDepthTune();
 
 $("recordShow").addEventListener("click", () => {
   if (recording) return;
