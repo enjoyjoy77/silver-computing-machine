@@ -57,6 +57,7 @@ function makeCity(index) {
     producing: "settler",
     soldiers: 0,
     wall: 0,
+    occupied: false,
     buildings: {
       woodwall: false,
       farm: false,
@@ -98,6 +99,7 @@ function reset(g) {
     templeScore: 0,
     barbarians: [],
     marching: [],
+    defeated: 0,
     pendingAction: null,
     nextRaidTurn: 10,
     lostCities: 0,
@@ -148,6 +150,10 @@ function cityPenalty() {
 }
 
 function cityYield(city) {
+  if (city.occupied) {
+    return { food: 0, production: 0, tech: 0 };
+  }
+
   let food = 2;
   let production = 2;
   let tech = 2;
@@ -323,36 +329,49 @@ function stepToward(from, to) {
   return from;
 }
 
-function attackCity(g, city) {
+function attackCity(g, city, barb) {
   if (city.wall > 0) {
     city.wall -= 1;
-    addLog("🧱壁が攻撃を防いだ(残りの強さ" + city.wall + ")");
+    S.defeated += 1;
+    city.production += 8;
+    addLog("🧱壁が撃退! 資材を回収 🔨+8(壁の残り" + city.wall + ")");
     g.se("bounce");
-    return;
+    return true;
   }
 
   if (city.soldiers > 0) {
     city.soldiers -= 1;
-    addLog("⚔️兵が蛮族を追い返した(残り" + city.soldiers + "人)");
+    S.defeated += 1;
+    city.production += 20;
+    S.tech += 5;
+    addLog("⚔️兵が撃退! 戦利品 🔨+20 🔬+5");
     g.se("ping");
-    return;
+    return true;
   }
 
-  // 人口1の都市は滅びない(蓄えを奪われるだけ)。事故で一発退場にしないため
-  // 守りが無いと痛い。ただし都市は滅びない(人口は1が下限)
-  const lost = Math.min(2, city.population - 1);
-  city.production = 0;
-
-  if (lost <= 0) {
-    city.food = 0;
-    addLog("🗡️蓄えを根こそぎ奪われた!");
+  // 都市が1つしかないときは占領されない(取り返す手段が無くなるため)
+  if (S.cities.length <= 1) {
+    const lost = Math.min(2, city.population - 1);
+    city.production = 0;
+    if (lost > 0) {
+      city.population -= lost;
+      addLog("🗡️略奪された! 人口-" + lost);
+    } else {
+      city.food = 0;
+      addLog("🗡️蓄えを根こそぎ奪われた!");
+    }
     g.se("hit");
-    return;
+    return true;
   }
 
-  city.population -= lost;
-  addLog("🗡️略奪された! 人口-" + lost + "、つくりかけも失った");
-  g.se("hit");
+  // 占領: 蛮族が居座り、この都市は何も産まなくなる
+  city.occupied = true;
+  city.production = 0;
+  city.food = 0;
+  barb.occupying = city.index;
+  addLog("🚩" + "都市が占領された! 兵を送って取り返そう");
+  g.se("boom");
+  return false;
 }
 
 function updateMarching(g) {
@@ -374,7 +393,16 @@ function updateMarching(g) {
 
     if (m.index === m.target) {
       const arrived = cityAt(m.target);
-      if (arrived) {
+      if (arrived && arrived.occupied) {
+        arrived.occupied = false;
+        arrived.soldiers += 1;
+        S.barbarians = S.barbarians.filter(function (b) { return b.occupying !== arrived.index; });
+        S.defeated += 1;
+        arrived.production += 30;
+        S.tech += 10;
+        addLog("🎉都市を取り返した! 戦利品 🔨+30 🔬+10");
+        g.se("clear");
+      } else if (arrived) {
         arrived.soldiers += 1;
         addLog("⚔️兵が到着した(この都市に" + arrived.soldiers + "人)");
         g.se("ping");
@@ -404,29 +432,37 @@ function sendSoldier(g, fromCity, toIndex) {
 function updateBarbarians(g) {
   const survivors = [];
 
-  for (let i = 0; i < S.marching.length; i++) {
-    const m = S.marching[i];
-    const p = tilePos(m.index);
-    g.emoji("⚔️", p.x + (TILE_W - 5) / 2 - 18, p.y + 22, 26, { alpha: 0.95 });
-  }
-
   for (let i = 0; i < S.barbarians.length; i++) {
     const b = S.barbarians[i];
+
+    // 占領中の個体は都市に居座り続ける
+    if (b.occupying !== undefined) {
+      const held = cityAt(b.occupying);
+      if (held && held.occupied) {
+        survivors.push(b);
+      }
+      continue;
+    }
+
     let targetCity = cityAt(b.target);
 
-    // 目標の都市が消えていたら、いちばん近い都市を狙い直す
-    if (!targetCity) {
-      if (S.cities.length === 0) {
+    // 目標が消えた/すでに占領済みなら、別の都市を狙い直す
+    if (!targetCity || targetCity.occupied) {
+      const free = S.cities.filter(function (c) { return !c.occupied; });
+      if (free.length === 0) {
         continue;
       }
-      targetCity = S.cities[0];
+      targetCity = g.pick(free);
       b.target = targetCity.index;
     }
 
     b.index = stepToward(b.index, b.target);
 
     if (b.index === b.target) {
-      attackCity(g, targetCity);
+      const gone = attackCity(g, targetCity, b);
+      if (!gone) {
+        survivors.push(b);
+      }
       continue;
     }
     survivors.push(b);
@@ -455,6 +491,11 @@ function advanceTurn(g) {
 
   for (let i = 0; i < S.cities.length; i++) {
     const city = S.cities[i];
+
+    if (city.occupied) {
+      continue;
+    }
+
     const value = yields[i];
     city.food += value.food;
     city.production += value.production;
@@ -545,17 +586,18 @@ function finishGame(g) {
   const stage = techStage();
   const baseScore =
     population * 20 +
-    stage * 40;
+    stage * 40 +
+    S.defeated * 15;
   const score = baseScore + S.templeScore;
   let rank = "🌱小さな集落";
 
   if (S.cities.length === 0) {
     rank = "💀滅亡";
-  } else if (score >= 1350) {
+  } else if (score >= 1600) {
     rank = "🏛️黄金時代";
-  } else if (score >= 950) {
+  } else if (score >= 1150) {
     rank = "🌟栄えた文明";
-  } else if (score >= 550) {
+  } else if (score >= 700) {
     rank = "🙂ふつうの文明";
   }
 
@@ -566,6 +608,7 @@ function finishGame(g) {
     cities: S.cities.length,
     stage: stage,
     templeScore: S.templeScore,
+    defeated: S.defeated,
     lostCities: S.lostCities,
     rank: rank
   };
@@ -654,7 +697,7 @@ function handlePlayClick(g) {
   const city = selectedCity();
 
   if (city) {
-    for (let i = 0; i < ITEMS.length; i++) {
+    for (let i = 0; i < ITEMS.length && !city.occupied; i++) {
       const r = itemButtonRect(i);
       if (pointIn(px, py, r.x, r.y, r.w, r.h)) {
         const item = ITEMS[i];
@@ -753,7 +796,7 @@ function drawTitle(g) {
   g.rect(300, 365, 360, 68, "#31495b");
   g.text("クリックして始める", 480, 408, 27, "#ffffff", "center");
   g.text("開拓者・畑・工房・神殿で島を育てよう", 480, 474, 18, "#94aebe", "center");
-  g.text("rev19", 936, 522, 12, "#6f8796", "right");
+  g.text("rev20", 936, 522, 12, "#6f8796", "right");
 }
 
 function drawTop(g) {
@@ -790,6 +833,11 @@ function drawTop(g) {
   g.text("🚶開拓者 " + S.settlers, 592, 31, 17, "#ffffff", "right");
   g.text("都市 " + S.cities.length, 592, 57, 16, "#cddce4", "right");
 
+  const held = S.cities.filter(function (c) { return c.occupied; }).length;
+  if (held > 0) {
+    g.text("🚩占領されている都市 " + held, 668, 79, 14, "#ff9b9b", "left");
+  }
+
   if (S.marching.length > 0) {
     g.text("⚔️移動中 " + S.marching.length, 668, 57, 14, "#a8d8ff", "left");
   }
@@ -802,7 +850,7 @@ function drawTop(g) {
   } else {
     g.text("🗡️襲来まで " + untilRaid + "ターン", 668, 31, 15, "#9fb3bf", "left");
   }
-  g.text("rev19", 944, 18, 11, "#758c99", "right");
+  g.text("rev20", 944, 18, 11, "#758c99", "right");
 }
 
 function nextUnlockText() {
@@ -849,7 +897,9 @@ function drawMap(g) {
     }
 
     if (city) {
-      const borderColor = city.index === S.selectedIndex ? "#f6da62" : "#dcebf0";
+      const borderColor = city.occupied
+        ? "#e05252"
+        : (city.index === S.selectedIndex ? "#f6da62" : "#dcebf0");
       g.rect(x, y, w, 4, borderColor);
       g.rect(x, y + h - 4, w, 4, borderColor);
       g.rect(x, y, 4, h, borderColor);
@@ -861,7 +911,10 @@ function drawMap(g) {
     });
 
     if (city) {
-      g.emoji("🏛️", x + w / 2 - 4, y + h / 2 - 3, 40);
+      g.emoji("🏛️", x + w / 2 - 4, y + h / 2 - 3, 40, { alpha: city.occupied ? 0.45 : 1 });
+      if (city.occupied) {
+        g.emoji("🚩", x + w / 2 + 20, y + h / 2 + 12, 30);
+      }
       g.rect(x + w - 28, y + h - 26, 24, 22, "#15212a");
       g.text(String(city.population), x + w - 16, y + h - 9, 16, "#ffffff", "center");
 
@@ -928,21 +981,27 @@ function drawPanel(g) {
   const value = cityYield(city);
   const current = itemById(city.producing);
 
-  g.text("選択中の都市", 690, 116, 17, "#f6d873", "left");
+  g.text(city.occupied ? "🚩 占領されています" : "選択中の都市", 690, 116, 17,
+    city.occupied ? "#ff9b9b" : "#f6d873", "left");
   g.text("🏛️人口 " + city.population + "   ⚔️兵 " + city.soldiers + "   🧱壁 " + city.wall,
     690, 144, 18, "#ffffff", "left");
   g.text("産出 🌾" + value.food + "  🔨" + value.production + "  🔬" + value.tech
     + "   (食料は都市数で" + Math.round(cityPenalty() * 100) + "%)",
     690, 170, 14, "#d7e5ec", "left");
-  g.text("つくっているもの: " + current.emoji + current.name
-    + " " + city.production + "/" + current.cost,
-    690, 196, 15, "#ffd9a0", "left");
-  g.text("↓クリックで変える", 690, 220, 13, "#8fa5b1", "left");
+  if (city.occupied) {
+    g.text("この都市は何も産みません", 690, 196, 16, "#ff9b9b", "left");
+    g.text("ほかの都市から兵を送ると取り返せます", 690, 220, 14, "#ffd9a0", "left");
+  } else {
+    g.text("つくっているもの: " + current.emoji + current.name
+      + " " + city.production + "/" + current.cost,
+      690, 196, 15, "#ffd9a0", "left");
+    g.text("↓クリックで変える", 690, 220, 13, "#8fa5b1", "left");
+  }
 
   for (let i = 0; i < ITEMS.length; i++) {
     const item = ITEMS[i];
     const r = itemButtonRect(i);
-    const available = isItemAvailable(city, item);
+    const available = !city.occupied && isItemAvailable(city, item);
     const active = city.producing === item.id;
     let color = "#314858";
 
@@ -1011,6 +1070,7 @@ function drawOver(g) {
   g.rect(285, 282, 390, 155, "#21313d");
   g.text("人口合計  " + result.population + " × 20", 320, 315, 19, "#dce8ed", "left");
   g.text("技術段階  " + result.stage + " × 40", 320, 345, 19, "#dce8ed", "left");
+  g.text("蛮族の撃退 " + result.defeated + " × 15", 320, 402, 19, "#dce8ed", "left");
   g.text("建物数    " + result.buildings + "(人口に効いています)", 320, 375, 17, "#9db2bd", "left");
   g.text("都市数    " + result.cities + "(人口に効いています)", 320, 405, 17, "#9db2bd", "left");
   g.text("神殿ボーナス +" + result.templeScore, 640, 405, 16, "#f0d77b", "right");
@@ -1018,7 +1078,7 @@ function drawOver(g) {
   if (S.overTimer >= 1.0) {
     g.text("クリックでもう一度", 480, 488, 23, "#ffffff", "center");
   }
-  g.text("rev19", 936, 522, 12, "#6f8796", "right");
+  g.text("rev20", 936, 522, 12, "#6f8796", "right");
 }
 
 EmojiEngine.register({

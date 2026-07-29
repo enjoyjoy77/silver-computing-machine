@@ -425,7 +425,7 @@ function beginTurn(g) {
     return;
   }
 
-  if (!S.deepReacted && S.players[0].pos >= 20 && !S.players[0].returning) {
+  if (!S.deepReacted && S.players[0].pos >= 15 && !S.players[0].returning) {
     S.deepReacted = true;
     for (i = 1; i < S.players.length; i += 1) {
       if (!S.players[i].returned) {
