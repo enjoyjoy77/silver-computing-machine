@@ -1,0 +1,15 @@
+Phomemo M02S 印刷ツール つかいかた
+
+■これは何?
+スマホから感熱プリンタ「Phomemo M02S」へBluetoothで印刷するページです。
+
+■つかいかた
+1. Android(アンドロイド)のChromeで phomemo-m02s-printer.html を開く
+   (公開サイトのページからでもOK)
+2. プリンタの電源を入れる
+3. 画面の指示にしたがって接続し、印刷する
+
+■注意
+- Android版Chrome限定です。iPhoneでは動きません(SafariがBluetooth印刷に非対応のため)
+
+(2026-07-31の総点検で、この説明書が無かったため作成)

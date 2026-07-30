@@ -57,6 +57,17 @@ const LINES = {
     "あの深さから戻れると思うなよ",
     "見ろ、沈む奴の顔だ"
   ],
+  gamble: [
+    "この点差、一発狙うしかない",
+    "守っても勝てん。行くぞ",
+    "最後だ。底まで潜る",
+    "負けたまま浮上はできない"
+  ],
+  defend: [
+    "この差なら守り切れる",
+    "無理はしない。勝ちは勝ちだ",
+    "先に上がって鍵をかける"
+  ],
   rival: [
     "先に上がりやがった",
     "抜け駆けか",
@@ -461,6 +472,7 @@ function resetRound(g) {
     S.players[i].returning = false;
     S.players[i].returned = false;
     S.players[i].held = [];
+    S.players[i].declared = false;
   }
 }
 
@@ -1054,6 +1066,62 @@ const NERVE = {
   tycoon: 1.1
 };
 
+// 点差と残りラウンドから「勝負に出るべきか」を出す。
+// 1 = 最終ラウンドで大きく負けている(一発狙い) / 0 = 平常 / -1 = 首位で守りたい
+function desperation(player) {
+  const left = S.maxRounds - S.round;
+  let top = 0;
+  let gap;
+  let urgency;
+  let i;
+
+  for (i = 0; i < S.players.length; i += 1) {
+    if (S.players[i].score > top) {
+      top = S.players[i].score;
+    }
+  }
+
+  gap = top - player.score;
+
+  if (gap <= 0) {
+    // 首位。最終ラウンドなら守りに入る
+    return left === 0 ? -1 : 0;
+  }
+
+  if (left === 0) {
+    urgency = 1;
+  } else if (left === 1) {
+    urgency = 0.5;
+  } else {
+    return 0;
+  }
+
+  return urgency * Math.min(1, gap / 12);
+}
+
+// 勝負度を反映した粘り具合(小さいほど深追いする)
+function nerveOf(player) {
+  const base = NERVE[player.type] || 1;
+  const d = desperation(player);
+
+  if (d < 0) {
+    return base * 1.3;      // 首位は安全運転
+  }
+
+  return base * (1 - 0.5 * d);
+}
+
+function maxHoldOf(player) {
+  const base = MAX_HOLD[player.type] || 3;
+  const d = desperation(player);
+
+  if (d < 0) {
+    return Math.max(1, base - 1);
+  }
+
+  return base + (d > 0.5 ? 1 : 0);
+}
+
 function shouldCpuReturn(g, player) {
   let i;
 
@@ -1067,8 +1135,13 @@ function shouldCpuReturn(g, player) {
   }
 
   // 共通の生き残り判断: 帰り道に必要な酸素が残っていなければ引き返す
-  if (S.oxygen <= returnCost(player) * (NERVE[player.type] || 1)) {
+  if (S.oxygen <= returnCost(player) * nerveOf(player)) {
     return true;
+  }
+
+  // 最終ラウンドで負けている者は、性格の臆病さを捨てる(点差を埋めるしかない)
+  if (desperation(player) > 0.5) {
+    return false;
   }
 
   // ここから性格ごとの上乗せ(まだ酸素に余裕があっても戻りたがる理由)
@@ -1120,13 +1193,31 @@ function shouldCpuReturn(g, player) {
 }
 
 function decideCpuDirection(g, player) {
+  const d = desperation(player);
+  let declaredNow = false;
+
+  // 最終ラウンドの立ち位置を口に出す(1回だけ)。
+  // この手番は普段のセリフを出さない(出すと宣言が上書きされて消える)
+  if (!player.declared && S.round === S.maxRounds) {
+    player.declared = true;
+    if (d > 0.5) {
+      addBubble(g, player, "gamble");
+      declaredNow = true;
+    } else if (d < 0) {
+      addBubble(g, player, "defend");
+      declaredNow = true;
+    }
+  }
+
   if (shouldCpuReturn(g, player)) {
     if (!player.returning) {
       player.returning = true;
-      addBubble(g, player, "turn");
+      if (!declaredNow) {
+        addBubble(g, player, "turn");
+      }
       g.se("click");
     }
-  } else {
+  } else if (!declaredNow) {
     addBubble(g, player, "dive");
   }
 
@@ -1233,7 +1324,12 @@ function shouldCpuPickup(player, chip) {
     return false;
   }
 
-  if (player.held.length >= (MAX_HOLD[player.type] || 3)) {
+  if (player.held.length >= maxHoldOf(player)) {
+    return false;
+  }
+
+  // 最終ラウンドで大きく負けている者は、安い遺跡に荷物を使わない
+  if (desperation(player) > 0.5 && chip.tier < 2) {
     return false;
   }
 
@@ -1381,6 +1477,7 @@ function startGame(g) {
   resetRound(g);
   S.scene = "play";
   g.se("click");
+  g.bgm("kaitei");        // もぐっている間だけ鳴らす
 }
 
 function drawTitle(g) {
@@ -1466,6 +1563,7 @@ function drawScoreboard(g) {
   let player;
   let y;
   let x;
+  let d;
 
   g.rect(12, 72, 205, 225, "#0c2a43");
   g.text("順位 / 探検隊", 24, 99, 18, "#aeeaff", "left");
@@ -1475,12 +1573,15 @@ function drawScoreboard(g) {
     y = 131 + i * 39;
     g.text((i + 1) + ".", 25, y, 17, "#ffffff", "left");
     g.emoji(player.icon, 55, y - 6, 25);
-    g.text(player.name, 75, y, 16, "#ffffff", "left");
+    // 最終ラウンドの構え: 橙=点差を埋めに勝負 / 水色=首位で守り
+    d = (player.cpu && S.scene === "play") ? desperation(player) : 0;
+    g.text(player.name, 75, y, 16, d > 0.5 ? "#ffb14d" : (d < 0 ? "#8fd8ff" : "#ffffff"), "left");
     if (player.returned) {
       g.text("帰還", 155, y, 13, "#8fffc9", "right");
     } else {
       g.text("持" + player.held.length, 155, y, 14, "#ffd966", "right");
     }
+
     g.text(player.score + "点", 205, y, 15, "#8fffc9", "right");
   }
 
@@ -2296,12 +2397,14 @@ EmojiEngine.register({
           S.revealed = 0;
           S.fx = [];
           g.se("clear");
+          g.bgm(false);       // 潜水おわり。結果画面は静かに
         } else {
           S.round += 1;
           resetRound(g);
           this._state = S;
           S.scene = "play";
           g.se("click");
+          g.bgm("kaitei");    // 次のもぐりへ
         }
       }
       return;

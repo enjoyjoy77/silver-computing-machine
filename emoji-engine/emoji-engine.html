@@ -62,7 +62,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 82 (2026-07-18)</div>
+<div id="rev">rev 84 (2026-07-31)</div>
 
 <div id="menu">
   <button id="menuSoundBtn" class="soundBtn" type="button" aria-label="サウンドをオフにする" title="サウンドをオフにする">🔊</button>
@@ -257,6 +257,16 @@ const BGM = {
     bass: [110,0,110,0, 87.31,0,98,0, 110,0,110,0, 130.81,0,98,0],
     mel:  [0,0,659.25,0, 0,0,523.25,0, 0,0,659.25,0, 783.99,0,659.25,587.33],
     kick: i => i % 4 === 0,
+  },
+  // 海底BGM: もぐる押し引きゲーム用。戦闘とは逆の作り方をしている
+  //   ・遅い(340ms/step。戦闘は170)。焦りは音を詰めるのでなく間をあけて出す
+  //   ・ベースは4ステップに1回だけ。A2→G2→F2→E2 と下がり続ける=沈む感じ
+  //   ・メロはソナーの点[ピッ]のつもりで、16ステップに2回しか鳴らさない
+  //   ・キックなし(足音があると水中に聞こえない)
+  kaitei: {
+    ms: 340,
+    bass: [110,0,0,0, 98,0,0,0, 87.31,0,0,0, 82.41,0,0,0],
+    mel:  [0,0,0,0, 0,0,1318.51,0, 0,0,0,0, 0,0,987.77,0],
   },
 };
 function bgmStart(name){
@@ -520,7 +530,7 @@ window.__dbg = {
 <script src="games/bunmei.js"></script>
 <script src="games/kaitai.js"></script>
 <script src="games/aiue.js"></script>
-<script src="games/kaitei.js?v=20260730b"></script>
+<script src="games/kaitei.js?v=20260730g"></script>
 <script src="games/kachikan.js"></script>
 <script src="games/pitari.js"></script>
 
