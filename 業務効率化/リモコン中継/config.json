@@ -1,0 +1,11 @@
+{
+  "site_base_url": "https://silver-computing-machine-7ql.pages.dev",
+  "question_passphrase": "F9GYC26N24",
+  "answer_passphrase": "JD6S00DTQW",
+  "poll_interval_seconds": 3,
+  "claude_command": "claude",
+  "claude_args": [
+    "-p"
+  ],
+  "log_file": "relay_log.txt"
+}

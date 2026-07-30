@@ -92,7 +92,7 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-27c 外国系・中韓の姓名・キラキラネーム対応</span></p>
+  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-29 大きいファイルは分割処理（低スペックPC対応）</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
@@ -30906,7 +30906,13 @@ window.TinySegmenter = { segment: segment };
     // 一覧を描画
     const box = $("patterns");
     box.innerHTML = "";
-    patterns.forEach((p, i) => {
+    const SHOW_MAX = 300;
+    if (patterns.length > SHOW_MAX) {
+      const note = document.createElement("div"); note.className = "note";
+      note.textContent = "人数が多いので、最初の" + SHOW_MAX + "件だけ表示しています（匿名化は全員に効いています）。";
+      box.appendChild(note);
+    }
+    patterns.slice(0, SHOW_MAX).forEach((p, i) => {
       const lb = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox"; cb.dataset.text = p.text; cb.dataset.idx = i;
@@ -30935,13 +30941,23 @@ window.TinySegmenter = { segment: segment };
   }
 
   // ---- 実行 ----
-  function run(){
+  let running = false;
+  async function run(){
+    if (running) return;            // 二重起動よけ（大きいファイルで連打されると壊れる）
+    running = true;
+    try { await runInner(); } finally { running = false; }
+  }
+  async function runInner(){
     // 見えない文字（ゼロ幅スペース）は名前を分断して検出を邪魔するので先に取り除く
     if (/[​-‍﻿]/.test($("inputText").value)) {
       $("inputText").value = $("inputText").value.replace(/[​-‍﻿]/g, "");
     }
     const text = $("inputText").value;
     if (!text.trim()) { toast("テキストを貼ってください"); return; }
+    if (text.length > 200000) {      // 大きいファイルは、まず画面に「動いています」と出してから始める
+      $("stats").textContent = "名前を探しています…（大きいファイルなので少しかかります）";
+      await new Promise(r => setTimeout(r, 0));
+    }
     if (!generate(text)) {
       $("result").innerHTML=""; $("stats").textContent=""; $("mapArea").innerHTML="";
       renderSuspects(text);        // 1件も見つからない時こそ「名前かも」を出す（前は空にしていた）
@@ -30983,37 +30999,128 @@ window.TinySegmenter = { segment: segment };
       "|" + vesc(s) + "(?=[ 　]*(?:" + TITLE + "))" +
       "|(?<=^|[、。，．・「」（）\\(\\)\\t\\n 　がはをにともへでやかとの])" + vesc(s) + "(?=(?:" + PARTICLE + "))", "gm");
     const active2 = active.slice().sort((a,b) => b.text.length - a.text.length);
-    let result = text;
+    // 置換の正規表現は1人ぶんずつ作って使い回す（大きいファイルで作り直すと重い）
     for (const p of active2) {
-      let re;
+      if (p._re) continue;
       try {
-        re = (p.given && p.text === p.surname + p.given)
+        p._re = (p.given && p.text === p.surname + p.given)
           ? new RegExp(vesc(p.surname) + "[ 　]?" + vesc(p.given), "g")
           : (p.cellOnly ? cellRe(p.text) : surfRe(p.text));
-      } catch(e) { re = new RegExp(esc(p.text), "g"); }
-      result = result.replace(re, function(mm){
-        if (p.cellOnly) {
-          const src = arguments[arguments.length-1], off = arguments[arguments.length-2];
-          const withParticle = String(src).substr(off, mm.length + 1).replace(/[ 　]/g,"");
-          if (ADV_NG.has(withParticle)) return mm;      // 「実は」等はそのまま残す
-        }
-        counts[p.label] = (counts[p.label]||0) + 1; return MS + p.label + ME;
-      });
+      } catch(e) { p._re = new RegExp(esc(p.text), "g"); }
+      p._key = normOld(p.given ? p.surname : p.text);      // 「このかたまりに出てくるか」の下見用（旧字体は新字にそろえる）
     }
+
+    // ---- 大きいファイル対策：本文を「かたまり」に分けて、少しずつ処理する ----
+    // 一度に全部やると低スペックのパソコンでは固まって見えるため。
+    // 区切りは必ず行の切れ目なので、行内を見る判定（マスの中・助詞の前後）は壊れない。
+    const CHUNK = 120000;
+    const lines = text.split("\n");
+    const chunks = [];
+    let buf = [], size = 0;
+    for (const ln of lines) {
+      buf.push(ln); size += ln.length + 1;
+      if (size >= CHUNK) { chunks.push(buf.join("\n")); buf = []; size = 0; }
+    }
+    if (buf.length) chunks.push(buf.join("\n"));
+
+    // ---- 人数が多くても遅くならない「一発走査」----
+    // 人数ぶん本文を読み直すと「人数×文字数」の時間がかかる。
+    // 名前を辞書（Map）に入れて本文を1回だけなめれば、何人いても文字数ぶんの時間で済む。
+    const bulk = new Map();
+    let bulkMax = 0;
+    const isPlain2 = p => !p.cellOnly && p.text.length >= 2
+      && !/^[A-Za-z]{1,2}$/.test(normLatin(p.text))          // イニシャルは敬称が要るので別扱い
+      && !/^[一-鿿々]$/.test(p.text);
+    const putBulk = (surface, p) => {
+      const k = normOld(surface);
+      if (!k || bulk.has(k)) return;
+      bulk.set(k, p); if (k.length > bulkMax) bulkMax = k.length;
+    };
+    const special = [];
+    for (const p of active2) {
+      if (isPlain2(p)) {
+        if (p.given && p.text === p.surname + p.given) {
+          putBulk(p.surname + p.given, p); putBulk(p.surname + " " + p.given, p); putBulk(p.surname + "　" + p.given, p);
+        } else putBulk(p.text, p);
+      } else special.push(p);
+    }
+    const ORG_LIST = ORGPLACE.split("|");
+    const scanChunk = (seg) => {
+      if (!bulk.size) return seg;
+      const norm = normOld(seg), n = seg.length;
+      let out = "", i = 0;
+      while (i < n) {
+        let hit = null, hlen = 0;
+        const max = Math.min(bulkMax, n - i);
+        for (let len = max; len >= 2; len--) {
+          const p = bulk.get(norm.substr(i, len));
+          if (!p) continue;
+          // 2文字以上の漢字名は、直後が会社・地名の接尾辞なら人名ではない（田中商事・大和運輸）
+          if (/^[一-鿿々]{2,}$/.test(p.text)) {
+            const rest = norm.substr(i + len, 4);
+            if (ORG_LIST.some(o => rest.startsWith(o))) continue;
+          }
+          hit = p; hlen = len; break;
+        }
+        if (hit) {
+          counts[hit.label] = (counts[hit.label]||0) + 1;
+          out += MS + hit.label + ME; i += hlen;
+        } else { out += seg[i]; i++; }
+      }
+      return out;
+    };
+
+    const yieldToScreen = () => new Promise(r => setTimeout(r, 0));
+    const parts = [];
+    for (let ci = 0; ci < chunks.length; ci++) {
+      let seg = scanChunk(chunks[ci]);           // ①ふつうの名前は一発走査でまとめて置換
+      const segNorm = normOld(seg);              // ②残り（1文字名・イニシャルなど）は個別に。旧字体の下見用
+      // このかたまりに含まれる「1文字」「2文字続き」を先に全部ひろっておく。
+      // 人数ぶん本文を探し直すと人数×文字数の時間がかかるので、ここで一覧を作って照合するだけにする。
+      const uni = new Set(), bi = new Set();
+      for (let k = 0; k < segNorm.length; k++) {
+        uni.add(segNorm[k]);
+        if (k + 1 < segNorm.length) bi.add(segNorm[k] + segNorm[k+1]);
+      }
+      for (const p of special) {
+        const key = p._key || "";
+        if (key.length === 1) { if (!uni.has(key)) continue; }
+        else if (key.length >= 2) { if (!bi.has(key.slice(0,2))) continue; }   // このかたまりに居ないので飛ばす
+        p._re.lastIndex = 0;
+        seg = seg.replace(p._re, function(mm){
+          if (p.cellOnly) {
+            const src = arguments[arguments.length-1], off = arguments[arguments.length-2];
+            const withParticle = String(src).substr(off, mm.length + 1).replace(/[ 　]/g,"");
+            if (ADV_NG.has(withParticle)) return mm;      // 「実は」等はそのまま残す
+          }
+          counts[p.label] = (counts[p.label]||0) + 1; return MS + p.label + ME;
+        });
+      }
+      parts.push(seg);
+      if (chunks.length > 1) {
+        $("stats").textContent = `→ 処理中… ${Math.round((ci+1)/chunks.length*100)}％（${ci+1}/${chunks.length}）`;
+        await yieldToScreen();
+      }
+    }
+    const result = parts.join("\n");
 
     // 描画＋プレーン文字列
     let html = "", plain = "", pos = 0, total = 0;
+    const LIGHT = result.length > 300000;      // 大きすぎるときは色つけをやめる（画面が固まるため）
+    const htmlBuf = [];
     while (pos < result.length) {
       const si = result.indexOf(MS, pos);
-      if (si < 0) { const seg = result.slice(pos); html += escHtml(seg); plain += seg; break; }
-      const seg = result.slice(pos, si); html += escHtml(seg); plain += seg;
+      if (si < 0) { const seg = result.slice(pos); if(!LIGHT) htmlBuf.push(escHtml(seg)); plain += seg; break; }
+      const seg = result.slice(pos, si); if(!LIGHT) htmlBuf.push(escHtml(seg)); plain += seg;
       const ei = result.indexOf(ME, si + MS.length);
       if (ei < 0) break;
       const lb = result.slice(si + MS.length, ei);
-      html += '<b class="lb">' + escHtml(lb) + "</b>"; plain += lb;
+      if(!LIGHT) htmlBuf.push('<b class="lb">' + escHtml(lb) + "</b>");
+      plain += lb;
       pos = ei + ME.length;
     }
-    $("result").innerHTML = html;
+    if (LIGHT) { $("result").textContent = plain; }
+    else { html = htmlBuf.join(""); $("result").innerHTML = html; }
     lastPlain = plain;
 
     // 統計＋対応表
@@ -31030,7 +31137,7 @@ window.TinySegmenter = { segment: segment };
     lastMapLines = mapLines.join("\n");
     $("stats").textContent = `→ 合計 ${total} 箇所を置き換え`;
     $("mapArea").innerHTML = rows ? `<table><tr><th>記号</th><th>人名</th><th>回数</th></tr>${rows}</table>` : "";
-    renderSuspects(plain);
+    renderSuspects(plain.length > 400000 ? plain.slice(0, 400000) : plain);   // 大きすぎるときは先頭だけ調べる
     $("copyBody").disabled = !lastPlain;
     $("copyMap").disabled = !lastMapLines;
     $("saveBtn").disabled = !lastPlain;
@@ -31130,7 +31237,7 @@ window.TinySegmenter = { segment: segment };
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   }
 
-  $("execBtn").addEventListener("click", run);
+  $("execBtn").addEventListener("click", () => { run(); });
   $("copyBody").addEventListener("click", async () => {
     if (await copyText(lastPlain)) toast("本文だけコピーしました（実名は含まれていません）");
   });

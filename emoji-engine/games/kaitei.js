@@ -71,9 +71,13 @@ const LINES = {
 // 増やしたいときはここに1つ足す(ボタンは自動で並ぶ)。
 const EMOTES = [
   { icon: "😤", label: "まだ潜る", text: "まだ潜るぞ!", kind: "replyDive" },
-  { icon: "🙏", label: "戻ってくれ", text: "頼む、そろそろ戻ってくれ", kind: "replyBack" },
-  { icon: "👋", label: "先に上がる", text: "悪いな、先に上がらせてもらう", kind: "replyBye" },
-  { icon: "😱", label: "あぶない!", text: "酸素が無い! みんな急げ!", kind: "replyDanger" }
+  { icon: "🙏", label: "戻ろう", text: "頼む、そろそろ戻ってくれ", kind: "replyBack" },
+  { icon: "👋", label: "上がる", text: "悪いな、先に上がらせてもらう", kind: "replyBye" },
+  { icon: "😱", label: "きけん", text: "酸素が無い! みんな急げ!", kind: "replyDanger" },
+  { icon: "👍", label: "ナイス", text: "見事だ、いい引き際だった", kind: "replyNice" },
+  { icon: "😂", label: "わらう", text: "ハハッ、そうなると思ってた", kind: "replyLaugh" },
+  { icon: "💰", label: "よこせ", text: "その宝、置いていけ", kind: "replyGive" },
+  { icon: "🤔", label: "おもい", text: "持ちすぎだろ、沈むぞ", kind: "replyHeavy" }
 ];
 
 // エモートへの返事(キャラ固有が無ければこの共通から出る)
@@ -101,6 +105,30 @@ const REPLY_LINES = {
     "騒ぐな、集中できん",
     "うわ、本当だ",
     "誰のせいだと思ってる"
+  ],
+  replyNice: [
+    "当然の結果だ",
+    "そう言われると悪くない",
+    "次はこっちが勝つ",
+    "褒めても宝は分けんぞ"
+  ],
+  replyLaugh: [
+    "笑うな",
+    "次はお前の番だぞ",
+    "海の底で覚えておく",
+    "腹立つな…"
+  ],
+  replyGive: [
+    "冗談だろう",
+    "欲しけりゃ潜って取れ",
+    "先に拾った者のものだ",
+    "むしろ寄こせ"
+  ],
+  replyHeavy: [
+    "分かってて持ってる",
+    "重いほど価値がある",
+    "言われて怖くなってきた",
+    "余計な世話だ"
   ]
 };
 
@@ -109,6 +137,10 @@ const CHARACTERS = [
   {
     type: "greedy", name: "よくばり", icon: "😎",
     lines: {
+      replyNice: ["運が良かっただけだ"],
+      replyLaugh: ["笑ってろ。点はおれのだ"],
+      replyGive: ["寝言は寝て言え"],
+      replyHeavy: ["重いのが宝の証拠だ"],
       replyDive: ["いいねえ、道連れだ"],
       replyBack: ["断る。まだ足りない"],
       replyBye: ["その程度で満足か?"],
@@ -125,6 +157,10 @@ const CHARACTERS = [
   {
     type: "smart", name: "かしこい", icon: "🧐",
     lines: {
+      replyNice: ["数字通りに動いただけだ"],
+      replyLaugh: ["感情で動く者は損をする"],
+      replyGive: ["交渉の余地は無い"],
+      replyHeavy: ["許容範囲を計算済みだ"],
       replyDive: ["君の残り酸素では厳しい"],
       replyBack: ["言われる前に戻っている"],
       replyBye: ["賢明だ。真似させてもらう"],
@@ -142,6 +178,10 @@ const CHARACTERS = [
   {
     type: "scared", name: "びびり", icon: "😰",
     lines: {
+      replyNice: ["ほ、褒められた…"],
+      replyLaugh: ["笑わないでよ!"],
+      replyGive: ["え、あげた方がいいですか"],
+      replyHeavy: ["やっぱり? 置いてこようかな"],
       replyDive: ["ぼ、僕は無理です…"],
       replyBack: ["それ僕が言いたかった!"],
       replyBye: ["待って、置いてかないで"],
@@ -159,6 +199,10 @@ const CHARACTERS = [
   {
     type: "gambler", name: "ばくち", icon: "🤠",
     lines: {
+      replyNice: ["博打が当たっただけさ"],
+      replyLaugh: ["笑える方が勝ちだ"],
+      replyGive: ["賭けで勝ったらやるよ"],
+      replyHeavy: ["重い方が勝ったとき気持ちいい"],
       replyDive: ["おっ、勝負するねえ"],
       replyBack: ["博打に降りろとは言うなよ"],
       replyBye: ["逃げ足で勝つのも勝ちだ"],
@@ -176,6 +220,10 @@ const CHARACTERS = [
   {
     type: "copycat", name: "しのび", icon: "🥷",
     lines: {
+      replyNice: ["…恐縮"],
+      replyLaugh: ["…興が乗ったか"],
+      replyGive: ["…断る"],
+      replyHeavy: ["…承知の上"],
       replyDive: ["…ならば追う"],
       replyBack: ["…考えておく"],
       replyBye: ["…ならば我も"],
@@ -193,6 +241,10 @@ const CHARACTERS = [
   {
     type: "veteran", name: "せんぱい", icon: "👴",
     lines: {
+      replyNice: ["若いのに言われる日が来たか"],
+      replyLaugh: ["笑う者から沈むものだ"],
+      replyGive: ["寄こせと言われて出す者はおらん"],
+      replyHeavy: ["この重さに40年耐えてきた"],
       replyDive: ["若いのは無茶をする"],
       replyBack: ["言われんでも戻る頃合いだ"],
       replyBye: ["それが正しい引き際だ"],
@@ -210,6 +262,10 @@ const CHARACTERS = [
   {
     type: "robot", name: "きかいじん", icon: "🤖",
     lines: {
+      replyNice: ["評価を記録した"],
+      replyLaugh: ["嘲笑を検知。無視する"],
+      replyGive: ["要求を却下"],
+      replyHeavy: ["積載量は規定内"],
       replyDive: ["潜行継続を確認"],
       replyBack: ["要求を受理。浮上を検討する"],
       replyBye: ["離脱を記録した"],
@@ -227,6 +283,10 @@ const CHARACTERS = [
   {
     type: "rookie", name: "しんじん", icon: "👶",
     lines: {
+      replyNice: ["やった、褒められた!"],
+      replyLaugh: ["笑うことないじゃないっすか"],
+      replyGive: ["え、渡すんですか…?"],
+      replyHeavy: ["これくらい平気っすよ!"],
       replyDive: ["オレも行きます!"],
       replyBack: ["え、もうダメなんすか"],
       replyBye: ["ずるいっすよ!"],
@@ -244,6 +304,10 @@ const CHARACTERS = [
   {
     type: "moody", name: "きまぐれ", icon: "😇",
     lines: {
+      replyNice: ["どうも"],
+      replyLaugh: ["わたしも笑う"],
+      replyGive: ["やだ"],
+      replyHeavy: ["おもい"],
       replyDive: ["ふーん"],
       replyBack: ["やだ"],
       replyBye: ["ばいばい"],
@@ -261,6 +325,10 @@ const CHARACTERS = [
   {
     type: "tycoon", name: "しゃちょう", icon: "🤑",
     lines: {
+      replyNice: ["当然の投資判断だ"],
+      replyLaugh: ["笑いは利益を生まん"],
+      replyGive: ["無償で渡す資産は無い"],
+      replyHeavy: ["重さは資産の重さだ"],
       replyDive: ["度胸は評価する"],
       replyBack: ["指図を受ける立場ではない"],
       replyBye: ["利益確定か。悪くない"],
@@ -1802,22 +1870,24 @@ function drawPlayerControls(g) {
 }
 
 function drawEmoteButtons(g) {
-  const w = 56;
-  const h = 50;
-  const top = 474;
+  const w = 58;
+  const h = 29;
+  const cols = 4;
   let i;
   let x;
+  let y;
   let hover;
 
-  g.text("ひとこと(いつでも押せる)", 821, 466, 12, "#7fb8d4", "center");
+  g.text("ひとこと(いつでも押せる)", 818, 462, 12, "#7fb8d4", "center");
 
   for (i = 0; i < EMOTES.length; i += 1) {
-    x = 700 + i * (w + 6);
-    hover = insidePointer(g, x, top, w, h);
+    x = 700 + (i % cols) * (w + 3);
+    y = 468 + Math.floor(i / cols) * (h + 3);
+    hover = insidePointer(g, x, y, w, h);
 
-    g.rect(x, top, w, h, S.emoteCd > 0 ? "#1b3247" : (hover ? "#2f6e94" : "#14496b"));
-    g.emoji(EMOTES[i].icon, x + w / 2, top + 19, 24, { alpha: S.emoteCd > 0 ? 0.45 : 1 });
-    g.text(EMOTES[i].label, x + w / 2, top + 44, 10, "#cfe9f7", "center");
+    g.rect(x, y, w, h, S.emoteCd > 0 ? "#1b3247" : (hover ? "#2f6e94" : "#14496b"));
+    g.emoji(EMOTES[i].icon, x + 11, y + 14, 15, { alpha: S.emoteCd > 0 ? 0.45 : 1 });
+    g.text(EMOTES[i].label, x + 37, y + 19, 9, "#cfe9f7", "center");
 
     if (hover && g.pointer.justDown) {
       sayEmote(g, i);
