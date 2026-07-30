@@ -1,0 +1,73 @@
+klattsch 同梱版（ロボ声の共通部品）
+====================================================
+
+■ これは何か
+
+1980年代のコンピュータの声（レトロ音声合成）を、
+自作のツールやゲームの中で鳴らすための部品です。
+
+ネットにつながっていなくても鳴ります。
+音声ファイルを用意する必要もありません。
+
+
+■ 組み込み方（HTMLに2行 + 1行）
+
+  <script src="../libs/klattsch/klattsch.js"></script>
+  <script src="../libs/klattsch/robo.js"></script>
+
+  robo.say("GAME OVER");
+
+これだけです。パスは、置き場所に合わせて ../ の数を変えてください。
+
+
+■ できること
+
+  robo.say("GAME OVER")        定型メッセージを名前で鳴らす
+  robo.speak("K AH M P L IY T") 発音記号を直接鳴らす
+  robo.jp("やられた")           ひらがな・カタカナを喋らせる
+  robo.stop()                  鳴っている音を止める
+  robo.wav("...")              wavファイルのデータを作る
+  robo.list()                  使える定型メッセージの一覧
+
+
+■ 使える定型メッセージ（20個）
+
+  起動   SYSTEM ONLINE / INITIALIZING / ALL SYSTEMS NOMINAL
+  成功   TASK COMPLETE / CONFIRMED / STAGE CLEAR / NEW RECORD
+  失敗   ACCESS DENIED / ERROR / INVALID INPUT
+  警告   WARNING / CRITICAL / DANGER / SELF DESTRUCT
+  ゲーム READY / GO / THREE TWO ONE / PLAYER ONE /
+         GAME OVER / SHUTTING DOWN
+
+
+■ 大事な注意
+
+・音は「ユーザーが画面を一度触ったあと」でないと鳴りません。
+  ブラウザ共通の決まりです。
+  ページを開いた瞬間に鳴らそうとしても無音になります。
+  ボタンを押したとき、キーを押したとき、などに呼んでください。
+
+・声を変えたいときは第2引数ではなく、発音記号の前に設定を書きます。
+
+    robo.speak("b70 s0.90 t-0.35 D EY N JH ER-20");    // 低く重い声
+
+  よく使う設定は robo.VOICE に入っています。
+
+    robo.speak(robo.VOICE.deep + " D EY N JH ER-20");
+
+
+■ 音の作り方を知りたいとき
+
+発音記号の書き方は AIプロンプト集\klattsch_歌わせ方.md にまとめてあります。
+かな→発音記号の対応表は AIプロンプト集\klattsch_曲データ_さくらさくら.md。
+
+試しながら作るには ツールボックス\ロボ読み\ロボ読み.html が便利です。
+
+
+■ ライセンス
+
+klattsch 本体は MIT License / Copyright (c) 2026 Tony Gies
+https://github.com/tgies/klattsch
+
+改変・再配布・商用利用ができます。
+同じフォルダの LICENSE を消さずに一緒に配ってください。

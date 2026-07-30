@@ -1518,12 +1518,87 @@ function drawTitle(g) {
   }
   g.text("ラウンドを重ねるほど道が短くなり底の高得点まで届く", g.W / 2, 428, 13, "#6f9bb5", "center");
 
-  // スタート
-  g.rect(300, 452, 360, 52, "#19a6b3");
-  g.text("クリックして潜る", g.W / 2, 486, 25, "#ffffff", "center");
-  if (insidePointer(g, 300, 452, 360, 52) && g.pointer.justDown) {
+  // スタート（ひとりで / 部屋を立てる / 合言葉で入る）
+  g.rect(120, 452, 200, 52, "#19a6b3");
+  g.text("ひとりで潜る", 220, 486, 21, "#ffffff", "center");
+  if (insidePointer(g, 120, 452, 200, 52) && g.pointer.justDown) {
+    NET.mode = "solo";
     startGame(g);
   }
+
+  g.rect(380, 452, 200, 52, "#2d7fb8");
+  g.text("部屋を立てる", 480, 486, 21, "#ffffff", "center");
+  if (insidePointer(g, 380, 452, 200, 52) && g.pointer.justDown) {
+    hostRoom(g);
+  }
+
+  g.rect(640, 452, 200, 52, "#2d7fb8");
+  g.text("合言葉で入る", 740, 486, 21, "#ffffff", "center");
+  if (insidePointer(g, 640, 452, 200, 52) && g.pointer.justDown) {
+    joinRoom(g);
+  }
+
+  if (NET.err) {
+    g.text(NET.err, g.W / 2, 522, 15, "#ffb0b0", "center");
+  } else {
+    g.text("友だちと遊ぶ: 片方が「部屋を立てる」→ 出た合言葉を相手に伝える",
+      g.W / 2, 522, 14, "#6f9bb5", "center");
+  }
+}
+
+/* 親になる。合言葉を作ってゲームを始め、盤面を送り続ける */
+function hostRoom(g) {
+  if (!netAvailable()) {
+    NET.err = "対戦は、公開サイトで開いたときだけ使えます（いまはPCの中のファイルを見ています）";
+    g.se("hit");
+    return;
+  }
+  NET.mode = "host";
+  NET.code = makeCode();
+  NET.ver = 0;
+  NET.err = "";
+  NET.msg = "";
+  NET.timer = 0;
+  g.se("click");
+  startGame(g);
+}
+
+/* 子になる。合言葉を聞いて、盤面が届くのを待つ */
+function joinRoom(g) {
+  if (!netAvailable()) {
+    NET.err = "対戦は、公開サイトで開いたときだけ使えます（いまはPCの中のファイルを見ています）";
+    g.se("hit");
+    return;
+  }
+
+  const input = window.prompt("相手から聞いた合言葉6文字を入れてください");
+  if (input === null) return;                    // キャンセル
+
+  const code = String(input).trim().toUpperCase().replace(/[^0-9A-Z]/g, "");
+  if (!/^[0-9A-HJ-NP-Z]{6}$/.test(code)) {
+    NET.err = "合言葉は、IとOを除く英数字6文字です";
+    g.se("hit");
+    return;
+  }
+
+  NET.mode = "guest";
+  NET.code = code;
+  NET.ver = 0;
+  NET.err = "";
+  NET.msg = "部屋をさがしています…";
+  NET.timer = 0;
+  g.se("click");
+}
+
+/* 子が盤面を待っている間の画面 */
+function drawWaiting(g) {
+  g.bg("#061d35");
+  drawFx(g);
+  g.text("合言葉  " + NET.code, g.W / 2, 190, 40, "#ffcc4d", "center");
+  g.emoji("🤿", g.W / 2, 260, 56);
+  g.text(NET.err || NET.msg || "つないでいます…", g.W / 2, 330, 20, "#dffaff", "center");
+  g.text("相手が「部屋を立てる」で始めると、ここに盤面が出ます",
+    g.W / 2, 364, 15, "#7fb8d4", "center");
 }
 
 function drawOxygen(g) {
@@ -1598,6 +1673,148 @@ function drawScoreboard(g) {
 }
 
 // ===== 海の道の表示(見える範囲・スクロール) =====
+// ===================================================================
+// オンライン対戦（段階1: 通信の土台）
+// ===================================================================
+// 設計書: 設計書_海底探検オンライン対戦_2026-07-31.md
+//
+// 親子方式。部屋を立てた人の端末（親）だけがゲームを計算し、
+// 子は届いた盤面を描くだけ。子は計算しないのでズレようがない。
+//
+// 箱は2つに分かれている（書く人を1人に固定して衝突を防ぐ）:
+//   ?box=state … 親が書き、子が読む
+//   ?box=act   … 子が書き、親が読む（段階2で使う。段階1では未使用）
+const NET = {
+  mode: "solo",        // "solo" | "host" | "guest"
+  code: "",            // 合言葉6文字
+  ver: 0,              // 盤面の通し番号。上がったら描き直す合図
+  msg: "",             // 画面に出す日本語の状況
+  err: "",             // 画面に出す日本語のエラー
+  busy: false,         // 通信中（二重に投げないため）
+  timer: 0,            // 次に通信するまでの残り秒
+  lastOk: 0,           // 最後に通信できた時刻(ms)
+};
+
+const NET_INTERVAL = 1.2;                       // 何秒おきに通信するか
+const CODE_CHARS = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ".replace(/[IO]/g, "");
+
+function netUrl(code, box) {
+  return "/api/room/" + encodeURIComponent(code) + "?box=" + box;
+}
+
+function makeCode() {
+  let s = "";
+  const buf = new Uint8Array(6);
+  (window.crypto || window.msCrypto).getRandomValues(buf);
+  for (let i = 0; i < 6; i += 1) s += CODE_CHARS[buf[i] % CODE_CHARS.length];
+  return s;
+}
+
+// file:// で開いていると通信できない（同一オリジンにならない）。
+// 無言で失敗すると「壊れた」と誤解されるので、押した時点で日本語で断る。
+function netAvailable() {
+  return location.protocol === "http:" || location.protocol === "https:";
+}
+
+/* 盤面から、送るぶんだけを取り出す。
+   泡や演出(fx)は見た目だけのものなので送らない（64KBの上限を守るため）。 */
+function packState() {
+  return {
+    ver: NET.ver,
+    scene: S.scene,
+    round: S.round,
+    maxRounds: S.maxRounds,
+    turn: S.turn,
+    oxygen: S.oxygen,
+    path: S.path,
+    players: S.players,
+    startTurn: S.startTurn,
+    roundSummary: S.roundSummary,
+    revealed: S.revealed,
+    log: S.log,
+  };
+}
+
+/* 届いた盤面を、いまの状態に流し込む。
+   演出の配列は子の側で持っているものをそのまま残す（届かないので）。 */
+function applyState(d) {
+  S.scene = d.scene;
+  S.round = d.round;
+  S.maxRounds = d.maxRounds;
+  S.turn = d.turn;
+  S.oxygen = d.oxygen;
+  S.path = d.path;
+  S.players = d.players;
+  S.startTurn = d.startTurn;
+  S.roundSummary = d.roundSummary;
+  S.revealed = d.revealed;
+  S.log = d.log;
+}
+
+/* 親: いまの盤面を送る */
+function netPush() {
+  if (NET.busy) return;
+  NET.busy = true;
+  NET.ver += 1;
+
+  fetch(netUrl(NET.code, "state"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(packState()),
+  })
+    .then(function(res) {
+      if (!res.ok) throw new Error("status " + res.status);
+      NET.err = "";
+      NET.lastOk = Date.now();
+    })
+    .catch(function() {
+      NET.err = "つながりません。電波を確かめてください";
+    })
+    .then(function() { NET.busy = false; });
+}
+
+/* 子: 盤面を受け取る */
+function netPull() {
+  if (NET.busy) return;
+  NET.busy = true;
+
+  fetch(netUrl(NET.code, "state"), { method: "GET" })
+    .then(function(res) {
+      if (!res.ok) throw new Error("status " + res.status);
+      return res.json();
+    })
+    .then(function(j) {
+      NET.err = "";
+      NET.lastOk = Date.now();
+
+      if (!j.found || !j.data) {
+        NET.msg = "部屋がまだありません。相手が始めるのを待っています…";
+        return;
+      }
+      if (j.data.ver <= NET.ver) return;   // 変わっていないので描き直さない
+
+      NET.ver = j.data.ver;
+      NET.msg = "";
+      applyState(j.data);
+    })
+    .catch(function() {
+      NET.err = "つながりません。電波を確かめてください";
+    })
+    .then(function() { NET.busy = false; });
+}
+
+/* 毎フレーム呼ぶ。決まった間隔でだけ通信する */
+function netTick(dt) {
+  if (NET.mode === "solo") return;
+
+  NET.timer -= dt;
+  if (NET.timer > 0) return;
+  NET.timer = NET_INTERVAL;
+
+  if (NET.mode === "host") netPush();
+  else netPull();
+}
+
 const SEA_LEFT = 228;       // 海の帯の左端(ここより左は情報パネル)
 const VIEW_LEFT = 348;      // 一番左のマスの中心x
 const VIEW_STEP = 42;       // マスの間隔
@@ -1998,6 +2215,21 @@ function drawEmoteButtons(g) {
   }
 }
 
+/* 対戦中の帯（合言葉・つながっているか）。solo では何も出さない */
+function drawNetBar(g) {
+  if (NET.mode === "solo") return;
+
+  const label = (NET.mode === "host" ? "合言葉 " + NET.code : "対戦中 " + NET.code);
+  g.rect(0, 0, 300, 24, "#00000088");
+  g.text(label, 8, 17, 15, NET.err ? "#ffb0b0" : "#ffcc4d", "left");
+
+  if (NET.err) {
+    g.text(NET.err, 8, 40, 13, "#ffb0b0", "left");
+  } else if (NET.mode === "host") {
+    g.text("この合言葉を相手に伝えてください", 8, 40, 12, "#7fb8d4", "left");
+  }
+}
+
 function drawPlay(g) {
   g.bg("#061d35");
   handleView(g);
@@ -2014,6 +2246,7 @@ function drawPlay(g) {
   drawEmoteButtons(g);
   drawFx(g);
   drawFlash(g, "#ff2b2b");
+  drawNetBar(g);
 
   // 酸素が尽きた後の「最後の手番」を知らせる
   if (S.lastTurn && S.phase !== "drownedPause") {
@@ -2373,6 +2606,16 @@ EmojiEngine.register({
   update: function(g, dt) {
     dt = g.clamp(dt, 0, 0.1);
 
+    netTick(dt);
+
+    // 子は一切計算しない（親から届いた盤面を描くだけ）。
+    // ここで計算すると、乱数のせいで親と食い違って壊れる。
+    if (NET.mode === "guest") {
+      updateFx(dt);
+      updateBubbles(dt);
+      return;
+    }
+
     if (S.scene === "title") {
       updateFx(dt);
       if (g.pressed("action")) {
@@ -2383,6 +2626,15 @@ EmojiEngine.register({
 
     if (S.scene === "play") {
       updatePlay(g, dt);
+      // 酸素が半分を切ったら緊迫BGMに切り替え、減るほどテンポを上げる(0で約2倍速)
+      const air = g.clamp(S.oxygen / S.oxygenMax, 0, 1);
+      if (air < 0.5) {
+        g.bgm("kaiteiPinch");
+        g.bgmSpeed(1 + (0.5 - air) * 2);
+      } else {
+        g.bgm("kaitei");
+        g.bgmSpeed(1);
+      }
       return;
     }
 
@@ -2425,6 +2677,12 @@ EmojiEngine.register({
   },
 
   draw: function(g) {
+    // 子で、まだ盤面が1度も届いていないときは待ち画面
+    if (NET.mode === "guest" && NET.ver === 0) {
+      drawWaiting(g);
+      return;
+    }
+
     if (S.scene === "title") {
       drawTitle(g);
       return;

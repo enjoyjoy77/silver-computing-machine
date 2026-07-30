@@ -62,7 +62,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev 84 (2026-07-31)</div>
+<div id="rev">rev 85 (2026-07-31)</div>
 
 <div id="menu">
   <button id="menuSoundBtn" class="soundBtn" type="button" aria-label="サウンドをオフにする" title="サウンドをオフにする">🔊</button>
@@ -249,7 +249,7 @@ const SE = {
 
 /* ---------- BGM(内蔵シンセのループ。ファイル不要) ---------- */
 // パターンを差し替えれば別の曲にできる。0=休符。ゲームから g.bgm(true/false) で入/切
-let bgmTimer = null, bgmStep = 0, bgmPat = null;
+let bgmTimer = null, bgmStep = 0, bgmPat = null, bgmName = null, bgmSpeedMult = 1;
 const BGM = {
   // 戦闘BGM: Am系のオスティナート(16ステップ)+控えめメロ+軽いキック
   battle: {
@@ -268,21 +268,34 @@ const BGM = {
     bass: [110,0,0,0, 98,0,0,0, 87.31,0,0,0, 82.41,0,0,0],
     mel:  [0,0,0,0, 0,0,1318.51,0, 0,0,0,0, 0,0,987.77,0],
   },
+  // 海底の緊迫BGM: 酸素が半分を切ったとき用。kaiteiの「沈む」を「追われる」に変える
+  //   ・鼓動: ベースを2連打(ドッ・ドッ)にして心臓の音に。A2とG#2(半音差)を行き来=落ち着かない
+  //   ・警報ソナー: ピッ・ピッと2回組で、半音下がって鳴る(サイレンの裏返し)
+  //   ・テンポは g.bgmSpeed() で外から上げられる(酸素が減るほど速く)
+  kaiteiPinch: {
+    ms: 230,
+    bass: [110,0,110,0, 0,0,0,0, 103.83,0,103.83,0, 0,0,0,0],
+    mel:  [0,0,0,0, 1318.51,0,1244.51,0, 0,0,0,0, 987.77,0,932.33,0],
+  },
 };
 function bgmStart(name){
+  if (name === bgmName && bgmTimer) return;   // 同じ曲なら流れっぱなし(毎フレーム呼んでも安全)
   ensureAudio();
   bgmStop();
   const p = BGM[name]; if (!p || !ac) return;
-  bgmPat = p; bgmStep = 0;
-  bgmTimer = setInterval(() => {
+  bgmPat = p; bgmStep = 0; bgmName = name;
+  // setIntervalだと途中でテンポを変えられないので、1音ごとに次を予約する方式
+  const step = () => {
     const n = p.bass.length, i = bgmStep % n;
     const b = p.bass[i]; if (b) tone(b, b, 0.16, "triangle", 0.09);   // ベース(rev79: 効果音に対して小さすぎたので上げる)
     const m = p.mel[i];  if (m) tone(m, m, 0.14, "square",   0.05);   // メロ
     if (p.kick && p.kick(i)) noise(0.03, 0.06);                        // 軽いキック
     bgmStep++;
-  }, p.ms);
+    bgmTimer = setTimeout(step, p.ms / bgmSpeedMult);
+  };
+  step();
 }
-function bgmStop(){ if (bgmTimer){ clearInterval(bgmTimer); bgmTimer = null; bgmPat = null; } }
+function bgmStop(){ if (bgmTimer){ clearTimeout(bgmTimer); bgmTimer = null; bgmPat = null; } bgmName = null; bgmSpeedMult = 1; }
 
 /* ---------- ゲームに渡す道具箱 g ---------- */
 const g = {
@@ -359,6 +372,8 @@ const g = {
   se(name){ if (SE[name]) SE[name](); },
   /* BGM: g.bgm("battle") で開始 / g.bgm(false) か g.bgm() で停止 */
   bgm(name){ if (name) bgmStart(name); else bgmStop(); },
+  /* BGMの速さ: g.bgmSpeed(1)=普通, 2=倍速。毎フレーム呼んでもよい */
+  bgmSpeed(x){ bgmSpeedMult = Math.max(0.5, Math.min(2.5, x || 1)); },
 
   /* オリジナル絵文字の登録(ゲーム内からも呼べる) */
   defineEmoji: defineEmoji,
