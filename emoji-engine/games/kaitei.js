@@ -388,6 +388,9 @@ function makePlayers(g) {
   return players;
 }
 
+// 段階ごとの枚数。深い遺跡ほど数が少なく、道も短くなる
+const TIER_COUNT = [8, 8, 6, 4];
+
 function makePath(g) {
   const path = [];
   let tier;
@@ -402,6 +405,7 @@ function makePath(g) {
       copy.push({ value: value, tier: tier });
     }
     shuffle(g, copy);
+    copy = copy.slice(0, TIER_COUNT[tier - 1]);
 
     for (i = 0; i < copy.length; i += 1) {
       path.push({
@@ -420,9 +424,7 @@ function resetRound(g) {
 
   // 道が短くなるラウンドほど酸素を増やす(装備が良くなる想定)。
   // これが無いと、手前に高得点が並ぶ後半で全員が重さに潰れて全滅する。
-  // ラウンドごとに酸素タンクを増やす。道が縮んで宝が手前に来ると、
-  // 4人ぶんの荷物で酸素が一気に溶けるため、25固定では後半が必ず全滅する(計測で確認)
-  S.oxygen = 25 + Math.round((S.round - 1) * 6.5);
+  S.oxygen = 25;
   S.oxygenMax = S.oxygen;
   if (!S.path || S.path.length === 0) {
     S.path = makePath(g);
