@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#faf9f5">
+<title>claude</title>
+<style>
+  :root {
+    --bg: #faf9f5;
+    --panel: #ffffff;
+    --text: #1f1d1a;
+    --muted: #6b6862;
+    --line: #e6e2d9;
+    --accent: #d97757;
+    --accent-soft: #f5ede8;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  .logo {
+    color: var(--accent);
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .title { font-weight: 600; letter-spacing: .02em; }
+
+  .thread {
+    color: var(--muted);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spacer { flex: 1; }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #c9c5bc;
+    flex: none;
+  }
+  .dot.ok { background: #6aa84f; }
+  .dot.busy { background: var(--accent); }
+  .dot.ng { background: #cc4b37; }
+
+  .iconbtn {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 20px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+  .iconbtn:active { background: var(--accent-soft); }
+
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 14px 8px;
+  }
+
+  .row { margin-bottom: 22px; }
+
+  .me {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .me .bubble {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 14px;
+    max-width: 85%;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .ai { display: flex; gap: 10px; }
+
+  .ai .mark {
+    color: var(--accent);
+    flex: none;
+    font-size: 17px;
+    line-height: 1.7;
+  }
+
+  .ai .body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    flex: 1;
+  }
+
+  .note {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    margin-bottom: 18px;
+  }
+
+  .stamp {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .thinking .body { color: var(--muted); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+    padding: 10px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .inputrow {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 8px 10px;
+  }
+
+  textarea {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    font: inherit;
+    line-height: 1.6;
+    background: transparent;
+    color: inherit;
+    max-height: 30vh;
+    min-height: 24px;
+  }
+
+  .send {
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    font-size: 17px;
+    cursor: pointer;
+    flex: none;
+  }
+  .send:disabled { background: #d6d2c9; }
+
+  .opts {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+
+  select {
+    font: inherit;
+    font-size: 13px;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 3px 6px;
+  }
+
+  .menu {
+    position: absolute;
+    right: 10px;
+    top: 52px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.10);
+    padding: 6px;
+    display: none;
+    z-index: 10;
+    min-width: 190px;
+  }
+  .menu.open { display: block; }
+
+  .menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    font: inherit;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .menu button:active { background: var(--accent-soft); }
+  .menu hr { border: none; border-top: 1px solid var(--line); margin: 5px 2px; }
+
+  .setup {
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 28px 18px;
+  }
+
+  .setup h1 {
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+
+  .setup p { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+
+  .setup label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+
+  .setup input {
+    width: 100%;
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    color: inherit;
+    margin-bottom: 16px;
+    letter-spacing: .08em;
+  }
+
+  .setup button {
+    width: 100%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    padding: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .err { color: #cc4b37; font-size: 13px; margin-bottom: 12px; }
+  .rev { color: #c9c5bc; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div id="setup" class="setup" hidden>
+  <h1><span class="logo">✳</span> claude</h1>
+  <p>この端末で使う合言葉を入れてください。入力した合言葉はこの端末の中だけに保存されます。</p>
+  <div id="setupErr" class="err" hidden></div>
+  <label for="qPhrase">質問用の合言葉</label>
+  <input id="qPhrase" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false">
+  <label for="aPhrase">回答用の合言葉</label>
+  <input id="aPhrase" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false">
+  <button id="setupGo">はじめる</button>
+</div>
+
+<header id="bar" hidden>
+  <span class="logo">✳</span>
+  <span class="title">claude</span>
+  <span id="threadName" class="thread"></span>
+  <span class="spacer"></span>
+  <span id="dot" class="dot" title="状態"></span>
+  <button id="menuBtn" class="iconbtn" aria-label="メニュー">⋯</button>
+</header>
+
+<div id="menu" class="menu">
+  <button data-cmd="状態">いまの状態</button>
+  <button data-cmd="一覧">会話の一覧</button>
+  <button data-cmd="PC一覧">パソコンの会話</button>
+  <button id="switchBtn">会話を切り替える</button>
+  <button id="connectBtn">パソコンの会話につなぐ</button>
+  <hr>
+  <button data-cmd="新規">この会話をやり直す</button>
+  <button data-cmd="ping">つながっているか確認</button>
+  <hr>
+  <button id="clearBtn">画面の表示を消す</button>
+  <button id="resetBtn">合言葉を入れ直す</button>
+</div>
+
+<main id="log" hidden></main>
+
+<footer id="composer" hidden>
+  <div class="inputrow">
+    <textarea id="input" rows="1" placeholder="メッセージを入力"></textarea>
+    <button id="send" class="send" aria-label="送信">↑</button>
+  </div>
+  <div class="opts">
+    <select id="model">
+      <option value="">モデル</option>
+      <option value="opus">opus</option>
+      <option value="sonnet">sonnet</option>
+      <option value="fable">fable</option>
+      <option value="haiku">haiku</option>
+    </select>
+    <select id="effort">
+      <option value="">工数</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
+      <option value="max">max</option>
+    </select>
+    <span class="spacer"></span>
+    <span class="rev">rev1</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // 暗号のやり方は angou.html と同じ。1文字でも変えると相手側と噛み合わなくなる。
+  var CODE_ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  var MAGIC = "MSENC1";
+  var PBKDF2_ITER = 300000;
+  var FIXED_SALT = "filesync-angou-v1";
+  var PHRASE_RE = /^[0-9A-HJ-NP-Z]{8,32}$/;
+
+  var POLL_MS = 2500;
+  var PHRASE_KEY = "remoteClaudePhrases";
+  var LOG_KEY = "remoteClaudeLog";
+  var MAX_LOG = 200;
+
+  var el = function (id) { return document.getElementById(id); };
+  var setupEl = el("setup"), barEl = el("bar"), logEl = el("log"),
+      composerEl = el("composer"), menuEl = el("menu"), dotEl = el("dot"),
+      inputEl = el("input"), sendEl = el("send"), threadEl = el("threadName");
+
+  var question = null;   // {loc, key}
+  var answer = null;     // {loc, key}
+  var lastAnswerStamp = null;
+  var waiting = false;
+  var pollTimer = null;
+  var history = [];
+
+  // ---- 保存まわり ------------------------------------------------------
+
+  function loadPhrases() {
+    try {
+      var raw = localStorage.getItem(PHRASE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) { return null; }
+  }
+
+  function savePhrases(q, a) {
+    try {
+      localStorage.setItem(PHRASE_KEY, JSON.stringify({ q: q, a: a }));
+    } catch (error) { /* 保存できなくても、この場では使える */ }
+  }
+
+  function loadHistory() {
+    try {
+      var raw = localStorage.getItem(LOG_KEY);
+      history = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(history)) history = [];
+    } catch (error) { history = []; }
+  }
+
+  function saveHistory() {
+    try {
+      localStorage.setItem(LOG_KEY, JSON.stringify(history.slice(-MAX_LOG)));
+    } catch (error) { /* あふれても表示は続ける */ }
+  }
+
+  // ---- 暗号(angou.htmlと同じ) ------------------------------------------
+
+  async function deriveFromPhrase(phrase) {
+    var encoder = new TextEncoder();
+
+    var locDigest = await crypto.subtle.digest(
+      "SHA-256",
+      encoder.encode("memo-locker:" + FIXED_SALT + ":" + phrase)
+    );
+    var locBytes = new Uint8Array(locDigest);
+    var loc = "";
+
+    for (var i = 0; i < 6; i++) {
+      loc += CODE_ALPHABET.charAt(locBytes[i] % CODE_ALPHABET.length);
+    }
+
+    var baseKey = await crypto.subtle.importKey(
+      "raw", encoder.encode(phrase), "PBKDF2", false, ["deriveKey"]
+    );
+
+    var key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: encoder.encode("memo-key:" + FIXED_SALT),
+        iterations: PBKDF2_ITER,
+        hash: "SHA-256"
+      },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+
+    return { loc: loc, key: key };
+  }
+
+  function bytesToBase64(bytes) {
+    var chunk = 0x8000, pieces = [];
+    for (var i = 0; i < bytes.length; i += chunk) {
+      pieces.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)));
+    }
+    return btoa(pieces.join(""));
+  }
+
+  function base64ToBytes(text) {
+    var binary = atob(text);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  async function encryptWith(channel, text) {
+    var iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+
+    var cipher = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: iv }, channel.key, new TextEncoder().encode(text)
+    ));
+
+    var out = new Uint8Array(iv.length + cipher.length);
+    out.set(iv, 0);
+    out.set(cipher, iv.length);
+    return MAGIC + bytesToBase64(out);
+  }
+
+  async function decryptWith(channel, payload) {
+    if (payload.indexOf(MAGIC) !== 0) throw new Error("暗号化されていないデータです。");
+
+    var bytes = base64ToBytes(payload.slice(MAGIC.length));
+    if (bytes.length < 12 + 17) throw new Error("データが壊れています。");
+
+    var plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: bytes.subarray(0, 12) },
+      channel.key,
+      bytes.subarray(12)
+    );
+    return new TextDecoder().decode(plain);
+  }
+
+  // ---- 通信 ------------------------------------------------------------
+
+  async function getChannel(channel) {
+    var response = await fetch("/api/memo/" + encodeURIComponent(channel.loc), {
+      headers: { "Accept": "application/json" },
+      cache: "no-store"
+    });
+    var data = await response.json();
+    if (!data || data.ok !== true) throw new Error((data && data.message) || "受け取れませんでした。");
+    return data;
+  }
+
+  async function putChannel(channel, text) {
+    var payload = await encryptWith(channel, text);
+    var response = await fetch("/api/memo/" + encodeURIComponent(channel.loc), {
+      method: "PUT",
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: payload
+    });
+    var data = await response.json();
+    if (!data || data.ok !== true) throw new Error((data && data.message) || "送れませんでした。");
+  }
+
+  // ---- 画面 ------------------------------------------------------------
+
+  function nowStamp() {
+    var d = new Date();
+    return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+
+  function setDot(kind, title) {
+    dotEl.className = "dot" + (kind ? " " + kind : "");
+    dotEl.title = title || "";
+  }
+
+  // 回答の末尾に付く「― しごと / opus / 工数high / 続き」を見出しへ移す
+  function splitFooter(text) {
+    var lines = String(text).split("\n");
+    var last = lines[lines.length - 1].trim();
+
+    if (last.indexOf("―") === 0 && last.indexOf("/") > 0) {
+      lines.pop();
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      return { body: lines.join("\n"), footer: last.replace(/^―\s*/, "") };
+    }
+    return { body: text, footer: null };
+  }
+
+  function render() {
+    logEl.innerHTML = "";
+
+    history.forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "row " + (item.who === "me" ? "me" : "ai");
+
+      if (item.who === "note") {
+        row.className = "note";
+        row.textContent = item.text;
+      } else if (item.who === "me") {
+        var bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = item.text;
+        row.appendChild(bubble);
+      } else {
+        var mark = document.createElement("div");
+        mark.className = "mark";
+        mark.textContent = "✳";
+        var body = document.createElement("div");
+        body.className = "body";
+        body.textContent = item.text;
+        row.appendChild(mark);
+        row.appendChild(body);
+      }
+
+      logEl.appendChild(row);
+    });
+
+    if (waiting) {
+      var row2 = document.createElement("div");
+      row2.className = "row ai thinking";
+      row2.innerHTML = '<div class="mark">✳</div><div class="body">考えています…</div>';
+      logEl.appendChild(row2);
+    }
+
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function push(who, text) {
+    history.push({ who: who, text: text, at: nowStamp() });
+    if (history.length > MAX_LOG) history = history.slice(-MAX_LOG);
+    saveHistory();
+    render();
+  }
+
+  // ---- 送受信 ----------------------------------------------------------
+
+  async function send(text) {
+    text = String(text || "").trim();
+    if (!text || waiting) return;
+
+    push("me", text);
+    waiting = true;
+    setDot("busy", "送信中");
+    render();
+
+    try {
+      await putChannel(question, text);
+      setDot("busy", "返事を待っています");
+    } catch (error) {
+      waiting = false;
+      setDot("ng", "送れませんでした");
+      push("note", "送れませんでした（" + error.message + "）");
+    }
+  }
+
+  async function poll() {
+    if (!answer) return;
+
+    try {
+      var data = await getChannel(answer);
+
+      if (lastAnswerStamp === null) {
+        lastAnswerStamp = data.updatedAt || "";
+        setDot("ok", "つながっています");
+        return;
+      }
+
+      if ((data.updatedAt || "") !== lastAnswerStamp) {
+        lastAnswerStamp = data.updatedAt || "";
+        var payload = data.text || "";
+
+        if (payload.indexOf(MAGIC) === 0) {
+          var text = await decryptWith(answer, payload);
+          var parts = splitFooter(text);
+
+          waiting = false;
+          if (parts.footer) threadEl.textContent = parts.footer;
+          push("ai", parts.body);
+          setDot("ok", "つながっています");
+        }
+      } else if (!waiting) {
+        setDot("ok", "つながっています");
+      }
+    } catch (error) {
+      setDot("ng", "通信できません");
+    }
+  }
+
+  // ---- 起動 ------------------------------------------------------------
+
+  function showChat() {
+    setupEl.hidden = true;
+    barEl.hidden = false;
+    logEl.hidden = false;
+    composerEl.hidden = false;
+    render();
+
+    if (pollTimer) clearInterval(pollTimer);
+    poll();
+    pollTimer = setInterval(poll, POLL_MS);
+  }
+
+  async function start(qPhrase, aPhrase) {
+    question = await deriveFromPhrase(qPhrase);
+    answer = await deriveFromPhrase(aPhrase);
+    lastAnswerStamp = null;
+    showChat();
+  }
+
+  el("setupGo").addEventListener("click", async function () {
+    var q = el("qPhrase").value.trim().toUpperCase();
+    var a = el("aPhrase").value.trim().toUpperCase();
+    var err = el("setupErr");
+
+    if (!PHRASE_RE.test(q) || !PHRASE_RE.test(a)) {
+      err.textContent = "合言葉は数字とアルファベット（I と O は使いません）で8〜32文字です。";
+      err.hidden = false;
+      return;
+    }
+
+    if (q === a) {
+      err.textContent = "質問用と回答用は別の合言葉にしてください。";
+      err.hidden = false;
+      return;
+    }
+
+    err.hidden = true;
+    savePhrases(q, a);
+    await start(q, a);
+  });
+
+  sendEl.addEventListener("click", function () {
+    var text = inputEl.value;
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    send(text);
+  });
+
+  inputEl.addEventListener("input", function () {
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, window.innerHeight * 0.3) + "px";
+  });
+
+  // パソコンのキーボードでは Enter で送信、スマホは送信ボタンだけ
+  inputEl.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey && window.matchMedia("(pointer: fine)").matches) {
+      event.preventDefault();
+      sendEl.click();
+    }
+  });
+
+  el("menuBtn").addEventListener("click", function (event) {
+    event.stopPropagation();
+    menuEl.classList.toggle("open");
+  });
+
+  document.addEventListener("click", function () {
+    menuEl.classList.remove("open");
+  });
+
+  menuEl.addEventListener("click", function (event) {
+    event.stopPropagation();
+    var cmd = event.target.getAttribute && event.target.getAttribute("data-cmd");
+    if (cmd) {
+      menuEl.classList.remove("open");
+      send(cmd);
+    }
+  });
+
+  el("switchBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    var name = prompt("どの会話に切り替えますか（新しい名前でも作れます）");
+    if (name && name.trim()) send("切替 " + name.trim());
+  });
+
+  el("connectBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    var number = prompt("「パソコンの会話」の何番につなぎますか（先に一覧を出してください）");
+    if (number && number.trim()) send("つなぐ " + number.trim());
+  });
+
+  el("clearBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    history = [];
+    saveHistory();
+    render();
+  });
+
+  el("resetBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    try { localStorage.removeItem(PHRASE_KEY); } catch (error) { /* 消せなくても再入力はできる */ }
+    location.reload();
+  });
+
+  el("model").addEventListener("change", function (event) {
+    if (event.target.value) send("モデル " + event.target.value);
+    event.target.selectedIndex = 0;
+  });
+
+  el("effort").addEventListener("change", function (event) {
+    if (event.target.value) send("工数 " + event.target.value);
+    event.target.selectedIndex = 0;
+  });
+
+  // 最初の表示
+  loadHistory();
+  var saved = loadPhrases();
+
+  if (!window.crypto || !crypto.subtle) {
+    setupEl.hidden = false;
+    el("setupErr").hidden = false;
+    el("setupErr").textContent =
+      "この端末では暗号の機能が使えません（httpsで開いてください）。";
+  } else if (saved && saved.q && saved.a) {
+    start(saved.q, saved.a).catch(function () {
+      setupEl.hidden = false;
+    });
+  } else {
+    setupEl.hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
