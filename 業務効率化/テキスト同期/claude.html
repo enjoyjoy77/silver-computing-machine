@@ -167,9 +167,8 @@
   .thinking .body { color: var(--muted); }
 
   footer {
-    border-top: 1px solid var(--line);
     background: var(--bg);
-    padding: 10px 12px;
+    padding: 6px 12px 10px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
@@ -181,8 +180,8 @@
     gap: 8px;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 12px 14px 8px;
+    border-radius: 16px;
+    padding: 7px 10px 5px;
     flex-wrap: wrap;
   }
 
@@ -196,17 +195,18 @@
     background: transparent;
     color: inherit;
     max-height: 30vh;
-    min-height: 24px;
+    min-height: 22px;
+    padding: 2px 2px;
   }
 
   .send {
     border: none;
     background: var(--accent);
     color: #fff;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
     flex: none;
   }
@@ -217,8 +217,8 @@
     gap: 6px;
     align-items: center;
     width: 100%;
-    margin-top: 6px;
-    font-size: 13px;
+    margin-top: 2px;
+    font-size: 12px;
     color: var(--muted);
   }
 
@@ -341,7 +341,7 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
-  <div class="rev" style="padding: 6px 12px;">rev2</div>
+  <div class="rev" style="padding: 6px 12px;">rev3</div>
 </div>
 
 <main id="log" hidden></main>
