@@ -51,7 +51,11 @@
     line-height: 1;
   }
 
-  .title { font-weight: 600; letter-spacing: .02em; }
+  .title {
+    font-family: "Times New Roman", "Georgia", "Yu Mincho", serif;
+    font-size: 21px;
+    letter-spacing: .01em;
+  }
 
   .thread {
     color: var(--muted);
@@ -91,7 +95,9 @@
     padding: 16px 14px 8px;
   }
 
-  .row { margin-bottom: 22px; }
+  .inner { max-width: 720px; margin: 0 auto; }
+
+  .row { margin-bottom: 24px; }
 
   .me {
     display: flex;
@@ -99,10 +105,9 @@
   }
 
   .me .bubble {
-    background: var(--panel);
-    border: 1px solid var(--line);
+    background: #f0eee6;
     border-radius: 14px;
-    padding: 10px 14px;
+    padding: 10px 15px;
     max-width: 85%;
     white-space: pre-wrap;
     word-break: break-word;
@@ -118,10 +123,33 @@
   }
 
   .ai .body {
-    white-space: pre-wrap;
     word-break: break-word;
     flex: 1;
+    min-width: 0;
   }
+
+  /* 整形した本文 */
+  .body p { margin: 0 0 14px; white-space: pre-wrap; }
+  .body p:last-child { margin-bottom: 0; }
+  .body h3 { font-size: 16px; margin: 20px 0 8px; }
+  .body ul, .body ol { margin: 0 0 14px; padding-left: 22px; }
+  .body li { margin-bottom: 5px; }
+  .body code {
+    background: #f0eee6;
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 14px;
+  }
+  .body pre {
+    background: #f0eee6;
+    border-radius: 10px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 0 0 14px;
+  }
+  .body pre code { background: none; padding: 0; }
+  .body hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
 
   .note {
     color: var(--muted);
@@ -145,14 +173,17 @@
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
+  .shell { max-width: 720px; margin: 0 auto; }
+
   .inputrow {
     display: flex;
     align-items: flex-end;
     gap: 8px;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 8px 10px;
+    border-radius: 18px;
+    padding: 12px 14px 8px;
+    flex-wrap: wrap;
   }
 
   textarea {
@@ -172,10 +203,10 @@
     border: none;
     background: var(--accent);
     color: #fff;
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    font-size: 17px;
+    font-size: 14px;
     cursor: pointer;
     flex: none;
   }
@@ -183,12 +214,12 @@
 
   .opts {
     display: flex;
-    gap: 10px;
+    gap: 6px;
     align-items: center;
-    margin-top: 8px;
+    width: 100%;
+    margin-top: 6px;
     font-size: 13px;
     color: var(--muted);
-    flex-wrap: wrap;
   }
 
   select {
@@ -196,9 +227,11 @@
     font-size: 13px;
     color: var(--muted);
     background: transparent;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 3px 6px;
+    border: none;
+    padding: 2px 2px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   .menu {
@@ -289,7 +322,7 @@
 
 <header id="bar" hidden>
   <span class="logo">✳</span>
-  <span class="title">claude</span>
+  <span class="title">Claude</span>
   <span id="threadName" class="thread"></span>
   <span class="spacer"></span>
   <span id="dot" class="dot" title="状態"></span>
@@ -308,33 +341,35 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
+  <div class="rev" style="padding: 6px 12px;">rev2</div>
 </div>
 
 <main id="log" hidden></main>
 
 <footer id="composer" hidden>
-  <div class="inputrow">
-    <textarea id="input" rows="1" placeholder="メッセージを入力"></textarea>
-    <button id="send" class="send" aria-label="送信">↑</button>
-  </div>
-  <div class="opts">
-    <select id="model">
-      <option value="">モデル</option>
-      <option value="opus">opus</option>
-      <option value="sonnet">sonnet</option>
-      <option value="fable">fable</option>
-      <option value="haiku">haiku</option>
-    </select>
-    <select id="effort">
-      <option value="">工数</option>
-      <option value="low">low</option>
-      <option value="medium">medium</option>
-      <option value="high">high</option>
-      <option value="xhigh">xhigh</option>
-      <option value="max">max</option>
-    </select>
-    <span class="spacer"></span>
-    <span class="rev">rev1</span>
+  <div class="shell">
+    <div class="inputrow">
+      <textarea id="input" rows="1" placeholder="メッセージを入力"></textarea>
+      <div class="opts">
+        <span class="spacer"></span>
+        <select id="model" title="モデル">
+          <option value="">Opus</option>
+          <option value="opus">Opus</option>
+          <option value="sonnet">Sonnet</option>
+          <option value="fable">Fable</option>
+          <option value="haiku">Haiku</option>
+        </select>
+        <select id="effort" title="工数">
+          <option value="">中</option>
+          <option value="low">低</option>
+          <option value="medium">中</option>
+          <option value="high">高</option>
+          <option value="xhigh">特高</option>
+          <option value="max">最大</option>
+        </select>
+        <button id="send" class="send" aria-label="送信">↑</button>
+      </div>
+    </div>
   </div>
 </footer>
 
@@ -522,8 +557,106 @@
     return { body: text, footer: null };
   }
 
+  // ---- Markdownの簡易整形 ---------------------------------------------
+  // ライブラリは使わず、**太字**・箇条書き・見出し・コードだけを整える。
+  // HTMLは必ず先に打ち消してから組み立てる(回答の中のタグをそのまま実行させない)。
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function inlineMarkdown(text) {
+    return escapeHtml(text)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  }
+
+  function renderMarkdown(text) {
+    var lines = String(text).split("\n");
+    var html = [];
+    var list = null;      // "ul" | "ol" | null
+    var paragraph = [];
+    var code = null;      // コードブロックの中身
+
+    function closeParagraph() {
+      if (paragraph.length) {
+        html.push("<p>" + inlineMarkdown(paragraph.join("\n")) + "</p>");
+        paragraph = [];
+      }
+    }
+
+    function closeList() {
+      if (list) { html.push("</" + list + ">"); list = null; }
+    }
+
+    lines.forEach(function (line) {
+      if (/^```/.test(line.trim())) {
+        if (code === null) {
+          closeParagraph();
+          closeList();
+          code = [];
+        } else {
+          html.push("<pre><code>" + escapeHtml(code.join("\n")) + "</code></pre>");
+          code = null;
+        }
+        return;
+      }
+
+      if (code !== null) { code.push(line); return; }
+
+      if (!line.trim()) { closeParagraph(); closeList(); return; }
+
+      var heading = line.match(/^#{1,6}\s+(.*)$/);
+      if (heading) {
+        closeParagraph(); closeList();
+        html.push("<h3>" + inlineMarkdown(heading[1]) + "</h3>");
+        return;
+      }
+
+      if (/^\s*([-*—―]{3,})\s*$/.test(line)) {
+        closeParagraph(); closeList();
+        html.push("<hr>");
+        return;
+      }
+
+      var bullet = line.match(/^\s*[-*・]\s+(.*)$/);
+      if (bullet) {
+        closeParagraph();
+        if (list !== "ul") { closeList(); html.push("<ul>"); list = "ul"; }
+        html.push("<li>" + inlineMarkdown(bullet[1]) + "</li>");
+        return;
+      }
+
+      var numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (numbered) {
+        closeParagraph();
+        if (list !== "ol") { closeList(); html.push("<ol>"); list = "ol"; }
+        html.push("<li>" + inlineMarkdown(numbered[1]) + "</li>");
+        return;
+      }
+
+      closeList();
+      paragraph.push(line);
+    });
+
+    if (code !== null) {
+      html.push("<pre><code>" + escapeHtml(code.join("\n")) + "</code></pre>");
+    }
+    closeParagraph();
+    closeList();
+
+    return html.join("");
+  }
+
   function render() {
     logEl.innerHTML = "";
+    var inner = document.createElement("div");
+    inner.className = "inner";
+    logEl.appendChild(inner);
 
     history.forEach(function (item) {
       var row = document.createElement("div");
@@ -543,19 +676,19 @@
         mark.textContent = "✳";
         var body = document.createElement("div");
         body.className = "body";
-        body.textContent = item.text;
+        body.innerHTML = renderMarkdown(item.text);
         row.appendChild(mark);
         row.appendChild(body);
       }
 
-      logEl.appendChild(row);
+      inner.appendChild(row);
     });
 
     if (waiting) {
       var row2 = document.createElement("div");
       row2.className = "row ai thinking";
-      row2.innerHTML = '<div class="mark">✳</div><div class="body">考えています…</div>';
-      logEl.appendChild(row2);
+      row2.innerHTML = '<div class="mark">✳</div><div class="body"><p>考えています…</p></div>';
+      inner.appendChild(row2);
     }
 
     logEl.scrollTop = logEl.scrollHeight;
