@@ -169,7 +169,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v7 rev8";   // rev8=C1「掌と指の接触範囲差」(掌は広く浅い面押し・指は局所の点押し。共通部品hands.jsから掌分類isPalmを受領) / rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
+const REV = "v7 rev9";   // rev9=素体をSiroinoSotai(CC0・Mobile版3500ポリ)に差し替え(Breasts_flat焼き込み済みGLB・切断ラインはボーン実測から再計算) / rev8=C1「掌と指の接触範囲差」(掌は広く浅い面押し・指は局所の点押し。共通部品hands.jsから掌分類isPalmを受領) / rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -314,12 +314,12 @@ const TUNE = {
                          // v4 rev2で0.5→0.35: 果肉(内部粒)が支えを持った今、床を深くして写真のような深い沈み込みを許す
                          // (床が浅いと、そこで表面が止まった先は見えない=手が皮膚にめり込んで「貫通」に見える)
   // --- 上半身の素体(段階3-1) ---
-  torsoNippleY: 1.24,    // 素体の足元からバストの高さ(m)。ここが胸板の中心に合う(画像検証で調整)
+  torsoNippleY: 1.36,    // 素体の足元からバストの高さ(m)。SiroinoSotaiの胸頂点帯(Blender実測1.32〜1.43)の中心
   torsoChestZ: 0.075,    // 素体の胸の面の前後位置(m)。ふくらみの付け根が胸の面に乗るよう調整
-  cutNeckY: 1.40,        // マネキン化: これより上(首・頭)を落とす(モデル座標・足元0)
-  cutHipY: 0.78,         // マネキン化: これより下(脚)を落とす
-  cutArmX: 0.20,         // マネキン化: 中心からこれより外(腕)を落とす(y>0.9の範囲)
-  flatK: 0.22,           // 素体の胸の平胸化の強さ(0=完全に平ら, 1=そのまま)。小さいふくらみでも素体の胸と矛盾しないように
+  cutNeckY: 1.46,        // マネキン化: これより上(首・頭)を落とす(モデル座標・足元0。Neckボーン1.481の少し下)
+  cutHipY: 1.00,         // マネキン化: これより下(脚)を落とす(UpperLegボーン0.979の少し上=股の分かれ目より上で切ると断面が綺麗)
+  cutArmX: 0.15,         // マネキン化: 中心からこれより外(腕)を落とす(UpperArmボーンx=0.126)
+  flatK: 0.35,           // 素体の胸の平胸化の強さ(0=完全に平ら, 1=そのまま)。SiroinoSotaiはBreasts_flat焼き込み済みだが浅い出っ張りが残るため実行時にもならす
   sagShape: 0.20,        // 涙型: 先端が下へ垂れる量(半径×これ)。乳頭が下に来て「ボール」でなくなる主因
   fullBottom: 0.13,      // 涙型: 下半分のふくらみ増し
   apexY: -0.10,          // 一番前に出る高さ(乳頭)=中心より少し下。ここを中心に上はなだらか下はふっくら
@@ -439,9 +439,13 @@ skinTex.wrapS = skinTex.wrapT = THREE.RepeatWrapping;
 skinTex.repeat.set(3, 3);   // 継ぎ目のない素材を体表全体で繰り返し、毛穴の粒度を人間サイズに合わせる
 skinTex.anisotropy = 4;
 const torsoMat = bustMat.clone();
-torsoMat.map = skinTex;
-torsoMat.color.set(0xffffff);   // 色は写真側に任せる(colorを掛けると濁るため白に)
+// v7 rev9: 写真テクスチャ(skin_texture.jpg)は旧素体のUV前提で、SiroinoSotaiに貼ると暗い茶色に化ける(実画像で確認)。
+// 新素体はふくらみと同じ無地肌色+付属ノーマルマップ(UVが一致する正しい凹凸)で統一する。
+torsoMat.color.set(0xf2c9b4);   // bustMatと同色=ふくらみと胴体の色を揃える
 torsoMat.onBeforeCompile = bustMat.onBeforeCompile;
+const siroNrm = new THREE.TextureLoader().load("./lib/models/siroino_normal.png");
+siroNrm.flipY = false;   // 地雷: glTFのUVは上下反転なし。three既定(flipY=true)のままだと凹凸が上下逆になる
+torsoMat.normalMap = siroNrm;
 
 // トポロジ（単位球。両方のふくらみで共有）
 let N, tri, triN, edge, edgeN, edgeLenU, edgeTriA, edgeTriB, vertexTriOffset, vertexTriIds, rest, restRawU, invMass, grad, restVolU, vmap, vCount, baseGeo, pinCount;
@@ -661,7 +665,7 @@ plateMesh.position.set(0,0,-0.010); plateGroup.add(plateMesh);
 let torso = null;
 const _dracoLoader = new DRACOLoader().setDecoderPath("./lib/draco/");   // Draco復元器(オフライン同梱・展開は別スレッド)。読めなければ従来どおり板にフォールバック
 const _gltfLoader = new GLTFLoader(); _gltfLoader.setDRACOLoader(_dracoLoader);
-_gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
+_gltfLoader.load("./lib/models/siroino_torso.glb", (gltf)=>{
   torso = gltf.scene;
   bustMat.side = THREE.DoubleSide;   // カット断面から内側が見えても肌色に(ふくらみは閉じているので無害)
   torsoMat.side = THREE.DoubleSide;
@@ -684,7 +688,7 @@ _gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
     const zWall = (fminz+fmaxz)/2 + 0.055;
     for(let v=0;v<vc;v++){
       const yv=sy[v]-y0, xv=Math.abs(sx[v]-cx0);
-      if(yv>1.08 && yv<1.36 && xv<0.17 && sz[v]>zWall){
+      if(yv>1.28 && yv<1.45 && xv<0.12 && sz[v]>zWall){   // 胸ゾーンはSiroinoSotai実測(胸帯1.32〜1.43m・半幅0.12)に合わせ再計算
         const znew = zWall + (sz[v]-zWall)*TUNE.flatK;
         pa.setZ(v, pa.getZ(v) + (znew - sz[v]));
         sz[v] = znew;
@@ -693,7 +697,7 @@ _gltfLoader.load("./lib/models/female_base.glb", (gltf)=>{
     pa.needsUpdate = true;
     // マネキン化: 首から上・肩の外(腕)・腰から下の三角形を落とす(足元からの高さで判定)
     const cut=(v)=>{ const x=Math.abs(sx[v]-cx0), y=sy[v]-y0;
-      return (y>TUNE.cutNeckY) || (y<TUNE.cutHipY) || (x>TUNE.cutArmX) || (x>0.165 && y>1.02); };   // 腕: 全高で外側+わき高さは内側の面も落とす(腰の張りは残す)
+      return (y>TUNE.cutNeckY) || (y<TUNE.cutHipY) || (x>TUNE.cutArmX) || (x>0.105 && y>1.42); };   // 腕: 全高で外側+わき高さは内側の面も落とす(腰の張りは残す)。わき条件はSiroinoSotai比率(肩1.456・腕x0.126)に合わせ再計算
     if(idx){
       const keep=[];
       for(let t=0;t<idx.length;t+=3){ if(!(cut(idx[t])||cut(idx[t+1])||cut(idx[t+2]))){ keep.push(idx[t],idx[t+1],idx[t+2]);
