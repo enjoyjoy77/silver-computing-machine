@@ -376,7 +376,7 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
-  <div class="rev" style="padding: 6px 12px;">rev5</div>
+  <div class="rev" style="padding: 6px 12px;">rev6</div>
 </div>
 
 <div id="topzone" class="topzone" hidden></div>
@@ -562,7 +562,7 @@
     var payload = await encryptWith(channel, text);
     var response = await fetch("/api/memo/" + encodeURIComponent(channel.loc), {
       method: "PUT",
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: { "Content-Type": "text/plain; charset=utf-8", "X-Memo-Ttl-Minutes": "70" },
       body: payload
     });
     var data = await response.json();

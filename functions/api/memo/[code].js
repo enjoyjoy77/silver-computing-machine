@@ -8,6 +8,9 @@ import {
 
 const MAX_TEXT_BYTES = 64 * 1024;
 const EXPIRES_MS = 5 * 60 * 1000;
+// リモコン中継の間欠運転(PCが1時間おきに起きる)向けに、送信側が
+// X-Memo-Ttl-Minutes ヘッダで保存時間を延ばせる。上限70分。指定なしは従来通り5分。
+const MAX_TTL_MINUTES = 70;
 const CODE_RE = /^[0-9A-HJ-NP-Z]{6}$/;
 
 function normalizeCode(value) {
@@ -148,9 +151,18 @@ async function handlePut(context) {
     );
   }
 
+  let ttlMs = EXPIRES_MS;
+  const ttlHeader = request.headers.get("X-Memo-Ttl-Minutes");
+  if (ttlHeader !== null) {
+    const minutes = Number(ttlHeader);
+    if (Number.isFinite(minutes) && minutes >= 1 && minutes <= MAX_TTL_MINUTES) {
+      ttlMs = Math.floor(minutes) * 60 * 1000;
+    }
+  }
+
   const now = new Date();
   const updatedAt = now.toISOString();
-  const expiresAt = new Date(now.getTime() + EXPIRES_MS).toISOString();
+  const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
 
   await bucket.put(objectKey(code), text, {
     httpMetadata: {

@@ -99,6 +99,11 @@
     <button class="engBtn" id="engC0" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:#e0719c;color:#fff;cursor:pointer;">あたらしい触感（C0）</button>
     <button class="engBtn" id="engV5" style="border:2px solid #e0719c;border-radius:12px;padding:10px 18px;font:inherit;font-size:15px;background:transparent;color:#e0719c;cursor:pointer;">これまで（v5）</button>
   </div>
+  <!-- 素体の表示範囲(v7 rev10): 上半身マネキン or 全身。読み込み済みGLBの面リストを貼り替えるだけなので即時切替 -->
+  <div id="bodySel" style="margin:0 0 14px; display:flex; gap:10px; justify-content:center;">
+    <button class="bodyBtn" id="bodyTorso" style="border:2px solid #8fae6b;border-radius:12px;padding:8px 16px;font:inherit;font-size:14px;background:#8fae6b;color:#fff;cursor:pointer;">上半身だけ</button>
+    <button class="bodyBtn" id="bodyFull" style="border:2px solid #8fae6b;border-radius:12px;padding:8px 16px;font:inherit;font-size:14px;background:transparent;color:#8fae6b;cursor:pointer;">全身</button>
+  </div>
   <!-- 過去版(公開Gitの履歴から発掘した実物。別ページとして開く) -->
   <div id="oldVers" style="margin:0 0 12px; display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap;">
     <span style="font-size:12px; opacity:.75;">むかしの版:</span>
@@ -169,7 +174,7 @@ import { forEachHandBonePoint } from "./lib/hands.js";               // 素手�
 import { GLTFLoader } from "./lib/GLTFLoader.js";                    // 上半身の素体モデル読み込み用
 import { DRACOLoader } from "./lib/DRACOLoader.js";                  // 素体GLBのDraco圧縮を復元(three r160・オフライン同梱・別スレッドで展開)
 
-const REV = "v7 rev9";   // rev9=素体をSiroinoSotai(CC0・Mobile版3500ポリ)に差し替え(Breasts_flat焼き込み済みGLB・切断ラインはボーン実測から再計算) / rev8=C1「掌と指の接触範囲差」(掌は広く浅い面押し・指は局所の点押し。共通部品hands.jsから掌分類isPalmを受領) / rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
+const REV = "v7 rev11";   // rev11=素体見た目の総直し(ユーザー指摘「明らかにおかしい」対応: Mobile版670面のカクカク→PC版16,704ポリへ・バスト高さ1.36→1.31・間隔0.085→0.07・Draco圧縮70KB) / rev10=開始画面に「上半身だけ/全身」ボタン(切断前後の面リストを保存し貼り替え・即時切替) / rev9=素体をSiroinoSotai(CC0・Mobile版3500ポリ)に差し替え(Breasts_flat焼き込み済みGLB・切断ラインはボーン実測から再計算) / rev8=C1「掌と指の接触範囲差」(掌は広く浅い面押し・指は局所の点押し。共通部品hands.jsから掌分類isPalmを受領) / rev7=C0のC2「縁の盛り上がり」。凹みカーネル外周へ深さ比例の滑らかなrim bulge(肉の押しのけ表現) / rev6=ピンチ解放時のC0限定ぷるん(解放時の法線変位を減衰振動として引き継ぐ。保持中・v5では発生しない) / rev5=ピンチ掴み段階3(掴み成立音・摩擦限界接近音・滑り連続音・解放音。素手は振動不可のため音が主役) / rev4=ピンチ掴み段階2(接線の摩擦上限を超えたら滑る・引張は硬く圧縮は柔らかい非対称追従) / rev3=Webカメラ手認識の実機①対応(認識ゲート緩和0.55→0.35・LOST後は再キャリブ無しで即READY復帰・状態の日本語常時表示#wcStatus・誘導枠付きPIPを最初から表示・解像度1280) / rev2=PC Webカメラ手認識(MediaPipe同梱・固定8点・相対スケール押し込み・完全オフライン)をC0へ追加(設計書_v6_PCカメラ手トラッキング.md) / C0=直接変形エンジン。開始画面のボタンでC0/v5を選択(?mode=v5でも可)。凍結=mune_v5rev4凍結.html / v6 rev3=素体GLBをDraco圧縮(1.48MB→80KB) / rev4=素手の当たり判定を共通部品(xr-hands)の骨格コライダーに一本化・handMinR 0.009→0.006 / rev5=共通部品のnearにふくらみ2つの現在位置+半径を渡し、手が遠い間はコライダー点ゼロに(待機時の軽量化) / rev6=マネキン(素体GLB)だけに写真の肌テクスチャ(lib/skin_texture.jpg)を貼るtorsoMatを追加 / rev7=開始画面に過去版ボタン(v1〜v4) / v7 rev1=片手ピンチ掴み(親指先+人差し指先の距離をヒステリシス判定し、最寄りの表面パッチを位置拘束で追従。設計書_v7構想_リサーチ統合版.md 7-1)
 document.getElementById("rev").textContent = REV;
 
 /* ============================================================
@@ -231,7 +236,7 @@ const TUNE = {
   // pressure は v5 で廃止(常時内圧=水風船の正体)。体積は volGuardLo/Hi のデッドゾーン式見張りに置換
   gravity: 1.3,          // 重力(m/s^2)。少し垂れ下がる（大きすぎると垂れすぎる）
   pinZ: -0.45,           // 静止形(単位球)でこのZより後ろの粒を板に固定＝根元
-  mountX: 0.085,         // ふくらみの左右の間隔（板の中心から±この距離）(m)
+  mountX: 0.07,          // ふくらみの左右の間隔（板の中心から±この距離）(m)。SiroinoSotaiは細身のため旧0.085から狭めた(0.06だと左右がめり込み谷が潰れる)
   standoff: 0.55,        // ふくらみの中心を板からどれだけ前に出すか（半径×これ）
   fingerR: 0.026,        // 指先の当たり半径(m)（PCつつき・フォールバック用）
   handMinR: 0.006,       // 手の骨格コライダの下限半径(m)。位置は純正のまま。
@@ -314,12 +319,13 @@ const TUNE = {
                          // v4 rev2で0.5→0.35: 果肉(内部粒)が支えを持った今、床を深くして写真のような深い沈み込みを許す
                          // (床が浅いと、そこで表面が止まった先は見えない=手が皮膚にめり込んで「貫通」に見える)
   // --- 上半身の素体(段階3-1) ---
-  torsoNippleY: 1.36,    // 素体の足元からバストの高さ(m)。SiroinoSotaiの胸頂点帯(Blender実測1.32〜1.43)の中心
+  torsoNippleY: 1.31,    // 素体の足元からバストの高さ(m)。1.36(実測帯の中心)だと鎖骨の高さに見えたため画像検証で下げた
   torsoChestZ: 0.075,    // 素体の胸の面の前後位置(m)。ふくらみの付け根が胸の面に乗るよう調整
   cutNeckY: 1.46,        // マネキン化: これより上(首・頭)を落とす(モデル座標・足元0。Neckボーン1.481の少し下)
   cutHipY: 1.00,         // マネキン化: これより下(脚)を落とす(UpperLegボーン0.979の少し上=股の分かれ目より上で切ると断面が綺麗)
   cutArmX: 0.15,         // マネキン化: 中心からこれより外(腕)を落とす(UpperArmボーンx=0.126)
   flatK: 0.35,           // 素体の胸の平胸化の強さ(0=完全に平ら, 1=そのまま)。SiroinoSotaiはBreasts_flat焼き込み済みだが浅い出っ張りが残るため実行時にもならす
+  fullBody: false,       // v7 rev10: true=全身を表示(マネキン化カットをしない)。開始画面のボタンで切替
   sagShape: 0.20,        // 涙型: 先端が下へ垂れる量(半径×これ)。乳頭が下に来て「ボール」でなくなる主因
   fullBottom: 0.13,      // 涙型: 下半分のふくらみ増し
   apexY: -0.10,          // 一番前に出る高さ(乳頭)=中心より少し下。ここを中心に上はなだらか下はふっくら
@@ -386,6 +392,24 @@ function syncEngineButtons(){
 document.getElementById("engC0").addEventListener("click", ()=>{ TUNE.engineC0=true; syncEngineButtons(); });
 document.getElementById("engV5").addEventListener("click", ()=>{ TUNE.engineC0=false; syncEngineButtons(); });
 syncEngineButtons();
+
+// v7 rev10: 素体の表示範囲(上半身マネキン/全身)。保存済みの面リストを貼り替えるだけ=再読み込み不要・物理不変
+function applyBodyMode(){
+  if(typeof torso==="undefined" || !torso) return;
+  torso.traverse(o=>{ if(o.isMesh && o.geometry.userData && o.geometry.userData.fullIndex){
+    const g=o.geometry;
+    g.setIndex(new THREE.BufferAttribute(TUNE.fullBody ? g.userData.fullIndex : g.userData.torsoIndex, 1));
+    g.computeBoundingSphere();   // レイキャスト(曲面フィット)用の境界も更新
+  }});
+}
+function syncBodyButtons(){
+  const t=document.getElementById("bodyTorso"), f=document.getElementById("bodyFull");
+  const on=(b,sel)=>{ b.style.background = sel ? "#8fae6b" : "transparent"; b.style.color = sel ? "#fff" : "#8fae6b"; };
+  on(t, !TUNE.fullBody); on(f, TUNE.fullBody);
+}
+document.getElementById("bodyTorso").addEventListener("click", ()=>{ TUNE.fullBody=false; applyBodyMode(); syncBodyButtons(); });
+document.getElementById("bodyFull").addEventListener("click", ()=>{ TUNE.fullBody=true; applyBodyMode(); syncBodyButtons(); });
+syncBodyButtons();
 applyFeel();
 
 /* ============================================================
@@ -702,10 +726,15 @@ _gltfLoader.load("./lib/models/siroino_torso.glb", (gltf)=>{
       const keep=[];
       for(let t=0;t<idx.length;t+=3){ if(!(cut(idx[t])||cut(idx[t+1])||cut(idx[t+2]))){ keep.push(idx[t],idx[t+1],idx[t+2]);
         for(let k=0;k<3;k++){ const v=idx[t+k]; if(sx[v]<kminx)kminx=sx[v]; if(sx[v]>kmaxx)kmaxx=sx[v]; if(sz[v]<kminz)kminz=sz[v]; if(sz[v]>kmaxz)kmaxz=sz[v]; } } }
-      g.setIndex(new THREE.BufferAttribute(new Uint32Array(keep), 1));   // ※indexはUint必須
+      // v7 rev10: 全身/上半身の両方の面リストを保存しボタンで貼り替え(位置決めは常に上半身bbox基準=切替でズレない)
+      g.userData.fullIndex = new Uint32Array(idx);          // 切断前の全身
+      g.userData.torsoIndex = new Uint32Array(keep);        // マネキン化後の上半身
+      g.computeVertexNormals();   // 法線は全身の面リストが有効なうちに計算(両モード共用の滑らかな法線)
+      g.setIndex(new THREE.BufferAttribute(TUNE.fullBody ? g.userData.fullIndex : g.userData.torsoIndex, 1));   // ※indexはUint必須
+    } else {
+      g.computeVertexNormals();
     }
     if(y0<kfeet) kfeet=y0;
-    g.computeVertexNormals();   // 滑らかな法線=カクカクした面の継ぎ目を消す
     g.computeBoundingSphere();  // 平胸化で頂点を動かしたのでレイキャスト用の境界も更新
     o.material = torsoMat;      // マネキンは写真テクスチャ入りの肌素材(ふくらみは従来のbustMatのまま)
     o.frustumCulled = false;
