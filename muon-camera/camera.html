@@ -8,19 +8,18 @@
   :root { --bar-h: 150px; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { height:100%; background:#000; color:#fff; font-family:-apple-system,"Hiragino Sans",sans-serif; overflow:hidden; overscroll-behavior:none; }
+  button { font-family:inherit; }
   #stage { position:fixed; inset:0; bottom:var(--bar-h); overflow:hidden; display:flex; align-items:center; justify-content:center; background:#000; }
   #view { width:100%; height:100%; object-fit:cover; transform-origin:center center; }
   #rev { position:fixed; top:calc(env(safe-area-inset-top) + 6px); right:8px; font-size:11px; color:#888; z-index:30; }
-  /* 撮影フィードバック(音の代わりの光) */
-  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:20; }
-  #flash.on { animation:fl .18s ease-out; }
-  @keyframes fl { 0%{opacity:.7} 100%{opacity:0} }
+  /* 撮影成功フラッシュ(約60ms表示→素早く消える。フェードインなし) */
+  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:20; transition:none; }
   /* 上部の情報 */
   #topinfo { position:fixed; top:calc(env(safe-area-inset-top) + 6px); left:0; right:0; text-align:center; z-index:25; pointer-events:none; }
   #rectime { display:none; background:rgba(200,0,0,.85); border-radius:14px; padding:4px 14px; font-size:15px; font-variant-numeric:tabular-nums; }
   #rectime.on { display:inline-block; }
-  #count { position:fixed; top:calc(env(safe-area-inset-top) + 6px); left:10px; font-size:13px; color:#ccc; z-index:25; }
-  #msg { position:fixed; left:12px; right:12px; top:40%; background:rgba(0,0,0,.8); border:1px solid #555; border-radius:12px; padding:14px; font-size:15px; line-height:1.6; z-index:40; display:none; white-space:pre-wrap; }
+  #count { position:fixed; top:calc(env(safe-area-inset-top) + 6px); left:10px; font-size:14px; color:#9f9; z-index:25; }
+  #msg { position:fixed; left:12px; right:12px; top:38%; background:rgba(0,0,0,.85); border:1px solid #555; border-radius:12px; padding:14px; font-size:15px; line-height:1.6; z-index:40; display:none; white-space:pre-wrap; }
   /* ズーム */
   #zoombar { position:fixed; bottom:calc(var(--bar-h) + 12px); left:0; right:0; display:flex; justify-content:center; gap:10px; z-index:25; }
   .zbtn { min-width:44px; height:34px; border-radius:17px; border:none; background:rgba(40,40,40,.7); color:#fff; font-size:14px; }
@@ -30,19 +29,29 @@
   #modes { display:flex; gap:8px; }
   .mbtn { padding:6px 18px; border-radius:16px; border:none; background:#222; color:#aaa; font-size:14px; }
   .mbtn.sel { background:#444; color:#ffd60a; font-weight:bold; }
-  #row { display:flex; align-items:center; justify-content:center; gap:36px; width:100%; }
-  #shutter { width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#fff; padding:0; }
+  #row { display:flex; align-items:center; justify-content:center; gap:32px; width:100%; }
+  #shutter { width:82px; height:82px; border-radius:50%; border:5px solid #fff; background:#fff; padding:0; flex:none; }
   #shutter:active { transform:scale(.92); }
-  #shutter.rec { background:#e33; border-color:#fff; }
-  #shutter.recing { border-radius:16px; background:#e33; width:56px; height:56px; margin:9px; }
-  #flip { width:52px; height:52px; border-radius:50%; border:none; background:#222; color:#fff; font-size:24px; }
-  #spacer { width:52px; height:52px; visibility:hidden; }
+  #shutter.rec { background:#e33; }
+  #shutter.recing { border-radius:18px; background:#e33; width:60px; height:60px; margin:11px; }
+  #flip, #shareBtn { width:56px; height:56px; border-radius:50%; border:none; background:#222; color:#fff; font-size:22px; flex:none; position:relative; }
+  #shareBadge { position:absolute; top:-4px; right:-4px; min-width:20px; height:20px; border-radius:10px; background:#ffd60a; color:#000; font-size:12px; font-weight:bold; line-height:20px; padding:0 4px; display:none; }
+  /* 共有パネル */
+  #panel { position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; }
+  #panel.on { display:flex; }
+  #panel .info { font-size:14px; color:#bbb; line-height:1.7; }
+  #panel button { width:min(320px, 90%); padding:14px; border-radius:14px; border:none; font-size:16px; }
+  #pShare { background:#ffd60a; color:#000; font-weight:bold; }
+  #pDel { background:#511; color:#faa; }
+  #pClose { background:#333; color:#fff; }
+  #panel button:disabled { opacity:.4; }
+  #warn7 { font-size:12px; color:#e9b; }
 </style>
 </head>
 <body>
 <div id="stage"><video id="view" autoplay playsinline muted></video></div>
 <div id="flash"></div>
-<div id="rev">rev 1</div>
+<div id="rev">rev 2</div>
 <div id="topinfo"><span id="rectime">0:00</span></div>
 <div id="count"></div>
 <div id="msg"></div>
@@ -57,31 +66,43 @@
     <button class="mbtn" id="mVideo">動画</button>
   </div>
   <div id="row">
-    <div id="spacer"></div>
+    <button id="shareBtn" aria-label="共有">📤<span id="shareBadge"></span></button>
     <button id="shutter" aria-label="撮影"></button>
     <button id="flip" aria-label="カメラ切替">⟳</button>
   </div>
 </div>
+<div id="panel">
+  <div class="info" id="pInfo"></div>
+  <button id="pShare">未共有をまとめて共有</button>
+  <button id="pDel">共有済みデータを削除</button>
+  <button id="pClose">とじる</button>
+  <div id="warn7">※撮った写真はこのSafariの中に貯まります。7日以上このページを開かないと
+iPhoneが自動で消すことがあるため、撮影した日のうちに共有(書き出し)してください。</div>
+</div>
 <script>
 "use strict";
 var video = document.getElementById("view");
-var stage = document.getElementById("stage");
 var msgEl = document.getElementById("msg");
 var countEl = document.getElementById("count");
 var recTimeEl = document.getElementById("rectime");
 var shutterBtn = document.getElementById("shutter");
+var flashEl = document.getElementById("flash");
 
 var stream = null;
-var facing = "environment";   // 背面から開始
-var mode = "photo";           // photo | video
+var facing = "environment";
+var mode = "photo";
 var zoom = 1;
-var nativeZoom = false;       // 端末が本物のズームに対応しているか
-var shotCount = 0;
+var nativeZoom = false;
 var recorder = null;
 var recChunks = [];
 var recTimer = null;
 var recStart = 0;
 var busy = false;
+var db = null;
+var flashTimer = null;
+
+var BATCH_MAX_FILES = 24;               // 一度に共有する上限(枚)
+var BATCH_MAX_BYTES = 80 * 1024 * 1024; // 一度に共有する上限(合計サイズ)
 
 function showMsg(text, sticky) {
   msgEl.textContent = text;
@@ -95,18 +116,86 @@ function stamp() {
          pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
 }
 
+// ---- IndexedDB(ブラウザ内の永続保存) ----
+function openDB() {
+  return new Promise(function(resolve, reject){
+    var req = indexedDB.open("muoncam", 1);
+    req.onupgradeneeded = function(){
+      var d = req.result;
+      if (!d.objectStoreNames.contains("media")) {
+        var st = d.createObjectStore("media", { keyPath: "id", autoIncrement: true });
+        st.createIndex("shared", "shared");
+      }
+    };
+    req.onsuccess = function(){ resolve(req.result); };
+    req.onerror = function(){ reject(req.error); };
+  });
+}
+function dbAdd(rec) {
+  return new Promise(function(resolve, reject){
+    var tx = db.transaction("media", "readwrite");
+    tx.objectStore("media").add(rec);
+    tx.oncomplete = function(){ resolve(); };
+    tx.onerror = function(){ reject(tx.error); };
+    tx.onabort = function(){ reject(tx.error || new Error("abort")); };
+  });
+}
+function dbAll() {
+  return new Promise(function(resolve, reject){
+    var tx = db.transaction("media", "readonly");
+    var req = tx.objectStore("media").getAll();
+    req.onsuccess = function(){ resolve(req.result || []); };
+    req.onerror = function(){ reject(req.error); };
+  });
+}
+function dbMarkShared(ids) {
+  return new Promise(function(resolve, reject){
+    var tx = db.transaction("media", "readwrite");
+    var st = tx.objectStore("media");
+    ids.forEach(function(id){
+      var g = st.get(id);
+      g.onsuccess = function(){
+        var r = g.result;
+        if (r) { r.shared = 1; delete r.blob_removed; st.put(r); }
+      };
+    });
+    tx.oncomplete = function(){ resolve(); };
+    tx.onerror = function(){ reject(tx.error); };
+  });
+}
+function dbDeleteShared() {
+  return new Promise(function(resolve, reject){
+    var tx = db.transaction("media", "readwrite");
+    var st = tx.objectStore("media");
+    var req = st.getAll();
+    req.onsuccess = function(){
+      (req.result || []).forEach(function(r){ if (r.shared) st.delete(r.id); });
+    };
+    tx.oncomplete = function(){ resolve(); };
+    tx.onerror = function(){ reject(tx.error); };
+  });
+}
+
+// ---- 保存枚数の表示 ----
+var counts = { total: 0, unshared: 0 };
+function refreshCount() {
+  return dbAll().then(function(list){
+    counts.total = list.length;
+    counts.unshared = list.filter(function(r){ return !r.shared; }).length;
+    countEl.textContent = counts.total ? ("✓ 保存済み " + counts.total + "枚") : "";
+    var badge = document.getElementById("shareBadge");
+    if (counts.unshared) { badge.textContent = counts.unshared; badge.style.display = "block"; }
+    else badge.style.display = "none";
+  });
+}
+
 // ---- カメラ起動 ----
 function startCamera() {
   if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
   var wantAudio = (mode === "video");
   var constraints = {
     audio: wantAudio,
-    video: {
-      facingMode: facing,
-      width: { ideal: 4032 },
-      height: { ideal: 3024 },
-      frameRate: { ideal: 30 }
-    }
+    video: { facingMode: facing, width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 30 } }
   };
   return navigator.mediaDevices.getUserMedia(constraints).then(function(s){
     stream = s;
@@ -116,9 +205,7 @@ function startCamera() {
   }).catch(function(err){
     var name = (err && err.name) || "";
     if (name === "NotAllowedError") {
-      showMsg("カメラの許可がありません。\nSafariのアドレスバー左の「ぁあ」→ Webサイトの設定 → カメラを「許可」にして、ページを再読み込みしてください。", true);
-    } else if (name === "NotFoundError") {
-      showMsg("カメラが見つかりませんでした。iPhoneのSafariで開いているか確認してください。", true);
+      showMsg("カメラの許可がありません。\nアドレスバー左の「ぁあ」→ Webサイトの設定 → カメラを「許可」にすると、次から毎回聞かれなくなります。設定後にページを再読み込みしてください。", true);
     } else {
       showMsg("カメラを起動できませんでした(" + name + ")。ページを再読み込みしてみてください。", true);
     }
@@ -126,7 +213,7 @@ function startCamera() {
   });
 }
 
-// ---- ズーム(本物対応なら applyConstraints、だめならデジタル) ----
+// ---- ズーム ----
 function applyZoom() {
   if (!stream) return;
   var track = stream.getVideoTracks()[0];
@@ -142,7 +229,19 @@ function applyZoom() {
 }
 function cssZoom() { video.style.transform = "scale(" + zoom + ")"; }
 
-// ---- 写真撮影(canvas方式・無音) ----
+// ---- 撮影成功の合図(白フラッシュ約60ms・不透明度30%・フェードインなし+触覚) ----
+function successFlash() {
+  clearTimeout(flashTimer);
+  flashEl.style.transition = "none";
+  flashEl.style.opacity = "0.3";
+  flashTimer = setTimeout(function(){
+    flashEl.style.transition = "opacity 0.1s ease-out";
+    flashEl.style.opacity = "0";
+  }, 60);
+  if (navigator.vibrate) { try { navigator.vibrate(10); } catch(e){} } // iOSは非対応(READMEに記載)
+}
+
+// ---- 写真撮影 → IndexedDBへ保存(ダイアログなし・無音) ----
 function takePhoto() {
   if (!stream || busy) return;
   busy = true;
@@ -154,37 +253,29 @@ function takePhoto() {
 
   var canvas = document.createElement("canvas");
   var sx = 0, sy = 0, sw = w, sh = h;
-  if (!nativeZoom && zoom > 1) {           // デジタルズームは中央を切り出し
+  if (!nativeZoom && zoom > 1) {
     sw = Math.round(w / zoom); sh = Math.round(h / zoom);
     sx = Math.round((w - sw) / 2); sy = Math.round((h - sh) / 2);
   }
   canvas.width = sw; canvas.height = sh;
   canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
-  var flash = document.getElementById("flash");
-  flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
-
   canvas.toBlob(function(blob){
-    busy = false;
-    if (!blob) { showMsg("写真の作成に失敗しました。もう一度押してください。"); return; }
-    saveBlob(blob, "photo_" + stamp() + ".jpg");
-    shotCount++;
-    countEl.textContent = "保存 " + shotCount + " 枚";
+    if (!blob) { busy = false; showMsg("写真の作成に失敗しました。もう一度押してください。"); return; }
+    dbAdd({ blob: blob, name: "photo_" + stamp() + ".jpg", type: "image/jpeg", ts: Date.now(), shared: 0 })
+      .then(function(){
+        busy = false;
+        successFlash();               // 保存成功時のみ光る
+        refreshCount();
+      })
+      .catch(function(err){
+        busy = false;
+        showMsg("保存に失敗しました(" + (err && err.name || err) + ")。iPhoneの空き容量を確認してください。");
+      });
   }, "image/jpeg", 0.92);
 }
 
-// ---- 保存(ダウンロードフォルダへ) ----
-function saveBlob(blob, filename) {
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
-}
-
-// ---- 動画撮影 ----
+// ---- 動画撮影 → IndexedDBへ保存 ----
 function pickMime() {
   var cands = [
     'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
@@ -200,7 +291,6 @@ function pickMime() {
 function startRec() {
   if (!stream) return;
   if (!stream.getAudioTracks().length) {
-    // 音声トラックなしで録るか、取り直すか → 取り直してから録画開始
     startCamera().then(function(){ startRecCore(); }).catch(function(){});
     return;
   }
@@ -222,12 +312,12 @@ function startRecCore() {
   recorder.onstop = function(){
     var type = recorder.mimeType || "video/mp4";
     var ext = type.indexOf("mp4") >= 0 ? "mp4" : "webm";
-    var blob = new Blob(recChunks, { type: type });
+    var blob = new Blob(recChunks, { type: type.split(";")[0] });
     recChunks = [];
     if (!blob.size) { showMsg("録画データが空でした。もう一度試してください。"); return; }
-    saveBlob(blob, "video_" + stamp() + "." + ext);
-    shotCount++;
-    countEl.textContent = "保存 " + shotCount + " 件";
+    dbAdd({ blob: blob, name: "video_" + stamp() + "." + ext, type: type.split(";")[0], ts: Date.now(), shared: 0 })
+      .then(function(){ successFlash(); refreshCount(); })
+      .catch(function(){ showMsg("動画の保存に失敗しました。iPhoneの空き容量を確認してください。"); });
   };
   recorder.start(1000);
   recStart = Date.now();
@@ -247,6 +337,84 @@ function stopRec() {
   shutterBtn.classList.remove("recing");
 }
 
+// ---- 共有パネル ----
+var panel = document.getElementById("panel");
+function openPanel() {
+  panel.classList.add("on");
+  updatePanel();
+}
+function updatePanel() {
+  var info = document.getElementById("pInfo");
+  var sharedCount = counts.total - counts.unshared;
+  var lines = ["保存済み " + counts.total + "枚(未共有 " + counts.unshared + " / 共有済み " + sharedCount + ")"];
+  document.getElementById("pShare").disabled = !counts.unshared;
+  document.getElementById("pShare").textContent = counts.unshared
+    ? "未共有をまとめて共有(" + Math.min(counts.unshared, BATCH_MAX_FILES) + "枚ずつ)"
+    : "未共有はありません";
+  document.getElementById("pDel").disabled = !sharedCount;
+  if (navigator.storage && navigator.storage.estimate) {
+    navigator.storage.estimate().then(function(est){
+      if (est && est.usage != null) {
+        lines.push("使用中 " + (est.usage/1048576).toFixed(1) + " MB / 上限目安 " + (est.quota/1073741824).toFixed(1) + " GB");
+      }
+      info.textContent = lines.join("\n");
+    }).catch(function(){ info.textContent = lines.join("\n"); });
+  } else {
+    info.textContent = lines.join("\n");
+  }
+}
+document.getElementById("shareBtn").addEventListener("click", function(){
+  if (recorder) { showMsg("録画中です。先に停止してください。"); return; }
+  openPanel();
+});
+document.getElementById("pClose").addEventListener("click", function(){ panel.classList.remove("on"); });
+
+// 未共有をまとめて共有(24枚 or 80MBずつ。共有シートは1タップにつき1回)
+document.getElementById("pShare").addEventListener("click", function(){
+  if (!navigator.share || !navigator.canShare) {
+    showMsg("この環境では共有シートが使えません。iOSを最新にしてください。", true);
+    return;
+  }
+  dbAll().then(function(list){
+    var un = list.filter(function(r){ return !r.shared; }).sort(function(a,b){ return a.ts - b.ts; });
+    if (!un.length) { updatePanel(); return; }
+    var files = [], ids = [], bytes = 0;
+    for (var i = 0; i < un.length && files.length < BATCH_MAX_FILES; i++) {
+      var r = un[i];
+      if (files.length && bytes + r.blob.size > BATCH_MAX_BYTES) break;
+      files.push(new File([r.blob], r.name, { type: r.type }));
+      ids.push(r.id);
+      bytes += r.blob.size;
+    }
+    if (!navigator.canShare({ files: files })) {
+      showMsg("この形式はまとめて共有できませんでした。枚数を減らして再試行します。次でだめならiOSの更新を確認してください。", true);
+      return;
+    }
+    navigator.share({ files: files }).then(function(){
+      return dbMarkShared(ids);
+    }).then(function(){
+      return refreshCount();
+    }).then(function(){
+      updatePanel();
+      var rest = counts.unshared;
+      if (rest) showMsg("共有しました。まだ未共有が " + rest + "枚あります。もう一度「まとめて共有」を押してください。");
+      else showMsg("全部共有しました。「共有済みデータを削除」で空にできます。");
+    }).catch(function(err){
+      if (err && err.name === "AbortError") return;  // ユーザーがキャンセル
+      showMsg("共有に失敗しました(" + (err && err.name || err) + ")。枚数が多い場合は何回かに分けてください。");
+    });
+  });
+});
+
+// 共有済みを削除(自動削除はしない。ユーザー操作のみ)
+document.getElementById("pDel").addEventListener("click", function(){
+  var sharedCount = counts.total - counts.unshared;
+  if (!sharedCount) return;
+  if (!confirm("共有済みの " + sharedCount + "枚をこのアプリの保存庫から削除します。よろしいですか?\n(共有先に渡したデータは消えません)")) return;
+  dbDeleteShared().then(refreshCount).then(updatePanel)
+    .catch(function(){ showMsg("削除に失敗しました。もう一度試してください。"); });
+});
+
 // ---- UI ----
 shutterBtn.addEventListener("click", function(){
   if (mode === "photo") takePhoto();
@@ -262,11 +430,11 @@ document.getElementById("mPhoto").addEventListener("click", function(){ setMode(
 document.getElementById("mVideo").addEventListener("click", function(){ setMode("video"); });
 function setMode(m) {
   if (recorder) { showMsg("録画中です。先に停止してください。"); return; }
+  if (mode === m) return;
   mode = m;
   document.getElementById("mPhoto").classList.toggle("sel", m === "photo");
   document.getElementById("mVideo").classList.toggle("sel", m === "video");
   shutterBtn.classList.toggle("rec", m === "video");
-  // 動画モードに入ったらマイク付きで取り直す(録画開始を速くするため)
   startCamera().catch(function(){});
 }
 Array.prototype.forEach.call(document.querySelectorAll(".zbtn"), function(b){
@@ -277,17 +445,30 @@ Array.prototype.forEach.call(document.querySelectorAll(".zbtn"), function(b){
     applyZoom();
   });
 });
-// バックグラウンド復帰でカメラが止まる対策
 document.addEventListener("visibilitychange", function(){
   if (!document.hidden && stream && stream.getVideoTracks().every(function(t){ return t.readyState === "ended"; })) {
     startCamera().catch(function(){});
   }
 });
 
-if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-  showMsg("このブラウザではカメラを使えません。iPhoneのSafariで、httpsのアドレスから開いてください。", true);
+// ---- 起動 ----
+if (!window.indexedDB) {
+  showMsg("このブラウザは保存機能(IndexedDB)が使えません。iPhoneのSafariで開いてください。", true);
 } else {
-  startCamera().catch(function(){});
+  openDB().then(function(d){
+    db = d;
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(function(){});  // 永続ストレージを要求(結果は保証されない)
+    }
+    return refreshCount();
+  }).catch(function(){
+    showMsg("保存庫を開けませんでした。プライベートブラウズをオフにして開き直してください。", true);
+  });
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showMsg("このブラウザではカメラを使えません。iPhoneのSafariで、httpsのアドレスから開いてください。", true);
+  } else {
+    startCamera().catch(function(){});
+  }
 }
 </script>
 </body>
