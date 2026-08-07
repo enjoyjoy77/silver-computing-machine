@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>無音カメラ</title>
+<style>
+  :root { --bar-h: 150px; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; background:#000; color:#fff; font-family:-apple-system,"Hiragino Sans",sans-serif; overflow:hidden; overscroll-behavior:none; }
+  #stage { position:fixed; inset:0; bottom:var(--bar-h); overflow:hidden; display:flex; align-items:center; justify-content:center; background:#000; }
+  #view { width:100%; height:100%; object-fit:cover; transform-origin:center center; }
+  #rev { position:fixed; top:calc(env(safe-area-inset-top) + 6px); right:8px; font-size:11px; color:#888; z-index:30; }
+  /* 撮影フィードバック(音の代わりの光) */
+  #flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:20; }
+  #flash.on { animation:fl .18s ease-out; }
+  @keyframes fl { 0%{opacity:.7} 100%{opacity:0} }
+  /* 上部の情報 */
+  #topinfo { position:fixed; top:calc(env(safe-area-inset-top) + 6px); left:0; right:0; text-align:center; z-index:25; pointer-events:none; }
+  #rectime { display:none; background:rgba(200,0,0,.85); border-radius:14px; padding:4px 14px; font-size:15px; font-variant-numeric:tabular-nums; }
+  #rectime.on { display:inline-block; }
+  #count { position:fixed; top:calc(env(safe-area-inset-top) + 6px); left:10px; font-size:13px; color:#ccc; z-index:25; }
+  #msg { position:fixed; left:12px; right:12px; top:40%; background:rgba(0,0,0,.8); border:1px solid #555; border-radius:12px; padding:14px; font-size:15px; line-height:1.6; z-index:40; display:none; white-space:pre-wrap; }
+  /* ズーム */
+  #zoombar { position:fixed; bottom:calc(var(--bar-h) + 12px); left:0; right:0; display:flex; justify-content:center; gap:10px; z-index:25; }
+  .zbtn { min-width:44px; height:34px; border-radius:17px; border:none; background:rgba(40,40,40,.7); color:#fff; font-size:14px; }
+  .zbtn.sel { background:#fff; color:#000; font-weight:bold; }
+  /* 下部バー */
+  #bar { position:fixed; left:0; right:0; bottom:0; height:var(--bar-h); padding-bottom:env(safe-area-inset-bottom); background:#000; z-index:25; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+  #modes { display:flex; gap:8px; }
+  .mbtn { padding:6px 18px; border-radius:16px; border:none; background:#222; color:#aaa; font-size:14px; }
+  .mbtn.sel { background:#444; color:#ffd60a; font-weight:bold; }
+  #row { display:flex; align-items:center; justify-content:center; gap:36px; width:100%; }
+  #shutter { width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#fff; padding:0; }
+  #shutter:active { transform:scale(.92); }
+  #shutter.rec { background:#e33; border-color:#fff; }
+  #shutter.recing { border-radius:16px; background:#e33; width:56px; height:56px; margin:9px; }
+  #flip { width:52px; height:52px; border-radius:50%; border:none; background:#222; color:#fff; font-size:24px; }
+  #spacer { width:52px; height:52px; visibility:hidden; }
+</style>
+</head>
+<body>
+<div id="stage"><video id="view" autoplay playsinline muted></video></div>
+<div id="flash"></div>
+<div id="rev">rev 1</div>
+<div id="topinfo"><span id="rectime">0:00</span></div>
+<div id="count"></div>
+<div id="msg"></div>
+<div id="zoombar">
+  <button class="zbtn sel" data-z="1">1×</button>
+  <button class="zbtn" data-z="2">2×</button>
+  <button class="zbtn" data-z="3">3×</button>
+</div>
+<div id="bar">
+  <div id="modes">
+    <button class="mbtn sel" id="mPhoto">写真</button>
+    <button class="mbtn" id="mVideo">動画</button>
+  </div>
+  <div id="row">
+    <div id="spacer"></div>
+    <button id="shutter" aria-label="撮影"></button>
+    <button id="flip" aria-label="カメラ切替">⟳</button>
+  </div>
+</div>
+<script>
+"use strict";
+var video = document.getElementById("view");
+var stage = document.getElementById("stage");
+var msgEl = document.getElementById("msg");
+var countEl = document.getElementById("count");
+var recTimeEl = document.getElementById("rectime");
+var shutterBtn = document.getElementById("shutter");
+
+var stream = null;
+var facing = "environment";   // 背面から開始
+var mode = "photo";           // photo | video
+var zoom = 1;
+var nativeZoom = false;       // 端末が本物のズームに対応しているか
+var shotCount = 0;
+var recorder = null;
+var recChunks = [];
+var recTimer = null;
+var recStart = 0;
+var busy = false;
+
+function showMsg(text, sticky) {
+  msgEl.textContent = text;
+  msgEl.style.display = "block";
+  if (!sticky) setTimeout(function(){ msgEl.style.display = "none"; }, 4000);
+}
+function pad2(n){ return (n<10?"0":"")+n; }
+function stamp() {
+  var d = new Date();
+  return d.getFullYear() + pad2(d.getMonth()+1) + pad2(d.getDate()) + "_" +
+         pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+}
+
+// ---- カメラ起動 ----
+function startCamera() {
+  if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
+  var wantAudio = (mode === "video");
+  var constraints = {
+    audio: wantAudio,
+    video: {
+      facingMode: facing,
+      width: { ideal: 4032 },
+      height: { ideal: 3024 },
+      frameRate: { ideal: 30 }
+    }
+  };
+  return navigator.mediaDevices.getUserMedia(constraints).then(function(s){
+    stream = s;
+    video.srcObject = s;
+    applyZoom();
+    return s;
+  }).catch(function(err){
+    var name = (err && err.name) || "";
+    if (name === "NotAllowedError") {
+      showMsg("カメラの許可がありません。\nSafariのアドレスバー左の「ぁあ」→ Webサイトの設定 → カメラを「許可」にして、ページを再読み込みしてください。", true);
+    } else if (name === "NotFoundError") {
+      showMsg("カメラが見つかりませんでした。iPhoneのSafariで開いているか確認してください。", true);
+    } else {
+      showMsg("カメラを起動できませんでした(" + name + ")。ページを再読み込みしてみてください。", true);
+    }
+    throw err;
+  });
+}
+
+// ---- ズーム(本物対応なら applyConstraints、だめならデジタル) ----
+function applyZoom() {
+  if (!stream) return;
+  var track = stream.getVideoTracks()[0];
+  var caps = track.getCapabilities ? track.getCapabilities() : {};
+  nativeZoom = !!(caps.zoom && caps.zoom.max >= 2);
+  if (nativeZoom) {
+    var z = Math.min(zoom, caps.zoom.max);
+    track.applyConstraints({ advanced: [{ zoom: z }] }).catch(function(){ nativeZoom = false; cssZoom(); });
+    video.style.transform = "";
+  } else {
+    cssZoom();
+  }
+}
+function cssZoom() { video.style.transform = "scale(" + zoom + ")"; }
+
+// ---- 写真撮影(canvas方式・無音) ----
+function takePhoto() {
+  if (!stream || busy) return;
+  busy = true;
+  var track = stream.getVideoTracks()[0];
+  var st = track.getSettings ? track.getSettings() : {};
+  var w = st.width || video.videoWidth;
+  var h = st.height || video.videoHeight;
+  if (!w || !h) { busy = false; showMsg("映像の準備中です。1秒待ってからもう一度押してください。"); return; }
+
+  var canvas = document.createElement("canvas");
+  var sx = 0, sy = 0, sw = w, sh = h;
+  if (!nativeZoom && zoom > 1) {           // デジタルズームは中央を切り出し
+    sw = Math.round(w / zoom); sh = Math.round(h / zoom);
+    sx = Math.round((w - sw) / 2); sy = Math.round((h - sh) / 2);
+  }
+  canvas.width = sw; canvas.height = sh;
+  canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  var flash = document.getElementById("flash");
+  flash.classList.remove("on"); void flash.offsetWidth; flash.classList.add("on");
+
+  canvas.toBlob(function(blob){
+    busy = false;
+    if (!blob) { showMsg("写真の作成に失敗しました。もう一度押してください。"); return; }
+    saveBlob(blob, "photo_" + stamp() + ".jpg");
+    shotCount++;
+    countEl.textContent = "保存 " + shotCount + " 枚";
+  }, "image/jpeg", 0.92);
+}
+
+// ---- 保存(ダウンロードフォルダへ) ----
+function saveBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+}
+
+// ---- 動画撮影 ----
+function pickMime() {
+  var cands = [
+    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+    "video/mp4",
+    'video/webm;codecs="vp9,opus"',
+    "video/webm"
+  ];
+  for (var i = 0; i < cands.length; i++) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(cands[i])) return cands[i];
+  }
+  return "";
+}
+function startRec() {
+  if (!stream) return;
+  if (!stream.getAudioTracks().length) {
+    // 音声トラックなしで録るか、取り直すか → 取り直してから録画開始
+    startCamera().then(function(){ startRecCore(); }).catch(function(){});
+    return;
+  }
+  startRecCore();
+}
+function startRecCore() {
+  var mime = pickMime();
+  if (!window.MediaRecorder || !mime) {
+    showMsg("この端末では動画の録画(MediaRecorder)が使えないようです。iOSを最新にしてみてください。", true);
+    return;
+  }
+  recChunks = [];
+  try {
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12000000 });
+  } catch(e) {
+    try { recorder = new MediaRecorder(stream); } catch(e2) { showMsg("録画を開始できませんでした。"); return; }
+  }
+  recorder.ondataavailable = function(ev){ if (ev.data && ev.data.size) recChunks.push(ev.data); };
+  recorder.onstop = function(){
+    var type = recorder.mimeType || "video/mp4";
+    var ext = type.indexOf("mp4") >= 0 ? "mp4" : "webm";
+    var blob = new Blob(recChunks, { type: type });
+    recChunks = [];
+    if (!blob.size) { showMsg("録画データが空でした。もう一度試してください。"); return; }
+    saveBlob(blob, "video_" + stamp() + "." + ext);
+    shotCount++;
+    countEl.textContent = "保存 " + shotCount + " 件";
+  };
+  recorder.start(1000);
+  recStart = Date.now();
+  recTimeEl.textContent = "0:00";
+  recTimeEl.classList.add("on");
+  shutterBtn.classList.add("recing");
+  recTimer = setInterval(function(){
+    var s = Math.floor((Date.now() - recStart) / 1000);
+    recTimeEl.textContent = Math.floor(s/60) + ":" + pad2(s%60);
+  }, 500);
+}
+function stopRec() {
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+  recorder = null;
+  clearInterval(recTimer);
+  recTimeEl.classList.remove("on");
+  shutterBtn.classList.remove("recing");
+}
+
+// ---- UI ----
+shutterBtn.addEventListener("click", function(){
+  if (mode === "photo") takePhoto();
+  else if (recorder) stopRec();
+  else startRec();
+});
+document.getElementById("flip").addEventListener("click", function(){
+  if (recorder) { showMsg("録画中はカメラを切り替えられません。先に停止してください。"); return; }
+  facing = (facing === "environment") ? "user" : "environment";
+  startCamera().catch(function(){});
+});
+document.getElementById("mPhoto").addEventListener("click", function(){ setMode("photo"); });
+document.getElementById("mVideo").addEventListener("click", function(){ setMode("video"); });
+function setMode(m) {
+  if (recorder) { showMsg("録画中です。先に停止してください。"); return; }
+  mode = m;
+  document.getElementById("mPhoto").classList.toggle("sel", m === "photo");
+  document.getElementById("mVideo").classList.toggle("sel", m === "video");
+  shutterBtn.classList.toggle("rec", m === "video");
+  // 動画モードに入ったらマイク付きで取り直す(録画開始を速くするため)
+  startCamera().catch(function(){});
+}
+Array.prototype.forEach.call(document.querySelectorAll(".zbtn"), function(b){
+  b.addEventListener("click", function(){
+    zoom = Number(b.getAttribute("data-z"));
+    Array.prototype.forEach.call(document.querySelectorAll(".zbtn"), function(x){ x.classList.remove("sel"); });
+    b.classList.add("sel");
+    applyZoom();
+  });
+});
+// バックグラウンド復帰でカメラが止まる対策
+document.addEventListener("visibilitychange", function(){
+  if (!document.hidden && stream && stream.getVideoTracks().every(function(t){ return t.readyState === "ended"; })) {
+    startCamera().catch(function(){});
+  }
+});
+
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  showMsg("このブラウザではカメラを使えません。iPhoneのSafariで、httpsのアドレスから開いてください。", true);
+} else {
+  startCamera().catch(function(){});
+}
+</script>
+</body>
+</html>

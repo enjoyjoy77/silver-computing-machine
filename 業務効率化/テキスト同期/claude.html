@@ -376,7 +376,7 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
-  <div class="rev" style="padding: 6px 12px;">rev7</div>
+  <div class="rev" style="padding: 6px 12px;">rev8</div>
 </div>
 
 <div id="topzone" class="topzone" hidden></div>
@@ -881,10 +881,18 @@
   });
 
   sendEl.addEventListener("click", function () {
-    var text = inputEl.value;
+    var text = String(inputEl.value || "").trim();
+    // プルダウンで選んだモデル・工数は、送信時にまとめて先頭に載せる(往復1回で済む)
+    var lines = [];
+    if (el("model").value) lines.push("モデル " + el("model").value);
+    if (el("effort").value) lines.push("工数 " + el("effort").value);
+    if (text) lines.push(text);
+    if (!lines.length) return;
     inputEl.value = "";
     inputEl.style.height = "auto";
-    send(text);
+    el("model").selectedIndex = 0;
+    el("effort").selectedIndex = 0;
+    send(lines.join("\n"));
   });
 
   inputEl.addEventListener("input", function () {
@@ -944,15 +952,8 @@
     location.reload();
   });
 
-  el("model").addEventListener("change", function (event) {
-    if (event.target.value) send("モデル " + event.target.value);
-    event.target.selectedIndex = 0;
-  });
-
-  el("effort").addEventListener("change", function (event) {
-    if (event.target.value) send("工数 " + event.target.value);
-    event.target.selectedIndex = 0;
-  });
+  // モデル・工数のプルダウンは選んだだけでは送らない。
+  // 次の送信ボタンで、質問と一緒に(質問が空なら指示だけ)まとめて送られる。
 
   // 最初の表示
   loadHistory();
