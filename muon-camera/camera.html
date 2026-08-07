@@ -51,7 +51,7 @@
 <body>
 <div id="stage"><video id="view" autoplay playsinline muted></video></div>
 <div id="flash"></div>
-<div id="rev">rev 2</div>
+<div id="rev">rev 3</div>
 <div id="topinfo"><span id="rectime">0:00</span></div>
 <div id="count"></div>
 <div id="msg"></div>
@@ -308,9 +308,11 @@ function startRecCore() {
   } catch(e) {
     try { recorder = new MediaRecorder(stream); } catch(e2) { showMsg("録画を開始できませんでした。"); return; }
   }
+  var rec = recorder;   // 停止処理でrecorderをnullにしても保存が動くよう、自分用の参照を持つ
   recorder.ondataavailable = function(ev){ if (ev.data && ev.data.size) recChunks.push(ev.data); };
+  recorder.onerror = function(ev){ showMsg("録画中にエラーが起きました(" + (ev.error && ev.error.name || "不明") + ")。もう一度試してください。"); };
   recorder.onstop = function(){
-    var type = recorder.mimeType || "video/mp4";
+    var type = rec.mimeType || mime || "video/mp4";
     var ext = type.indexOf("mp4") >= 0 ? "mp4" : "webm";
     var blob = new Blob(recChunks, { type: type.split(";")[0] });
     recChunks = [];
