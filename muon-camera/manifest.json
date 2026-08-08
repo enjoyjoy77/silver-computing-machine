@@ -1,0 +1,9 @@
+{
+  "name": "無音カメラ",
+  "short_name": "無音カメラ",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "start_url": "./camera.html",
+  "scope": "./"
+}

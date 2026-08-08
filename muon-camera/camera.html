@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>無音カメラ</title>
 <meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.json">
 <style>
   :root { --bar-h: 150px; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -73,7 +76,7 @@
 <body>
 <div id="stage"><video id="view" autoplay playsinline muted></video></div>
 <div id="flash"></div>
-<div id="rev">rev 6</div>
+<div id="rev">rev 8</div>
 <div id="topinfo"><span id="rectime">0:00</span></div>
 <div id="count"></div>
 <div id="msg"></div>
@@ -119,6 +122,10 @@ iPhoneが自動で消すことがあるため、撮影した日のうちに共�
 </div>
 <script>
 "use strict";
+// 起動環境の判定(内部状態として保持。右上の小さな表示は検証用)
+var isStandalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+document.getElementById("rev").textContent += isStandalone ? " ・アプリ起動" : " ・Safari";
+var cameraOK = false;   // 「本当に映像が進んでいる」ことを確認できたらtrue
 var video = document.getElementById("view");
 var msgEl = document.getElementById("msg");
 var countEl = document.getElementById("count");
@@ -239,6 +246,7 @@ function startCamera() {
     stream = s;
     video.srcObject = s;
     applyZoom();
+    verifyCameraAlive();   // ストリーム取得成功だけでは信用せず、映像が進むかを確認
     return s;
   }).catch(function(err){
     var name = (err && err.name) || "";
@@ -249,6 +257,47 @@ function startCamera() {
     }
     throw err;
   });
+}
+
+// ---- カメラが「本当に映っているか」の確認(getUserMedia成功だけでは信用しない) ----
+var aliveCheckId = 0;
+function verifyCameraAlive() {
+  cameraOK = false;
+  var myId = ++aliveCheckId;          // カメラを取り直したら古い確認は無効化(再試行の多重化を防ぐ)
+  var deadline = Date.now() + 7000;   // 7秒待ってだめなら失敗と判断(延々と待たない)
+  function ok() {
+    if (myId !== aliveCheckId) return;
+    cameraOK = true;
+  }
+  function fail() {
+    if (myId !== aliveCheckId) return;
+    cameraOK = false;
+    if (isStandalone) {
+      showMsg("iPhoneのホーム画面モードでは、iOSのカメラ機能が正常に動作しない場合があります。\nSafariで開いて使用してください。\n(Safariを開いて、ブックマークまたは履歴からこのページを開けます)", true);
+    } else {
+      showMsg("カメラの映像が届いていません。ページを再読み込みしてみてください。", true);
+    }
+  }
+  function checkFrames() {
+    if (myId !== aliveCheckId) return;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      // 大きさが出たら、フレームが実際に進んでいるかまで確認する
+      if (video.requestVideoFrameCallback) {
+        var got = false;
+        video.requestVideoFrameCallback(function(){ got = true; ok(); });
+        setTimeout(function(){ if (!got) fail(); }, Math.max(1000, deadline - Date.now()));
+      } else {
+        var t1 = video.currentTime;
+        setTimeout(function(){
+          if (myId !== aliveCheckId) return;
+          (video.currentTime > t1) ? ok() : fail();
+        }, 800);
+      }
+      return;
+    }
+    (Date.now() < deadline) ? setTimeout(checkFrames, 300) : fail();
+  }
+  checkFrames();
 }
 
 // ---- ズーム ----
@@ -583,6 +632,12 @@ function releaseWakeLock() {
 }
 
 document.getElementById("autoStart").addEventListener("click", function(){
+  if (!cameraOK) {
+    showMsg(isStandalone
+      ? "カメラの映像が確認できていません。ホーム画面モードのカメラ不具合の可能性があります。Safariで開いて使用してください。"
+      : "カメラの映像が確認できていません。ページを再読み込みしてから開始してください。", true);
+    return;
+  }
   document.getElementById("autoSetup").classList.remove("on");
   document.getElementById("black").classList.add("on");
   requestWakeLock();
