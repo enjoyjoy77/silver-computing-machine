@@ -4,12 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>無音カメラ</title>
+<meta name="theme-color" content="#000000">
 <style>
   :root { --bar-h: 150px; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { height:100%; background:#000; color:#fff; font-family:-apple-system,"Hiragino Sans",sans-serif; overflow:hidden; overscroll-behavior:none; }
   button { font-family:inherit; }
-  #stage { position:fixed; inset:0; bottom:var(--bar-h); overflow:hidden; display:flex; align-items:center; justify-content:center; background:#000; }
+  #stage { position:fixed; inset:0; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#000; }
   #view { width:100%; height:100%; object-fit:cover; transform-origin:center center; }
   #rev { position:fixed; top:calc(env(safe-area-inset-top) + 6px); right:8px; font-size:11px; color:#888; z-index:30; }
   /* 撮影成功フラッシュ(約60ms表示→素早く消える。フェードインなし) */
@@ -22,19 +23,22 @@
   #msg { position:fixed; left:12px; right:12px; top:38%; background:rgba(0,0,0,.85); border:1px solid #555; border-radius:12px; padding:14px; font-size:15px; line-height:1.6; z-index:40; display:none; white-space:pre-wrap; }
   /* ズーム */
   #zoombar { position:fixed; bottom:calc(var(--bar-h) + 12px); left:0; right:0; display:flex; justify-content:center; gap:10px; z-index:25; }
-  .zbtn { min-width:44px; height:34px; border-radius:17px; border:none; background:rgba(40,40,40,.7); color:#fff; font-size:14px; }
+  .zbtn { min-width:44px; height:34px; border-radius:17px; border:none; background:rgba(40,40,40,.45); color:#fff; font-size:14px; }
   .zbtn.sel { background:#fff; color:#000; font-weight:bold; }
   /* 下部バー */
-  #bar { position:fixed; left:0; right:0; bottom:0; height:var(--bar-h); padding-bottom:env(safe-area-inset-bottom); background:#000; z-index:25; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+  #bar { position:fixed; left:0; right:0; bottom:0; height:var(--bar-h); padding-bottom:env(safe-area-inset-bottom); background:rgba(0,0,0,.35); z-index:25; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
   #modes { display:flex; gap:8px; }
-  .mbtn { padding:6px 18px; border-radius:16px; border:none; background:#222; color:#aaa; font-size:14px; }
-  .mbtn.sel { background:#444; color:#ffd60a; font-weight:bold; }
+  .mbtn { padding:6px 18px; border-radius:16px; border:none; background:rgba(30,30,30,.55); color:#ccc; font-size:14px; }
+  .mbtn.sel { background:rgba(70,70,70,.75); color:#ffd60a; font-weight:bold; }
   #row { display:flex; align-items:center; justify-content:center; gap:32px; width:100%; }
-  #shutter { width:82px; height:82px; border-radius:50%; border:5px solid #fff; background:#fff; padding:0; flex:none; }
+  #shutter { width:88px; height:88px; border-radius:50%; border:5px solid #fff; background:rgba(255,255,255,.92); padding:0; flex:none; position:relative; }
+  /* 見た目より一回り広い透明の当たり判定(指がずれても押せる) */
+  #shutter::before { content:""; position:absolute; inset:-22px; border-radius:50%; }
   #shutter:active { transform:scale(.92); }
-  #shutter.rec { background:#e33; }
-  #shutter.recing { border-radius:18px; background:#e33; width:60px; height:60px; margin:11px; }
-  #flip, #shareBtn { width:56px; height:56px; border-radius:50%; border:none; background:#222; color:#fff; font-size:22px; flex:none; position:relative; }
+  #shutter.rec { background:rgba(238,51,51,.92); }
+  #shutter.recing { border-radius:18px; background:#e33; width:64px; height:64px; margin:12px; }
+  #flip, #shareBtn { width:58px; height:58px; border-radius:50%; border:none; background:rgba(30,30,30,.5); color:#fff; font-size:22px; flex:none; position:relative; }
+  #flip::before, #shareBtn::before { content:""; position:absolute; inset:-10px; border-radius:50%; }
   #shareBadge { position:absolute; top:-4px; right:-4px; min-width:20px; height:20px; border-radius:10px; background:#ffd60a; color:#000; font-size:12px; font-weight:bold; line-height:20px; padding:0 4px; display:none; }
   /* 共有パネル */
   #panel { position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; }
@@ -42,16 +46,34 @@
   #panel .info { font-size:14px; color:#bbb; line-height:1.7; }
   #panel button { width:min(320px, 90%); padding:14px; border-radius:14px; border:none; font-size:16px; }
   #pShare { background:#ffd60a; color:#000; font-weight:bold; }
+  #pVid { background:#0a84ff; color:#fff; font-weight:bold; }
   #pDel { background:#511; color:#faa; }
   #pClose { background:#333; color:#fff; }
   #panel button:disabled { opacity:.4; }
   #warn7 { font-size:12px; color:#e9b; }
+  /* 自動撮影: 設定画面 */
+  #autoSetup { position:fixed; inset:0; background:rgba(0,0,0,.95); z-index:60; display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center; }
+  #autoSetup.on { display:flex; }
+  #autoSetup h2 { font-size:17px; font-weight:normal; color:#ddd; }
+  .optrow { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .opt { min-width:64px; padding:12px 10px; border-radius:12px; border:none; background:#222; color:#fff; font-size:16px; }
+  .opt.sel { background:#ffd60a; color:#000; font-weight:bold; }
+  .opt:disabled { opacity:.35; }
+  #autoSummary { font-size:15px; color:#9f9; line-height:1.7; min-height:3em; white-space:pre-wrap; }
+  #autoResult { font-size:16px; color:#ffd60a; white-space:pre-wrap; }
+  #autoStart { width:min(320px,90%); padding:18px; border-radius:16px; border:none; background:#ffd60a; color:#000; font-size:19px; font-weight:bold; }
+  #autoStart:disabled { opacity:.35; }
+  #autoClose { width:min(320px,90%); padding:12px; border-radius:14px; border:none; background:#333; color:#fff; font-size:15px; }
+  #autoNote { font-size:12px; color:#999; line-height:1.6; }
+  /* 自動撮影: 完全な黒画面(映像の上にかぶせる幕。videoは生かしたまま) */
+  #black { position:fixed; inset:0; background:#000; z-index:100; display:none; touch-action:none; }
+  #black.on { display:block; }
 </style>
 </head>
 <body>
 <div id="stage"><video id="view" autoplay playsinline muted></video></div>
 <div id="flash"></div>
-<div id="rev">rev 3</div>
+<div id="rev">rev 6</div>
 <div id="topinfo"><span id="rectime">0:00</span></div>
 <div id="count"></div>
 <div id="msg"></div>
@@ -64,6 +86,7 @@
   <div id="modes">
     <button class="mbtn sel" id="mPhoto">写真</button>
     <button class="mbtn" id="mVideo">動画</button>
+    <button class="mbtn" id="mAuto">自動</button>
   </div>
   <div id="row">
     <button id="shareBtn" aria-label="共有">📤<span id="shareBadge"></span></button>
@@ -71,9 +94,24 @@
     <button id="flip" aria-label="カメラ切替">⟳</button>
   </div>
 </div>
+<div id="autoSetup">
+  <h2>自動撮影(歩くだけで記録)</h2>
+  <div id="autoResult"></div>
+  <div>撮影間隔</div>
+  <div class="optrow" id="ivRow"></div>
+  <div>撮影時間</div>
+  <div class="optrow" id="duRow"></div>
+  <div id="autoSummary"></div>
+  <button id="autoStart">開始(画面が真っ黒になります)</button>
+  <button id="autoClose">もどる</button>
+  <div id="autoNote">開始後は何も表示されません。やめたいときは黒い画面を「トントン」と2回タップ。
+設定時間がたつと自動で終わり、この画面に結果が出ます。画面は消灯しないよう自動で維持します。</div>
+</div>
+<div id="black"></div>
 <div id="panel">
   <div class="info" id="pInfo"></div>
-  <button id="pShare">未共有をまとめて共有</button>
+  <button id="pShare">未共有の写真をまとめて共有</button>
+  <button id="pVid">未共有の動画を書き出す</button>
   <button id="pDel">共有済みデータを削除</button>
   <button id="pClose">とじる</button>
   <div id="warn7">※撮った写真はこのSafariの中に貯まります。7日以上このページを開かないと
@@ -241,38 +279,46 @@ function successFlash() {
   if (navigator.vibrate) { try { navigator.vibrate(10); } catch(e){} } // iOSは非対応(READMEに記載)
 }
 
-// ---- 写真撮影 → IndexedDBへ保存(ダイアログなし・無音) ----
+// ---- 写真1枚をIndexedDBへ保存する共通部(成功でresolve/失敗でreject) ----
+function capturePhoto() {
+  return new Promise(function(resolve, reject){
+    if (!stream) { reject(new Error("nostream")); return; }
+    var track = stream.getVideoTracks()[0];
+    var st = track.getSettings ? track.getSettings() : {};
+    var w = st.width || video.videoWidth;
+    var h = st.height || video.videoHeight;
+    if (!w || !h) { reject(new Error("notready")); return; }
+    var canvas = document.createElement("canvas");
+    var sx = 0, sy = 0, sw = w, sh = h;
+    if (!nativeZoom && zoom > 1) {
+      sw = Math.round(w / zoom); sh = Math.round(h / zoom);
+      sx = Math.round((w - sw) / 2); sy = Math.round((h - sh) / 2);
+    }
+    canvas.width = sw; canvas.height = sh;
+    canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    canvas.toBlob(function(blob){
+      if (!blob) { reject(new Error("noblob")); return; }
+      dbAdd({ blob: blob, name: "photo_" + stamp() + ".jpg", type: "image/jpeg", ts: Date.now(), shared: 0 })
+        .then(resolve, reject);
+    }, "image/jpeg", 0.92);
+  });
+}
+
+// ---- 手動の写真撮影(フラッシュ・枚数表示つき) ----
 function takePhoto() {
-  if (!stream || busy) return;
+  if (busy) return;
   busy = true;
-  var track = stream.getVideoTracks()[0];
-  var st = track.getSettings ? track.getSettings() : {};
-  var w = st.width || video.videoWidth;
-  var h = st.height || video.videoHeight;
-  if (!w || !h) { busy = false; showMsg("映像の準備中です。1秒待ってからもう一度押してください。"); return; }
-
-  var canvas = document.createElement("canvas");
-  var sx = 0, sy = 0, sw = w, sh = h;
-  if (!nativeZoom && zoom > 1) {
-    sw = Math.round(w / zoom); sh = Math.round(h / zoom);
-    sx = Math.round((w - sw) / 2); sy = Math.round((h - sh) / 2);
-  }
-  canvas.width = sw; canvas.height = sh;
-  canvas.getContext("2d").drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  canvas.toBlob(function(blob){
-    if (!blob) { busy = false; showMsg("写真の作成に失敗しました。もう一度押してください。"); return; }
-    dbAdd({ blob: blob, name: "photo_" + stamp() + ".jpg", type: "image/jpeg", ts: Date.now(), shared: 0 })
-      .then(function(){
-        busy = false;
-        successFlash();               // 保存成功時のみ光る
-        refreshCount();
-      })
-      .catch(function(err){
-        busy = false;
-        showMsg("保存に失敗しました(" + (err && err.name || err) + ")。iPhoneの空き容量を確認してください。");
-      });
-  }, "image/jpeg", 0.92);
+  capturePhoto().then(function(){
+    busy = false;
+    successFlash();               // 保存成功時のみ光る
+    refreshCount();
+  }).catch(function(err){
+    busy = false;
+    var m = err && err.message;
+    if (m === "notready") showMsg("映像の準備中です。1秒待ってからもう一度押してください。");
+    else if (m === "noblob") showMsg("写真の作成に失敗しました。もう一度押してください。");
+    else showMsg("保存に失敗しました(" + (err && err.name || m || err) + ")。iPhoneの空き容量を確認してください。");
+  });
 }
 
 // ---- 動画撮影 → IndexedDBへ保存 ----
@@ -349,10 +395,16 @@ function updatePanel() {
   var info = document.getElementById("pInfo");
   var sharedCount = counts.total - counts.unshared;
   var lines = ["保存済み " + counts.total + "枚(未共有 " + counts.unshared + " / 共有済み " + sharedCount + ")"];
-  document.getElementById("pShare").disabled = !counts.unshared;
-  document.getElementById("pShare").textContent = counts.unshared
-    ? "未共有をまとめて共有(" + Math.min(counts.unshared, BATCH_MAX_FILES) + "枚ずつ)"
-    : "未共有はありません";
+  dbAll().then(function(list){
+    var unP = list.filter(function(r){ return !r.shared && r.type.indexOf("image") === 0; }).length;
+    var unV = list.filter(function(r){ return !r.shared && r.type.indexOf("video") === 0; }).length;
+    var bS = document.getElementById("pShare");
+    bS.disabled = !unP;
+    bS.textContent = unP ? "未共有の写真をまとめて共有(残り" + unP + "枚)" : "未共有の写真はありません";
+    var bV = document.getElementById("pVid");
+    bV.disabled = !unV;
+    bV.textContent = unV ? "未共有の動画を書き出す(残り" + unV + "本・1本ずつ)" : "未共有の動画はありません";
+  });
   document.getElementById("pDel").disabled = !sharedCount;
   if (navigator.storage && navigator.storage.estimate) {
     navigator.storage.estimate().then(function(est){
@@ -378,7 +430,7 @@ document.getElementById("pShare").addEventListener("click", function(){
     return;
   }
   dbAll().then(function(list){
-    var un = list.filter(function(r){ return !r.shared; }).sort(function(a,b){ return a.ts - b.ts; });
+    var un = list.filter(function(r){ return !r.shared && r.type.indexOf("image") === 0; }).sort(function(a,b){ return a.ts - b.ts; });
     if (!un.length) { updatePanel(); return; }
     var files = [], ids = [], bytes = 0;
     for (var i = 0; i < un.length && files.length < BATCH_MAX_FILES; i++) {
@@ -399,11 +451,37 @@ document.getElementById("pShare").addEventListener("click", function(){
     }).then(function(){
       updatePanel();
       var rest = counts.unshared;
-      if (rest) showMsg("共有しました。まだ未共有が " + rest + "枚あります。もう一度「まとめて共有」を押してください。");
+      if (rest) showMsg("共有しました。まだ未共有が " + rest + "件あります(動画は青いボタンから)。");
       else showMsg("全部共有しました。「共有済みデータを削除」で空にできます。");
     }).catch(function(err){
       if (err && err.name === "AbortError") return;  // ユーザーがキャンセル
       showMsg("共有に失敗しました(" + (err && err.name || err) + ")。枚数が多い場合は何回かに分けてください。");
+    });
+  });
+});
+
+// 動画は1本ずつダウンロード書き出し(共有シート経由の「ビデオを保存」が失敗するiOSの相性問題を回避)
+function saveBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+}
+document.getElementById("pVid").addEventListener("click", function(){
+  dbAll().then(function(list){
+    var un = list.filter(function(r){ return !r.shared && r.type.indexOf("video") === 0; }).sort(function(a,b){ return a.ts - b.ts; });
+    if (!un.length) { updatePanel(); return; }
+    var r = un[0];
+    saveBlob(r.blob, r.name);   // タップハンドラ内なのでダウンロード可
+    dbMarkShared([r.id]).then(refreshCount).then(function(){
+      updatePanel();
+      var rest = un.length - 1;
+      showMsg(rest
+        ? "動画を1本書き出しました(保存先: ファイル→ダウンロード)。残り" + rest + "本、もう一度押してください。"
+        : "動画を全部書き出しました(保存先: ファイル→ダウンロード)。");
     });
   });
 });
@@ -416,6 +494,154 @@ document.getElementById("pDel").addEventListener("click", function(){
   dbDeleteShared().then(refreshCount).then(updatePanel)
     .catch(function(){ showMsg("削除に失敗しました。もう一度試してください。"); });
 });
+
+// ---- 自動撮影モード ----
+var AUTO_TABLE = {                       // 間隔(秒) → 選べる撮影時間(秒)
+  3:  [60, 180, 300, 600],
+  5:  [120, 300, 600, 900],
+  10: [300, 600, 900, 1800],
+  30: [600, 1200, 1800, 3600]
+};
+var autoIv = 10, autoDu = 1800;          // 既定: 10秒ごと/30分
+var autoRun = null;                      // 実行中の状態(null=停止中)
+var wakeLock = null;
+var avgPhotoBytes = 1500000;             // 実測が無いときの仮定値 1.5MB
+
+function fmtMin(sec){ return (sec % 60 === 0) ? (sec/60) + "分" : sec + "秒"; }
+
+function openAutoSetup(resultText) {
+  document.getElementById("autoResult").textContent = resultText || "";
+  document.getElementById("autoSetup").classList.add("on");
+  // 過去に保存した写真の平均サイズから1枚あたりを推定
+  dbAll().then(function(list){
+    var ph = list.filter(function(r){ return r.type.indexOf("image") === 0; });
+    if (ph.length) avgPhotoBytes = ph.reduce(function(a,r){ return a + r.blob.size; }, 0) / ph.length;
+    buildAutoUI();
+  }).catch(buildAutoUI);
+}
+function buildAutoUI() {
+  var ivRow = document.getElementById("ivRow");
+  ivRow.innerHTML = "";
+  [3,5,10,30].forEach(function(iv){
+    var b = document.createElement("button");
+    b.className = "opt" + (iv === autoIv ? " sel" : "");
+    b.textContent = iv + "秒";
+    b.addEventListener("click", function(){
+      autoIv = iv;
+      if (AUTO_TABLE[iv].indexOf(autoDu) < 0) autoDu = AUTO_TABLE[iv][AUTO_TABLE[iv].length - 1];
+      buildAutoUI();
+    });
+    ivRow.appendChild(b);
+  });
+  var duRow = document.getElementById("duRow");
+  duRow.innerHTML = "";
+  var est = null;
+  var p = (navigator.storage && navigator.storage.estimate)
+    ? navigator.storage.estimate().catch(function(){ return null; })
+    : Promise.resolve(null);
+  p.then(function(e){
+    est = e;
+    var free = (e && e.quota != null && e.usage != null) ? (e.quota - e.usage) : null;
+    AUTO_TABLE[autoIv].forEach(function(du){
+      var b = document.createElement("button");
+      b.className = "opt" + (du === autoDu ? " sel" : "");
+      b.textContent = fmtMin(du);
+      var need = Math.floor(du / autoIv) * avgPhotoBytes;
+      if (free != null && need > free * 0.8) {     // 安全余裕2割を残す
+        b.disabled = true;
+        b.textContent += "(容量不足)";
+        if (du === autoDu) autoDu = AUTO_TABLE[autoIv][0];
+      }
+      b.addEventListener("click", function(){ autoDu = du; buildAutoUI(); });
+      duRow.appendChild(b);
+    });
+    var shots = Math.floor(autoDu / autoIv);
+    var needMB = (shots * avgPhotoBytes / 1048576).toFixed(0);
+    var lines = [autoIv + "秒ごと / " + fmtMin(autoDu) + " / 約" + shots + "枚 / 推定" + needMB + "MB"];
+    if (est && est.usage != null) {
+      lines.push("いまの空き 約" + (((est.quota - est.usage))/1073741824).toFixed(1) + " GB");
+    }
+    document.getElementById("autoSummary").textContent = lines.join("\n");
+  });
+}
+document.getElementById("mAuto").addEventListener("click", function(){
+  if (recorder) { showMsg("録画中です。先に停止してください。"); return; }
+  if (mode !== "photo") setMode("photo");   // 自動はマイク不要の写真ストリームで
+  openAutoSetup("");
+});
+document.getElementById("autoClose").addEventListener("click", function(){
+  document.getElementById("autoSetup").classList.remove("on");
+});
+
+function requestWakeLock() {
+  if (navigator.wakeLock && navigator.wakeLock.request) {
+    navigator.wakeLock.request("screen").then(function(wl){ wakeLock = wl; }).catch(function(){});
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { try { wakeLock.release(); } catch(e){} wakeLock = null; }
+}
+
+document.getElementById("autoStart").addEventListener("click", function(){
+  document.getElementById("autoSetup").classList.remove("on");
+  document.getElementById("black").classList.add("on");
+  requestWakeLock();
+  autoRun = {
+    t0: Date.now(), iv: autoIv * 1000, du: autoDu * 1000,
+    n: 0, ok: 0, fail: 0, timer: null, saving: null, stopped: false
+  };
+  scheduleNext();
+});
+function scheduleNext() {
+  var r = autoRun;
+  if (!r || r.stopped) return;
+  var due = r.t0 + r.n * r.iv;              // 開始時刻からの絶対時刻基準: 0秒→3秒→6秒…(ずれない)
+  r.n++;
+  if (due >= r.t0 + r.du) { finishAuto(); return; }
+  r.timer = setTimeout(function(){
+    if (!autoRun || autoRun.stopped) return;
+    var pr = capturePhoto().then(function(){ r.ok++; }, function(){ r.fail++; });
+    r.saving = pr;
+    pr.then(function(){ if (r.saving === pr) r.saving = null; });
+    scheduleNext();                          // 保存を待たずに次の予約(周期優先)
+  }, Math.max(0, due - Date.now()));
+}
+function finishAuto() {
+  var r = autoRun;
+  if (!r) return;
+  r.stopped = true;
+  clearTimeout(r.timer);
+  autoRun = null;
+  var closeUp = function(){
+    releaseWakeLock();
+    document.getElementById("black").classList.remove("on");
+    refreshCount();
+    var text = "今回 " + r.ok + "枚保存しました";
+    if (r.fail) text += "\n⚠ " + r.fail + "枚は保存に失敗しました(空き容量を確認してください)";
+    openAutoSetup(text);
+  };
+  if (r.saving) r.saving.then(closeUp, closeUp);  // 進行中の保存を終えてから閉じる
+  else closeUp();
+}
+// 黒画面のダブルタップで途中終了(1回タップは無反応。ズーム等の標準動作も抑止)
+(function(){
+  var black = document.getElementById("black");
+  var lastT = 0, lastX = 0, lastY = 0;
+  black.addEventListener("touchstart", function(ev){ ev.preventDefault(); }, { passive: false });
+  black.addEventListener("touchend", function(ev){
+    ev.preventDefault();
+    var t = Date.now();
+    var touch = ev.changedTouches && ev.changedTouches[0];
+    var x = touch ? touch.clientX : 0, y = touch ? touch.clientY : 0;
+    if (t - lastT < 300 && Math.abs(x - lastX) < 80 && Math.abs(y - lastY) < 80) {
+      lastT = 0;
+      finishAuto();
+    } else {
+      lastT = t; lastX = x; lastY = y;
+    }
+  }, { passive: false });
+  black.addEventListener("dblclick", function(){ finishAuto(); });  // PC確認用
+})();
 
 // ---- UI ----
 shutterBtn.addEventListener("click", function(){
@@ -448,8 +674,11 @@ Array.prototype.forEach.call(document.querySelectorAll(".zbtn"), function(b){
   });
 });
 document.addEventListener("visibilitychange", function(){
-  if (!document.hidden && stream && stream.getVideoTracks().every(function(t){ return t.readyState === "ended"; })) {
-    startCamera().catch(function(){});
+  if (!document.hidden) {
+    if (stream && stream.getVideoTracks().every(function(t){ return t.readyState === "ended"; })) {
+      startCamera().catch(function(){});
+    }
+    if (autoRun) requestWakeLock();   // 画面ロック等でWake Lockが外れたら取り直す
   }
 });
 
