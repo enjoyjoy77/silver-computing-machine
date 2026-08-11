@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>キャンセル待ち</title>
+<style>
+:root{
+  --bg:#f7f5f0; --card:#fff; --text:#3d3832; --muted:#8c857b; --border:#d2cdc3;
+  --ok:#2e8b57; --ng:#b0483c; --accent:#4a6fa5;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; background:var(--bg); color:var(--text); padding:16px; max-width:640px; margin:0 auto;}
+h1{font-size:1.3em; margin:8px 0 2px;}
+.rev{position:fixed; top:6px; right:10px; font-size:.7em; color:var(--muted);}
+.sub{color:var(--muted); font-size:.85em; margin-bottom:14px;}
+.card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px;}
+label{display:block; font-size:.85em; color:var(--muted); margin:8px 0 2px;}
+select,input{width:100%; padding:10px; font-size:1em; border:1px solid var(--border); border-radius:8px; background:#fff; color:var(--text);}
+.row{display:flex; gap:10px;}
+.row>div{flex:1;}
+button{padding:12px 16px; font-size:1em; border:none; border-radius:10px; cursor:pointer;}
+.btn-main{background:var(--accent); color:#fff; width:100%; margin-top:12px;}
+.btn-small{background:#eee; color:var(--text); font-size:.85em; padding:8px 12px;}
+.btn-stop{background:var(--ng); color:#fff; font-size:.85em; padding:8px 12px;}
+.watch{border-left:5px solid var(--accent);}
+.watch.open{border-left-color:var(--ok); background:#f0faf4;}
+.watch.err{border-left-color:var(--ng);}
+.watch h3{font-size:1.05em; margin-bottom:4px;}
+.status{font-size:1em; margin:4px 0;}
+.status b.open{color:var(--ok);}
+.meta{font-size:.8em; color:var(--muted);}
+.note{font-size:.8em; color:var(--muted); line-height:1.6; margin-top:6px;}
+.warn{background:#fdf6e3; border:1px solid #e8d9a0; border-radius:8px; padding:10px; font-size:.85em; line-height:1.6; margin-bottom:12px;}
+details{margin-top:8px; font-size:.85em;}
+summary{cursor:pointer; color:var(--muted);}
+#msg{font-size:.85em; color:var(--ng); margin-top:8px; min-height:1.2em;}
+</style>
+</head>
+<body>
+<div class="rev">rev1 (2026-08-11)</div>
+<h1>キャンセル待ち</h1>
+<div class="sub">予約の「売り切れ→空きあり」の瞬間を、この画面がお知らせします</div>
+
+<div class="warn">
+  この画面を<b>開いている間だけ</b>監視します(タブを閉じる・スマホの画面が消えると止まります)。
+  パソコンのブラウザで開きっぱなしにするのがおすすめ。<br>
+  予約・購入は行いません。空きが出たら通知のリンクから<b>ご自身で公式ページで予約</b>してください。
+</div>
+
+<div class="card">
+  <label>施設</label>
+  <select id="facility"></select>
+  <label>日付</label>
+  <input type="date" id="date">
+  <details>
+    <summary>スマホにも通知したい人(ntfy・任意)</summary>
+    <div class="note">
+      スマホに無料アプリ「ntfy」を入れ、自分で決めた合言葉(topic)を購読しておくと、
+      空き発生をスマホにも送れます。合言葉は推測されにくい長いものに(例: watashi-no-aizu-x7k2)。
+    </div>
+    <label>ntfyの合言葉(空欄なら使わない)</label>
+    <input type="text" id="ntfyTopic" placeholder="例: watashi-no-aizu-x7k2" autocomplete="off">
+  </details>
+  <button class="btn-main" id="addBtn">監視をはじめる</button>
+  <div id="msg"></div>
+</div>
+
+<div id="watchList"></div>
+
+<div class="card">
+  <div class="note">
+    <b>通知のルール</b>: 「売り切れ→空きあり」になった瞬間だけ通知します。空きが続く間は再通知しません。
+    いったん売り切れに戻って再び空いたら、あらためて通知します。<br>
+    <b>しくみ</b>: 確認は約45〜75秒ごと(混雑時は自動で間隔を広げます)。アクセスはあなたのブラウザから
+    直接予約サイトへ行われ、入力内容がこのサイトの運営者に送られることはありません。
+    ntfyの合言葉と監視の記録はこのブラウザの中(localStorage)だけに保存されます
+    (ブラウザのデータ削除で消えます)。
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+ * adapters: サイト固有の処理はここだけに書く。
+ * 新しい施設を足すときは、このADAPTERSにオブジェクトを1個足すだけ。
+ * 条件: そのサイトのAPIがブラウザからの読み取りを許可(CORS)していること(要実測)。
+ * fetchSlots(dateStr) は共通形式 {date,time,status,detail,url} の配列を返す。
+ * status: "AVAILABLE" | "SOLD_OUT" | "UNKNOWN"
+ * ============================================================ */
+const ADAPTERS = {
+  chichu: {
+    name: "地中美術館(直島)",
+    bookingUrl: "https://benesse-artsite.eventos.tokyo/web/portal/797/event/8483/module/booth/239565/176695?language=jpn",
+    dateHint: "",
+    async fetchSlots(dateStr){
+      // 公開API(カレンダー日別在庫)。1=空きあり 2=残りわずか 3=売り切れ 0=休館
+      const [y,m,d] = dateStr.split("-").map(Number);
+      const res = await fetch(`https://web.admin-benesse-artsite.com/api/v1/facility-calendar-ticket/3?year=${y}&month=${m}`,
+                              {headers:{Accept:"application/json"}});
+      if(res.status===429||res.status===503) throw {retryLater:true};
+      if(res.status===403) throw {blocked:true};
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const data = await res.json();
+      const row = (data.data||[]).find(r=>r.day===d);
+      if(!row) return [{date:dateStr, time:"終日", status:"UNKNOWN", detail:"カレンダーに該当日なし", url:this.bookingUrl}];
+      const s = row.stock_status;
+      const map = {1:["AVAILABLE","空きあり"], 2:["AVAILABLE","残りわずか"], 3:["SOLD_OUT","売り切れ"], 0:["UNKNOWN","休館/対象外"]};
+      const [status,detail] = map[s] || ["UNKNOWN","不明("+s+")"];
+      return [{date:dateStr, time:"終日", status, detail, url:this.bookingUrl}];
+    }
+  }
+  // 施設を足すならここに追記(例: hotel_xxx: {...})
+};
+
+/* ============================================================
+ * 監視エンジン(サイトのことは知らない): 判定・保存・通知・スケジュール
+ * 判定ルールはPC版(キャンセル待ちフォルダ engine.py)と同一。
+ * ============================================================ */
+const LS_KEY = "cancel-machi-v1";
+const MIN_MS = 30*1000, BACKOFF_START = 90*1000, BACKOFF_MAX = 600*1000;
+let watches = load();
+const timers = {};
+
+function load(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEY)) || []; }catch(e){ return []; }
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(watches)); }
+
+function judge(w, slot){ // 'cancel' | 'info' | null
+  const rec = w.slots[slot.date+" "+slot.time];
+  let result = null, notified;
+  if(slot.status==="AVAILABLE"){
+    if(!rec){ result="info"; notified=true; }
+    else if(rec.status==="SOLD_OUT"){ result="cancel"; notified=true; }
+    else notified = rec.notified || rec.status==="AVAILABLE";
+    w.slots[slot.date+" "+slot.time] = {status:"AVAILABLE", notified, detail:slot.detail};
+  }else if(slot.status==="SOLD_OUT"){
+    w.slots[slot.date+" "+slot.time] = {status:"SOLD_OUT", notified:false, detail:slot.detail};
+  } // UNKNOWNは記録を動かさない(取りこぼし・連打の両方を防ぐ)
+  return result;
+}
+
+async function checkOnce(w){
+  const ad = ADAPTERS[w.adapterId];
+  let slots;
+  try{
+    slots = await ad.fetchSlots(w.date);
+    w.fails = 0; w.backoff = BACKOFF_START;
+    w.lastSuccess = nowStr();
+    w.display = "監視中";
+  }catch(e){
+    if(e && e.blocked){
+      w.display = "停止中(サイトに拒否されました。時間を置いて再開してください)";
+      w.running = false; save(); render(); return;
+    }
+    w.fails = (w.fails||0)+1;
+    w.backoff = Math.min((w.backoff||BACKOFF_START)*2, BACKOFF_MAX);
+    w.display = "エラー(通信できません。自動で再試行します)";
+    save(); render(); schedule(w, Math.max(w.backoff, MIN_MS)); return;
+  }
+  let open = false;
+  for(const slot of slots){
+    const verdict = judge(w, slot);
+    if(slot.status==="AVAILABLE") open = true;
+    if(verdict==="cancel") notifyOpening(w, slot, true);
+    else if(verdict==="info") notifyOpening(w, slot, false);
+  }
+  w.display = open ? "空席あり" : "監視中(現在: 空席なし)";
+  save(); render();
+  schedule(w, Math.max(MIN_MS, 45000 + Math.random()*30000));
+}
+
+function schedule(w, ms){
+  if(!w.running) return;
+  clearTimeout(timers[w.id]);
+  timers[w.id] = setTimeout(()=>{ if(w.running) checkOnce(w); }, ms);
+}
+
+/* ---- 通知(ブラウザ通知+音+任意でntfy)。載せるのは施設名・日時・検知時刻・公式URLだけ ---- */
+function notifyOpening(w, slot, urgent){
+  const ad = ADAPTERS[w.adapterId];
+  const when = slot.date + (slot.time==="終日" ? "" : " "+slot.time);
+  const body = urgent
+    ? `${ad.name} ${when} に空きが出ました!(${slot.detail}) 検知 ${nowStr()}\nタップで公式予約ページへ`
+    : `${ad.name} ${when} は監視開始時点で空席ありです(${slot.detail})`;
+  if(Notification.permission==="granted"){
+    const n = new Notification(urgent ? "空き発生! "+ad.name : "お知らせ "+ad.name, {body, requireInteraction:urgent});
+    n.onclick = ()=>{ window.open(slot.url, "_blank"); n.close(); };
+  }
+  if(urgent) beep();
+  const topic = (w.ntfyTopic||"").trim();
+  if(topic){
+    fetch("https://ntfy.sh/"+encodeURIComponent(topic), {method:"POST", body,
+      headers:{Title: urgent?"AKI HASSEI!":"kanshi info", Priority: urgent?"urgent":"default",
+               Tags: urgent?"rotating_light":"information_source", Click: slot.url}}).catch(()=>{});
+  }
+  const line = document.getElementById("w-"+w.id);
+  if(line && urgent) line.scrollIntoView({behavior:"smooth"});
+}
+
+function beep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    let t = ctx.currentTime;
+    for(let i=0;i<6;i++){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = i%2 ? 1600 : 1200;
+      g.gain.setValueAtTime(0.25, t); g.gain.linearRampToValueAtTime(0, t+0.35);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.38); t += 0.4;
+    }
+  }catch(e){}
+}
+function nowStr(){
+  const d = new Date(), p = n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/* ============================================================ 画面(表示処理) */
+const facilitySel = document.getElementById("facility");
+for(const [id,ad] of Object.entries(ADAPTERS)){
+  const o = document.createElement("option"); o.value=id; o.textContent=ad.name; facilitySel.appendChild(o);
+}
+const dateInput = document.getElementById("date");
+dateInput.min = new Date().toISOString().slice(0,10);
+
+document.getElementById("addBtn").onclick = async ()=>{
+  const msg = document.getElementById("msg"); msg.textContent = "";
+  const date = dateInput.value;
+  if(!date){ msg.textContent = "日付を選んでください"; return; }
+  if(Notification.permission==="default"){
+    await Notification.requestPermission();
+  }
+  if(Notification.permission!=="granted"){
+    msg.textContent = "通知が許可されていません(画面内の表示と音だけでお知らせします)";
+  }
+  const w = {
+    id: Date.now().toString(36),
+    adapterId: facilitySel.value,
+    date,
+    ntfyTopic: document.getElementById("ntfyTopic").value.trim(),
+    slots: {}, running: true, display: "監視中", lastSuccess: "", fails: 0, backoff: BACKOFF_START
+  };
+  watches.push(w); save(); render();
+  checkOnce(w);
+};
+
+function render(){
+  const box = document.getElementById("watchList");
+  box.innerHTML = "";
+  for(const w of watches){
+    const ad = ADAPTERS[w.adapterId];
+    const div = document.createElement("div");
+    const open = (w.display||"").startsWith("空席あり");
+    div.className = "card watch" + (open ? " open" : (w.display||"").startsWith("エラー") ? " err" : "");
+    div.id = "w-"+w.id;
+    div.innerHTML =
+      `<h3>${ad.name}　${w.date}</h3>
+       <div class="status">${w.running?"":"⏸ "}<b class="${open?"open":""}">${w.display||"監視中"}</b></div>
+       <div class="meta">最終確認: ${w.lastSuccess||"まだ"}${w.ntfyTopic?"　/ ntfy通知あり":""}</div>`;
+    const btn = document.createElement("button");
+    if(w.running){
+      btn.className = "btn-stop"; btn.textContent = "監視をやめる";
+      btn.onclick = ()=>{ w.running=false; w.display="停止中"; clearTimeout(timers[w.id]); save(); render(); };
+    }else{
+      btn.className = "btn-small"; btn.textContent = "この監視を削除";
+      btn.onclick = ()=>{ watches = watches.filter(x=>x.id!==w.id); clearTimeout(timers[w.id]); save(); render(); };
+      const re = document.createElement("button");
+      re.className = "btn-small"; re.textContent = "再開"; re.style.marginRight = "8px";
+      re.onclick = ()=>{ w.running=true; w.display="監視中"; save(); render(); checkOnce(w); };
+      div.appendChild(re);
+    }
+    btn.style.marginTop = "8px";
+    div.appendChild(btn);
+    box.appendChild(div);
+  }
+}
+
+/* 再読み込み時: 記録を復元し、動いていた監視を再開(重複通知はしない=slotsに通知済みが残っている) */
+render();
+for(const w of watches){ if(w.running) checkOnce(w); }
+</script>
+</body>
+</html>
