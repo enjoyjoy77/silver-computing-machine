@@ -69,13 +69,14 @@
   <h1>部屋を消して<br>30cm四方だけ見せる</h1>
   <p>散らかった部屋が見えていると手が止まります。だから見えなくします。<br>
   片づける場所を1か所えらぶと、そこ以外が暗くなり、目の前の一手だけが残ります。<br>
-  <b>1個片づけるたびに「1個できた！」を押すと、窓が少し広がります。</b>
-  10個で部屋がまるごと戻る＝視界を自分の手で取り返す遊びです。</p>
+  <b>1個片づけるたびに「1個できた！」を押すと、ぶたの貯金箱にコインがたまります。</b></p>
 
   <div class="modeBox">
-    <div class="lbl">はじめは5秒でいい</div>
-    <div class="steps">5秒 → 10秒 → 30秒 → 1分 → 3分 → 5分 → 10分 → 20分</div>
-    <div class="lbl" style="margin:9px 0 0">この刻みごとにほめます。20分でいちど休みの合図が出ます。</div>
+    <div class="lbl">時間は計りません</div>
+    <div class="steps">🐷 コインがたまる → 全マス片づく → ぶたがおしゃれになる</div>
+    <div class="lbl" style="margin:9px 0 0">
+      秒数やノルマは出しません。ぶたにコインが積み上がっていくのが、進んだ証拠です。<br>
+      ぼうし → マフラー → メガネ → おうかん → マント → きんいろ、と少しずつ変わります。</div>
   </div>
 
   <button id="goBtn" disabled>はじめる</button>
@@ -101,7 +102,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v5 rev1";
+const REV = "v6 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -132,14 +133,13 @@ const TUNE = {
   growPerItem: 0.022,   // 1個ごとに窓が広がる量（m）
   growPerTime: 0.014,   // 時間のきざみを1つ越えるごとに窓が広がる量（m）
   comboSec: 45,         // この秒数内に次を片づけるとコンボ
-  // うごき検知（手の動きだけで「1個片づけた」を数える。画像認識は使わない）
-  autoOn: true,
+  // 「持ったね！」の反応だけ残した（自動で数えるのは v6 でやめた。数えるのは自分で押す）
   reachPad: 0.16,       // 窓のふちからこれだけ内側／外側までを「手が入った」とみなす（m）
-  carryDist: 0.42,      // マスからこれだけ離れたら「運んだ」（m）
-  carryPath: 0.30,      // 手が動いた総距離がこれ以上なら「運んだ」（m）
-  stillSpeed: 0.18,     // これより遅くなったら「置いた／静止した」（m/秒）
-  stillSec: 0.30,       // その速さがこの秒数つづいたら確定
-  autoCool: 2.2,        // 数えたあとの待ち（秒）
+  reachCool: 6.0,       // 「持てた！」をほめたあと、次にほめるまでの待ち（秒）
+  // ぶたの貯金箱（時間や個数を数字で見せず、コインが積み上がる形で見せる）
+  coinMax: 60,          // ぶたの中に見えるコインの上限（超えたら下から詰め直す）
+  pigScale: 0.16,       // ぶたの大きさ（m）
+  cellsPerLevel: 1,     // 全マス終わるごとに、ぶたが1段おしゃれになる
   // 保留の玉（次の1個の「祝いランク」を先に予告する。設計書_演出パチンコ式.md の振り分け表）
   // tier: 0=通常 1=激熱 2=確定。数字は設計値。画面に出す%は必ずこの表から計算する（嘘の煽り禁止）
   holdTable: [
@@ -181,19 +181,39 @@ addEventListener("unhandledrejection", ev => { log("エラー(非同期): " + (e
 /* ストップウォッチの「きざみ」。20分をいきなり目標にすると
    「20分みっちりやらなきゃ」になって重いので、まず5秒から。
    刻みごとに必ずほめる（ユーザー指示 2026-07-27）。 */
+/* ★2026-08-17（v6）: 秒数を画面に出すのをやめた。
+   ユーザー報告「タイマー方式はやっぱり試験みたいで怖いし不安になる」。
+   刻みそのものは残す（時間が経つほどほめる）が、**言葉に数字を入れない**。
+   進み具合はぶたの中のコインの高さで見せる。 */
 const TIME_MS = [
-  { t: 5,    msg: "はじめた！ 5秒" },
-  { t: 10,   msg: "10秒つづいた" },
-  { t: 30,   msg: "30秒！ ちゃんと動いてる" },
-  { t: 60,   msg: "1分つづいた" },
-  { t: 180,  msg: "3分。もう乗ってる" },
-  { t: 300,  msg: "5分。じゅうぶんえらい" },
-  { t: 600,  msg: "10分！ すごい" },
-  { t: 1200, msg: "20分。いちど休もう" },
+  { t: 5,    msg: "はじめられた！ それが一番えらい" },
+  { t: 10,   msg: "つづいてる。いい感じ" },
+  { t: 30,   msg: "ちゃんと動いてる" },
+  { t: 60,   msg: "だいぶ乗ってきた" },
+  { t: 180,  msg: "すごい。もう十分がんばってる" },
+  { t: 300,  msg: "えらい。ぶたも喜んでる" },
+  { t: 600,  msg: "ここまで来たらすごい" },
+  { t: 1200, msg: "いちど休もう。もう十分やった" },
 ];
 // 個数のほうの刻み（こちらも細かくほめる）
 const COUNT_MS = { 1:"1個できた！ もう終わってもいい", 2:"2個目！", 3:"3個！ 調子いい",
                    5:"5個。半分きた", 7:"7個！", 10:"10個クリア！" };
+/* ============ ほめ言葉（同じ言葉が続かないように選ぶ） ============ */
+const PRAISE_START = ["よく来たね！ それだけでえらい", "起動できた！ もう半分勝ち", "来たね。ここまでが一番むずかしい"];
+const PRAISE_PLACE = ["場所を決めた！ いいぞ", "ここに決めたね。えらい", "決められた！ すごい"];
+const PRAISE_HOLD  = ["持てた！ さすが", "持った！ その調子", "つかんだ！ もう動いてる"];
+const PRAISE_ONE   = ["やった！ 1個へった", "いいぞ！ ちゃんと進んでる", "えらい！ 手が動いてる",
+                      "1個は大きい", "その1個で部屋が変わる", "ナイス！"];
+const PRAISE_CELL  = ["マスがひとつ片づいた！", "きれいになった！", "1マス制覇！"];
+let _lastPraise = "";
+function pickPraise(list){
+  for(let i=0;i<8;i++){
+    const s = list[Math.floor(Math.random()*list.length)];
+    if(s !== _lastPraise){ _lastPraise = s; return s; }
+  }
+  return list[0];
+}
+function praise(list, sec){ showMsg(typeof list === "string" ? list : pickPraise(list), sec || 3.2); }
 function fmtSec(t){ return t < 60 ? (t + "秒") : ((t/60) + "分"); }
 function fmtSec2(sec){
   const s2 = Math.max(0, Math.floor(sec));
@@ -235,10 +255,34 @@ function playPlace(){ beep(520, 0.16, "triangle", 0.30); beep(780, 0.12, "sine",
 function playClick(){ beep(440, 0.07, "sine", 0.16); }
 function playDone(){ [523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.32,"triangle",0.32), i*130)); }
 function playChime(){ [784,988].forEach((f,i)=>setTimeout(()=>beep(f,0.5,"sine",0.3), i*260)); }
-// 1個ごとに半音ずつ上がる「ポン♪」。続けるほど気持ちよくなる
+/* ★2026-08-17: 音がだんだん高くなるのをやめた。
+   ユーザー報告「音の音階が変わるやつ、追い込まれている感じがして嫌」。
+   続けるほど高くなる音は、急かされている合図として働いてしまう。
+   これ以降、ごほうびの音は「いつも同じ高さ」。step は受け取るだけで使わない。 */
 function playPon(step){
-  const f = 620 * Math.pow(2, Math.min(step, 12)/12);
-  beep(f, 0.17, "triangle", 0.34); beep(f*2, 0.10, "sine", 0.10);
+  beep(620, 0.17, "triangle", 0.32); beep(1240, 0.10, "sine", 0.09);
+}
+// コインが落ちてチャリンと入る音
+function playCoin(){
+  beep(1180, 0.07, "square", 0.10);
+  setTimeout(()=>beep(1560, 0.14, "sine", 0.16), 55);
+}
+// ぶたの「ブー」。周波数を下げながら鳴らす（上がらないのが大事）
+function playOink(){
+  if(!actx) return;
+  try{
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(300, t);
+    o.frequency.exponentialRampToValueAtTime(150, t + 0.22);   // 下がる＝のんびりした鳴き声
+    f.type = "lowpass"; f.frequency.value = 900;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.26, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+    o.connect(f); f.connect(g); g.connect(actx.destination);
+    o.start(t); o.stop(t + 0.34);
+  }catch(_){}
 }
 function playFanfare(){ [523,659,784,1047,1319].forEach((f,i)=>setTimeout(()=>beep(f,0.36,"triangle",0.34), i*130)); }
 
@@ -408,6 +452,178 @@ function getDonePlane(i){
   return donePlanes[i];
 }
 
+/* ============ ぶたの貯金箱（v6の主役） ============
+   ユーザーの指示: 「タイマー方式は試験みたいで怖い。視覚的にわかる積み重なっていく何か。
+   豚の貯金箱にコインが少しずつたまっていくとか。全マス終わったら豚が進化して
+   服や帽子やアクセサリーをつけていく。おしゃれになるときちゃんとエフェクトつけて」
+   → 進み具合は数字（秒・個数）ではなく、**コインの高さ**と**ぶたの見た目**で見せる。 */
+const PIG = { level: 0, coins: 0, totalCells: 0 };
+try{
+  const raw = localStorage.getItem("kokodake_pig");
+  if(raw){ const o = JSON.parse(raw); if(o && typeof o === "object"){
+    PIG.level = o.level|0; PIG.coins = o.coins|0; PIG.totalCells = o.totalCells|0; } }
+}catch(_){}
+function savePig(){ try{ localStorage.setItem("kokodake_pig", JSON.stringify(PIG)); }catch(_){} }
+addEventListener("pagehide", savePig);
+
+const pigGroup = new THREE.Group();
+pigGroup.visible = false; scene.add(pigGroup);
+const pigBody = new THREE.Group(); pigGroup.add(pigBody);   // 跳ねるのはこちら（コインは中に入れる）
+const PINK = 0xffb3c6, PINK2 = 0xff8fab;
+function mat(color, opts){
+  return new THREE.MeshLambertMaterial(Object.assign({ color, depthTest:false }, opts||{}));
+}
+// 体（中のコインが見えるように少し透ける）
+const pigSkin = mat(PINK, { transparent:true, opacity:0.55 });
+const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 16), pigSkin);
+bodyMesh.scale.set(1.0, 0.86, 1.18); pigBody.add(bodyMesh);
+// 鼻・耳・目・脚・しっぽ・コインの投入口
+const snoutMat = mat(PINK2);
+const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 16), snoutMat);
+snout.rotation.x = Math.PI/2; snout.position.set(0, -0.05, 1.20); pigBody.add(snout);
+[[-0.13,0],[0.13,0]].forEach(p=>{
+  const n = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.06,8), mat(0x8a4a5c));
+  n.rotation.x = Math.PI/2; n.position.set(p[0], -0.05, 1.32); pigBody.add(n);
+});
+[[-0.45,0.62,0.55],[0.45,0.62,0.55]].forEach(p=>{
+  const e = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 10), snoutMat);
+  e.position.set(p[0], p[1], p[2]); e.rotation.x = -0.3; pigBody.add(e);
+});
+const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), mat(0x2a2029));
+eyeL.position.set(-0.32, 0.22, 0.95); pigBody.add(eyeL);
+const eyeR = eyeL.clone(); eyeR.position.x = 0.32; pigBody.add(eyeR);
+[[-0.45,-0.86,0.55],[0.45,-0.86,0.55],[-0.45,-0.86,-0.45],[0.45,-0.86,-0.45]].forEach(p=>{
+  const l = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.34,10), snoutMat);
+  l.position.set(p[0], p[1], p[2]); pigBody.add(l);
+});
+const tail = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 6, 14), snoutMat);
+tail.position.set(0, 0.35, -1.15); tail.rotation.y = Math.PI/2; pigBody.add(tail);
+const slot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.14), mat(0x6b3a4a));
+slot.position.set(0, 0.86, 0.0); pigBody.add(slot);
+
+// 中に積もるコイン（InstancedMeshひとつ＝描画コスト1回分）
+const coinGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.05, 12);
+const coinMesh = new THREE.InstancedMesh(coinGeo, mat(0xffd34d), TUNE.coinMax);
+coinMesh.count = 0; coinMesh.frustumCulled = false; pigBody.add(coinMesh);
+const _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _cv = new THREE.Vector3(), _cs = new THREE.Vector3(1,1,1);
+// 積もる位置は毎回同じ（乱数だが並びを固定しておく＝増えたぶんだけ高くなるのが見える）
+const coinSpots = [];
+for(let i=0;i<TUNE.coinMax;i++){
+  const row = Math.floor(i/6);
+  const a = (i*2.399) % (Math.PI*2);
+  const rr = 0.30 + 0.26 * ((i%6)/5);
+  coinSpots.push({ x: Math.cos(a)*rr, y: -0.66 + row*0.115, z: Math.sin(a)*rr*1.1, rz: (i%7)*0.18 });
+}
+function refreshCoins(){
+  const n = Math.min(TUNE.coinMax, PIG.coins);
+  coinMesh.count = n;
+  for(let i=0;i<n;i++){
+    const s = coinSpots[i];
+    _cq.setFromEuler(new THREE.Euler(0.12, s.rz, 0.10));
+    _cm.compose(_cv.set(s.x, s.y, s.z), _cq, _cs);
+    coinMesh.setMatrixAt(i, _cm);
+  }
+  coinMesh.instanceMatrix.needsUpdate = true;
+}
+
+/* ---- おしゃれ（全マス終わるたびに1段ずつ増える） ---- */
+const DECOS = [
+  { name: "ぼうし",     build: ()=>{ const g = new THREE.Group();
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.05,14), mat(0x4a6bd8)); b.position.y = 0.92;
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,0.30,14), mat(0x4a6bd8)); c.position.y = 1.08;
+      g.add(b); g.add(c); return g; } },
+  { name: "マフラー",   build: ()=>{ const g = new THREE.Group();
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.12, 8, 20), mat(0xe05555));
+      t.rotation.x = Math.PI/2; t.position.set(0, 0.18, 0.66); t.scale.set(1,0.9,1);
+      const e = new THREE.Mesh(new THREE.BoxGeometry(0.16,0.42,0.10), mat(0xe05555)); e.position.set(0.5,-0.1,0.72);
+      g.add(t); g.add(e); return g; } },
+  { name: "メガネ",     build: ()=>{ const g = new THREE.Group();
+      [-0.32,0.32].forEach(x=>{ const r = new THREE.Mesh(new THREE.TorusGeometry(0.16,0.035,6,16), mat(0x2f3a4a));
+        r.position.set(x, 0.24, 0.98); g.add(r); });
+      const br = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.03,0.03), mat(0x2f3a4a)); br.position.set(0,0.24,0.98);
+      g.add(br); return g; } },
+  { name: "おうかん",   build: ()=>{ const g = new THREE.Group();
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.30,0.16,12), mat(0xffd34d)); b.position.y = 0.98;
+      g.add(b);
+      for(let i=0;i<5;i++){ const a = i/5*Math.PI*2;
+        const s = new THREE.Mesh(new THREE.ConeGeometry(0.08,0.20,8), mat(0xffd34d));
+        s.position.set(Math.cos(a)*0.26, 1.14, Math.sin(a)*0.26); g.add(s); }
+      return g; } },
+  { name: "マント",     build: ()=>{ const g = new THREE.Group();
+      const m = new THREE.Mesh(new THREE.SphereGeometry(1.06, 16, 12, 0, Math.PI), mat(0x8a4ad8, { side: THREE.DoubleSide }));
+      m.rotation.y = -Math.PI/2; m.scale.set(1.0, 0.92, 0.6); m.position.set(0, -0.05, -0.25);
+      g.add(m); return g; } },
+  { name: "きんいろ",   build: ()=>{ pigSkin.color.setHex(0xffd97a); snoutMat.color.setHex(0xf0b840); return new THREE.Group(); } },
+];
+const decoGroup = new THREE.Group(); pigBody.add(decoGroup);
+function applyDecos(){
+  while(decoGroup.children.length) decoGroup.remove(decoGroup.children[0]);
+  pigSkin.color.setHex(PINK); snoutMat.color.setHex(PINK2);
+  const n = Math.min(DECOS.length, PIG.level);
+  for(let i=0;i<n;i++) decoGroup.add(DECOS[i].build());
+  // 目かくしより手前に出す（このツールの決まり: 見せたい物は depthTest を切って renderOrder で重ねる）
+  pigGroup.traverse(o=>{ if(o.material){ o.material.depthTest = false; o.renderOrder = 9; } o.renderOrder = 9; });
+}
+function nextDecoName(){ return PIG.level < DECOS.length ? DECOS[PIG.level].name : "きんぴか"; }
+
+/* ---- 動き（コインが落ちる・跳ねる・進化の光） ---- */
+let pigJump = 0, pigSpin = 0, flyCoins = [], evolveGlow = 0;
+const flyGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.05, 12);
+const flyMat = mat(0xffd34d);
+function dropCoin(special){
+  const m = new THREE.Mesh(flyGeo, special ? mat(0xff8fd0) : flyMat);
+  m.renderOrder = 9; m.material.depthTest = false;
+  m.position.set(0, 2.6, 0); pigBody.add(m);
+  flyCoins.push({ m, t: 0, special: !!special });
+  playCoin();
+}
+// コインを1枚ためる（special=「1個できた！」のときの特別なコイン）
+function addCoin(special){
+  PIG.coins++; savePig();
+  if(pigGroup.visible) dropCoin(special); else refreshCoins();
+}
+// ぶたが1段おしゃれになる（全マス終わったとき）
+function evolvePig(){
+  const got = nextDecoName();
+  PIG.level++; PIG.totalCells++;
+  applyDecos(); savePig();
+  evolveGlow = 1.2; pigJump = 1.4;
+  fireRing(0xffd166);
+  setTimeout(()=>fireRing(0xffffff), 160);
+  setTimeout(()=>fireRing(0xff8fd0), 320);
+  burstConfetti(pigGroup.position, 420, true);
+  playFanfare(); setTimeout(playOink, 700); pulse(220, 1.0);
+  showMsg("ぶたが「" + got + "」を手に入れた！", 6);
+  log("ぶたがおしゃれになりました（" + got + "）。ここまでで " + PIG.totalCells + "回、全マスを片づけました");
+}
+function updatePig(dt){
+  if(!pigGroup.visible) return;
+  pigSpin += dt;
+  // ゆっくり呼吸（生きている感じ。速い動きはVRで疲れるので入れない）
+  const breathe = 1 + 0.02 * Math.sin(pigSpin * 1.6);
+  pigJump = Math.max(0, pigJump - dt * 2.2);
+  const jump = Math.sin(Math.min(1, pigJump) * Math.PI) * 0.5;
+  pigBody.position.y = jump;
+  pigBody.scale.setScalar(breathe * (1 + jump * 0.10));
+  for(let i=flyCoins.length-1;i>=0;i--){
+    const f = flyCoins[i];
+    f.t += dt / 0.55;
+    if(f.t >= 1){
+      pigBody.remove(f.m); flyCoins.splice(i,1);
+      refreshCoins(); pigJump = 1.0;
+      continue;
+    }
+    f.m.position.y = 2.6 + (0.86 - 2.6) * (f.t*f.t);   // 落ちる（だんだん速く）
+    f.m.rotation.z += dt * 6;
+    f.m.scale.setScalar(1 + (f.special ? 0.5 * Math.sin(f.t*Math.PI) : 0));
+  }
+  if(evolveGlow > 0){
+    evolveGlow = Math.max(0, evolveGlow - dt);
+    pigBody.rotation.y = Math.sin((1-evolveGlow) * Math.PI * 4) * 0.5;
+  }else pigBody.rotation.y = 0;
+}
+applyDecos(); refreshCoins();
+
 /* ============ 紙吹雪（Pointsひとつ＝描画コスト1回分） ============ */
 const PMAX = 420;
 const pPos = new Float32Array(PMAX*3);
@@ -554,36 +770,30 @@ function drawInfoPanel(){
     c.font = "bold " + (startMsg.length > 10 ? 46 : 66) + "px sans-serif";
     c.fillText(startMsg, W/2, 72);
   }else{
-    // ストップウォッチを主役にし、個数を横に添える
-    c.fillStyle = goalReached ? "#9cf0bf" : "#eef1f6"; c.font = "bold 92px sans-serif";
-    c.fillText(fmtSec2(elapsed), W/2 - 52, 70);
-    c.fillStyle = "#ffd166"; c.font = "bold 46px sans-serif";
-    c.fillText(count + "個", W/2 + 130, 80);
-    // マス盤のときは「何マス目か」を出す（残りが見えると終わりが見える）
+    // ★v6: 秒数は出さない（試験のように見えるため）。コインとマスだけ。
+    c.fillStyle = "#ffd166"; c.font = "bold 82px sans-serif";
+    c.fillText("🪙" + PIG.coins, W/2 - 40, 70);
     if(gridN > 1 && cells.length){
-      c.fillStyle = "#9fb4d8"; c.font = "bold 34px sans-serif";
-      c.fillText(doneCells() + "/" + cells.length + "マス", W/2 - 170, 82);
+      c.fillStyle = goalReached ? "#9cf0bf" : "#9fb4d8"; c.font = "bold 44px sans-serif";
+      c.fillText(doneCells() + "/" + cells.length + "マス", W/2 + 140, 78);
     }
   }
-  // 溜まっていくゲージ
+  // 溜まっていくゲージ＝「ぶたが次におしゃれになるまで」（残りマス）
   const gx = 28, gw = W - 56, gy = 124, gh = 20;
   c.fillStyle = "rgba(255,255,255,0.10)"; roundRect(c, gx, gy, gw, gh, gh/2); c.fill();
-  const nxt = TIME_MS[msIdx], prv = msIdx > 0 ? TIME_MS[msIdx-1].t : 0;
-  const p = nxt ? Math.min(1, Math.max(0, (elapsed - prv) / (nxt.t - prv))) : 1;
+  const p = cells.length ? (doneCells() / cells.length) : 0;
   if(p > 0){
     c.fillStyle = goalReached ? "#7ee0a0" : "#ffd166";
     roundRect(c, gx, gy, Math.max(gh, gw*p), gh, gh/2); c.fill();
   }
   c.font = "bold 30px sans-serif";
-  if(combo > 0){ c.fillStyle = "#ffe08a"; c.fillText("れんぞく " + (combo+1) + "個！", W/2, 180); }
-  else if(hold){
+  if(hold){
     const h = TUNE.holdTable[hold.ci];
     c.fillStyle = "#" + h.color.toString(16).padStart(6, "0");
     c.fillText("次の1個: " + h.name + (hold.ci === 3 ? "" : "（激熱" + holdHotPct(hold.ci) + "%）"), W/2, 180);
   }else{
     c.fillStyle = "#93a0b5";
-    const nx = TIME_MS[msIdx];
-    c.fillText(nx ? ("次は " + fmtSec(nx.t) + "　あと " + Math.max(0, Math.ceil(nx.t - elapsed)) + "秒")
+    c.fillText(cells.length ? ("あと " + (cells.length - doneCells()) + "マスで「" + nextDecoName() + "」")
                   : ("きょう " + doneToday + "マス"), W/2, 180);
   }
   iP.tex.needsUpdate = true;
@@ -629,17 +839,27 @@ const peekBtn  = makeButton("まわりを見る",  0.30, 0.117, togglePeek,  "#9
 const nextBtn  = makeButton("このマスは終わり", 0.34, 0.133, finishSquare, "#ffd166");
 const shapeBtn = makeButton("まる／しかく",  0.26, 0.102, toggleShape, "#9fb4d8");
 const darkBtn  = makeButton("暗さ",          0.20, 0.102, cycleDark,   "#9fb4d8");
-const autoBtn  = makeButton("うごき検知",    0.28, 0.102, toggleAuto,  "#9fb4d8");
+// （「うごき検知」ボタンは v6 で廃止。自動で数えるのをやめたため）
 // タスクの細かさ（マス盤の割り方）。押すたび 分けない→2×2→3×3→4×4 と巡回する
 const gridBtn  = makeButton("細かさ2×2",    0.28, 0.102, ()=>cycleGrid(), "#9fb4d8");
 // いまの小マスに片づける物が無いとき用
 const skipBtn  = makeButton("このマスは飛ばす", 0.34, 0.117, ()=>skipCell(), "#9fb4d8");
-function toggleAuto(){
-  TUNE.autoOn = !TUNE.autoOn;
-  AUTO.phase = "idle"; AUTO.path = 0;
-  autoBtn.setLabel(TUNE.autoOn ? "検知：オン" : "検知：オフ");
-  playClick();
-  log(TUNE.autoOn ? "うごき検知オン（手の動きで自動でかぞえます）" : "うごき検知オフ（自分でボタンを押してください）");
+// 板が11枚も浮いていると画面がうるさいので、めったに触らないものは中にしまう
+const setBtn   = makeButton("せってい",      0.24, 0.102, ()=>toggleSettings(), "#9fb4d8");
+let settingsOpen = false;
+function applyUIVisible(){
+  const on = placed;
+  // 設定を出している間は、ふだんのボタンをしまう（同時に出す板を減らすほど迷わない）
+  [narrowBtn, wideBtn, darkBtn, shapeBtn].forEach(b=>{ b.mesh.visible = on && settingsOpen; });
+  [oneBtn, peekBtn, nextBtn, gridBtn].forEach(b=>{ b.mesh.visible = on && !settingsOpen; });
+  skipBtn.mesh.visible = on && !settingsOpen && (gridN > 1);
+  setBtn.mesh.visible = on;
+  setBtn.setLabel(settingsOpen ? "とじる" : "せってい");
+}
+function toggleSettings(){
+  settingsOpen = !settingsOpen;
+  applyUIVisible(); playClick();
+  log(settingsOpen ? "設定を出しました（暗さ・窓の大きさ・検知・かたち）" : "設定をしまいました");
 }
 // これが主役のボタン。1個片づけるたびに押す（一番大きく、一番手前に置く）
 const oneBtn   = makeButton("1個できた！",   0.46, 0.176, addOne,      "#7ee0a0");
@@ -760,7 +980,7 @@ function cycleGrid(){
   gridN = TUNE.gridLevels[(idx + 1) % TUNE.gridLevels.length];
   try{ localStorage.setItem("kokodake_grid", String(gridN)); }catch(_){}
   gridBtn.setLabel("細かさ" + (gridN === 1 ? "なし" : gridN + "×" + gridN));
-  playClick();
+  playClick(); applyUIVisible();
   if(placed){
     buildCells();
     gotoCell(gridN === 1 ? 0 : pickNextCell());
@@ -798,17 +1018,18 @@ function shellWant(){
    これで「1個片づけた」とみなす。**わざと甘め**にしてある。
    数え間違い（多めに数える）は害がないが、やったのに何も起きないのは致命的だから。 */
 const AUTO = {
-  phase: "idle",        // idle → reach → carry
-  path: 0,              // 手が動いた総距離
-  stillFor: 0,          // 遅い速さが続いた秒数
+  phase: "idle",
+  path: 0,
+  stillFor: 0,
   coolUntil: 0,
   handIn: false,        // いま窓の中に手があるか（枠を光らせる用）
+  praised: false,       // 「持てた！」をもうほめたか
 };
 const _hPrev = [new THREE.Vector3(), new THREE.Vector3()];
 const _hHas = [false, false];
 const _hNow = new THREE.Vector3();
 function updateAutoCount(dt){
-  if(!placed || goalReached || peek || away || !TUNE.autoOn) { AUTO.handIn = false; return; }
+  if(!placed || goalReached || peek || away) { AUTO.handIn = false; return; }
   const r = shellUniforms.uR.value;
   let bestIn = false, maxSpeed = 0, minDist = 1e9, moved = 0, anyHand = false;
 
@@ -833,45 +1054,25 @@ function updateAutoCount(dt){
 // 判定の中身（UIからも検証窓口からも必ずここを通す）
 // ★入切の判定もここに置く。呼び出し側だけに置くと、検証窓口が素通りして
 //   「オフなのに数える」を見逃す（実際にやった）
+/* ★2026-08-17（v6）: 自動で「1個」と数えるのをやめた。
+   ユーザー報告「動きの検知いらないわ」。数えるのは自分で「1個できた！」を押す。
+   残したのは **手が窓に入ったら「持てた！」とほめる** ところだけ。
+   ここは指示（持ってください！）に対する返事なので、数える話とは別。 */
 function autoStep(minDist, moved, maxSpeed, bestIn, dt){
-  if(!placed || goalReached || peek || away || !TUNE.autoOn){
-    AUTO.handIn = false; AUTO.phase = "idle"; AUTO.path = 0; AUTO.stillFor = 0; return;
+  if(!placed || goalReached || peek || away){
+    AUTO.handIn = false; return;
   }
   const now = performance.now()/1000;
-  const r = shellUniforms.uR.value;
   AUTO.handIn = bestIn;
-
   if(now < AUTO.coolUntil) return;
-
-  if(AUTO.phase === "idle"){
-    // 手が窓に入ったら「取りかかった」。ここで小さく反応するのが第一歩のごほうび
-    if(bestIn){
-      AUTO.phase = "reach"; AUTO.path = 0; AUTO.stillFor = 0;
-      beep(720, 0.06, "sine", 0.10);
-      log("手が入りました");
-    }
-    return;
+  if(bestIn && !AUTO.praised){
+    AUTO.praised = true;
+    AUTO.coolUntil = now + TUNE.reachCool;
+    praise(PRAISE_HOLD, 3.4);
+    playOink(); pulse(60, 0.7);
+    log("持てた！ そのまま持っていって、置いたら「1個できた！」を押してください");
   }
-  AUTO.path += moved;
-  if(AUTO.phase === "reach"){
-    // 窓から離れて、それなりに動いたら「運んでいる」
-    if(minDist > r + TUNE.carryDist && AUTO.path > TUNE.carryPath){
-      AUTO.phase = "carry"; AUTO.stillFor = 0;
-    }
-    // ずっと窓の中でごちゃごちゃしているだけなら、そのうち諦めて待ちに戻す
-    if(AUTO.path > 3.0 && minDist < r + TUNE.reachPad){ AUTO.phase = "idle"; AUTO.path = 0; }
-    return;
-  }
-  if(AUTO.phase === "carry"){
-    if(maxSpeed < TUNE.stillSpeed){
-      AUTO.stillFor += dt;
-      if(AUTO.stillFor >= TUNE.stillSec){
-        AUTO.phase = "idle"; AUTO.path = 0; AUTO.stillFor = 0;
-        AUTO.coolUntil = now + TUNE.autoCool;
-        addOne(true);
-      }
-    }else AUTO.stillFor = 0;
-  }
+  if(!bestIn && now >= AUTO.coolUntil) AUTO.praised = false;
 }
 
 /* ---- ごほうび: 1個片づけるたびに窓が広がる ----
@@ -880,9 +1081,9 @@ function autoStep(minDist, moved, maxSpeed, bestIn, dt){
 /* ---- 祝いの3段階（設計書_演出パチンコ式.md）----
    通常=ポン♪+紙吹雪 / 激熱=上昇3音+リング+多め / 確定=ファンファーレ+リング3連+特大。
    VR安全のため画面全体は絶対に揺らさない・光らせない（対象単位の演出のみ）。 */
+// 「熱い」ときの音。高さは固定（音が上がっていくと急かされている感じになるため）
 function playAtsu(step){
-  const f = 620 * Math.pow(2, Math.min(step, 12)/12);
-  [f, f*1.26, f*1.5].forEach((q,i)=>setTimeout(()=>beep(q, 0.14, "triangle", 0.32), i*90));
+  [620, 620, 620].forEach((q,i)=>setTimeout(()=>beep(q, 0.13, "triangle", 0.30), i*110));
 }
 let echoTimers = [];
 function celebrate(tier, step){
@@ -927,16 +1128,12 @@ function addOne(auto){
   // 祝いランク: 保留の玉が予告していたランクを消費。1個目と10個目は必ず確定
   let tier = hold ? hold.tier : 0;
   if(count === 1 || count >= TUNE.goalCount) tier = 2;
-  const cmsg = COUNT_MS[count];
   celebrate(tier, combo);
-  if(count === 1){
-    showMsg(cmsg, 6);
-    log("1個できた！ ここでやめてもいいし、続けてもいい");
-  }else{
-    if(cmsg) showMsg(cmsg, 3.2);
-    else if(tier >= 2) showMsg("確定！", 2.6);
-    log((auto ? "（うごき検知）" : "") + "1個できた！ " + count + "個" + (combo>0 ? "（れんぞく" + (combo+1) + "）" : ""));
-  }
+  // ★ごほうびの本体（v6）: とくべつなコインが1枚たまり、ぶたがブーと鳴いて、ほめる
+  addCoin(true);
+  playOink();
+  praise(count === 1 ? "1個できた！ もう終わってもいい" : PRAISE_ONE, count === 1 ? 6 : 3.2);
+  log("1個できた！ コインが" + PIG.coins + "枚たまりました");
   infoDirty = true;
   // マス盤モード: 小マスの目標に届いたら、そのマスを終わりにして次のマスへ自動で移る
   if(gridN > 1){
@@ -946,8 +1143,14 @@ function addOne(auto){
       layoutBoard();
       if(allCellsDone()){ reachGoal(); return; }
       const nx = pickNextCell();
-      showMsg("このマス終わり！ つぎへ", 3.0);
-      log("マス " + doneCells() + "/" + cells.length + " 終わり。次のマスに移ります");
+      // 「2マスおわりました！」「3マスできました！」と、数えながらほめていく
+      const dn = doneCells();
+      const cellMsg = (dn === 1 ? "1マスおわり！ えらい" : (dn + "マスおわりました！"));
+      // 1個目は「1個できた！ もう終わってもいい」を読ませたいので、マスのほめは少し待つ
+      if(count === 1) setTimeout(()=>{ if(placed) showMsg(cellMsg, 3.4); }, 2600);
+      else showMsg(cellMsg, 3.4);
+      playOink(); fireRing(0x7ee0a0); burstConfetti(target, 180, false);
+      log("マス " + dn + "/" + cells.length + " 終わり。次のマスに移ります");
       gotoCell(nx);
     }
   }else if(count >= TUNE.goalCount){ reachGoal(); return; }
@@ -964,6 +1167,7 @@ function checkTimeMilestone(){
     msIdx++;
     const last = (msIdx >= TIME_MS.length);
     showMsg(m.msg, last ? 8 : 3.4);
+    addCoin(false);   // 時間が経つほどコインが増える（秒数は見せない）
     // 時間でも窓が少し広がる（続けているだけで視界が返ってくる）
     const v = Math.min(TUNE.revealMax, shellUniforms.uR.value + TUNE.growPerTime);
     shellUniforms.uR.value = v; layoutFrame();
@@ -986,8 +1190,8 @@ function reachGoal(){
   goalReached = true; infoDirty = true;
   hideHold();
   peekBtn.setLabel(gridN > 1 ? "もう1周やる" : ("もう" + TUNE.goalCount + "個やる"));
-  playFanfare(); pulse(220, 1.0);
   burstConfetti(target, 420, true);
+  evolvePig();   // 全部終わったごほうび＝ぶたが1段おしゃれになる
   log(gridN > 1
     ? (cells.length + "マス全部おわり！部屋が戻ります。つづけるか、この場所は終わりにするか選んでください")
     : (TUNE.goalCount + "個クリア！部屋が戻ります。つづけるか、このマスは終わりにするか選んでください"));
@@ -1045,25 +1249,29 @@ function placeSquare(pos){
   darkBtn.setLabel("暗さ" + (darkIdx===0 ? "こい" : darkIdx===1 ? "中" : "うすい"));
   infoPanel.visible = true; infoDirty = true;
   uiButtons.forEach(b=>{ b.mesh.visible = true; b.dwell = 0; b.hot = 0; b.redraw(); });
-  skipBtn.mesh.visible = (gridN > 1);
+  settingsOpen = false; applyUIVisible();
   reticle.visible = false;
   playPlace(); pulse(90, 1.0);
   log(gridN > 1
     ? ("ここだけ、にしました。" + (gridN*gridN) + "マスに割ってあります。光っている枠の中の1個だけ動かしてください")
     : "ここだけ、にしました。この中の一番上の1個だけ、動かしてください");
+  pigGroup.visible = true; refreshCoins();
+  praise(PRAISE_PLACE, 2.6);      // まず「場所を決められた」ことをほめる
   // 最初の一歩の儀式。3・2・1で押し出して、やることを1個に絞って言う
-  startMsg = "3"; startMsgUntil = performance.now()/1000 + 1.1; infoDirty = true;
-  [["2",1000],["1",2000]].forEach(([t,ms])=>setTimeout(()=>{
+  setTimeout(()=>{ if(!placed) return;
+    startMsg = "3"; startMsgUntil = performance.now()/1000 + 1.1; infoDirty = true; }, 2600);
+  [["2",3600],["1",4600]].forEach(([t,ms])=>setTimeout(()=>{
     if(!placed) return;
     startMsg = t; startMsgUntil = performance.now()/1000 + 1.1; infoDirty = true;
     beep(560, 0.08, "sine", 0.16);
   }, ms));
+  // やることを1個に絞って「指示」で言い切る（持ったら autoStep がほめる）
   setTimeout(()=>{
     if(!placed) return;
-    startMsg = gridN > 1 ? "この枠の中の1個だけ" : "この中の1個だけ";
-    startMsgUntil = performance.now()/1000 + 7; infoDirty = true;
+    startMsg = "ひとつ持ってください！";
+    startMsgUntil = performance.now()/1000 + 8; infoDirty = true;
     beep(880, 0.16, "triangle", 0.24);
-  }, 3000);
+  }, 5600);
 }
 function finishSquare(){
   if(!placed) return;
@@ -1074,6 +1282,7 @@ function finishSquare(){
   shellUniforms.uR.value = parentR; layoutFrame();
   cells = []; cellCount = 0;
   boardGroup.visible = false; donePlanes.forEach(p=>p.visible=false);
+  pigGroup.visible = false; savePig();
   frameGroup.visible = false; infoPanel.visible = false;
   uiButtons.forEach(b=>{ b.mesh.visible = false; b.dwell = 0; });
   playDone(); pulse(160, 1.0);
@@ -1191,11 +1400,14 @@ async function startMR(){
     clearEchoes(); hideHold();
     frameGroup.visible = false; infoPanel.visible = false;
     boardGroup.visible = false; donePlanes.forEach(p=>p.visible=false);
+    pigGroup.visible = false;
     uiButtons.forEach(b=>b.mesh.visible = false);
     shell.visible = true;
     $("start").style.display = "none";
     $("goBtn").textContent = "MR中…";
-    log("MR開始OK。片づける場所（机や床）を見て、黄色い輪→トリガーで置いてください");
+    // 起動できたこと自体をまずほめる（ここが一番きついので）
+    log(pickPraise(PRAISE_START) + " まずは片づける場所（机や床）を見て、黄色い輪→トリガーで置いてください");
+    playOink();
     pendingLogPanel = true;
 
     session.addEventListener("end", ()=>{
@@ -1340,6 +1552,7 @@ function simulate(dt){
     else if(away && d < TUNE.awayNear){ away = false; log("戻りました。また「ここだけ」にします"); }
   }else if(away){ away = false; }
   updateRings(dt);
+  updatePig(dt);
   // 暗くなる／戻るの補間
   const want = shellWant();
   const step = dt / Math.max(0.05, TUNE.fadeSec);
@@ -1347,28 +1560,57 @@ function simulate(dt){
   shellUniforms.uOpacity.value = shellFade;
 }
 
+/* ============ UIの並べ方（重ならないことを機械で確かめられる形にした） ============
+   x = 「カメラから見た右」方向のずれ(m) / y = 置いた場所の枠の上からの高さ(m)。
+   この表の数字だけで重なりが決まるので、__dbg.overlaps() で総当たりに検査できる。 */
+function uiSlots(){
+  return [
+    { n:"1個できた！",     o:oneBtn.mesh,     w:oneBtn.w,     h:oneBtn.h,     x: 0.00, y:0.18 },
+    { n:"まわりを見る",     o:peekBtn.mesh,    w:peekBtn.w,    h:peekBtn.h,    x:-0.58, y:0.44 },
+    { n:"パネル",          o:infoPanel,       w:0.34,         h:0.149,        x: 0.00, y:0.44 },
+    { n:"このマスは終わり", o:nextBtn.mesh,    w:nextBtn.w,    h:nextBtn.h,    x: 0.60, y:0.44 },
+    { n:"細かさ",          o:gridBtn.mesh,    w:gridBtn.w,    h:gridBtn.h,    x:-0.54, y:0.70 },
+    { n:"このマスは飛ばす", o:skipBtn.mesh,    w:skipBtn.w,    h:skipBtn.h,    x:-0.04, y:0.70 },
+    { n:"せってい",         o:setBtn.mesh,     w:setBtn.w,     h:setBtn.h,     x: 0.48, y:0.70 },
+    { n:"せばめる",         o:narrowBtn.mesh,  w:narrowBtn.w,  h:narrowBtn.h,  x:-0.74, y:0.96 },
+    { n:"ひろげる",         o:wideBtn.mesh,    w:wideBtn.w,    h:wideBtn.h,    x:-0.37, y:0.96 },
+    { n:"暗さ",            o:darkBtn.mesh,    w:darkBtn.w,    h:darkBtn.h,    x: 0.00, y:0.96 },
+    { n:"まる／しかく",     o:shapeBtn.mesh,   w:shapeBtn.w,   h:shapeBtn.h,   x: 0.38, y:0.96 },
+  ];
+}
+const _fwd = new THREE.Vector3(), _rgt = new THREE.Vector3(), _up = new THREE.Vector3(0,1,0);
+const _uiObj = new THREE.Object3D();
+function placeUI(){
+  const r = Math.max(parentR, shellUniforms.uR.value);
+  // カメラから見た「右」。この向きに並べれば、どこから見ても横一列に見える
+  _fwd.set(anchor.x - _camPos.x, 0, anchor.z - _camPos.z);
+  if(_fwd.lengthSq() < 1e-6) _fwd.set(0,0,-1); else _fwd.normalize();
+  _rgt.crossVectors(_fwd, _up).normalize();
+  // ★向きは全部そろえる（2026-08-17）。板を1枚ずつカメラに向けると、
+  //   端の板が内側に回り込んで隣と画面上で重なる（近くに立つと実際に重なった）。
+  //   同じ1枚の板に貼ってあるように同じ角度にすれば、表の間隔がそのまま画面の間隔になる。
+  _uiObj.position.set(anchor.x, anchor.y + r, anchor.z);
+  _uiObj.lookAt(_camPos.x, anchor.y + r, _camPos.z);
+  for(const s of uiSlots()){
+    s.o.position.set(anchor.x + _rgt.x * s.x, anchor.y + r + s.y, anchor.z + _rgt.z * s.x);
+    s.o.quaternion.copy(_uiObj.quaternion);
+  }
+  // ぶたの貯金箱は右下（窓の右わき・目線より下）。作業のじゃまにならない位置に置く
+  pigGroup.position.set(anchor.x + _rgt.x * 0.62, anchor.y + r * 0.6, anchor.z + _rgt.z * 0.62);
+  pigGroup.quaternion.copy(_uiObj.quaternion);
+  pigGroup.scale.setScalar(TUNE.pigScale);
+}
 // 目かくしの球とパネル・ボタンの配置（描画の直前に毎回そろえる）
 function layoutUI(){
   shell.position.copy(_camPos);   // 球は常に頭を包む
   if(!placed) return;
   // ボタンは「置いた場所（親マス）」に付ける。小マスが移っても手元が動かないようにするため
   const r = Math.max(parentR, shellUniforms.uR.value);
-  // トリガーで狙う前提なので、ぶつからないように大きく散らす。
-  // 一番よく押す「1個できた！」だけ中央・手前に置き、設定系は上の段に広げる。
-  const yOne  = anchor.y + r + 0.20;   // 主役（近く・中央）
-  const yInfo = anchor.y + r + 0.44;   // 数字パネル
-  const yTop  = anchor.y + r + 0.66;   // 設定の段（遠く・広く）
-  const yTop2 = anchor.y + r + 0.86;   // さらに上の段（細かさ）
-  const ySide = anchor.y + r + 0.40;   // 左右のはし
-  oneBtn.mesh.position.set(anchor.x, yOne, anchor.z); faceCamera(oneBtn.mesh);
-  infoPanel.position.set(anchor.x, yInfo, anchor.z);  faceCamera(infoPanel);
-  narrowBtn.mesh.position.set(anchor.x - 0.70, yTop, anchor.z); faceCamera(narrowBtn.mesh);
-  wideBtn.mesh.position.set(  anchor.x - 0.36, yTop, anchor.z); faceCamera(wideBtn.mesh);
-  darkBtn.mesh.position.set(  anchor.x - 0.03, yTop, anchor.z); faceCamera(darkBtn.mesh);
-  autoBtn.mesh.position.set(  anchor.x + 0.32, yTop, anchor.z); faceCamera(autoBtn.mesh);
-  shapeBtn.mesh.position.set( anchor.x + 0.70, yTop, anchor.z); faceCamera(shapeBtn.mesh);
-  gridBtn.mesh.position.set(  anchor.x - 0.20, yTop2, anchor.z); faceCamera(gridBtn.mesh);
-  skipBtn.mesh.position.set(  anchor.x + 0.22, yTop2, anchor.z); faceCamera(skipBtn.mesh);
+  // ★重なりの原因だったところ（2026-08-17）:
+  //   前の版は world の X軸に沿って横に並べていた。板はカメラを向くので、
+  //   ユーザーがX軸の方向から見ると横の間隔が消えて全部が重なって見えた。
+  //   → 「カメラから見た右方向」に沿って並べる。どこから見ても横一列に見える。
+  placeUI();
   // 保留の玉: 窓のユーザー側のふち・少し上に浮かべる（呼吸＋自転）
   if(holdOrb.visible){
     const r2 = shellUniforms.uR.value;
@@ -1386,8 +1628,6 @@ function layoutUI(){
   // 手が窓に入っている間は枠を明るくする（反応が見える＝生きている感じ）
   const fm = TUNE.square ? frameSq.material : frameRing.material;
   fm.opacity = AUTO.handIn ? 1.0 : 0.85;
-  peekBtn.mesh.position.set(  anchor.x - 0.74, ySide, anchor.z); faceCamera(peekBtn.mesh);
-  nextBtn.mesh.position.set(  anchor.x + 0.74, ySide, anchor.z); faceCamera(nextBtn.mesh);
   if(infoDirty) drawInfoPanel();
 }
 
@@ -1494,8 +1734,74 @@ window.__dbg = {
       anchor: anchor.toArray().map(v=>Math.round(v*1000)/1000),
       boardVisible: boardGroup.visible, doneMarks: donePlanes.filter(p=>p.visible).length };
   },
+  pig(){ return { level: PIG.level, coins: PIG.coins, totalCells: PIG.totalCells,
+    next: nextDecoName(), decos: decoGroup.children.length, coinsShown: coinMesh.count,
+    flying: flyCoins.length, visible: pigGroup.visible, jump: Math.round(pigJump*100)/100 }; },
+  evolve(){ evolvePig(); return this.pig(); },
+  coin(sp){ addCoin(!!sp); return this.pig(); },
+  resetPig(){ PIG.level = 0; PIG.coins = 0; PIG.totalCells = 0; applyDecos(); refreshCoins(); savePig(); return this.pig(); },
+  hold2(){ return { handIn: AUTO.handIn, praised: AUTO.praised }; },
   cells(){ return cells.map((c,i)=>({ i, x: Math.round(c.x*1000)/1000, z: Math.round(c.z*1000)/1000, done: c.done, now: i===cellIdx })); },
   cycleGrid(){ cycleGrid(); return this.grid(); },
+  // UIの重なり検査。表の数字だけで決まるので総当たりで見られる（1件でも出たらNG）
+  overlaps(pad){
+    const p = pad === undefined ? 0.02 : pad;   // 板と板のすき間の最低値(m)
+    const s = uiSlots().filter(v=>v.o.visible);
+    const bad = [];
+    for(let i=0;i<s.length;i++) for(let j=i+1;j<s.length;j++){
+      const dx = Math.abs(s[i].x - s[j].x) - (s[i].w + s[j].w)/2;
+      const dy = Math.abs(s[i].y - s[j].y) - (s[i].h + s[j].h)/2;
+      if(dx < p && dy < p) bad.push({ a:s[i].n, b:s[j].n, x:Math.round(dx*1000)/1000, y:Math.round(dy*1000)/1000 });
+    }
+    return { visible: s.length, bad };
+  },
+  // 立ち位置を変えて、そこからマスを見たときの画面を作る（PC試写での重なり検査用）
+  stand(x, z, pitch){
+    camera.position.set(x, 1.45, z);
+    _camPos.copy(camera.position);
+    const d = target.clone().sub(camera.position);
+    pcYaw = Math.atan2(-d.x, -d.z);
+    pcPitch = (pitch === undefined) ? Math.atan2(d.y, Math.hypot(d.x, d.z)) : pitch;
+    camera.rotation.set(pcPitch, pcYaw, 0, "YXZ");
+    camera.updateMatrixWorld(true);
+    layoutUI();
+    return this.screenOverlaps();
+  },
+  // 画面に映ったときに重なっていないか（板の四隅を画面座標に落として矩形で比べる）
+  screenOverlaps(){
+    camera.updateMatrixWorld(true); camera.updateProjectionMatrix();
+    const v = new THREE.Vector3();
+    const rects = uiSlots().filter(s=>s.o.visible).map(s=>{
+      s.o.updateMatrixWorld(true);
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9, front = true;
+      for(const c of [[-0.5,-0.5],[0.5,-0.5],[-0.5,0.5],[0.5,0.5]]){
+        v.set(c[0]*s.w, c[1]*s.h, 0).applyMatrix4(s.o.matrixWorld);
+        const wv = v.clone().applyMatrix4(camera.matrixWorldInverse);
+        if(wv.z > -0.01) front = false;
+        v.project(camera);
+        x0=Math.min(x0,v.x); x1=Math.max(x1,v.x); y0=Math.min(y0,v.y); y1=Math.max(y1,v.y);
+      }
+      return { n:s.n, x0, x1, y0, y1, front };
+    }).filter(r=>r.front);
+    const bad = [];
+    for(let i=0;i<rects.length;i++) for(let j=i+1;j<rects.length;j++){
+      const a=rects[i], b=rects[j];
+      if(a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1) bad.push([a.n, b.n]);
+    }
+    return { onScreen: rects.length, bad };
+  },
+  // 実際の3D座標での距離も見る（並べる向きの計算まで含めた確認）
+  uiDist(camX, camZ){
+    if(camX !== undefined){ _camPos.set(camX, 1.45, camZ); }   // 立ち位置を変えて確かめる
+    layoutUI();
+    const s = uiSlots().filter(v=>v.o.visible);
+    let min = 1e9, pair = null;
+    for(let i=0;i<s.length;i++) for(let j=i+1;j<s.length;j++){
+      const d = s[i].o.position.distanceTo(s[j].o.position);
+      if(d < min){ min = d; pair = [s[i].n, s[j].n]; }
+    }
+    return { minDist: Math.round(min*1000)/1000, pair };
+  },
   skip(){ skipCell(); return this.grid(); },
   one(){ addOne(); return this.state(); },
   dark(){ cycleDark(); return { darkIdx, maxAlpha: TUNE.maxAlpha, uMaxAlpha: shellUniforms.uMaxAlpha.value }; },
