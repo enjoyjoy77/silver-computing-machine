@@ -102,7 +102,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v6 rev1";
+const REV = "v6 rev2";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -844,6 +844,8 @@ const darkBtn  = makeButton("暗さ",          0.20, 0.102, cycleDark,   "#9fb4d
 const gridBtn  = makeButton("細かさ2×2",    0.28, 0.102, ()=>cycleGrid(), "#9fb4d8");
 // いまの小マスに片づける物が無いとき用
 const skipBtn  = makeButton("このマスは飛ばす", 0.34, 0.117, ()=>skipCell(), "#9fb4d8");
+// 置いた場所そのものを選び直す（v6 rev2で追加。置いたら最後、動かせなかった）
+const moveBtn  = makeButton("置きなおす",    0.30, 0.117, ()=>relocate(), "#9fb4d8");
 // 板が11枚も浮いていると画面がうるさいので、めったに触らないものは中にしまう
 const setBtn   = makeButton("せってい",      0.24, 0.102, ()=>toggleSettings(), "#9fb4d8");
 let settingsOpen = false;
@@ -851,7 +853,7 @@ function applyUIVisible(){
   const on = placed;
   // 設定を出している間は、ふだんのボタンをしまう（同時に出す板を減らすほど迷わない）
   [narrowBtn, wideBtn, darkBtn, shapeBtn].forEach(b=>{ b.mesh.visible = on && settingsOpen; });
-  [oneBtn, peekBtn, nextBtn, gridBtn].forEach(b=>{ b.mesh.visible = on && !settingsOpen; });
+  [oneBtn, peekBtn, nextBtn, gridBtn, moveBtn].forEach(b=>{ b.mesh.visible = on && !settingsOpen; });
   skipBtn.mesh.visible = on && !settingsOpen && (gridN > 1);
   setBtn.mesh.visible = on;
   setBtn.setLabel(settingsOpen ? "とじる" : "せってい");
@@ -1193,7 +1195,7 @@ function reachGoal(){
   burstConfetti(target, 420, true);
   evolvePig();   // 全部終わったごほうび＝ぶたが1段おしゃれになる
   log(gridN > 1
-    ? (cells.length + "マス全部おわり！部屋が戻ります。つづけるか、この場所は終わりにするか選んでください")
+    ? (cells.length + "マス全部おわり！部屋が戻ります。同じ所をもう1周／「置きなおす」で別の場所へ／「このマスは終わり」で終了")
     : (TUNE.goalCount + "個クリア！部屋が戻ります。つづけるか、このマスは終わりにするか選んでください"));
 }
 function changeReveal(d){
@@ -1272,6 +1274,26 @@ function placeSquare(pos){
     startMsgUntil = performance.now()/1000 + 8; infoDirty = true;
     beep(880, 0.16, "triangle", 0.24);
   }, 5600);
+}
+/* 置いた場所を選び直す（v6 rev2）
+   ユーザー報告「トリガーで場所を決めた後、やっぱり他のところにしようと思っても位置を変える操作がない。
+   もう1周しても同じ場所に戻ってしまう」。
+   「このマスは終わり」は“1マス達成”として数えてしまうので、**数えずに場所だけ変える道**を用意した。
+   ぶたのコインとおしゃれはそのまま残る（やり直しの罰にしない）。 */
+function relocate(){
+  if(!placed) return;
+  placed = false; peek = false; restNow = false; goalReached = false;
+  count = 0; combo = 0; comboExpire = 0;
+  cells = []; cellCount = 0;
+  clearEchoes(); hideHold();
+  AUTO.praised = false; AUTO.handIn = false; AUTO.coolUntil = 0;
+  shellUniforms.uR.value = parentR; layoutFrame();
+  frameGroup.visible = false; infoPanel.visible = false;
+  boardGroup.visible = false; donePlanes.forEach(p=>p.visible=false);
+  pigGroup.visible = false; savePig();
+  uiButtons.forEach(b=>{ b.mesh.visible = false; b.dwell = 0; });
+  playClick(); pulse(60, 0.8);
+  log("場所を選び直します。部屋が戻るので、置きたい所を見て黄色い輪が出たらトリガーを引いてください");
 }
 function finishSquare(){
   if(!placed) return;
@@ -1569,9 +1591,10 @@ function uiSlots(){
     { n:"まわりを見る",     o:peekBtn.mesh,    w:peekBtn.w,    h:peekBtn.h,    x:-0.58, y:0.44 },
     { n:"パネル",          o:infoPanel,       w:0.34,         h:0.149,        x: 0.00, y:0.44 },
     { n:"このマスは終わり", o:nextBtn.mesh,    w:nextBtn.w,    h:nextBtn.h,    x: 0.60, y:0.44 },
-    { n:"細かさ",          o:gridBtn.mesh,    w:gridBtn.w,    h:gridBtn.h,    x:-0.54, y:0.70 },
-    { n:"このマスは飛ばす", o:skipBtn.mesh,    w:skipBtn.w,    h:skipBtn.h,    x:-0.04, y:0.70 },
-    { n:"せってい",         o:setBtn.mesh,     w:setBtn.w,     h:setBtn.h,     x: 0.48, y:0.70 },
+    { n:"細かさ",          o:gridBtn.mesh,    w:gridBtn.w,    h:gridBtn.h,    x:-0.78, y:0.70 },
+    { n:"このマスは飛ばす", o:skipBtn.mesh,    w:skipBtn.w,    h:skipBtn.h,    x:-0.36, y:0.70 },
+    { n:"置きなおす",       o:moveBtn.mesh,    w:moveBtn.w,    h:moveBtn.h,    x: 0.08, y:0.70 },
+    { n:"せってい",         o:setBtn.mesh,     w:setBtn.w,     h:setBtn.h,     x: 0.50, y:0.70 },
     { n:"せばめる",         o:narrowBtn.mesh,  w:narrowBtn.w,  h:narrowBtn.h,  x:-0.74, y:0.96 },
     { n:"ひろげる",         o:wideBtn.mesh,    w:wideBtn.w,    h:wideBtn.h,    x:-0.37, y:0.96 },
     { n:"暗さ",            o:darkBtn.mesh,    w:darkBtn.w,    h:darkBtn.h,    x: 0.00, y:0.96 },
@@ -1803,6 +1826,7 @@ window.__dbg = {
     return { minDist: Math.round(min*1000)/1000, pair };
   },
   skip(){ skipCell(); return this.grid(); },
+  relocate(){ relocate(); return this.state(); },
   one(){ addOne(); return this.state(); },
   dark(){ cycleDark(); return { darkIdx, maxAlpha: TUNE.maxAlpha, uMaxAlpha: shellUniforms.uMaxAlpha.value }; },
   time(){ return { elapsed: Math.round(elapsed*10)/10, msIdx, restNow, next: TIME_MS[msIdx] ? TIME_MS[msIdx].t : null, msg: startMsg }; },
