@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>偽手ラボ</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --cream:#eef2ff;
+    --dim:#aab4c8;
+    --panel:rgba(24,26,34,.9);
+  }
+  *{box-sizing:border-box}
+  html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#171a22;color:var(--cream);
+    font-family:"Yu Gothic UI","Meiryo",sans-serif}
+  canvas#world{display:block;width:100%;height:100%;touch-action:none}
+  #ui{position:fixed;inset:0;z-index:10;pointer-events:none}
+  #card{position:absolute;left:50%;top:50%;width:min(90vw,580px);transform:translate(-50%,-50%);
+    padding:24px 26px;border:1px solid rgba(170,200,255,.25);border-radius:18px;
+    background:rgba(26,29,40,.94);box-shadow:0 18px 60px rgba(0,0,0,.45);
+    text-align:center;pointer-events:auto}
+  h1{margin:0 0 10px;font-size:clamp(25px,5vw,40px);letter-spacing:.08em}
+  p{margin:10px 0;line-height:1.8}
+  #guide{color:var(--dim);font-size:14px}
+  #goBtn{min-width:220px;margin-top:14px;padding:13px 20px;border:0;border-radius:999px;
+    background:#6f9fd3;color:#071828;font:700 17px inherit;cursor:pointer}
+  #goBtn:disabled{opacity:.5;cursor:wait}
+  #status{margin-top:12px;min-height:1.6em;color:#bcd3f5;font-size:13px}
+  #pcHelp{display:none;position:absolute;left:14px;bottom:14px;max-width:min(660px,calc(100vw - 28px));
+    padding:9px 12px;border-radius:10px;background:rgba(18,20,28,.85);color:#cfdaf0;
+    font-size:13px;line-height:1.55;pointer-events:auto}
+  #rev{position:absolute;right:12px;top:9px;color:#9fb2d0;font:11px Consolas,monospace;
+    letter-spacing:.12em;text-shadow:0 1px 3px #000}
+  #domLog{position:absolute;left:10px;top:10px;width:min(520px,calc(100vw - 20px));max-height:28vh;
+    overflow:auto;padding:8px 10px;border-radius:8px;background:rgba(8,9,13,.67);
+    color:#bfe4bb;font:11px/1.45 Consolas,"Yu Gothic UI",monospace;white-space:pre-wrap;
+    pointer-events:auto}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+<div id="ui">
+  <div id="rev">rev1</div>
+  <div id="domLog"></div>
+  <section id="card">
+    <h1>偽手ラボ</h1>
+    <p>本物の手は見えません。横にズレた「偽の手」だけが、あなたの手とそっくり同じに動きます。<br>
+       1〜2分動かして眺めると、偽の手が「自分の手」に感じられてきます。</p>
+    <p id="guide">Quest 3ではコントローラーを置き、素手で始めてください。</p>
+    <button id="goBtn" disabled>対応状況を確認中…</button>
+    <div id="status">準備しています。</div>
+  </section>
+  <div id="pcHelp">
+    <b>PC確認モード</b>　ドラッグ：視点回転 ／ ホイール：寄る・引く ／ 浮かぶ板のボタンはクリックで押せます<br>
+    白い球＝本物の手のつもり。灰色の手＝偽の手（ズレ＋おくれ付き）。
+    コンソールで <code>__dbg.check()</code> を実行するとズレ計算の検算ができます。
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import { GLTFLoader } from "./lib/GLTFLoader.js";
+
+const REV = "rev1";
+
+// WebXR Hand Input の25関節(この並びはGLBの骨名と同一)
+const JOINTS = [
+  "wrist",
+  "thumb-metacarpal","thumb-phalanx-proximal","thumb-phalanx-distal","thumb-tip",
+  "index-finger-metacarpal","index-finger-phalanx-proximal","index-finger-phalanx-intermediate","index-finger-phalanx-distal","index-finger-tip",
+  "middle-finger-metacarpal","middle-finger-phalanx-proximal","middle-finger-phalanx-intermediate","middle-finger-phalanx-distal","middle-finger-tip",
+  "ring-finger-metacarpal","ring-finger-phalanx-proximal","ring-finger-phalanx-intermediate","ring-finger-phalanx-distal","ring-finger-tip",
+  "pinky-finger-metacarpal","pinky-finger-phalanx-proximal","pinky-finger-phalanx-intermediate","pinky-finger-phalanx-distal","pinky-finger-tip"
+];
+const NJ = JOINTS.length;
+const SAMPLES = 256;                       // 手の姿勢の録画リング(90fpsで約2.8秒ぶん)
+const OFFSET_MIN = 0, OFFSET_MAX = 40, OFFSET_STEP = 5;
+const DELAY_STEPS = [0,50,100,150,200,300,400,600];
+
+const $ = id => document.getElementById(id);
+const canvas = $("world");
+const card = $("card");
+const goBtn = $("goBtn");
+const statusEl = $("status");
+const pcHelp = $("pcHelp");
+const guide = $("guide");
+const domLog = $("domLog");
+$("rev").textContent = REV;
+
+const logLines = [];
+let panelDirty = true;
+
+function log(message){
+  const text = String(message);
+  const stamp = new Date().toLocaleTimeString("ja-JP",{hour12:false});
+  logLines.push(stamp + " " + text);
+  if(logLines.length > 12) logLines.shift();
+  domLog.textContent = logLines.join("\n");
+  domLog.scrollTop = domLog.scrollHeight;
+  panelDirty = true;
+  console.log("[nisete]", text);
+}
+function errorText(value){
+  if(value && value.stack) return value.stack;
+  if(value && value.message) return value.message;
+  return String(value);
+}
+addEventListener("error", e => log("window.error: " + errorText(e.error || e.message)));
+addEventListener("unhandledrejection", e => log("unhandledrejection: " + errorText(e.reason)));
+
+// ---------- 3Dシーン ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b1e27);
+scene.fog = new THREE.Fog(0x1b1e27, 5, 11);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, .03, 30);
+camera.position.set(0, 1.5, 1.15);
+
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false, powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType("local-floor");
+
+scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x2a2622, 1.1));
+const keyLight = new THREE.DirectionalLight(0xffe8c9, 1.25);
+keyLight.position.set(.6, 2.4, 1.2);
+scene.add(keyLight);
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(3.4, 40),
+  new THREE.MeshLambertMaterial({color:0x262b36})
+);
+floor.rotation.x = -Math.PI/2;
+scene.add(floor);
+const floorRing = new THREE.Mesh(
+  new THREE.RingGeometry(1.05, 1.09, 48),
+  new THREE.MeshBasicMaterial({color:0x3d517a, transparent:true, opacity:.55})
+);
+floorRing.rotation.x = -Math.PI/2;
+floorRing.position.y = .003;
+scene.add(floorRing);
+
+// ---------- 手の姿勢の録画リング(遅れ再生用) ----------
+function makeBuf(){
+  return {
+    t: new Float64Array(SAMPLES),
+    pos: new Float32Array(SAMPLES*NJ*3),
+    quat: new Float32Array(SAMPLES*NJ*4),
+    head: -1,
+    count: 0
+  };
+}
+const bufs = { left: makeBuf(), right: makeBuf() };
+function bufReset(b){ b.count = 0; b.head = -1; }
+function bufNextSlot(b, timeMs){
+  b.head = (b.head + 1) % SAMPLES;
+  if(b.count < SAMPLES) b.count++;
+  b.t[b.head] = timeMs;
+  return b.head;
+}
+function bufFind(b, targetMs){
+  if(b.count === 0) return -1;
+  for(let i=0;i<b.count;i++){
+    const idx = (b.head - i + SAMPLES) % SAMPLES;
+    if(b.t[idx] <= targetMs) return idx;
+  }
+  return (b.head - (b.count-1) + SAMPLES) % SAMPLES;   // 録画がまだ浅いときは一番古い姿勢
+}
+
+// ---------- 偽の手(GLBの骨を録画から動かす) ----------
+const fakeRoot = new THREE.Group();      // このグループの位置=ズレ(オフセット)
+scene.add(fakeRoot);
+
+const rigs = {
+  left:  { root:null, bones:null, loaded:false },
+  right: { root:null, bones:null, loaded:false }
+};
+const loader = new GLTFLoader();
+function loadRig(side){
+  loader.load("./lib/profiles/generic-hand/" + side + ".glb", gltf => {
+    try{
+      const object = gltf.scene.children[0];
+      const skinned = object.getObjectByProperty("type","SkinnedMesh");
+      if(skinned){ skinned.frustumCulled = false; }
+      const bones = [];
+      let missing = 0;
+      for(const name of JOINTS){
+        const bone = object.getObjectByName(name);
+        if(!bone) missing++;
+        bones.push(bone || null);
+      }
+      if(missing > 0) log("注意: " + side + " の骨が" + missing + "本見つかりません");
+      object.visible = false;
+      fakeRoot.add(object);
+      rigs[side].root = object;
+      rigs[side].bones = bones;
+      rigs[side].loaded = true;
+      log("偽手モデル読込OK(" + (side==="left"?"左":"右") + ")");
+    }catch(err){
+      log("偽手モデルの組み立てエラー(" + side + "): " + errorText(err));
+    }
+  }, undefined, err => {
+    log("偽手モデルを読み込めませんでした(" + side + ")。lib\\profiles を確認してください");
+    console.error(err);
+  });
+}
+loadRig("left");
+loadRig("right");
+
+// ---------- 状態 ----------
+const state = {
+  mode: "loading",
+  xrSupported: false,
+  xrPresenting: false,
+  offsetCm: 25,
+  delayIdx: 2,          // 既定100ms: 遅れの感覚に気づきやすい入口
+  elapsed: 0
+};
+const trackState = { left:false, right:false };
+let session = null;
+let pendingPanel = false;
+let lastFrameMs = performance.now();
+let pcRunning = false;
+let pcYaw = 0, pcPitch = -.1, pcDistance = 2.1;
+let dragging = false, pointerMoved = 0, lastPointerX = 0, lastPointerY = 0;
+
+const tmpV1 = new THREE.Vector3();
+const tmpV2 = new THREE.Vector3();
+const tmpV3 = new THREE.Vector3();
+const tmpQ1 = new THREE.Quaternion();
+const tmpM1 = new THREE.Matrix4();
+const tmpNdc = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const pcTarget = new THREE.Vector3(0, 1.2, -.45);
+
+function delayMs(){ return DELAY_STEPS[state.delayIdx]; }
+
+// ---------- 音(ぜんぶその場で合成・ファイル無し) ----------
+let actx = null;
+function initAudio(){
+  if(actx) return;
+  try{
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+  }catch(err){ log("音を初期化できませんでした: " + errorText(err)); }
+}
+function tone(freq, dur, type, gain, sweepTo){
+  if(!actx) return;
+  try{
+    const osc = actx.createOscillator();
+    const g = actx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    if(sweepTo) osc.frequency.exponentialRampToValueAtTime(sweepTo, actx.currentTime + dur);
+    g.gain.setValueAtTime(gain, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime + dur);
+    osc.connect(g); g.connect(actx.destination);
+    osc.start(); osc.stop(actx.currentTime + dur);
+  }catch(err){ /* 音は飾りなので失敗しても続行 */ }
+}
+function sndClick(){ tone(880, .05, "square", .12); }
+function sndBuzz(){ tone(150, .16, "square", .16); }
+function sndThud(){
+  tone(72, .32, "sine", .85, 38);
+  if(!actx) return;
+  try{
+    const len = Math.floor(actx.sampleRate * .1);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<len;i++) data[i] = (Math.random()*2-1) * (1 - i/len);
+    const src = actx.createBufferSource();
+    const g = actx.createGain();
+    g.gain.value = .22;
+    src.buffer = buf; src.connect(g); g.connect(actx.destination);
+    src.start();
+  }catch(err){ /* 同上 */ }
+}
+
+// ---------- 操作パネル(3D・VR中でも押せる) ----------
+const PANEL_W = 768, PANEL_H = 520;
+const panelCanvas = document.createElement("canvas");
+panelCanvas.width = PANEL_W; panelCanvas.height = PANEL_H;
+const panelCtx = panelCanvas.getContext("2d");
+const panelTex = new THREE.CanvasTexture(panelCanvas);
+panelTex.colorSpace = THREE.SRGBColorSpace;
+panelTex.minFilter = THREE.LinearFilter;
+const panel = new THREE.Mesh(
+  new THREE.PlaneGeometry(.75, .75*PANEL_H/PANEL_W),
+  new THREE.MeshBasicMaterial({map:panelTex, transparent:true, depthTest:false})
+);
+panel.renderOrder = 1000;
+panel.visible = false;
+scene.add(panel);
+
+const BUTTONS = [
+  { id:"off-",   x:250, y:84,  w:104, h:64, label:"−" },
+  { id:"off+",   x:520, y:84,  w:104, h:64, label:"＋" },
+  { id:"dl-",    x:250, y:172, w:104, h:64, label:"−" },
+  { id:"dl+",    x:520, y:172, w:104, h:64, label:"＋" },
+  { id:"hammer", x:28,  y:262, w:400, h:72, label:"ハンマーを落とす" }
+];
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function drawPanel(){
+  const ctx = panelCtx;
+  ctx.clearRect(0,0,PANEL_W,PANEL_H);
+  ctx.fillStyle = "rgba(18,20,28,.92)";
+  roundRect(ctx,0,0,PANEL_W,PANEL_H,22); ctx.fill();
+  ctx.strokeStyle = "#7fa8d8"; ctx.lineWidth = 4;
+  roundRect(ctx,3,3,PANEL_W-6,PANEL_H-6,20); ctx.stroke();
+
+  ctx.fillStyle = "#eef2ff";
+  ctx.font = "bold 34px sans-serif";
+  ctx.fillText("偽手ラボ " + REV, 28, 50);
+
+  ctx.font = "bold 30px sans-serif";
+  ctx.fillStyle = "#cfe0ff";
+  ctx.fillText("ズレ", 28, 126);
+  ctx.fillText("おくれ", 28, 214);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(state.offsetCm + " cm", 437, 126);
+  ctx.fillText(delayMs() + " ms", 437, 214);
+  ctx.textAlign = "left";
+
+  for(const b of BUTTONS){
+    ctx.fillStyle = b.id==="hammer" ? "#6e4030" : "#2e4a66";
+    roundRect(ctx,b.x,b.y,b.w,b.h,14); ctx.fill();
+    ctx.strokeStyle = "#9fc4ea"; ctx.lineWidth = 2;
+    roundRect(ctx,b.x,b.y,b.w,b.h,14); ctx.stroke();
+    ctx.fillStyle = "#eaf3ff";
+    ctx.font = "bold 34px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(b.label, b.x+b.w/2, b.y+b.h/2+12);
+    ctx.textAlign = "left";
+  }
+
+  ctx.font = "24px sans-serif";
+  ctx.fillStyle = "#a8e6a2";
+  const lt = trackState.left ? "左手:みえてる" : "左手:─";
+  const rt = trackState.right ? "右手:みえてる" : "右手:─";
+  ctx.fillText(lt + "　" + rt + "　" + hammerLabel(), 452, 300);
+
+  ctx.font = "19px monospace";
+  ctx.fillStyle = "#bfe4bb";
+  const first = Math.max(0, logLines.length-4);
+  let y = 388;
+  for(let i=first;i<logLines.length;i++){
+    const line = logLines[i].length > 60 ? logLines[i].slice(0,60)+"…" : logLines[i];
+    ctx.fillText(line, 26, y);
+    y += 28;
+  }
+  panelTex.needsUpdate = true;
+  panelDirty = false;
+}
+function hammerLabel(){
+  switch(hammer.phase){
+    case "idle": return "";
+    case "raise": return "ハンマー:かまえ";
+    case "fall": return "ハンマー:落下!";
+    case "hit": return "ハンマー:命中";
+    default: return "ハンマー:もどり中";
+  }
+}
+
+function placePanelInFront(){
+  camera.updateMatrixWorld(true);
+  camera.getWorldPosition(tmpV1);
+  camera.getWorldDirection(tmpV2);
+  tmpV2.y = 0;
+  if(tmpV2.lengthSq() < .0001) tmpV2.set(0,0,-1);
+  tmpV2.normalize();
+  panel.position.copy(tmpV1).addScaledVector(tmpV2,.95);
+  panel.position.y -= .1;
+  tmpM1.lookAt(panel.position, tmpV1, camera.up);
+  panel.quaternion.setFromRotationMatrix(tmpM1);
+  panel.visible = true;
+  panelDirty = true;
+  drawPanel();
+  log("操作パネルを目の前に置きました");
+}
+
+function uiHit(uv){
+  const px = uv.x * PANEL_W;
+  const py = (1 - uv.y) * PANEL_H;
+  for(const b of BUTTONS){
+    if(px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h){
+      doAction(b.id);
+      return true;
+    }
+  }
+  return false;
+}
+function doAction(id){
+  if(id === "off-"){ state.offsetCm = Math.max(OFFSET_MIN, state.offsetCm - OFFSET_STEP); sndClick(); }
+  else if(id === "off+"){ state.offsetCm = Math.min(OFFSET_MAX, state.offsetCm + OFFSET_STEP); sndClick(); }
+  else if(id === "dl-"){ state.delayIdx = Math.max(0, state.delayIdx - 1); sndClick(); }
+  else if(id === "dl+"){ state.delayIdx = Math.min(DELAY_STEPS.length-1, state.delayIdx + 1); sndClick(); }
+  else if(id === "hammer"){ startHammer(); }
+  panelDirty = true;
+}
+
+// ---------- コントローラ/ピンチでパネルを押す ----------
+const rayLineGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-.8)]);
+const controllers = [];
+for(let i=0;i<2;i++){
+  const ctrl = renderer.xr.getController(i);
+  const line = new THREE.Line(rayLineGeom, new THREE.LineBasicMaterial({color:0x88bbee, transparent:true, opacity:.45}));
+  ctrl.add(line);
+  ctrl.addEventListener("selectstart", () => onXRSelect(ctrl));
+  scene.add(ctrl);
+  controllers.push(ctrl);
+}
+function onXRSelect(ctrl){
+  if(!panel.visible) return;
+  tmpM1.identity().extractRotation(ctrl.matrixWorld);
+  tmpV2.set(0,0,-1).applyMatrix4(tmpM1);
+  tmpV1.setFromMatrixPosition(ctrl.matrixWorld);
+  raycaster.set(tmpV1, tmpV2);
+  const hits = raycaster.intersectObject(panel, false);
+  if(hits.length > 0 && hits[0].uv) uiHit(hits[0].uv);
+}
+
+// ---------- ハンマー(脅威テスト) ----------
+const hammer = { phase:"idle", t:0, vy:0 };
+const hammerGroup = new THREE.Group();
+const hammerHead = new THREE.Mesh(
+  new THREE.BoxGeometry(.09,.055,.055),
+  new THREE.MeshLambertMaterial({color:0x50555e})
+);
+hammerHead.position.y = -.13;
+const hammerHandle = new THREE.Mesh(
+  new THREE.CylinderGeometry(.015,.015,.24,10),
+  new THREE.MeshLambertMaterial({color:0x8a6a4a})
+);
+hammerGroup.add(hammerHead);
+hammerGroup.add(hammerHandle);
+hammerGroup.visible = false;
+scene.add(hammerGroup);
+const HAMMER_HEAD_BOTTOM = .13 + .0275;   // グループ原点から見た打撃面までの距離
+
+const flashRing = new THREE.Mesh(
+  new THREE.TorusGeometry(.05,.008,8,32),
+  new THREE.MeshBasicMaterial({color:0xff5a4a, transparent:true, opacity:0})
+);
+flashRing.rotation.x = Math.PI/2;
+flashRing.visible = false;
+scene.add(flashRing);
+let flashT = -1;
+
+function rightFakeWrist(out){
+  const rig = rigs.right;
+  if(!rig.loaded || !rig.root.visible) return false;
+  if(state.mode === "vr"){
+    const bone = rig.bones[0];
+    if(!bone) return false;
+    out.copy(bone.position).add(fakeRoot.position);
+  }else{
+    out.copy(rig.root.position).add(fakeRoot.position);
+  }
+  return true;
+}
+function startHammer(){
+  if(hammer.phase !== "idle"){ log("ハンマーは準備中です"); sndBuzz(); return; }
+  if(!rightFakeWrist(tmpV3)){ log("右の偽手が見えていないので落とせません"); sndBuzz(); return; }
+  hammer.phase = "raise";
+  hammer.t = 0;
+  hammer.vy = 0;
+  hammerGroup.position.set(tmpV3.x, tmpV3.y + .55 + HAMMER_HEAD_BOTTOM, tmpV3.z);
+  hammerGroup.visible = true;
+  sndClick();
+  log("ハンマーが上に現れました…");
+  panelDirty = true;
+}
+function updateHammer(dt){
+  if(hammer.phase === "idle") return;
+  hammer.t += dt;
+  const targetOk = rightFakeWrist(tmpV3);
+  if((hammer.phase === "raise" || hammer.phase === "fall") && !targetOk){
+    hammer.phase = "idle";
+    hammerGroup.visible = false;
+    log("右手を見失ったのでハンマーを中止しました");
+    panelDirty = true;
+    return;
+  }
+  if(hammer.phase === "raise"){
+    hammerGroup.position.x = tmpV3.x;
+    hammerGroup.position.z = tmpV3.z;
+    hammerGroup.rotation.z = Math.sin(hammer.t*18) * .06;
+    if(hammer.t >= .45){ hammer.phase = "fall"; hammer.t = 0; hammer.vy = 0; panelDirty = true; }
+  }else if(hammer.phase === "fall"){
+    hammer.vy += 24 * dt;
+    hammerGroup.position.y -= hammer.vy * dt;
+    hammerGroup.position.x = tmpV3.x;
+    hammerGroup.position.z = tmpV3.z;
+    const hitY = tmpV3.y + HAMMER_HEAD_BOTTOM + .012;
+    if(hammerGroup.position.y <= hitY){
+      hammerGroup.position.y = hitY;
+      hammer.phase = "hit"; hammer.t = 0;
+      sndThud();
+      flashRing.position.set(tmpV3.x, tmpV3.y + .01, tmpV3.z);
+      flashRing.visible = true;
+      flashT = 0;
+      log("ゴンッ! (ビクッとしたら錯覚成立)");
+      panelDirty = true;
+    }
+  }else if(hammer.phase === "hit"){
+    if(hammer.t >= .4){ hammer.phase = "away"; hammer.t = 0; panelDirty = true; }
+  }else if(hammer.phase === "away"){
+    hammerGroup.position.y += 1.4 * dt;
+    if(hammer.t >= .8){
+      hammer.phase = "idle";
+      hammerGroup.visible = false;
+      panelDirty = true;
+    }
+  }
+}
+function updateFlash(dt){
+  if(flashT < 0) return;
+  flashT += dt;
+  const k = flashT / .45;
+  if(k >= 1){ flashT = -1; flashRing.visible = false; return; }
+  flashRing.scale.setScalar(1 + k*3);
+  flashRing.material.opacity = .9 * (1-k);
+}
+
+// ---------- ズレ(オフセット)の向き: 頭から見て右方向の水平ベクトル ----------
+function updateOffsetVec(){
+  camera.getWorldQuaternion(tmpQ1);
+  tmpV1.set(1,0,0).applyQuaternion(tmpQ1);
+  tmpV1.y = 0;
+  if(tmpV1.lengthSq() < 1e-6) tmpV1.set(1,0,0);
+  tmpV1.normalize();
+  fakeRoot.position.copy(tmpV1).multiplyScalar(state.offsetCm / 100);
+}
+
+// ---------- VR: 本物の手を録画して、遅らせて偽手に流す ----------
+function inputForHand(handedness){
+  if(!session) return null;
+  for(const source of session.inputSources){
+    if(source.hand && source.handedness === handedness) return source;
+  }
+  return null;
+}
+let sawControllerWarn = false;
+function updateVRHands(frame, timeMs){
+  const ref = renderer.xr.getReferenceSpace();
+  if(!frame || !ref) return;
+
+  for(const side of ["left","right"]){
+    const source = inputForHand(side);
+    let ok = false;
+    if(source && source.hand){
+      const wristJoint = source.hand.get("wrist");
+      const wristPose = wristJoint ? frame.getJointPose(wristJoint, ref) : null;
+      if(wristPose){
+        ok = true;
+        const b = bufs[side];
+        const slot = bufNextSlot(b, timeMs);
+        const p3 = slot*NJ*3, q4 = slot*NJ*4;
+        for(let j=0;j<NJ;j++){
+          const jointSpace = source.hand.get(JOINTS[j]);
+          const jp = jointSpace ? frame.getJointPose(jointSpace, ref) : null;
+          const tr = jp ? jp.transform : wristPose.transform;   // 欠けた関節は手首で代用
+          b.pos[p3+j*3]   = tr.position.x;
+          b.pos[p3+j*3+1] = tr.position.y;
+          b.pos[p3+j*3+2] = tr.position.z;
+          b.quat[q4+j*4]   = tr.orientation.x;
+          b.quat[q4+j*4+1] = tr.orientation.y;
+          b.quat[q4+j*4+2] = tr.orientation.z;
+          b.quat[q4+j*4+3] = tr.orientation.w;
+        }
+      }
+    }
+    if(ok !== trackState[side]){
+      trackState[side] = ok;
+      if(ok){
+        log((side==="left"?"左":"右") + "手を認識しました(偽手が動きます)");
+      }else{
+        bufReset(bufs[side]);   // 見失ったら録画を捨てる(再認識直後の飛びを防ぐ)
+        log((side==="left"?"左":"右") + "手を見失いました");
+      }
+      panelDirty = true;
+    }
+  }
+
+  if(!trackState.left && !trackState.right && !sawControllerWarn && session.inputSources.length > 0){
+    sawControllerWarn = true;
+    log("コントローラーを机に置いて、素手をかざしてください");
+  }
+
+  const target = timeMs - delayMs();
+  for(const side of ["left","right"]){
+    const rig = rigs[side];
+    if(!rig.loaded) continue;
+    if(!trackState[side]){ rig.root.visible = false; continue; }
+    const b = bufs[side];
+    const idx = bufFind(b, target);
+    if(idx < 0){ rig.root.visible = false; continue; }
+    rig.root.visible = true;
+    const p3 = idx*NJ*3, q4 = idx*NJ*4;
+    for(let j=0;j<NJ;j++){
+      const bone = rig.bones[j];
+      if(!bone) continue;
+      bone.position.set(b.pos[p3+j*3], b.pos[p3+j*3+1], b.pos[p3+j*3+2]);
+      bone.quaternion.set(b.quat[q4+j*4], b.quat[q4+j*4+1], b.quat[q4+j*4+2], b.quat[q4+j*4+3]);
+    }
+  }
+  updateOffsetVec();
+}
+
+// ---------- PC確認モード(白い球=本物の手のつもり) ----------
+const pcMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(.03, 20, 14),
+  new THREE.MeshLambertMaterial({color:0xf2f2f2, emissive:0x888888})
+);
+pcMarker.visible = false;
+scene.add(pcMarker);
+
+function pcPathPos(tSec, out){
+  out.set(
+    Math.sin(tSec * .9) * .25,
+    1.15 + Math.sin(tSec * .6) * .08,
+    -.55 + Math.cos(tSec * .9) * .10
+  );
+  return out;
+}
+function updatePCDemo(){
+  const timeMs = state.elapsed * 1000;
+  pcPathPos(state.elapsed, tmpV1);
+  pcMarker.position.copy(tmpV1);
+
+  const b = bufs.right;
+  const slot = bufNextSlot(b, timeMs);
+  const p3 = slot*NJ*3, q4 = slot*NJ*4;
+  for(let j=0;j<NJ;j++){
+    b.pos[p3+j*3] = tmpV1.x; b.pos[p3+j*3+1] = tmpV1.y; b.pos[p3+j*3+2] = tmpV1.z;
+    b.quat[q4+j*4]=0; b.quat[q4+j*4+1]=0; b.quat[q4+j*4+2]=0; b.quat[q4+j*4+3]=1;
+  }
+  trackState.right = true;
+
+  const rig = rigs.right;
+  if(rig.loaded){
+    const idx = bufFind(b, timeMs - delayMs());
+    if(idx >= 0){
+      rig.root.visible = true;
+      rig.root.position.set(b.pos[idx*NJ*3], b.pos[idx*NJ*3+1], b.pos[idx*NJ*3+2]);
+    }
+  }
+  if(rigs.left.loaded) rigs.left.root.visible = false;
+  updateOffsetVec();
+}
+
+// ---------- ループ ----------
+function stepSim(dt){
+  state.elapsed += dt;
+  if(pcRunning) updatePCDemo();
+  updateHammer(dt);
+  updateFlash(dt);
+  if(panel.visible && panelDirty) drawPanel();
+}
+function renderLoop(time, frame){
+  try{
+    const dt = Math.min(Math.max((time - lastFrameMs)/1000, 0), .05);
+    lastFrameMs = time;
+
+    if(frame && renderer.xr.isPresenting){
+      if(pendingPanel){ pendingPanel = false; placePanelInFront(); }
+      state.elapsed += dt;
+      updateVRHands(frame, state.elapsed * 1000);
+      updateHammer(dt);
+      updateFlash(dt);
+      if(panel.visible && panelDirty) drawPanel();
+    }else{
+      stepSim(dt);
+    }
+    renderer.render(scene, camera);
+  }catch(err){
+    log("描画エラー: " + errorText(err));
+  }
+}
+renderer.setAnimationLoop(renderLoop);
+
+// ---------- PCカメラ操作 ----------
+function updatePCCamera(){
+  const cp = Math.cos(pcPitch);
+  camera.position.set(
+    pcTarget.x + Math.sin(pcYaw)*cp*pcDistance,
+    pcTarget.y + Math.sin(pcPitch)*pcDistance,
+    pcTarget.z + Math.cos(pcYaw)*cp*pcDistance
+  );
+  camera.lookAt(pcTarget);
+}
+function setupPCInput(){
+  canvas.addEventListener("pointerdown", e => {
+    dragging = true; pointerMoved = 0;
+    lastPointerX = e.clientX; lastPointerY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", e => {
+    if(!dragging) return;
+    const dx = e.clientX - lastPointerX, dy = e.clientY - lastPointerY;
+    pointerMoved += Math.abs(dx) + Math.abs(dy);
+    lastPointerX = e.clientX; lastPointerY = e.clientY;
+    pcYaw -= dx * .006;
+    pcPitch = THREE.MathUtils.clamp(pcPitch + dy*.004, -.55, .5);
+    updatePCCamera();
+  });
+  canvas.addEventListener("pointerup", e => {
+    dragging = false;
+    if(canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    if(pcRunning && pointerMoved < 6 && panel.visible){
+      tmpNdc.set((e.clientX/innerWidth)*2-1, -(e.clientY/innerHeight)*2+1);
+      raycaster.setFromCamera(tmpNdc, camera);
+      const hits = raycaster.intersectObject(panel, false);
+      if(hits.length > 0 && hits[0].uv) uiHit(hits[0].uv);
+    }
+  });
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    pcDistance = THREE.MathUtils.clamp(pcDistance + e.deltaY*.002, 1.1, 5);
+    updatePCCamera();
+  }, {passive:false});
+}
+
+function startPC(){
+  state.mode = "pc";
+  pcRunning = true;
+  card.classList.add("hidden");
+  pcHelp.style.display = "block";
+  pcMarker.visible = true;
+  panel.position.set(0, 1.62, -.9);
+  panel.lookAt(0, 1.55, 1.2);
+  panel.visible = true;
+  panelDirty = true;
+  updatePCCamera();
+  log("PC確認モードを開始しました(白い球=本物の手のつもり)");
+}
+
+async function startVR(){
+  try{
+    statusEl.textContent = "VRセッションを開始しています…";
+    session = await navigator.xr.requestSession("immersive-vr", {
+      requiredFeatures: ["local-floor"],
+      optionalFeatures: ["hand-tracking"]
+    });
+    renderer.xr.setReferenceSpaceType("local-floor");
+    await renderer.xr.setSession(session);
+    if(actx && actx.state === "suspended") actx.resume();
+
+    state.mode = "vr";
+    state.xrPresenting = true;
+    pendingPanel = true;
+    pcRunning = false;
+    pcMarker.visible = false;
+    card.classList.add("hidden");
+    pcHelp.style.display = "none";
+    log("VRを開始しました。コントローラーを置いて素手をかざしてください");
+    log("偽の手はわざと横にズレています。それが今回の主役です");
+
+    session.addEventListener("end", () => {
+      state.xrPresenting = false;
+      state.mode = "ended";
+      session = null;
+      trackState.left = false; trackState.right = false;
+      bufReset(bufs.left); bufReset(bufs.right);
+      if(rigs.left.loaded) rigs.left.root.visible = false;
+      if(rigs.right.loaded) rigs.right.root.visible = false;
+      hammer.phase = "idle"; hammerGroup.visible = false;
+      panel.visible = false;
+      card.classList.remove("hidden");
+      statusEl.textContent = "VRを終了しました。もう一度開始できます。";
+      goBtn.disabled = false;
+      goBtn.textContent = "VRをもう一度開始";
+      log("VRセッションを終了しました");
+    }, {once:true});
+  }catch(err){
+    const text = errorText(err);
+    statusEl.textContent = "VRを開始できませんでした：" + text;
+    log("VR開始エラー: " + text);
+  }
+}
+
+goBtn.addEventListener("click", () => {
+  initAudio();
+  if(state.xrSupported) startVR();
+  else startPC();
+});
+
+async function detectXR(){
+  if(!navigator.xr || !navigator.xr.isSessionSupported){
+    state.xrSupported = false;
+    state.mode = "pc-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "PCでうごきを確認";
+    guide.textContent = "このブラウザはVR非対応です。マウスで仕組みだけ確認できます。";
+    statusEl.textContent = "PC確認モードを利用できます。";
+    log("WebXR非対応。PC確認モードを案内します");
+    return;
+  }
+  try{
+    state.xrSupported = await navigator.xr.isSessionSupported("immersive-vr");
+  }catch(err){
+    state.xrSupported = false;
+    log("対応状況の確認エラー: " + errorText(err));
+  }
+  if(state.xrSupported){
+    state.mode = "vr-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "VRで始める";
+    statusEl.textContent = "immersive-vrに対応しています。";
+    log("immersive-vr対応を確認しました");
+  }else{
+    state.mode = "pc-ready";
+    goBtn.disabled = false;
+    goBtn.textContent = "PCでうごきを確認";
+    guide.textContent = "この環境はVR非対応です。マウスで仕組みだけ確認できます。";
+    statusEl.textContent = "PC確認モードを利用できます。";
+    log("immersive-vr非対応。PC確認モードを案内します");
+  }
+}
+
+// ---------- 検証窓口(ヘッドレス検証用) ----------
+window.__dbg = {
+  state(){
+    return {
+      rev: REV,
+      mode: state.mode,
+      offsetCm: state.offsetCm,
+      delayMs: delayMs(),
+      left: trackState.left,
+      right: trackState.right,
+      rigLoaded: [rigs.left.loaded, rigs.right.loaded],
+      hammer: hammer.phase,
+      bufRight: bufs.right.count,
+      elapsed: +state.elapsed.toFixed(3)
+    };
+  },
+  tick(seconds){
+    const total = Math.max(0, Number(seconds)||0);
+    const step = 1/90;
+    const whole = Math.floor(total/step);
+    for(let i=0;i<whole;i++) stepSim(step);
+    const rest = total - whole*step;
+    if(rest > 0) stepSim(rest);
+    renderer.render(scene, camera);
+    return this.state();
+  },
+  setOffset(cm){
+    state.offsetCm = THREE.MathUtils.clamp(Math.round(cm/OFFSET_STEP)*OFFSET_STEP, OFFSET_MIN, OFFSET_MAX);
+    panelDirty = true;
+    return this.state();
+  },
+  setDelay(ms){
+    let best = 0, bestDiff = Infinity;
+    for(let i=0;i<DELAY_STEPS.length;i++){
+      const d = Math.abs(DELAY_STEPS[i]-ms);
+      if(d < bestDiff){ bestDiff = d; best = i; }
+    }
+    state.delayIdx = best;
+    panelDirty = true;
+    return this.state();
+  },
+  press(id){ doAction(id); return this.state(); },
+  hammer(){ startHammer(); return this.state(); },
+  check(){
+    // PC確認モード用の検算: 偽手の位置が「(遅れた時刻の球の位置)+ズレ」と一致するか
+    if(!pcRunning) return {ok:false, reason:"PC確認モードではありません"};
+    if(!rigs.right.loaded) return {ok:false, reason:"偽手モデルが未読込です"};
+    const idx = bufFind(bufs.right, state.elapsed*1000 - delayMs());
+    if(idx < 0) return {ok:false, reason:"録画がまだありません"};
+    tmpV1.set(bufs.right.pos[idx*NJ*3], bufs.right.pos[idx*NJ*3+1], bufs.right.pos[idx*NJ*3+2]);
+    tmpV1.add(fakeRoot.position);
+    tmpV2.copy(rigs.right.root.position).add(fakeRoot.position);
+    const errMm = tmpV1.distanceTo(tmpV2) * 1000;
+    // ズレそのものが効いているかも見る(球との水平距離 ≒ offsetCm)
+    tmpV3.copy(pcMarker.position);
+    const sepMm = tmpV2.distanceTo(tmpV3) * 1000;
+    return {
+      ok: errMm < 1,
+      errMm: +errMm.toFixed(3),
+      markerToFakeMm: +sepMm.toFixed(1),
+      offsetCm: state.offsetCm,
+      delayMs: delayMs()
+    };
+  }
+};
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+drawPanel();
+setupPCInput();
+detectXR();
+log("読み込みOK(" + REV + ")");
+</script>
+</body>
+</html>

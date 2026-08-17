@@ -84,7 +84,9 @@
     <b>英語の画面が出たら</b>「<b>Allow</b>（許可）」や「<b>OK</b>」を押してください。<br>
     <b>足元は真っ暗にしません。</b>暗くなるだけで、床は見えるようにしてあります。<br>
     暗さは中の「暗さ」ボタンで3段階に変えられます。<br>
-    まわりを見たいときは「まわりを見る」を押すと、いつでも部屋が戻ります。
+    まわりを見たいときは「まわりを見る」を押すと、いつでも部屋が戻ります。<br>
+    <b>置いた場所は自動で4マスに割られます。</b>どのマスからやるかはツールが選び、
+    1マス1個で次へ進みます。細かさは中の「細かさ」ボタンで 分けない／2×2／3×3／4×4 に変えられます。
   </div>
 </div>
 
@@ -99,7 +101,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v4 rev1";
+const REV = "v5 rev1";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -119,8 +121,14 @@ const TUNE = {
   shellR: 6.0,          // 目かくしの球の半径（m）
   square: true,         // 窓のかたち true=しかく / false=まる
   darkLevels: [0.99, 0.965, 0.93],  // 暗さの3段階（こい/ふつう/うすい）。実機で選べる
+  // マス盤（置いた場所を格子に割って、いま狙う小マスをツールが自動で選ぶ）
+  // 最初の一歩が重いのは「どこから手を付けるか」を自分で決めないといけないから。
+  // 細かくするほど1回の的が小さくなり、目標も「この中の1個」だけになる。
+  gridLevels: [1, 2, 3, 4],   // 1=分けない / 2=4マス / 3=9マス / 4=16マス
+  gridDefault: 2,             // 既定は2×2（=4マス）
+  subGoal: 1,                 // 小マス1つあたり何個で終わりにするか
   // ごほうび（1個片づけるたびに窓が広がる＝視界を取り戻していく）
-  goalCount: 10,        // これだけ片づけたら1マス達成
+  goalCount: 10,        // これだけ片づけたら1マス達成（分けないときの目標）
   growPerItem: 0.022,   // 1個ごとに窓が広がる量（m）
   growPerTime: 0.014,   // 時間のきざみを1つ越えるごとに窓が広がる量（m）
   comboSec: 45,         // この秒数内に次を片づけるとコンボ
@@ -374,6 +382,32 @@ function layoutFrame(){
   frameSq.visible = TUNE.square;
 }
 
+/* ---- マス盤（親の四角と、終わった小マスの印）----
+   「いま狙う小マス」は上の枠が示す。こちらは全体の広さと進み具合を薄く見せるだけ。 */
+const boardGroup = new THREE.Group();
+boardGroup.visible = false; scene.add(boardGroup);
+function makeBoardPlane(color, lw, alpha, fill){
+  const S = 128, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+  const c = cv.getContext("2d");
+  if(fill){ c.fillStyle = fill; c.fillRect(0,0,S,S); }
+  c.strokeStyle = color; c.lineWidth = lw; c.strokeRect(lw/2, lw/2, S-lw, S-lw);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+    new THREE.MeshBasicMaterial({ map: tex, transparent:true, opacity:alpha, depthTest:false }));
+  m.rotation.x = -Math.PI/2; m.renderOrder = 5;
+  return m;
+}
+const parentPlane = makeBoardPlane("#9fb4d8", 4, 0.35);
+boardGroup.add(parentPlane);
+const donePlanes = [];   // 終わった小マスに置く緑の印（必要な数だけ作って使い回す）
+function getDonePlane(i){
+  while(donePlanes.length <= i){
+    const p = makeBoardPlane("#7ee0a0", 6, 0.45, "rgba(126,224,160,0.10)");
+    p.visible = false; boardGroup.add(p); donePlanes.push(p);
+  }
+  return donePlanes[i];
+}
+
 /* ============ 紙吹雪（Pointsひとつ＝描画コスト1回分） ============ */
 const PMAX = 420;
 const pPos = new Float32Array(PMAX*3);
@@ -525,6 +559,11 @@ function drawInfoPanel(){
     c.fillText(fmtSec2(elapsed), W/2 - 52, 70);
     c.fillStyle = "#ffd166"; c.font = "bold 46px sans-serif";
     c.fillText(count + "個", W/2 + 130, 80);
+    // マス盤のときは「何マス目か」を出す（残りが見えると終わりが見える）
+    if(gridN > 1 && cells.length){
+      c.fillStyle = "#9fb4d8"; c.font = "bold 34px sans-serif";
+      c.fillText(doneCells() + "/" + cells.length + "マス", W/2 - 170, 82);
+    }
   }
   // 溜まっていくゲージ
   const gx = 28, gw = W - 56, gy = 124, gh = 20;
@@ -591,6 +630,10 @@ const nextBtn  = makeButton("このマスは終わり", 0.34, 0.133, finishSquar
 const shapeBtn = makeButton("まる／しかく",  0.26, 0.102, toggleShape, "#9fb4d8");
 const darkBtn  = makeButton("暗さ",          0.20, 0.102, cycleDark,   "#9fb4d8");
 const autoBtn  = makeButton("うごき検知",    0.28, 0.102, toggleAuto,  "#9fb4d8");
+// タスクの細かさ（マス盤の割り方）。押すたび 分けない→2×2→3×3→4×4 と巡回する
+const gridBtn  = makeButton("細かさ2×2",    0.28, 0.102, ()=>cycleGrid(), "#9fb4d8");
+// いまの小マスに片づける物が無いとき用
+const skipBtn  = makeButton("このマスは飛ばす", 0.34, 0.117, ()=>skipCell(), "#9fb4d8");
 function toggleAuto(){
   TUNE.autoOn = !TUNE.autoOn;
   AUTO.phase = "idle"; AUTO.path = 0;
@@ -647,8 +690,101 @@ let restNow = false;  // 20分たって休みの合図が出ている
 let shellFade = 0;           // 0=部屋が見える / 1=真っ暗
 let count = 0, combo = 0, comboExpire = 0, goalReached = false;
 let startMsg = "", startMsgUntil = 0;   // 「まず1個だけ」等の一言（数秒だけ出す）
-let baseR = TUNE.revealR;    // このマスを始めたときの窓の大きさ（ごほうびで広げる元）
-const target = new THREE.Vector3();
+let baseR = TUNE.revealR;    // いまの小マスを始めたときの窓の大きさ（ごほうびで広げる元）
+const target = new THREE.Vector3();   // いま見えている窓の中心（＝小マスの中心）
+const anchor = new THREE.Vector3();   // 置いた場所そのもの（親マスの中心。ボタンはここに付く）
+let parentR = TUNE.revealR;  // 親マスの半分の幅（m）
+let gridN = TUNE.gridDefault;// 何分割か（1=分けない）
+let cells = [];              // 小マス [{x,z,done}]
+let cellIdx = 0;             // いま狙っている小マス
+let cellCount = 0;           // いまの小マスで数えた個数
+try{ const g = parseInt(localStorage.getItem("kokodake_grid"), 10);
+     if(TUNE.gridLevels.indexOf(g) >= 0) gridN = g; }catch(_){}
+
+/* ============ マス盤（細かさ＝タスクの大きさ） ============
+   ユーザーの狙い: 「一番最初の一歩の心理的な抵抗を減らす」。
+   そのために (1)的を小さく割る (2)どこからやるかはツールが決める
+   (3)目標は「この小さい枠の中の1個」だけ、にしている。 */
+function cellRadius(){ return parentR / gridN; }
+function buildCells(){
+  cells = [];
+  const cr = cellRadius();
+  for(let i=0;i<gridN;i++){
+    for(let j=0;j<gridN;j++){
+      cells.push({ x: anchor.x - parentR + cr*(2*i+1), z: anchor.z - parentR + cr*(2*j+1), done:false });
+    }
+  }
+  cellCount = 0;
+  layoutBoard();
+}
+function doneCells(){ return cells.filter(c=>c.done).length; }
+function allCellsDone(){ return cells.length > 0 && cells.every(c=>c.done); }
+// つぎの小マスは「いま自分が立っている場所に一番近い、まだ終わっていないマス」
+function pickNextCell(){
+  let best = -1, bestD = 1e9;
+  for(let i=0;i<cells.length;i++){
+    if(cells[i].done) continue;
+    const d = Math.hypot(cells[i].x - _camPos.x, cells[i].z - _camPos.z);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+function gotoCell(i){
+  if(i < 0 || !cells[i]) return;
+  cellIdx = i; cellCount = 0;
+  const c = cells[i];
+  target.set(c.x, anchor.y, c.z);
+  shellUniforms.uTarget.value.copy(target);
+  shellUniforms.uR.value = cellRadius();
+  baseR = shellUniforms.uR.value;
+  frameGroup.position.copy(target);
+  layoutFrame(); layoutBoard(); infoDirty = true;
+}
+function layoutBoard(){
+  boardGroup.visible = placed && gridN > 1;
+  parentPlane.position.set(anchor.x, anchor.y + 0.002, anchor.z);
+  parentPlane.scale.set(parentR*2, parentR*2, 1);
+  const cr = cellRadius();
+  let n = 0;
+  for(let i=0;i<cells.length;i++){
+    if(!cells[i].done) continue;
+    const p = getDonePlane(n++);
+    p.position.set(cells[i].x, anchor.y + 0.004, cells[i].z);
+    p.scale.set(cr*2, cr*2, 1);
+    p.visible = true;
+  }
+  for(let k=n;k<donePlanes.length;k++) donePlanes[k].visible = false;
+}
+function cycleGrid(){
+  const idx = TUNE.gridLevels.indexOf(gridN);
+  gridN = TUNE.gridLevels[(idx + 1) % TUNE.gridLevels.length];
+  try{ localStorage.setItem("kokodake_grid", String(gridN)); }catch(_){}
+  gridBtn.setLabel("細かさ" + (gridN === 1 ? "なし" : gridN + "×" + gridN));
+  playClick();
+  if(placed){
+    buildCells();
+    gotoCell(gridN === 1 ? 0 : pickNextCell());
+    if(gridN === 1){ shellUniforms.uR.value = parentR; baseR = parentR; layoutFrame(); }
+  }
+  log(gridN === 1 ? "分けません（この場所ぜんぶで10個）"
+                  : "この場所を " + (gridN*gridN) + "マスに割りました。1マスにつき" + TUNE.subGoal + "個で次へ進みます");
+}
+// いまの小マスをやめて次へ（そこに片づける物が無かったとき用）
+function skipCell(){
+  if(!placed || gridN === 1 || goalReached) return;
+  playClick();
+  // 自分自身は「まだ終わっていない」ままなので、次に近い別のマスを選ぶ
+  let best = -1, bestD = 1e9;
+  for(let i=0;i<cells.length;i++){
+    if(cells[i].done || i === cellIdx) continue;
+    const d = Math.hypot(cells[i].x - _camPos.x, cells[i].z - _camPos.z);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  if(best < 0){ log("ほかに残っているマスがありません"); return; }
+  gotoCell(best);
+  log("このマスは飛ばしました。次のマスへ移ります");
+  showMsg("つぎのマスへ", 2.4);
+}
 
 function shellWant(){
   if(!placed) return 0;
@@ -802,7 +938,19 @@ function addOne(auto){
     log((auto ? "（うごき検知）" : "") + "1個できた！ " + count + "個" + (combo>0 ? "（れんぞく" + (combo+1) + "）" : ""));
   }
   infoDirty = true;
-  if(count >= TUNE.goalCount){ reachGoal(); return; }
+  // マス盤モード: 小マスの目標に届いたら、そのマスを終わりにして次のマスへ自動で移る
+  if(gridN > 1){
+    cellCount++;
+    if(cellCount >= TUNE.subGoal){
+      cells[cellIdx].done = true;
+      layoutBoard();
+      if(allCellsDone()){ reachGoal(); return; }
+      const nx = pickNextCell();
+      showMsg("このマス終わり！ つぎへ", 3.0);
+      log("マス " + doneCells() + "/" + cells.length + " 終わり。次のマスに移ります");
+      gotoCell(nx);
+    }
+  }else if(count >= TUNE.goalCount){ reachGoal(); return; }
   newHold();   // すぐ次の玉を抽選して見せる＝次に手を出す理由が常に目の前にある
 }
 function showMsg(t, sec){
@@ -837,10 +985,12 @@ function checkTimeMilestone(){
 function reachGoal(){
   goalReached = true; infoDirty = true;
   hideHold();
-  peekBtn.setLabel("もう" + TUNE.goalCount + "個やる");
+  peekBtn.setLabel(gridN > 1 ? "もう1周やる" : ("もう" + TUNE.goalCount + "個やる"));
   playFanfare(); pulse(220, 1.0);
   burstConfetti(target, 420, true);
-  log(TUNE.goalCount + "個クリア！部屋が戻ります。つづけるか、このマスは終わりにするか選んでください");
+  log(gridN > 1
+    ? (cells.length + "マス全部おわり！部屋が戻ります。つづけるか、この場所は終わりにするか選んでください")
+    : (TUNE.goalCount + "個クリア！部屋が戻ります。つづけるか、このマスは終わりにするか選んでください"));
 }
 function changeReveal(d){
   const v = Math.min(TUNE.revealMax, Math.max(TUNE.revealMin, shellUniforms.uR.value + d));
@@ -856,8 +1006,9 @@ function togglePeek(){
     shellUniforms.uR.value = baseR; layoutFrame();   // 窓を元の大きさに戻す＝また溜められる
     peekBtn.setLabel("まわりを見る"); infoDirty = true;
     clearEchoes(); newHold();
+    if(gridN > 1){ buildCells(); gotoCell(pickNextCell()); }
     playPlace(); pulse(90, 1.0);
-    log("次の" + TUNE.goalCount + "個！窓が元の大きさに戻ります");
+    log(gridN > 1 ? "もう1周！ マスを全部やり直します" : ("次の" + TUNE.goalCount + "個！窓が元の大きさに戻ります"));
     return;
   }
   // 休みの合図が出たあとは、このボタンが「まだやる」に変わる
@@ -874,6 +1025,8 @@ function togglePeek(){
   log(peek ? "まわりを見ています（部屋が戻ります）" : "また「ここだけ」にします");
 }
 function placeSquare(pos){
+  anchor.copy(pos);
+  parentR = TUNE.revealR;
   target.copy(pos);
   shellUniforms.uTarget.value.copy(pos);
   frameGroup.position.copy(pos);
@@ -882,14 +1035,22 @@ function placeSquare(pos){
   elapsed = 0; msIdx = 0;
   count = 0; combo = 0; comboExpire = 0; goalReached = false;
   baseR = shellUniforms.uR.value;
+  // 置いた場所を格子に割って、いちばん近いマスから始める（どこからやるかを決めさせない）
+  buildCells();
+  if(gridN > 1) gotoCell(pickNextCell());
+  else { shellUniforms.uR.value = parentR; baseR = parentR; layoutFrame(); }
   clearEchoes(); newHold();
+  gridBtn.setLabel("細かさ" + (gridN === 1 ? "なし" : gridN + "×" + gridN));
   peekBtn.setLabel("まわりを見る");
   darkBtn.setLabel("暗さ" + (darkIdx===0 ? "こい" : darkIdx===1 ? "中" : "うすい"));
   infoPanel.visible = true; infoDirty = true;
   uiButtons.forEach(b=>{ b.mesh.visible = true; b.dwell = 0; b.hot = 0; b.redraw(); });
+  skipBtn.mesh.visible = (gridN > 1);
   reticle.visible = false;
   playPlace(); pulse(90, 1.0);
-  log("ここだけ、にしました。この中の一番上の1個だけ、動かしてください");
+  log(gridN > 1
+    ? ("ここだけ、にしました。" + (gridN*gridN) + "マスに割ってあります。光っている枠の中の1個だけ動かしてください")
+    : "ここだけ、にしました。この中の一番上の1個だけ、動かしてください");
   // 最初の一歩の儀式。3・2・1で押し出して、やることを1個に絞って言う
   startMsg = "3"; startMsgUntil = performance.now()/1000 + 1.1; infoDirty = true;
   [["2",1000],["1",2000]].forEach(([t,ms])=>setTimeout(()=>{
@@ -899,7 +1060,8 @@ function placeSquare(pos){
   }, ms));
   setTimeout(()=>{
     if(!placed) return;
-    startMsg = "この中の1個だけ"; startMsgUntil = performance.now()/1000 + 7; infoDirty = true;
+    startMsg = gridN > 1 ? "この枠の中の1個だけ" : "この中の1個だけ";
+    startMsgUntil = performance.now()/1000 + 7; infoDirty = true;
     beep(880, 0.16, "triangle", 0.24);
   }, 3000);
 }
@@ -909,7 +1071,9 @@ function finishSquare(){
   placed = false; peek = false; restNow = false; goalReached = false;
   count = 0; combo = 0; comboExpire = 0;
   clearEchoes(); hideHold();
-  shellUniforms.uR.value = baseR; layoutFrame();
+  shellUniforms.uR.value = parentR; layoutFrame();
+  cells = []; cellCount = 0;
+  boardGroup.visible = false; donePlanes.forEach(p=>p.visible=false);
   frameGroup.visible = false; infoPanel.visible = false;
   uiButtons.forEach(b=>{ b.mesh.visible = false; b.dwell = 0; });
   playDone(); pulse(160, 1.0);
@@ -1026,6 +1190,7 @@ async function startMR(){
     placed = false; peek = false; restNow = false; shellFade = 0;
     clearEchoes(); hideHold();
     frameGroup.visible = false; infoPanel.visible = false;
+    boardGroup.visible = false; donePlanes.forEach(p=>p.visible=false);
     uiButtons.forEach(b=>b.mesh.visible = false);
     shell.visible = true;
     $("start").style.display = "none";
@@ -1170,7 +1335,7 @@ function simulate(dt){
   }
   // マスから離れたら自動で部屋を戻す（安全）
   if(placed){
-    const d = _camPos.distanceTo(target);
+    const d = _camPos.distanceTo(anchor);
     if(!away && d > TUNE.awayFar){ away = true; log("マスから離れました。部屋を戻します"); }
     else if(away && d < TUNE.awayNear){ away = false; log("戻りました。また「ここだけ」にします"); }
   }else if(away){ away = false; }
@@ -1186,20 +1351,24 @@ function simulate(dt){
 function layoutUI(){
   shell.position.copy(_camPos);   // 球は常に頭を包む
   if(!placed) return;
-  const r = shellUniforms.uR.value;
+  // ボタンは「置いた場所（親マス）」に付ける。小マスが移っても手元が動かないようにするため
+  const r = Math.max(parentR, shellUniforms.uR.value);
   // トリガーで狙う前提なので、ぶつからないように大きく散らす。
   // 一番よく押す「1個できた！」だけ中央・手前に置き、設定系は上の段に広げる。
-  const yOne  = target.y + r + 0.20;   // 主役（近く・中央）
-  const yInfo = target.y + r + 0.44;   // 数字パネル
-  const yTop  = target.y + r + 0.66;   // 設定の段（遠く・広く）
-  const ySide = target.y + r + 0.40;   // 左右のはし
-  oneBtn.mesh.position.set(target.x, yOne, target.z); faceCamera(oneBtn.mesh);
-  infoPanel.position.set(target.x, yInfo, target.z);  faceCamera(infoPanel);
-  narrowBtn.mesh.position.set(target.x - 0.70, yTop, target.z); faceCamera(narrowBtn.mesh);
-  wideBtn.mesh.position.set(  target.x - 0.36, yTop, target.z); faceCamera(wideBtn.mesh);
-  darkBtn.mesh.position.set(  target.x - 0.03, yTop, target.z); faceCamera(darkBtn.mesh);
-  autoBtn.mesh.position.set(  target.x + 0.32, yTop, target.z); faceCamera(autoBtn.mesh);
-  shapeBtn.mesh.position.set( target.x + 0.70, yTop, target.z); faceCamera(shapeBtn.mesh);
+  const yOne  = anchor.y + r + 0.20;   // 主役（近く・中央）
+  const yInfo = anchor.y + r + 0.44;   // 数字パネル
+  const yTop  = anchor.y + r + 0.66;   // 設定の段（遠く・広く）
+  const yTop2 = anchor.y + r + 0.86;   // さらに上の段（細かさ）
+  const ySide = anchor.y + r + 0.40;   // 左右のはし
+  oneBtn.mesh.position.set(anchor.x, yOne, anchor.z); faceCamera(oneBtn.mesh);
+  infoPanel.position.set(anchor.x, yInfo, anchor.z);  faceCamera(infoPanel);
+  narrowBtn.mesh.position.set(anchor.x - 0.70, yTop, anchor.z); faceCamera(narrowBtn.mesh);
+  wideBtn.mesh.position.set(  anchor.x - 0.36, yTop, anchor.z); faceCamera(wideBtn.mesh);
+  darkBtn.mesh.position.set(  anchor.x - 0.03, yTop, anchor.z); faceCamera(darkBtn.mesh);
+  autoBtn.mesh.position.set(  anchor.x + 0.32, yTop, anchor.z); faceCamera(autoBtn.mesh);
+  shapeBtn.mesh.position.set( anchor.x + 0.70, yTop, anchor.z); faceCamera(shapeBtn.mesh);
+  gridBtn.mesh.position.set(  anchor.x - 0.20, yTop2, anchor.z); faceCamera(gridBtn.mesh);
+  skipBtn.mesh.position.set(  anchor.x + 0.22, yTop2, anchor.z); faceCamera(skipBtn.mesh);
   // 保留の玉: 窓のユーザー側のふち・少し上に浮かべる（呼吸＋自転）
   if(holdOrb.visible){
     const r2 = shellUniforms.uR.value;
@@ -1217,8 +1386,8 @@ function layoutUI(){
   // 手が窓に入っている間は枠を明るくする（反応が見える＝生きている感じ）
   const fm = TUNE.square ? frameSq.material : frameRing.material;
   fm.opacity = AUTO.handIn ? 1.0 : 0.85;
-  peekBtn.mesh.position.set(  target.x - 0.74, ySide, target.z); faceCamera(peekBtn.mesh);
-  nextBtn.mesh.position.set(  target.x + 0.74, ySide, target.z); faceCamera(nextBtn.mesh);
+  peekBtn.mesh.position.set(  anchor.x - 0.74, ySide, anchor.z); faceCamera(peekBtn.mesh);
+  nextBtn.mesh.position.set(  anchor.x + 0.74, ySide, anchor.z); faceCamera(nextBtn.mesh);
   if(infoDirty) drawInfoPanel();
 }
 
@@ -1316,6 +1485,18 @@ window.__dbg = {
   buttons(){ return uiButtons.map((b,i)=>({ i, label: b.label, visible: b.mesh.visible, w: b.w, h: b.h, pos: b.mesh.position.toArray().map(v=>Math.round(v*100)/100) })); },
   fire(i){ const b = uiButtons[i]; if(!b) return "なし"; b.coolUntil = 0; fireButton(b); return this.state(); },
   shape(){ return { square: TUNE.square, uSquare: shellUniforms.uSquare.value }; },
+  // マス盤（細かさ）の確認窓口。UIと同じ関数を必ず通す
+  grid(){
+    return { gridN, parentR: Math.round(parentR*1000)/1000, cellR: Math.round(cellRadius()*1000)/1000,
+      cells: cells.length, done: doneCells(), cellIdx, cellCount,
+      uR: Math.round(shellUniforms.uR.value*1000)/1000,
+      target: target.toArray().map(v=>Math.round(v*1000)/1000),
+      anchor: anchor.toArray().map(v=>Math.round(v*1000)/1000),
+      boardVisible: boardGroup.visible, doneMarks: donePlanes.filter(p=>p.visible).length };
+  },
+  cells(){ return cells.map((c,i)=>({ i, x: Math.round(c.x*1000)/1000, z: Math.round(c.z*1000)/1000, done: c.done, now: i===cellIdx })); },
+  cycleGrid(){ cycleGrid(); return this.grid(); },
+  skip(){ skipCell(); return this.grid(); },
   one(){ addOne(); return this.state(); },
   dark(){ cycleDark(); return { darkIdx, maxAlpha: TUNE.maxAlpha, uMaxAlpha: shellUniforms.uMaxAlpha.value }; },
   time(){ return { elapsed: Math.round(elapsed*10)/10, msIdx, restNow, next: TIME_MS[msIdx] ? TIME_MS[msIdx].t : null, msg: startMsg }; },

@@ -38,7 +38,7 @@ summary{cursor:pointer; color:var(--muted);}
 </style>
 </head>
 <body>
-<div class="rev">rev1 (2026-08-11)</div>
+<div class="rev">rev2 (2026-08-12)</div>
 <h1>キャンセル待ち</h1>
 <div class="sub">予約の「売り切れ→空きあり」の瞬間を、この画面がお知らせします</div>
 
@@ -88,29 +88,35 @@ summary{cursor:pointer; color:var(--muted);}
  * fetchSlots(dateStr) は共通形式 {date,time,status,detail,url} の配列を返す。
  * status: "AVAILABLE" | "SOLD_OUT" | "UNKNOWN"
  * ============================================================ */
-const ADAPTERS = {
-  chichu: {
-    name: "地中美術館(直島)",
-    bookingUrl: "https://benesse-artsite.eventos.tokyo/web/portal/797/event/8483/module/booth/239565/176695?language=jpn",
-    dateHint: "",
+// ベネッセアートサイト系(同じ公開APIをカレンダー番号違いで使う)の共通の作り。
+// 1=空きあり 2=残りわずか 3=売り切れ 0=休館。番号は各予約ページのiframeから実測(2026-08-12)
+function makeBenesse(calendarId, name, bookingUrl){
+  return {
+    name, bookingUrl,
     async fetchSlots(dateStr){
-      // 公開API(カレンダー日別在庫)。1=空きあり 2=残りわずか 3=売り切れ 0=休館
       const [y,m,d] = dateStr.split("-").map(Number);
-      const res = await fetch(`https://web.admin-benesse-artsite.com/api/v1/facility-calendar-ticket/3?year=${y}&month=${m}`,
+      const res = await fetch(`https://web.admin-benesse-artsite.com/api/v1/facility-calendar-ticket/${calendarId}?year=${y}&month=${m}`,
                               {headers:{Accept:"application/json"}});
       if(res.status===429||res.status===503) throw {retryLater:true};
       if(res.status===403) throw {blocked:true};
       if(!res.ok) throw new Error("HTTP "+res.status);
       const data = await res.json();
       const row = (data.data||[]).find(r=>r.day===d);
-      if(!row) return [{date:dateStr, time:"終日", status:"UNKNOWN", detail:"カレンダーに該当日なし", url:this.bookingUrl}];
+      if(!row) return [{date:dateStr, time:"終日", status:"UNKNOWN", detail:"カレンダーに該当日なし", url:bookingUrl}];
       const s = row.stock_status;
       const map = {1:["AVAILABLE","空きあり"], 2:["AVAILABLE","残りわずか"], 3:["SOLD_OUT","売り切れ"], 0:["UNKNOWN","休館/対象外"]};
       const [status,detail] = map[s] || ["UNKNOWN","不明("+s+")"];
-      return [{date:dateStr, time:"終日", status, detail, url:this.bookingUrl}];
+      return [{date:dateStr, time:"終日", status, detail, url:bookingUrl}];
     }
-  }
-  // 施設を足すならここに追記(例: hotel_xxx: {...})
+  };
+}
+const EVENTOS = "https://benesse-artsite.eventos.tokyo/web/portal/797/event/8483/module/booth/239565/";
+const ADAPTERS = {
+  chichu:    makeBenesse(3, "地中美術館(直島)", EVENTOS+"176695?language=jpn"),
+  teshima:   makeBenesse(5, "豊島美術館",       EVENTOS+"185773?language=jpn"),
+  bh_museum: makeBenesse(8, "ベネッセハウス ミュージアム・ヴァレーギャラリー(直島)", EVENTOS+"222075?language=jpn")
+  // 施設を足すならここに追記。ベネッセ系以外は fetchSlots を独自に書く
+  // (先方サイトがブラウザ読み取りを許可=CORSしているかを、足す前に必ず実測すること)
 };
 
 /* ============================================================

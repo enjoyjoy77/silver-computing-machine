@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>むねゆれ v8（素体の胸をそのまま）</title>
+<style>
+  html,body{margin:0;height:100%;background:#101014;color:#eee;font-family:system-ui,sans-serif;overflow:hidden;}
+  #rev{position:fixed;top:8px;right:12px;font-size:12px;opacity:.7;z-index:10;}
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:#101014;z-index:20;text-align:center;padding:20px;}
+  #start h1{font-size:22px;margin:8px 0 6px;}
+  #start p{font-size:14px;opacity:.85;line-height:1.7;margin:4px 0 16px;}
+  #goBtn{border:0;border-radius:16px;padding:14px 34px;font:inherit;font-size:17px;font-weight:900;
+    background:#e0719c;color:#fff;cursor:pointer;}
+  #goBtn:disabled{opacity:.5;cursor:default;}
+  .lever{width:min(420px,80vw);margin:8px auto;text-align:left;font-size:13px;}
+  .lever input{width:100%;}
+  #log{position:fixed;left:10px;bottom:10px;font-size:11px;opacity:.75;max-width:70vw;z-index:10;
+    white-space:pre-wrap;max-height:30vh;overflow:hidden;}
+  #hud{position:fixed;left:10px;top:8px;font-size:12px;opacity:.8;z-index:10;display:none;}
+  .sub{font-size:12px;opacity:.6;margin-top:14px;}
+  #bodySel button{border:2px solid #8fae6b;border-radius:12px;padding:8px 16px;font:inherit;font-size:14px;cursor:pointer;margin:0 5px;}
+</style>
+</head>
+<body>
+<div id="rev"></div>
+<div id="hud"></div>
+<div id="start">
+  <div style="font-size:12px;letter-spacing:.2em;opacity:.6;">むねゆれ再現 v8（試作）</div>
+  <h1>素体の胸を、そのまま揺らす</h1>
+  <p>ふくらみを別部品で置くのをやめて、素体(SiroinoSotai)自身の胸のメッシュを直接やわらかくしました。<br>
+     つなぎ目は構造的に存在しません。手で押すと沈み、体を揺らすとぷるんと揺れます。</p>
+  <div id="bodySel">
+    <button id="bodyTorso" style="background:#8fae6b;color:#fff;">上半身だけ</button>
+    <button id="bodyFull" style="background:transparent;color:#8fae6b;">全身</button>
+  </div>
+  <div class="lever">やわらかさ <span id="softVal">50%</span><input id="soft" type="range" min="0" max="100" value="50"></div>
+  <div class="lever">ゆれのこり <span id="keepVal">50%</span><input id="keep" type="range" min="0" max="100" value="50"></div>
+  <button id="goBtn" disabled>じゅんび中…</button>
+  <p class="sub">PCで開いた場合: ドラッグ=視点 / クリック長押し=押す / T=よこゆらし / Y=たてゆらし<br>
+     Quest(AR)中: 素手で触れる / つまむ動作(ピンチ)=よこゆらし</p>
+</div>
+<div id="log"></div>
+
+<script type="module">
+import * as THREE from "./lib/three.module.min.js";
+import { GLTFLoader } from "./lib/GLTFLoader.js";
+import { DRACOLoader } from "./lib/DRACOLoader.js";
+import { setupHands, isHandInput, forEachHandBonePoint } from "./lib/hands.js";
+
+const REV = "v8 rev1";   // rev1=試作初版: 素体の胸メッシュを直接変形(重み付き凹み+ばね揺れ)。別部品のふくらみ・平胸化は廃止
+document.getElementById("rev").textContent = REV;
+
+const $ = (id)=>document.getElementById(id);
+const logEl = $("log");
+const logLines = [];
+function log(msg, isErr){
+  logLines.push("・"+msg); if(logLines.length>8) logLines.shift();
+  logEl.textContent = logLines.join("\n");
+  if(isErr) console.error(msg); else console.log(msg);
+}
+
+/* ---------------- 調整パラメータ ---------------- */
+const TUNE = {
+  // 胸の領域(素体ローカル座標: 足元0・身長1.64m・前が+z)。Blender実測: 乳頭(±0.032,1.272,0.137)
+  breastL: { x: 0.052, y: 1.272, z: 0.105 },   // 重みの中心(乳頭より少し奥・少し外)
+  breastR: { x: -0.052, y: 1.272, z: 0.105 },
+  radX: 0.085, radY: 0.080, radZ: 0.120,        // 重み楕円の半径(m)。zは前方に長め
+  minW: 0.02,          // これ未満の重みは対象外(計算節約)
+  // 凹み(押し込み)
+  maxDent: 0.035,      // 最大凹み(m)×重み
+  skinOfs: 0.003,      // コライダ表面より少し早く反応(見た目の接触一致)
+  tauIn: 0.06, tauOut: 0.16,   // 凹みの追従時定数(秒)。押しは速く戻りは少しゆっくり
+  // 揺れ(ばね)
+  freqHard: 3.0, freqSoft: 1.6,     // やわらかさレバー→固有振動数(Hz)
+  zetaKeep: 0.16, zetaCalm: 0.6,    // ゆれのこりレバー→減衰比
+  jiggleMax: 0.03,     // 揺れ変位の上限(m)
+  swayAmp: 0.05, swaySec: 2.0,      // ゆらしボタンの振幅(m)と時間
+  // マネキン化カット(v7と同じ実測値)
+  cutNeckY: 1.46, cutHipY: 1.00, cutArmX: 0.15,
+  soft: 0.5, keep: 0.5,
+};
+
+/* ---------------- three土台 ---------------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.02, 50);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x776655, 1.15));
+const dl = new THREE.DirectionalLight(0xffffff, 0.9); dl.position.set(0.6, 1.6, 1.2); scene.add(dl);
+
+addEventListener("resize", ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+
+/* ---------------- 素体の読み込み ---------------- */
+const bodyGroup = new THREE.Group(); scene.add(bodyGroup);
+let bodyMesh = null;          // 素体メッシュ(頂点を直接動かす)
+let ready = false;
+
+const skinMat = new THREE.MeshPhysicalMaterial({
+  color:0xf2c9b4, roughness:0.5, metalness:0.0,
+  clearcoat:0.3, clearcoatRoughness:0.42,
+  sheen:0.5, sheenRoughness:0.6, sheenColor:new THREE.Color(0xffd9c8),
+  side:THREE.DoubleSide,
+});
+const nrmTex = new THREE.TextureLoader().load("./lib/models/siroino_normal.png");
+nrmTex.flipY = false;   // glTFのUVは上下反転なし
+skinMat.normalMap = nrmTex;
+
+const draco = new DRACOLoader().setDecoderPath("./lib/draco/");
+const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
+
+// 変形用の状態
+let vCount=0, restPos=null, restNrm=null;      // 全頂点の静止位置・静止法線(ローカル)
+let affIdx=null, affW=null, affSide=null, affDent=null;   // 胸領域: 頂点番号/重み/左右(0,1)/現在の凹み
+let posAttr=null;
+
+loader.load("./lib/models/siroino_natural.glb", (gltf)=>{
+  gltf.scene.traverse(o=>{ if(o.isMesh && !bodyMesh){ bodyMesh=o; } });
+  if(!bodyMesh){ log("素体の中にメッシュが見つかりません", true); return; }
+  bodyMesh.material = skinMat;
+  bodyMesh.frustumCulled = false;
+  const g = bodyMesh.geometry;
+  ["color","uv1","uv2","uv3"].forEach(a=>{ if(g.attributes[a]) g.deleteAttribute(a); });
+  posAttr = g.attributes.position;
+  vCount = posAttr.count;
+  // マネキン化(上半身): 全身/上半身の両方の面リストを保存して貼り替え
+  const idx = g.index.array;
+  const cut=(v)=>{ const x=Math.abs(posAttr.getX(v)), y=posAttr.getY(v);
+    return (y>TUNE.cutNeckY)||(y<TUNE.cutHipY)||(x>TUNE.cutArmX)||(x>0.105&&y>1.42); };
+  const keep=[];
+  for(let t=0;t<idx.length;t+=3){ if(!(cut(idx[t])||cut(idx[t+1])||cut(idx[t+2]))) keep.push(idx[t],idx[t+1],idx[t+2]); }
+  g.userData.fullIndex = new Uint32Array(idx);
+  g.userData.torsoIndex = new Uint32Array(keep);
+  g.computeVertexNormals();   // 全身の面で滑らかな法線を作る(両モード共用)
+  g.setIndex(new THREE.BufferAttribute(fullBody ? g.userData.fullIndex : g.userData.torsoIndex, 1));
+  // 静止形と法線を保存
+  restPos = new Float32Array(posAttr.array);
+  const na = g.attributes.normal.array;
+  restNrm = new Float32Array(na);
+  buildBreastWeights();
+  bodyGroup.add(gltf.scene);
+  ready = true;
+  log("素体を読み込んだ(自然な胸のまま・別部品なし)");
+  enableButton();
+}, undefined, (e)=>{ log("素体の読み込みに失敗しました: "+(e&&e.message||e), true); });
+
+// 胸領域の重みを作る(楕円距離のなめらかな山)
+function buildBreastWeights(){
+  const idxs=[], ws=[], sides=[];
+  const cs=[TUNE.breastL, TUNE.breastR];
+  for(let v=0;v<vCount;v++){
+    const x=restPos[v*3], y=restPos[v*3+1], z=restPos[v*3+2];
+    if(z<0) continue;   // 背中側は対象外
+    for(let s=0;s<2;s++){
+      const c=cs[s];
+      const qx=(x-c.x)/TUNE.radX, qy=(y-c.y)/TUNE.radY, qz=(z-c.z)/TUNE.radZ;
+      const q=Math.sqrt(qx*qx+qy*qy+qz*qz);
+      if(q<1){
+        const w=Math.pow(1-q*q,2);   // Wendland風: 中心1→縁0、縁で傾きも0=折れ目なし
+        if(w>TUNE.minW){ idxs.push(v); ws.push(w); sides.push(s); break; }
+      }
+    }
+  }
+  affIdx=new Uint32Array(idxs); affW=new Float32Array(ws); affSide=new Uint8Array(sides);
+  affDent=new Float32Array(idxs.length);
+  log("胸領域の頂点: "+idxs.length+"個(全"+vCount+"中)");
+}
+
+/* ---------------- 物理(凹み+ばね揺れ) ---------------- */
+// 左右それぞれのばね(体ローカル)。体が動くと遅れて追従=ぷるん
+const jig=[{o:new THREE.Vector3(),v:new THREE.Vector3()},{o:new THREE.Vector3(),v:new THREE.Vector3()}];
+const prevBodyPos=new THREE.Vector3(); let havePrev=false;
+const colliders=[];   // 今フレームのコライダ(体ローカル) {x,y,z,r}
+const _v=new THREE.Vector3(); const _m=new THREE.Matrix4();
+
+function physStep(dt){
+  if(!ready) return;
+  dt=Math.min(dt,1/30);
+  // 1) 体の移動→ばねに入力(ワールド移動を体ローカルへ)
+  bodyGroup.getWorldPosition(_v);
+  if(havePrev){
+    const dx=_v.x-prevBodyPos.x, dy=_v.y-prevBodyPos.y, dz=_v.z-prevBodyPos.z;
+    _m.copy(bodyGroup.matrixWorld).invert();
+    const dl=new THREE.Vector3(dx,dy,dz).transformDirection(_m.clone().transpose());  // 回転だけ逆変換
+    // 簡潔に: bodyGroupは回転が水平のみなのでy軸回転の逆で足りる
+    const ry=bodyGroup.rotation.y, cos=Math.cos(-ry), sin=Math.sin(-ry);
+    const lx=dx*cos-dz*sin, lz=dx*sin+dz*cos;
+    for(const j of jig){ j.o.x-=lx; j.o.y-=dy; j.o.z-=lz; }
+  }
+  prevBodyPos.copy(_v); havePrev=true;
+  // 2) ばねを進める(半陰的オイラー)
+  const freq=TUNE.freqHard+(TUNE.freqSoft-TUNE.freqHard)*TUNE.soft;
+  const zeta=TUNE.zetaCalm+(TUNE.zetaKeep-TUNE.zetaCalm)*TUNE.keep;
+  const w0=2*Math.PI*freq, k=w0*w0, c=2*zeta*w0;
+  for(const j of jig){
+    j.v.x+=(-k*j.o.x-c*j.v.x)*dt; j.v.y+=(-k*j.o.y-c*j.v.y)*dt; j.v.z+=(-k*j.o.z-c*j.v.z)*dt;
+    j.o.x+=j.v.x*dt; j.o.y+=j.v.y*dt; j.o.z+=j.v.z*dt;
+    const L=j.o.length(); if(L>TUNE.jiggleMax){ j.o.multiplyScalar(TUNE.jiggleMax/L); }
+    if(L<1e-5 && j.v.length()<1e-4){ j.o.set(0,0,0); j.v.set(0,0,0); }
+  }
+  // 3) 凹み: コライダとの重なり→一次遅れで追従(静止形基準=自己振動しない)
+  const n=affIdx.length;
+  const aIn=1-Math.exp(-dt/TUNE.tauIn), aOut=1-Math.exp(-dt/TUNE.tauOut);
+  for(let i=0;i<n;i++){
+    const v=affIdx[i];
+    const rx=restPos[v*3], ry_=restPos[v*3+1], rz=restPos[v*3+2];
+    let pen=0;
+    for(const col of colliders){
+      const dx=rx-col.x, dy=ry_-col.y, dz=rz-col.z;
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
+      const p=col.r+TUNE.skinOfs-d;
+      if(p>pen) pen=p;
+    }
+    const cap=TUNE.maxDent*affW[i]+0.004;
+    const target=Math.min(pen,cap);
+    const a=(target>affDent[i])?aIn:aOut;
+    affDent[i]+=(target-affDent[i])*a;
+    if(affDent[i]<1e-5 && target===0) affDent[i]=0;
+  }
+  // 4) 頂点へ書き込み: rest + ばね×重み − 法線×凹み
+  let dirty=false;
+  for(let i=0;i<n;i++){
+    const v=affIdx[i], w=affW[i], j=jig[affSide[i]];
+    const d=affDent[i];
+    const nx=restNrm[v*3], ny=restNrm[v*3+1], nz=restNrm[v*3+2];
+    const px=restPos[v*3]+j.o.x*w-nx*d;
+    const py=restPos[v*3+1]+j.o.y*w-ny*d;
+    const pz=restPos[v*3+2]+j.o.z*w-nz*d;
+    if(posAttr.array[v*3]!==px||posAttr.array[v*3+1]!==py||posAttr.array[v*3+2]!==pz){
+      posAttr.array[v*3]=px; posAttr.array[v*3+1]=py; posAttr.array[v*3+2]=pz; dirty=true;
+    }
+  }
+  if(dirty){ posAttr.needsUpdate=true; bodyMesh.geometry.computeVertexNormals(); }
+}
+
+/* ---------------- ゆらし ---------------- */
+let swayT=-1, swayAxis="x";
+const bodyHome=new THREE.Vector3();
+function startSway(axis){ if(!ready) return; swayAxis=axis; if(swayT<0) bodyHome.copy(bodyGroup.position); swayT=0; }
+function stepSway(dt){
+  if(swayT<0) return;
+  swayT+=dt;
+  const t=swayT/TUNE.swaySec;
+  if(t>=1){ bodyGroup.position.copy(bodyHome); swayT=-1; return; }
+  const env=Math.sin(Math.PI*t);   // ゆっくり始まりゆっくり終わる
+  const off=Math.sin(swayT*2*Math.PI*1.6)*TUNE.swayAmp*env;
+  bodyGroup.position.copy(bodyHome);
+  if(swayAxis==="x") bodyGroup.position.x+=off; else bodyGroup.position.y+=off;
+}
+
+/* ---------------- 全身/上半身 ---------------- */
+let fullBody=false;
+function applyBodyMode(){
+  if(!bodyMesh) return;
+  const g=bodyMesh.geometry;
+  g.setIndex(new THREE.BufferAttribute(fullBody?g.userData.fullIndex:g.userData.torsoIndex,1));
+  g.computeBoundingSphere();
+}
+function syncBodyButtons(){
+  const t=$("bodyTorso"), f=$("bodyFull");
+  t.style.background=!fullBody?"#8fae6b":"transparent"; t.style.color=!fullBody?"#fff":"#8fae6b";
+  f.style.background=fullBody?"#8fae6b":"transparent"; f.style.color=fullBody?"#fff":"#8fae6b";
+}
+$("bodyTorso").addEventListener("click",()=>{ fullBody=false; applyBodyMode(); syncBodyButtons(); });
+$("bodyFull").addEventListener("click",()=>{ fullBody=true; applyBodyMode(); syncBodyButtons(); });
+
+/* ---------------- レバー ---------------- */
+$("soft").addEventListener("input",e=>{ TUNE.soft=e.target.value/100; $("softVal").textContent=e.target.value+"%"; });
+$("keep").addEventListener("input",e=>{ TUNE.keep=e.target.value/100; $("keepVal").textContent=e.target.value+"%"; });
+
+/* ---------------- XR ---------------- */
+let xrSession=null, xrRef=null;
+const ctrlIsHand=[false,false];
+async function startAR(){
+  try{
+    log("ARを開始します…");
+    const session=await navigator.xr.requestSession("immersive-ar",{ optionalFeatures:["hand-tracking","local-floor"] });
+    xrSession=session;
+    renderer.xr.setReferenceSpaceType("local-floor");
+    await renderer.xr.setSession(session);
+    scene.background=null;
+    setupHands(renderer, scene);
+    for(let i=0;i<2;i++){
+      const c=renderer.xr.getController(i);
+      c.addEventListener("connected",(e)=>{ ctrlIsHand[i]=isHandInput(e); });
+      c.addEventListener("selectstart",()=>{ startSway("x"); });   // ピンチ=よこゆらし
+      scene.add(c);
+    }
+    session.addEventListener("end",()=>{ xrSession=null; $("start").style.display="flex"; });
+    $("start").style.display="none"; $("hud").style.display="block";
+    placeBodyInFront();
+    log("AR開始OK。素手で胸に触れてください");
+  }catch(e){ log("ARを開始できませんでした: "+(e&&e.message||e), true); }
+}
+function placeBodyInFront(){
+  const cam=renderer.xr.isPresenting?renderer.xr.getCamera():camera;
+  cam.getWorldPosition(_v);
+  const q=new THREE.Quaternion(); cam.getWorldQuaternion(q);
+  const fwd=new THREE.Vector3(0,0,-1).applyQuaternion(q); fwd.y=0; fwd.normalize();
+  bodyGroup.position.set(_v.x+fwd.x*0.8, 0, _v.z+fwd.z*0.8);   // 足元は床(local-floor)
+  bodyGroup.rotation.y=Math.atan2(-fwd.x,-fwd.z)+Math.PI;      // 体の前(+z)がユーザーへ
+  bodyHome.copy(bodyGroup.position);
+}
+
+// 毎フレーム: XRの手→コライダ(体ローカル)
+function collectColliders(frame){
+  colliders.length=0;
+  if(!xrSession||!frame) return;
+  const ref=renderer.xr.getReferenceSpace();
+  const inv=_m.copy(bodyGroup.matrixWorld).invert();
+  for(const src of xrSession.inputSources){
+    if(!src.hand) continue;
+    forEachHandBonePoint(src, frame, ref, (x,y,z,r)=>{
+      _v.set(x,y,z).applyMatrix4(inv);
+      colliders.push({x:_v.x, y:_v.y, z:_v.z, r});
+    }, { minR:0.006, spacing:1.4, near:_nearList() });
+  }
+}
+const _near=[[0,0,0,0.28]];
+function _nearList(){
+  // 触られる対象=胸まわり(体ローカルの胸中心をワールドへ)
+  _v.set(0, TUNE.breastL.y, 0.10).applyMatrix4(bodyGroup.matrixWorld);
+  _near[0][0]=_v.x; _near[0][1]=_v.y; _near[0][2]=_v.z;
+  return _near;
+}
+
+/* ---------------- PC確認モード ---------------- */
+let pcYaw=0, pcPitch=0, pcDist=1.1;
+const pcTarget=new THREE.Vector3(0, 1.27, 0);
+function updatePCCamera(){
+  camera.position.set(
+    pcTarget.x+pcDist*Math.cos(pcPitch)*Math.sin(pcYaw),
+    pcTarget.y+pcDist*Math.sin(pcPitch),
+    pcTarget.z+pcDist*Math.cos(pcPitch)*Math.cos(pcYaw));
+  camera.lookAt(pcTarget);
+}
+let dragging=false, poking=false, lastX=0, lastY=0;
+const ray=new THREE.Raycaster();
+renderer.domElement.addEventListener("pointerdown",(e)=>{
+  lastX=e.clientX; lastY=e.clientY;
+  // クリック=押す(メッシュに当たれば)。外れたらドラッグ視点
+  const nd=new THREE.Vector2((e.clientX/innerWidth)*2-1, -(e.clientY/innerHeight)*2+1);
+  ray.setFromCamera(nd,camera);
+  const hit=bodyMesh?ray.intersectObject(bodyMesh,false):[];
+  if(hit.length){ poking=true; pcPoke(hit[0].point, e); } else dragging=true;
+});
+addEventListener("pointermove",(e)=>{
+  if(dragging){ pcYaw-=(e.clientX-lastX)*0.006; pcPitch=Math.max(-1.2,Math.min(1.2,pcPitch+(e.clientY-lastY)*0.005)); lastX=e.clientX; lastY=e.clientY; updatePCCamera(); }
+  else if(poking){ const nd=new THREE.Vector2((e.clientX/innerWidth)*2-1,-(e.clientY/innerHeight)*2+1); ray.setFromCamera(nd,camera);
+    const hit=bodyMesh?ray.intersectObject(bodyMesh,false):[]; if(hit.length) pcPoke(hit[0].point,e); }
+});
+addEventListener("pointerup",()=>{ dragging=false; poking=false; pcCol=null; });
+let pcCol=null;
+function pcPoke(worldPoint){
+  const inv=_m.copy(bodyGroup.matrixWorld).invert();
+  const p=worldPoint.clone().applyMatrix4(inv);
+  // レイの向きへ少し押し込んだ位置に指サイズの球
+  const dir=ray.ray.direction.clone().transformDirection(inv).normalize();
+  p.addScaledVector(dir, 0.012);
+  pcCol={x:p.x,y:p.y,z:p.z,r:0.018};
+}
+addEventListener("keydown",(e)=>{ if(e.key==="t"||e.key==="T") startSway("x"); if(e.key==="y"||e.key==="Y") startSway("y"); });
+
+/* ---------------- メインループ ---------------- */
+let lastT=0, fpsSmooth=60;
+renderer.setAnimationLoop((t,frame)=>{
+  const dt=lastT?Math.min((t-lastT)/1000,0.1):1/60; lastT=t;
+  fpsSmooth+= (1/Math.max(dt,1e-4)-fpsSmooth)*0.05;
+  stepSway(dt);
+  if(xrSession){ collectColliders(frame); }
+  else { colliders.length=0; }
+  if(pcCol && !xrSession) colliders.push(pcCol);
+  physStep(dt);
+  if($("hud").style.display!=="none") $("hud").textContent="fps "+Math.round(fpsSmooth)+" / 胸頂点 "+(affIdx?affIdx.length:0);
+  renderer.render(scene,camera);
+});
+
+/* ---------------- 開始 ---------------- */
+let arSupported=false;
+function enableButton(){
+  if(!ready) return;
+  const b=$("goBtn");
+  b.disabled=false;
+  b.textContent=arSupported?"はじめる（AR）":"PCで見る";
+  log(arSupported?"準備OK。「はじめる」を押せます":"この端末はMR非対応。PC確認モードで見られます");
+}
+$("goBtn").addEventListener("click",()=>{
+  if(arSupported){ startAR(); }
+  else { $("start").style.display="none"; $("hud").style.display="block"; updatePCCamera(); }
+});
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported("immersive-ar").then(ok=>{ arSupported=!!ok; enableButton(); }).catch(()=>{ arSupported=false; enableButton(); });
+}else{ arSupported=false; enableButton(); }
+updatePCCamera();
+log("読み込みOK（版：" + REV + "）");
+
+/* ---------------- 検証窓口 ---------------- */
+window.__dbg = {
+  tune: TUNE,
+  state(){ const j0=jig[0].o.length(), j1=jig[1].o.length();
+    let maxD=0; if(affDent) for(let i=0;i<affDent.length;i++) if(affDent[i]>maxD) maxD=affDent[i];
+    return { ready, affCount: affIdx?affIdx.length:0, jiggleL:+j0.toFixed(4), jiggleR:+j1.toFixed(4),
+      maxDent:+maxD.toFixed(4), fullBody, nan: affDent?Array.from(affDent).some(Number.isNaN):false }; },
+  frame(yaw=0,pitch=0,dist=1.1){ pcYaw=yaw*Math.PI/180; pcPitch=pitch*Math.PI/180; pcDist=dist; updatePCCamera(); },
+  render(){ renderer.render(scene,camera); },
+  tick(sec=1){ const n=Math.round(sec*60); for(let i=0;i<n;i++){ stepSway(1/60); physStep(1/60); } },
+  poke(depth=0.02, x=0.052, y=1.272){ // 胸の正面から球を押し込む(PC検証用)
+    colliders.length=0; colliders.push({x, y, z:0.137+0.018-depth, r:0.018});
+    for(let i=0;i<30;i++) physStep(1/60);
+    const during=this.state().maxDent;
+    colliders.length=0;
+    for(let i=0;i<90;i++) physStep(1/60);
+    return { during, after:this.state().maxDent }; },
+  sway(){ startSway("x"); let maxJ=0;
+    for(let i=0;i<240;i++){ stepSway(1/60); physStep(1/60); const s=this.state(); const j=Math.max(s.jiggleL,s.jiggleR); if(j>maxJ)maxJ=j; }
+    const end=this.state(); return { maxJiggle:+maxJ.toFixed(4), endJiggle:Math.max(end.jiggleL,end.jiggleR), nan:end.nan }; },
+  wviz(on=true){ // 重み領域の可視化: 重みぶん法線方向へ膨らませる
+    if(!ready) return;
+    for(let i=0;i<affIdx.length;i++){ const v=affIdx[i];
+      const k=on?affW[i]*0.02:0;
+      posAttr.array[v*3]=restPos[v*3]+restNrm[v*3]*k;
+      posAttr.array[v*3+1]=restPos[v*3+1]+restNrm[v*3+1]*k;
+      posAttr.array[v*3+2]=restPos[v*3+2]+restNrm[v*3+2]*k; }
+    posAttr.needsUpdate=true; bodyMesh.geometry.computeVertexNormals(); this.render(); return affIdx.length; },
+  rebuildWeights(){ buildBreastWeights(); return affIdx.length; },
+};
+</script>
+</body>
+</html>
