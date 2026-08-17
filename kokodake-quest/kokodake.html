@@ -102,7 +102,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v6 rev3";
+const REV = "v6 rev5";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -267,8 +267,15 @@ function playCoin(){
   beep(1180, 0.07, "square", 0.10);
   setTimeout(()=>beep(1560, 0.14, "sine", 0.16), 55);
 }
-// ぶたの「ブー」。周波数を下げながら鳴らす（上がらないのが大事）
+/* ★2026-08-17（v6 rev4）ぶたの「ブー」を止めた。
+   ユーザー報告「低い音で小さくボン、ボンって変な音がする。失敗しましたみたいな音だとやる気が下がる。
+   不安になる要素は全部いらない」。
+   このツールで低い音を出していたのは、ここ（300→150Hzに下がるノコギリ波）だけ。
+   意図は豚の鳴き声だったが、**低くて下がる音は「エラー音」に聞こえる**。
+   関数は残して中身だけ黙らせた（別の鳴き声を作ることになったら、ここに書けばよい）。 */
+const OINK_ON = false;
 function playOink(){
+  if(!OINK_ON) return;
   if(!actx) return;
   try{
     const t = actx.currentTime;
@@ -357,20 +364,24 @@ const shellMat = new THREE.ShaderMaterial({
     varying vec3  vWorld;
     void main(){
       vec3  dir = normalize(vWorld - cameraPosition);
-      // (1) まる: 目からこの点へ伸ばした線が、作業マス（uTarget）にどれだけ近いか
-      float t   = max(dot(uTarget - cameraPosition, dir), 0.0);
-      float d   = distance(cameraPosition + dir * t, uTarget);
-      float aRound = smoothstep(uR, uR + uSoft, d);
-      // (2) しかく: 視線が「マスの高さの平面」と交わる点で、四角の内側かを見る
+      float aRound = 1.0;
       float aSq = 1.0;
+      // ★2026-08-17: まる も しかく も「マスの高さの平面で切る」に揃えた。
+      //   前のまるは「視線からの最短距離」で切っていたので、斜めから見ると床の上で
+      //   ずっと先まで伸び、**小マスに割った意味が消えていた**
+      //   （ユーザー報告「丸の場合にマスの切り分けが適用されてない」）。
+      //   いまは まる=平面上の円 / しかく=平面上の正方形。どちらもマスの大きさそのまま。
       if(dir.y < -0.001){
         float tp = (uTarget.y - cameraPosition.y) / dir.y;
         if(tp > 0.0){
           vec3 hp = cameraPosition + dir * tp;
           vec2 q  = abs(hp.xz - uTarget.xz);
+          float dPlane = length(hp - uTarget);
           aSq = smoothstep(uR, uR + uSoft, max(q.x, q.y));
+          aRound = smoothstep(uR, uR + uSoft, dPlane);
           // 浅い角度で窓が地平線まで伸びるのを止める
-          aSq = max(aSq, smoothstep(uR * 2.0, uR * 2.6, length(hp - uTarget)));
+          aSq    = max(aSq,    smoothstep(uR * 2.0, uR * 2.6, dPlane));
+          aRound = max(aRound, smoothstep(uR * 2.0, uR * 2.6, dPlane));
         }
       }
       float a = mix(aRound, aSq, uSquare);   // マスの中=0（透ける）／外=1（黒い）
@@ -420,6 +431,9 @@ let frameSq = null;
 }
 function layoutFrame(){
   const r = shellUniforms.uR.value;
+  // ふちのぼかしは窓の大きさに合わせる。細かく割ったとき（4×4=半径7.5cm）に
+  // 固定の7cmだとマス全体がぼやけて、区切りが分からなくなる
+  shellUniforms.uSoft.value = Math.min(TUNE.soft, r * 0.35);
   frameRing.scale.set(r, r, 1);
   frameSq.scale.set(r*2, r*2, 1);
   frameRing.visible = !TUNE.square;
@@ -470,11 +484,24 @@ const pigGroup = new THREE.Group();
 pigGroup.visible = false; scene.add(pigGroup);
 const pigBody = new THREE.Group(); pigGroup.add(pigBody);   // 跳ねるのはこちら（コインは中に入れる）
 const PINK = 0xffb3c6, PINK2 = 0xff8fab;
+/* ★2026-08-17（v6 rev4）ここが「ぶたが楕円の塊に見えた」原因:
+   このツールの決まりに従って**ぶたの全部品の depthTest を切っていた**。
+   板1枚なら問題ないが、**立体は深度で前後を決めているので、切ると鼻・耳・脚・目が
+   体に埋もれたり順不同で描かれ、輪郭のないカタマリになる**（半透明の体がそれを増幅した）。
+   → ぶたは **depthTest を入れたまま**にする。目かくしの球は depthWrite:false なので
+      深度を書かず、ぶたを隠さない（切らなくても手前に見える）。 */
+/* ★もうひとつの、そして本当の原因（2026-08-17 v6 rev4）:
+   Three.jsは「不透明 → 透明」の順に描き、renderOrder はそのグループの中でしか効かない。
+   目かくしの球は transparent なので**不透明の部品より後**に描かれ、黒く塗りつぶしていた。
+   前の版で体だけ見えていたのは、体だけ transparent:true だったから
+   （＝鼻も耳も脚も目も消えて、半透明の体だけが残る＝「ただの楕円の塊」）。
+   → ぶたの部品は**全部 transparent:true（不透明のまま opacity 1）**にして、
+      目かくしより後に描く。深度は生きているので前後は正しく出る。 */
 function mat(color, opts){
-  return new THREE.MeshLambertMaterial(Object.assign({ color, depthTest:false }, opts||{}));
+  return new THREE.MeshLambertMaterial(Object.assign({ color, transparent:true, opacity:1.0 }, opts||{}));
 }
-// 体（中のコインが見えるように少し透ける）
-const pigSkin = mat(PINK, { transparent:true, opacity:0.55 });
+// 体は不透明。コインは体の中ではなく、となりの「ガラスの筒」に積む（形がはっきり出る）
+const pigSkin = mat(PINK);
 const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 16), pigSkin);
 bodyMesh.scale.set(1.0, 0.86, 1.18); pigBody.add(bodyMesh);
 // 鼻・耳・目・脚・しっぽ・コインの投入口
@@ -489,11 +516,12 @@ snout.rotation.x = Math.PI/2; snout.position.set(0, -0.05, 1.20); pigBody.add(sn
   const e = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.34, 10), snoutMat);
   e.position.set(p[0], p[1], p[2]); e.rotation.x = -0.3; pigBody.add(e);
 });
-const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), mat(0x2a2029));
-eyeL.position.set(-0.32, 0.22, 0.95); pigBody.add(eyeL);
-const eyeR = eyeL.clone(); eyeR.position.x = 0.32; pigBody.add(eyeR);
-[[-0.45,-0.86,0.55],[0.45,-0.86,0.55],[-0.45,-0.86,-0.45],[0.45,-0.86,-0.45]].forEach(p=>{
-  const l = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.34,10), snoutMat);
+const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), mat(0x2a2029));
+eyeL.position.set(-0.33, 0.26, 1.02); pigBody.add(eyeL);   // 体の表面より少し外（埋めない）
+const eyeR = eyeL.clone(); eyeR.position.x = 0.33; pigBody.add(eyeR);
+// 脚は体の下から「はみ出す」長さにする（埋めると足が消えて塊に見える）
+[[-0.46,-0.98,0.56],[0.46,-0.98,0.56],[-0.46,-0.98,-0.46],[0.46,-0.98,-0.46]].forEach(p=>{
+  const l = new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.17,0.46,10), snoutMat);
   l.position.set(p[0], p[1], p[2]); pigBody.add(l);
 });
 const tail = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 6, 14), snoutMat);
@@ -501,18 +529,30 @@ tail.position.set(0, 0.35, -1.15); tail.rotation.y = Math.PI/2; pigBody.add(tail
 const slot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.14), mat(0x6b3a4a));
 slot.position.set(0, 0.86, 0.0); pigBody.add(slot);
 
-// 中に積もるコイン（InstancedMeshひとつ＝描画コスト1回分）
-const coinGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.05, 12);
+/* ---- コインが積み上がる「ガラスの筒」（ぶたのとなり） ----
+   体の中に入れると、体を透かす＝形がぼやける＆半透明どうしの重なりで描画順が崩れる。
+   外に出して、細い筒の中に積む。積み上がる高さがそのまま「やった量」になる。 */
+const TUBE_X = 1.85;
+const tube = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.42, 0.42, 2.7, 18, 1, true),
+  new THREE.MeshLambertMaterial({ color: 0xbfe3ff, transparent:true, opacity:0.20,
+    side: THREE.DoubleSide, depthWrite:false })
+);
+tube.position.set(TUBE_X, 0.15, 0); pigGroup.add(tube);
+const tubeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.12, 18), mat(0x6b3a4a));
+tubeBase.position.set(TUBE_X, -1.2, 0); pigGroup.add(tubeBase);
+const tubeTop = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.05, 6, 18), mat(0xffd34d));
+tubeTop.rotation.x = Math.PI/2; tubeTop.position.set(TUBE_X, 1.5, 0); pigGroup.add(tubeTop);
+
+const coinGeo = new THREE.CylinderGeometry(0.30, 0.30, 0.07, 14);
 const coinMesh = new THREE.InstancedMesh(coinGeo, mat(0xffd34d), TUNE.coinMax);
-coinMesh.count = 0; coinMesh.frustumCulled = false; pigBody.add(coinMesh);
+coinMesh.count = 0; coinMesh.frustumCulled = false; pigGroup.add(coinMesh);
 const _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _cv = new THREE.Vector3(), _cs = new THREE.Vector3(1,1,1);
-// 積もる位置は毎回同じ（乱数だが並びを固定しておく＝増えたぶんだけ高くなるのが見える）
+// 1枚ずつ真上に積む（少しずつ傾けてズラす＝コインの山らしく見える）
 const coinSpots = [];
 for(let i=0;i<TUNE.coinMax;i++){
-  const row = Math.floor(i/6);
-  const a = (i*2.399) % (Math.PI*2);
-  const rr = 0.30 + 0.26 * ((i%6)/5);
-  coinSpots.push({ x: Math.cos(a)*rr, y: -0.66 + row*0.115, z: Math.sin(a)*rr*1.1, rz: (i%7)*0.18 });
+  coinSpots.push({ x: TUBE_X + Math.cos(i*2.399)*0.05, y: -1.08 + i*0.044,
+                   z: Math.sin(i*2.399)*0.05, rz: (i%7)*0.06 });
 }
 function refreshCoins(){
   const n = Math.min(TUNE.coinMax, PIG.coins);
@@ -561,8 +601,9 @@ function applyDecos(){
   pigSkin.color.setHex(PINK); snoutMat.color.setHex(PINK2);
   const n = Math.min(DECOS.length, PIG.level);
   for(let i=0;i<n;i++) decoGroup.add(DECOS[i].build());
-  // 目かくしより手前に出す（このツールの決まり: 見せたい物は depthTest を切って renderOrder で重ねる）
-  pigGroup.traverse(o=>{ if(o.material){ o.material.depthTest = false; o.renderOrder = 9; } o.renderOrder = 9; });
+  // ★depthTest は切らない（切ると立体が塊になる。上の説明を参照）。
+  //   目かくしの球は深度を書かないので、renderOrder を後ろにするだけで手前に見える。
+  pigGroup.traverse(o=>{ o.renderOrder = 9; });
 }
 function nextDecoName(){ return PIG.level < DECOS.length ? DECOS[PIG.level].name : "きんぴか"; }
 
@@ -572,9 +613,10 @@ const flyGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.05, 12);
 const flyMat = mat(0xffd34d);
 function dropCoin(special){
   const m = new THREE.Mesh(flyGeo, special ? mat(0xff8fd0) : flyMat);
-  m.renderOrder = 9; m.material.depthTest = false;
-  m.position.set(0, 2.6, 0); pigBody.add(m);
-  flyCoins.push({ m, t: 0, special: !!special });
+  m.renderOrder = 9;
+  const landY = -1.08 + Math.min(TUNE.coinMax - 1, PIG.coins - 1) * 0.044;
+  m.position.set(TUBE_X, 2.9, 0); pigGroup.add(m);
+  flyCoins.push({ m, t: 0, special: !!special, landY });
   playCoin();
 }
 // コインを1枚ためる（special=「1個できた！」のときの特別なコイン）
@@ -609,11 +651,11 @@ function updatePig(dt){
     const f = flyCoins[i];
     f.t += dt / 0.55;
     if(f.t >= 1){
-      pigBody.remove(f.m); flyCoins.splice(i,1);
+      pigGroup.remove(f.m); flyCoins.splice(i,1);
       refreshCoins(); pigJump = 1.0;
       continue;
     }
-    f.m.position.y = 2.6 + (0.86 - 2.6) * (f.t*f.t);   // 落ちる（だんだん速く）
+    f.m.position.y = 2.9 + (f.landY - 2.9) * (f.t*f.t);   // 落ちる（だんだん速く）
     f.m.rotation.z += dt * 6;
     f.m.scale.setScalar(1 + (f.special ? 0.5 * Math.sin(f.t*Math.PI) : 0));
   }
@@ -884,8 +926,16 @@ applyDark();
 function toggleShape(){
   TUNE.square = !TUNE.square;
   shellUniforms.uSquare.value = TUNE.square ? 1.0 : 0.0;
-  layoutFrame(); playClick();
-  log("窓のかたちを「" + (TUNE.square ? "しかく" : "まる") + "」にしました");
+  layoutFrame();
+  // ★2026-08-17: 実機で「押しても何も変わらない」と言われた。
+  //   窓が小さいと まる と しかく の差は角の有無だけで、暗い中では見分けがつかない。
+  //   → ボタンに**いまの形を出す**（押した結果が文字で分かる）＋ 枠を一瞬明るくする。
+  shapeBtn.setLabel(TUNE.square ? "いま：しかく" : "いま：まる");
+  const fm = TUNE.square ? frameSq.material : frameRing.material;
+  fm.opacity = 1.0;
+  playClick(); pulse(60, 0.8);
+  showMsg(TUNE.square ? "窓を しかく にしました" : "窓を まる にしました", 2.2);
+  log("窓のかたちを「" + (TUNE.square ? "しかく" : "まる") + "」にしました（枠の形も変わります）");
 }
 // ボタンを押す（ray でも 手を近づけるでも、ここを通る）
 function fireButton(entry){
@@ -1615,7 +1665,10 @@ function placeUI(){
   pigGroup.scale.setScalar(TUNE.pigScale);
 }
 // 目かくしの球とパネル・ボタンの配置（描画の直前に毎回そろえる）
+// uiFrozen は確認用（UIとぶたはカメラ位置に付いて動くので、見に行くと逃げてしまう）
+let uiFrozen = false;
 function layoutUI(){
+  if(uiFrozen) return;
   shell.position.copy(_camPos);   // 球は常に頭を包む
   if(!placed) return;
   // ボタンは「置いた場所（親マス）」に付ける。小マスが移っても手元が動かないようにするため
@@ -1726,11 +1779,20 @@ window.__dbg = {
     const cam = new THREE.Vector3(camX!==undefined?camX:_camPos.x, camY!==undefined?camY:_camPos.y, camZ!==undefined?camZ:_camPos.z);
     const p = new THREE.Vector3(px,py,pz);
     const dir = p.clone().sub(cam).normalize();
-    const tt = Math.max(dir.dot(target.clone().sub(cam)), 0);
-    const d = cam.clone().add(dir.clone().multiplyScalar(tt)).distanceTo(target);
-    const R = shellUniforms.uR.value, S = TUNE.soft;
+    const R = shellUniforms.uR.value, S = shellUniforms.uSoft.value;
     const sm = (a,b,x)=>{ const u = Math.min(1, Math.max(0, (x-a)/(b-a))); return u*u*(3-2*u); };
-    let a = sm(R, R+S, d);
+    // シェーダーと同じ式（まる／しかく どちらも「マスの高さの平面」で切る）
+    let a = 1;
+    if(dir.y < -0.001){
+      const tp = (target.y - cam.y) / dir.y;
+      if(tp > 0){
+        const hp = cam.clone().add(dir.clone().multiplyScalar(tp));
+        const dPlane = hp.distanceTo(target);
+        const qx = Math.abs(hp.x - target.x), qz = Math.abs(hp.z - target.z);
+        a = TUNE.square ? sm(R, R+S, Math.max(qx, qz)) : sm(R, R+S, dPlane);
+        a = Math.max(a, sm(R*2.0, R*2.6, dPlane));
+      }
+    }
     const low = sm(TUNE.floorFrom, TUNE.floorTo, dir.y);
     a *= 1 + (TUNE.floorAlpha - 1) * low;
     return Math.round(a * shellUniforms.uOpacity.value * 1000)/1000;
@@ -1751,6 +1813,38 @@ window.__dbg = {
   pig(){ return { level: PIG.level, coins: PIG.coins, totalCells: PIG.totalCells,
     next: nextDecoName(), decos: decoGroup.children.length, coinsShown: coinMesh.count,
     flying: flyCoins.length, visible: pigGroup.visible, jump: Math.round(pigJump*100)/100 }; },
+  // ぶたの見た目の自己点検（depthTestを切っている部品が無いか＝塊に見える原因）
+  pigCheck(){
+    let noDepth = [], parts = 0, tri = 0;
+    pigGroup.traverse(o=>{
+      if(!o.isMesh) return;
+      parts++;
+      if(o.material && o.material.depthTest === false) noDepth.push(o.geometry.type);
+      const g = o.geometry; if(g.index) tri += g.index.count/3;
+    });
+    let trans = 0, ro = [];
+    pigGroup.traverse(o=>{ if(o.isMesh){ if(o.material.transparent) trans++; ro.push(o.renderOrder); } });
+    const wp = new THREE.Vector3(); bodyMesh.getWorldPosition(wp);
+    const ndc = wp.clone().project(camera);
+    return { parts, noDepth, trans, coinsShown: coinMesh.count, opacity: pigSkin.opacity,
+      tri: Math.round(tri), groupVisible: pigGroup.visible, bodyVisible: bodyMesh.visible,
+      world: wp.toArray().map(v=>Math.round(v*100)/100),
+      ndc: [Math.round(ndc.x*100)/100, Math.round(ndc.y*100)/100, Math.round(ndc.z*100)/100],
+      scale: pigGroup.scale.x, ro: ro.slice(0,3) };
+  },
+  // ぶたを正面から見る（見た目の確認用。実機の代わりにはならないが、形が出ているかは分かる）
+  lookAtPig(dist){
+    layoutUI(); uiFrozen = true;      // 位置を固定してから見に行く（動く物を追いかけない）
+    const wp = new THREE.Vector3(); bodyMesh.getWorldPosition(wp);
+    const d = dist === undefined ? 0.7 : dist;
+    camera.position.set(wp.x, wp.y + 0.05, wp.z + d);
+    _camPos.copy(camera.position);
+    pcYaw = 0; pcPitch = -0.07;
+    camera.rotation.set(pcPitch, pcYaw, 0, "YXZ");
+    camera.updateMatrixWorld(true);
+    return this.pigCheck();
+  },
+  unfreeze(){ uiFrozen = false; return "ok"; },
   evolve(){ evolvePig(); return this.pig(); },
   coin(sp){ addCoin(!!sp); return this.pig(); },
   resetPig(){ PIG.level = 0; PIG.coins = 0; PIG.totalCells = 0; applyDecos(); refreshCoins(); savePig(); return this.pig(); },
