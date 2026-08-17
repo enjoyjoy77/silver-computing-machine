@@ -102,7 +102,7 @@
 import * as THREE from "./lib/three.module.min.js";
 import { setupHands, isHandInput } from "./lib/hands.js";
 
-const REV = "v6 rev2";
+const REV = "v6 rev3";
 document.getElementById("rev").textContent = REV;
 
 /* ============ 調整つまみ（実機で詰める値は全部ここ） ============ */
@@ -1191,12 +1191,12 @@ function checkTimeMilestone(){
 function reachGoal(){
   goalReached = true; infoDirty = true;
   hideHold();
-  peekBtn.setLabel(gridN > 1 ? "もう1周やる" : ("もう" + TUNE.goalCount + "個やる"));
+  moveBtn.setLabel("つぎの場所へ");   // 終わったら次の場所。同じ所をやり直す道は用意しない
   burstConfetti(target, 420, true);
   evolvePig();   // 全部終わったごほうび＝ぶたが1段おしゃれになる
   log(gridN > 1
-    ? (cells.length + "マス全部おわり！部屋が戻ります。同じ所をもう1周／「置きなおす」で別の場所へ／「このマスは終わり」で終了")
-    : (TUNE.goalCount + "個クリア！部屋が戻ります。つづけるか、このマスは終わりにするか選んでください"));
+    ? (cells.length + "マス全部おわり！部屋が戻ります。「つぎの場所へ」で別の場所／「このマスは終わり」で終了")
+    : (TUNE.goalCount + "個クリア！部屋が戻ります。「つぎの場所へ」で別の場所／「このマスは終わり」で終了"));
 }
 function changeReveal(d){
   const v = Math.min(TUNE.revealMax, Math.max(TUNE.revealMin, shellUniforms.uR.value + d));
@@ -1205,18 +1205,8 @@ function changeReveal(d){
   log("見える幅を 約" + Math.round(v*200) + "cm にしました");
 }
 function togglePeek(){
-  // 目標クリアのあとは、このボタンが「もう○個やる」に変わる
-  if(goalReached){
-    goalReached = false; peek = false; count = 0; combo = 0; comboExpire = 0;
-    restNow = false;
-    shellUniforms.uR.value = baseR; layoutFrame();   // 窓を元の大きさに戻す＝また溜められる
-    peekBtn.setLabel("まわりを見る"); infoDirty = true;
-    clearEchoes(); newHold();
-    if(gridN > 1){ buildCells(); gotoCell(pickNextCell()); }
-    playPlace(); pulse(90, 1.0);
-    log(gridN > 1 ? "もう1周！ マスを全部やり直します" : ("次の" + TUNE.goalCount + "個！窓が元の大きさに戻ります"));
-    return;
-  }
+  // ★2026-08-17: 「同じ場所をもう1周」は廃止（ユーザー「いらない、意味ない」）。
+  //   片づけ終わった場所をもう一度やっても片づく物は無い。終わったら次の場所へ行く。
   // 休みの合図が出たあとは、このボタンが「まだやる」に変わる
   if(restNow){
     restNow = false; peek = false;
@@ -1248,6 +1238,7 @@ function placeSquare(pos){
   clearEchoes(); newHold();
   gridBtn.setLabel("細かさ" + (gridN === 1 ? "なし" : gridN + "×" + gridN));
   peekBtn.setLabel("まわりを見る");
+  moveBtn.setLabel("置きなおす");
   darkBtn.setLabel("暗さ" + (darkIdx===0 ? "こい" : darkIdx===1 ? "中" : "うすい"));
   infoPanel.visible = true; infoDirty = true;
   uiButtons.forEach(b=>{ b.mesh.visible = true; b.dwell = 0; b.hot = 0; b.redraw(); });
