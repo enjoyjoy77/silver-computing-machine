@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="よこみち">
+<title>よこみち — ログインなしで見る</title>
+<style>
+  :root {
+    --ink: #1d1d1f; --paper: #f2f2f7; --muted: rgba(29,29,31,0.6);
+    --card: #ffffff; --accent: #155bd0; --warn: #a8531c; --line: rgba(0,0,0,0.1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7; --paper: #000000; --muted: rgba(245,245,247,0.6);
+      --card: #1c1c1e; --accent: #4d94ff; --warn: #e0a273; --line: rgba(255,255,255,0.14);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 20px;
+    padding-top: max(28px, env(safe-area-inset-top));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 620px; margin: 0 auto; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .rev { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 4px 0 24px; }
+  .card { background: var(--card); border-radius: 14px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; }
+  input[type=text] {
+    width: 100%; padding: 14px; font-size: 1rem; font-family: inherit;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--paper); color: var(--ink);
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  button, a.btn {
+    font: inherit; font-weight: 600; font-size: 0.95rem;
+    padding: 13px 22px; border-radius: 10px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  button.sub2 { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:active, a.btn:active { transform: scale(0.97); }
+  #kekka { margin-top: 18px; font-size: 0.9rem; }
+  #kekka .ok { color: var(--muted); }
+  #kekka .ng { color: var(--warn); font-weight: 600; }
+  #kekka .url { word-break: break-all; font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+  h2 { font-size: 0.72rem; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; margin: 36px 0 10px; }
+  .note { font-size: 0.83rem; color: var(--muted); }
+  .note ul { padding-left: 1.2em; margin: 6px 0; }
+  .note li { margin-bottom: 5px; }
+  .warnbox { border-left: 3px solid var(--warn); padding-left: 12px; color: var(--warn); font-size: 0.83rem; }
+  .alt a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <h1>よこみち</h1>
+    <span class="rev">rev1</span>
+  </div>
+  <p class="sub">スレッズ・インスタのリンクを、ログインしないで読める入口に付け替えます。</p>
+
+  <div class="card">
+    <label for="src">リンク、または @ユーザー名 を貼ってください</label>
+    <input type="text" id="src" autofocus autocomplete="off" autocapitalize="off" spellcheck="false"
+           placeholder="https://www.instagram.com/p/… や @natgeo">
+    <div class="btnrow">
+      <button id="go">ひらく</button>
+      <button id="clr" class="sub2">消す</button>
+    </div>
+    <div id="kekka"></div>
+  </div>
+
+  <h2>知っておくこと</h2>
+  <div class="note">
+    <ul>
+      <li><b>スレッズ</b>は公式サイトのまま開きます。最新の4〜5件まで読めて、その先は「ログインしてください」で止まります。</li>
+      <li><b>インスタ</b>は公式がログインなしを塞いだので、imginn という別サイトを経由します。広告が多い非公式サイトです。<b>ダウンロードを勧めるボタンや広告は押さないでください。</b></li>
+      <li>鍵アカウント（非公開）は、どんな方法でも見られません。「見られます」と書いてあるサイトは全部うそです。</li>
+      <li>imginn が開かなくなったら、下の予備の入口を試してください。</li>
+    </ul>
+  </div>
+
+  <h2>インスタの予備の入口</h2>
+  <div class="note alt">
+    imginn がうまく出ないとき、同じユーザー名で試せる別サイトです（どれも非公式・広告あり）。
+    <ul>
+      <li><a id="alt1" href="https://picnob.com/" target="_blank" rel="noopener noreferrer">picnob で開く</a></li>
+      <li><a id="alt2" href="https://www.instaxyz.com/" target="_blank" rel="noopener noreferrer">instaxyz で開く</a></li>
+    </ul>
+  </div>
+
+  <h2>使わない方がいいもの</h2>
+  <p class="warnbox">
+    昔よく紹介された <b>ddinstagram.com</b>（インスタのURLの頭に dd を付ける方法）は、2026年4月に開発が終わり、
+    ドメインが第三者に取られてアダルト系のページになっています。開かないでください。
+  </p>
+
+</div>
+
+<script>
+"use strict";
+
+/* ===== 振り分け表（imginn が死んだら、ここの1行を差し替える）===== */
+var INSTA_MOTO   = "https://imginn.com";      // インスタの投稿・プロフィールを見る先
+var THREADS_MOTO = "https://www.threads.com"; // スレッズは公式のまま
+/* 予備の入口（画面下のリンク用） */
+var INSTA_YOBI1  = "https://picnob.com/profile/";
+var INSTA_YOBI2  = "https://www.instaxyz.com/profile/";
+/* ================================================================= */
+
+var el   = function (id) { return document.getElementById(id); };
+var box  = el("kekka");
+
+function show(html) { box.innerHTML = html; }
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/* 貼られた文字から、実際に開くURLを決める。
+   戻り値: {kind:"ok", saki:"…", setumei:"…"} / {kind:"erabu", user:"…"} / {kind:"ng", setumei:"…"} */
+function sabaku(nyuuryoku) {
+  var s = String(nyuuryoku || "").trim();
+  if (!s) { return { kind: "ng", setumei: "何も入っていません。リンクか @ユーザー名 を貼ってください。" }; }
+
+  /* 文中にURLが混ざっている場合は、そこだけ抜き出す */
+  var m = s.match(/https?:\/\/[^\s"'<>]+/);
+  if (m) { s = m[0]; }
+
+  if (/^https?:\/\//i.test(s)) {
+    var u;
+    try { u = new URL(s); }
+    catch (e) { return { kind: "ng", setumei: "リンクの形が読み取れませんでした。もう一度コピーし直してみてください。" }; }
+
+    var host = u.hostname.toLowerCase().replace(/^www\./, "");
+    var michi = u.pathname.replace(/\/+$/, "");   /* 末尾の / を落とす */
+
+    /* --- スレッズ --- */
+    if (host === "threads.com" || host === "threads.net" || host.endsWith(".threads.com") || host.endsWith(".threads.net")) {
+      return {
+        kind: "ok",
+        saki: THREADS_MOTO + (michi || "") + u.search,
+        setumei: "スレッズの公式ページをそのまま開きます（最新の4〜5件まで読めます）。"
+      };
+    }
+
+    /* --- インスタ --- */
+    if (host === "instagram.com" || host === "instagr.am" || host.endsWith(".instagram.com")) {
+      var toukou = michi.match(/^\/(?:p|reel|reels|tv)\/([A-Za-z0-9_\-]+)/);
+      if (toukou) {
+        return { kind: "ok", saki: INSTA_MOTO + "/p/" + toukou[1] + "/", setumei: "インスタの投稿を imginn で開きます。" };
+      }
+      var sutori = michi.match(/^\/stories\/([A-Za-z0-9_.]+)/);
+      if (sutori) {
+        return { kind: "ok", saki: INSTA_MOTO + "/stories/" + sutori[1] + "/", setumei: "インスタのストーリーを imginn で開きます。" };
+      }
+      var hito = michi.match(/^\/([A-Za-z0-9_.]+)$/);
+      if (hito) {
+        return { kind: "ok", saki: INSTA_MOTO + "/" + hito[1] + "/", setumei: "インスタのプロフィールを imginn で開きます。" };
+      }
+      return { kind: "ng", setumei: "インスタのリンクですが、この種類（検索結果や設定ページなど）は開けません。投稿・リール・ストーリー・プロフィールのリンクを貼ってください。" };
+    }
+
+    return { kind: "ng", setumei: "スレッズとインスタのリンクだけに対応しています。貼られたのは " + esc(host) + " のリンクでした。" };
+  }
+
+  /* --- URLではなく、ユーザー名っぽい場合 --- */
+  var namae = s.replace(/^@/, "");
+  if (/^[A-Za-z0-9_.]{1,30}$/.test(namae)) {
+    return { kind: "erabu", user: namae };
+  }
+
+  return { kind: "ng", setumei: "リンクにも、ユーザー名にも見えませんでした。「https://…」で始まるリンクか、@ユーザー名 を貼ってください。" };
+}
+
+/* 新しいタブで開く。ブロックされたら、押せるリンクを画面に出す。 */
+function hiraku(saki, setumei) {
+  var w = null;
+  try { w = window.open(saki, "_blank", "noopener"); } catch (e) { w = null; }
+  if (w) {
+    show('<div class="ok">' + esc(setumei) + '<br>新しいタブで開きました。</div>'
+       + '<div class="url">' + esc(saki) + "</div>");
+  } else {
+    show('<div class="ng">ブラウザが新しいタブを止めました。下のボタンを押してください。</div>'
+       + '<div class="btnrow"><a class="btn" href="' + esc(saki) + '" target="_blank" rel="noopener noreferrer">ここを押して開く</a></div>'
+       + '<div class="url">' + esc(saki) + "</div>");
+  }
+}
+
+function jikkou() {
+  var kekka = sabaku(el("src").value);
+
+  if (kekka.kind === "ok") { hiraku(kekka.saki, kekka.setumei); return; }
+
+  if (kekka.kind === "erabu") {
+    var u = kekka.user;
+    show('<div class="ok">「' + esc(u) + '」さんですね。どちらで開きますか。</div>'
+       + '<div class="btnrow">'
+       + '<button type="button" data-saki="' + esc(THREADS_MOTO + "/@" + u) + '">スレッズで開く</button>'
+       + '<button type="button" data-saki="' + esc(INSTA_MOTO + "/" + u + "/") + '">インスタで開く</button>'
+       + "</div>");
+    var btns = box.querySelectorAll("button[data-saki]");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () {
+        hiraku(this.getAttribute("data-saki"), "開きます。");
+      });
+    }
+    return;
+  }
+
+  show('<div class="ng">' + esc(kekka.setumei) + "</div>");
+}
+
+el("go").addEventListener("click", jikkou);
+el("src").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") { e.preventDefault(); jikkou(); }
+});
+el("clr").addEventListener("click", function () {
+  el("src").value = "";
+  show("");
+  el("src").focus();
+});
+
+/* 予備の入口のリンクは、入力欄のユーザー名に合わせて作り直す */
+function yobiKousin() {
+  var kekka = sabaku(el("src").value);
+  var namae = "";
+  if (kekka.kind === "erabu") {
+    namae = kekka.user;
+  } else if (kekka.kind === "ok" && kekka.saki.indexOf(INSTA_MOTO) === 0) {
+    var m2 = kekka.saki.slice(INSTA_MOTO.length).match(/^\/([A-Za-z0-9_.]+)\/$/);
+    if (m2 && m2[1] !== "p") { namae = m2[1]; }
+  }
+  el("alt1").href = namae ? INSTA_YOBI1 + namae + "/" : "https://picnob.com/";
+  el("alt2").href = namae ? INSTA_YOBI2 + namae + "/" : "https://www.instaxyz.com/";
+}
+el("src").addEventListener("input", yobiKousin);
+
+/* 想定外のエラーを黙って飲み込まない */
+window.addEventListener("error", function (ev) {
+  show('<div class="ng">エラーが起きました: ' + esc(ev.message) + "<br>画面を再読み込みして、もう一度お試しください。</div>");
+});
+</script>
+</body>
+</html>
