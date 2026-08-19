@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>くっきり工房</title>
+<style>
+  :root{
+    --bg:#f5f5f7; --fg:#1d1d1f; --sub:#6e6e73; --card:#ffffff;
+    --accent:#155bd0; --line:rgba(0,0,0,.08); --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#000; --fg:#f5f5f7; --sub:#98989d; --card:#1c1c1e;
+      --accent:#4d94ff; --line:rgba(255,255,255,.1); --shadow:none; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 24px 64px; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px; margin:0 auto}
+  header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px}
+  h1{font-size:28px; font-weight:700; letter-spacing:-.02em; margin:0}
+  .rev{font-size:12px; color:var(--sub)}
+  .lead{color:var(--sub); font-size:14px; margin:0 0 32px; line-height:1.7}
+
+  .card{background:var(--card); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin-bottom:24px}
+
+  /* 投入口 */
+  #drop{
+    border:2px dashed var(--line); border-radius:16px; padding:48px 24px; text-align:center;
+    cursor:pointer; transition:border-color .2s, background .2s;
+  }
+  #drop:hover, #drop.hot{border-color:var(--accent); background:rgba(21,91,208,.04)}
+  #drop .big{font-size:17px; font-weight:600; margin-bottom:8px}
+  #drop .small{font-size:13px; color:var(--sub)}
+
+  /* つまみ */
+  .row{display:flex; align-items:center; gap:16px; margin-bottom:16px; flex-wrap:wrap}
+  .row:last-child{margin-bottom:0}
+  .label{width:112px; flex:none; font-size:14px; font-weight:600}
+  .seg{display:flex; gap:8px}
+  .seg button{
+    font:inherit; font-size:14px; padding:8px 16px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--fg);
+  }
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  input[type=range]{flex:1; min-width:160px; accent-color:var(--accent)}
+  .val{width:48px; text-align:right; font-size:14px; color:var(--sub); font-variant-numeric:tabular-nums}
+  .hint{font-size:12px; color:var(--sub); margin:8px 0 0 128px; line-height:1.6}
+
+  .go{
+    display:block; width:100%; margin-top:24px; font:inherit; font-size:17px; font-weight:600;
+    padding:16px; border-radius:12px; border:none; background:var(--accent); color:#fff; cursor:pointer;
+  }
+  .go:disabled{opacity:.4; cursor:default}
+
+  /* 進み具合 */
+  #progress{display:none; margin-top:16px}
+  #bar{height:4px; border-radius:2px; background:var(--line); overflow:hidden}
+  #bar > i{display:block; height:100%; width:0%; background:var(--accent); transition:width .15s}
+  #ptext{font-size:13px; color:var(--sub); margin-top:8px}
+
+  /* 見くらべ */
+  #result{display:none}
+  #compare{position:relative; width:100%; overflow:hidden; border-radius:12px; background:#888; user-select:none; touch-action:none}
+  #compare canvas{display:block; width:100%; height:auto}
+  #afterWrap{position:absolute; inset:0; overflow:hidden; width:50%}
+  #afterWrap canvas{position:absolute; top:0; left:0; height:100%; width:auto; max-width:none}
+  #handle{position:absolute; top:0; bottom:0; left:50%; width:2px; background:#fff; box-shadow:0 0 6px rgba(0,0,0,.5); cursor:ew-resize}
+  #handle::after{
+    content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:36px; height:36px; border-radius:50%; background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.4);
+  }
+  .tag{position:absolute; top:12px; font-size:12px; font-weight:600; color:#fff; background:rgba(0,0,0,.5); padding:4px 10px; border-radius:20px; pointer-events:none}
+  .tag.l{left:12px} .tag.r{right:12px}
+  .meta{font-size:13px; color:var(--sub); margin:16px 0 0; text-align:center}
+  .save{margin-top:16px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+  .save button{font:inherit; font-size:15px; font-weight:600; padding:12px 24px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--accent); cursor:pointer}
+  .save button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+
+  #err{display:none; margin-top:16px; font-size:14px; color:#c0392b; line-height:1.7; white-space:pre-wrap}
+  @media (prefers-color-scheme: dark){ #err{color:#ff6b6b} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>くっきり工房</h1>
+    <span class="rev">rev1</span>
+  </header>
+  <p class="lead">画像を大きく、くっきりさせます。ネットにつながっていなくても動き、画像がこのパソコンの外に出ることはありません。</p>
+
+  <div class="card">
+    <div id="drop">
+      <div class="big">ここに画像を落とす</div>
+      <div class="small">押してファイルを選ぶこともできます（PNG / JPG / WEBP）</div>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+
+    <div id="knobs" style="margin-top:24px">
+      <div class="row">
+        <span class="label">大きさ</span>
+        <div class="seg" id="scale">
+          <button data-v="2" class="on">2倍</button>
+          <button data-v="3">3倍</button>
+          <button data-v="4">4倍</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">くっきり</span>
+        <input type="range" id="sharp" min="0" max="150" value="60">
+        <span class="val" id="sharpV">60</span>
+      </div>
+      <p class="hint">上げるほど輪郭がはっきりします。上げすぎると輪郭に白い縁が出ます。迷ったら60のまま。</p>
+    </div>
+
+    <button class="go" id="go" disabled>大きくする</button>
+
+    <div id="progress">
+      <div id="bar"><i></i></div>
+      <div id="ptext">準備しています…</div>
+    </div>
+    <div id="err"></div>
+  </div>
+
+  <div class="card" id="result">
+    <div id="compare">
+      <canvas id="beforeC"></canvas>
+      <div id="afterWrap"><canvas id="afterC"></canvas></div>
+      <span class="tag l">もと（拡大表示）</span>
+      <span class="tag r">仕上がり</span>
+      <div id="handle"></div>
+    </div>
+    <p class="meta" id="meta"></p>
+    <div class="save">
+      <button class="primary" id="savePng">PNGで保存</button>
+      <button id="saveJpg">JPGで保存</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ------------ 画面の部品 ------------ */
+const $ = id => document.getElementById(id);
+const drop=$("drop"), fileEl=$("file"), goBtn=$("go"), errEl=$("err");
+const prog=$("progress"), bar=$("bar").firstElementChild, ptext=$("ptext");
+const resultEl=$("result"), beforeC=$("beforeC"), afterC=$("afterC");
+const afterWrap=$("afterWrap"), handle=$("handle"), metaEl=$("meta");
+
+let srcImage=null, srcName="", scale=2, outCanvas=null;
+
+function fail(msg){
+  prog.style.display="none";
+  errEl.style.display="block";
+  errEl.textContent="うまくいきませんでした。\n" + msg;
+  goBtn.disabled = !srcImage;
+}
+function clearErr(){ errEl.style.display="none"; errEl.textContent=""; }
+
+/* ------------ 画像を受け取る ------------ */
+drop.addEventListener("click", () => fileEl.click());
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hot"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hot"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("hot");
+  if(e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+});
+fileEl.addEventListener("change", () => { if(fileEl.files.length) loadFile(fileEl.files[0]); });
+window.addEventListener("paste", e => {
+  for(const it of (e.clipboardData && e.clipboardData.items) || []){
+    if(it.type.indexOf("image") === 0){ loadFile(it.getAsFile()); break; }
+  }
+});
+
+function loadFile(f){
+  clearErr();
+  if(!f || f.type.indexOf("image") !== 0){
+    fail("画像のファイルではないようです。PNG・JPG・WEBPのどれかを選んでください。");
+    return;
+  }
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    srcImage = img;
+    srcName = (f.name || "image").replace(/\.[^.]+$/, "");
+    drop.querySelector(".big").textContent = f.name;
+    drop.querySelector(".small").textContent = img.width + " × " + img.height + " ピクセル　（別の画像に替えるならもう一度押す）";
+    goBtn.disabled = false;
+    resultEl.style.display = "none";
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    fail("この画像を開けませんでした。ファイルが壊れているか、対応していない形式かもしれません。");
+  };
+  img.src = url;
+}
+
+/* ------------ つまみ ------------ */
+$("scale").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  [...$("scale").children].forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); scale = parseInt(b.dataset.v, 10);
+});
+$("sharp").addEventListener("input", e => { $("sharpV").textContent = e.target.value; });
+
+/* ------------ Lanczos3 で拡大する ------------
+   単純な拡大（ブラウザ標準）はぼやけます。Lanczos は周りの6画素を
+   重み付けして混ぜるやり方で、輪郭がだれにくいのが特長です。       */
+function lanczos(x){
+  if(x === 0) return 1;
+  if(x <= -3 || x >= 3) return 0;
+  const p = Math.PI * x;
+  return (3 * Math.sin(p) * Math.sin(p / 3)) / (p * p);
+}
+
+// 1方向ぶんの「どの画素をどれだけ混ぜるか」の表を先に作る
+function buildWeights(srcLen, dstLen){
+  const ratio = dstLen / srcLen;
+  const support = ratio < 1 ? 3 / ratio : 3;   // 縮小のときは広く拾う
+  const table = new Array(dstLen);
+  for(let i = 0; i < dstLen; i++){
+    const center = (i + 0.5) / ratio - 0.5;
+    let start = Math.floor(center - support), end = Math.ceil(center + support);
+    const idx = [], wt = [];
+    let sum = 0;
+    for(let j = start; j <= end; j++){
+      const w = lanczos(ratio < 1 ? (j - center) * ratio : (j - center));
+      if(w === 0) continue;
+      const clamped = j < 0 ? 0 : (j >= srcLen ? srcLen - 1 : j);  // 端は引き伸ばす
+      idx.push(clamped); wt.push(w); sum += w;
+    }
+    for(let k = 0; k < wt.length; k++) wt[k] /= sum;
+    table[i] = { idx, wt };
+  }
+  return table;
+}
+
+/* ------------ アンシャープマスク（くっきり） ------------
+   ぼかした画像との差＝細かい模様。それを元に足し戻すと輪郭が立ちます。 */
+function boxBlur(src, w, h, r){
+  const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
+  const div = 2 * r + 1;
+  for(let y = 0; y < h; y++){                     // 横方向
+    for(let c = 0; c < 3; c++){
+      let sum = 0;
+      for(let x = -r; x <= r; x++){
+        const xx = x < 0 ? 0 : (x >= w ? w - 1 : x);
+        sum += src[(y * w + xx) * 3 + c];
+      }
+      for(let x = 0; x < w; x++){
+        tmp[(y * w + x) * 3 + c] = sum / div;
+        const add = x + r + 1, sub = x - r;
+        sum += src[(y * w + (add >= w ? w - 1 : add)) * 3 + c];
+        sum -= src[(y * w + (sub < 0 ? 0 : sub)) * 3 + c];
+      }
+    }
+  }
+  for(let x = 0; x < w; x++){                     // 縦方向
+    for(let c = 0; c < 3; c++){
+      let sum = 0;
+      for(let y = -r; y <= r; y++){
+        const yy = y < 0 ? 0 : (y >= h ? h - 1 : y);
+        sum += tmp[(yy * w + x) * 3 + c];
+      }
+      for(let y = 0; y < h; y++){
+        out[(y * w + x) * 3 + c] = sum / div;
+        const add = y + r + 1, sub = y - r;
+        sum += tmp[((add >= h ? h - 1 : add) * w + x) * 3 + c];
+        sum -= tmp[((sub < 0 ? 0 : sub) * w + x) * 3 + c];
+      }
+    }
+  }
+  return out;
+}
+
+/* ------------ 本体（少しずつ進めて画面を固まらせない） ------------ */
+const nextFrame = () => new Promise(r => setTimeout(r, 0));
+function setProgress(p, text){ bar.style.width = Math.round(p * 100) + "%"; ptext.textContent = text; }
+
+async function run(){
+  clearErr();
+  if(!srcImage){ fail("先に画像を選んでください。"); return; }
+
+  const sw = srcImage.width, sh = srcImage.height;
+  const dw = Math.round(sw * scale), dh = Math.round(sh * scale);
+
+  if(dw * dh > 80000000){
+    fail("仕上がりが大きすぎます（" + dw + "×" + dh + "）。倍率を下げてください。");
+    return;
+  }
+
+  goBtn.disabled = true;
+  prog.style.display = "block";
+  setProgress(0.02, "画像を読み込んでいます…");
+  await nextFrame();
+
+  let srcData;
+  try{
+    const c = document.createElement("canvas");
+    c.width = sw; c.height = sh;
+    const cx = c.getContext("2d", { willReadFrequently: true });
+    cx.drawImage(srcImage, 0, 0);
+    srcData = cx.getImageData(0, 0, sw, sh).data;
+  }catch(e){
+    fail("画像の中身を読み取れませんでした。（" + e.message + "）");
+    return;
+  }
+
+  // RGBのみ Float32 に移す（透明度は等倍で拡大した値を後で戻す）
+  const src3 = new Float32Array(sw * sh * 3);
+  const srcA = new Uint8ClampedArray(sw * sh);
+  for(let i = 0, n = sw * sh; i < n; i++){
+    src3[i * 3] = srcData[i * 4];
+    src3[i * 3 + 1] = srcData[i * 4 + 1];
+    src3[i * 3 + 2] = srcData[i * 4 + 2];
+    srcA[i] = srcData[i * 4 + 3];
+  }
+
+  // 横方向に拡大
+  setProgress(0.1, "よこ方向に大きくしています…");
+  await nextFrame();
+  const wx = buildWeights(sw, dw);
+  const mid = new Float32Array(dw * sh * 3);
+  for(let y = 0; y < sh; y++){
+    for(let x = 0; x < dw; x++){
+      const { idx, wt } = wx[x];
+      let r = 0, g = 0, b = 0;
+      for(let k = 0; k < idx.length; k++){
+        const p = (y * sw + idx[k]) * 3, w = wt[k];
+        r += src3[p] * w; g += src3[p + 1] * w; b += src3[p + 2] * w;
+      }
+      const q = (y * dw + x) * 3;
+      mid[q] = r; mid[q + 1] = g; mid[q + 2] = b;
+    }
+    if((y & 63) === 0){ setProgress(0.1 + 0.35 * (y / sh), "よこ方向に大きくしています…"); await nextFrame(); }
+  }
+
+  // 縦方向に拡大
+  setProgress(0.45, "たて方向に大きくしています…");
+  await nextFrame();
+  const wy = buildWeights(sh, dh);
+  const big = new Float32Array(dw * dh * 3);
+  for(let y = 0; y < dh; y++){
+    const { idx, wt } = wy[y];
+    for(let x = 0; x < dw; x++){
+      let r = 0, g = 0, b = 0;
+      for(let k = 0; k < idx.length; k++){
+        const p = (idx[k] * dw + x) * 3, w = wt[k];
+        r += mid[p] * w; g += mid[p + 1] * w; b += mid[p + 2] * w;
+      }
+      const q = (y * dw + x) * 3;
+      big[q] = r; big[q + 1] = g; big[q + 2] = b;
+    }
+    if((y & 63) === 0){ setProgress(0.45 + 0.35 * (y / dh), "たて方向に大きくしています…"); await nextFrame(); }
+  }
+
+  // くっきり
+  const amount = parseInt($("sharp").value, 10) / 100;
+  if(amount > 0){
+    setProgress(0.82, "輪郭をくっきりさせています…");
+    await nextFrame();
+    const radius = Math.max(1, Math.round(scale / 2));
+    const blur = boxBlur(big, dw, dh, radius);
+    for(let i = 0; i < big.length; i++){
+      big[i] = big[i] + (big[i] - blur[i]) * amount;
+    }
+  }
+
+  // 画像に戻す
+  setProgress(0.94, "仕上げています…");
+  await nextFrame();
+  const out = document.createElement("canvas");
+  out.width = dw; out.height = dh;
+  const octx = out.getContext("2d");
+  const img = octx.createImageData(dw, dh);
+  const wxA = wx, wyA = wy;
+  for(let y = 0; y < dh; y++){
+    const sy = wyA[y].idx[Math.floor(wyA[y].idx.length / 2)];
+    for(let x = 0; x < dw; x++){
+      const i = y * dw + x, p = i * 3, o = i * 4;
+      img.data[o]     = big[p]     < 0 ? 0 : (big[p]     > 255 ? 255 : big[p]);
+      img.data[o + 1] = big[p + 1] < 0 ? 0 : (big[p + 1] > 255 ? 255 : big[p + 1]);
+      img.data[o + 2] = big[p + 2] < 0 ? 0 : (big[p + 2] > 255 ? 255 : big[p + 2]);
+      const sx = wxA[x].idx[Math.floor(wxA[x].idx.length / 2)];
+      img.data[o + 3] = srcA[sy * sw + sx];
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  outCanvas = out;
+
+  showResult(sw, sh, dw, dh);
+  prog.style.display = "none";
+  goBtn.disabled = false;
+}
+
+/* ------------ 見くらべ表示 ------------ */
+function showResult(sw, sh, dw, dh){
+  // 左：もとの画像を同じ大きさまで単純拡大したもの（比較用）
+  beforeC.width = dw; beforeC.height = dh;
+  const bctx = beforeC.getContext("2d");
+  bctx.imageSmoothingEnabled = true;
+  bctx.drawImage(srcImage, 0, 0, dw, dh);
+
+  afterC.width = dw; afterC.height = dh;
+  afterC.getContext("2d").drawImage(outCanvas, 0, 0);
+
+  resultEl.style.display = "block";
+  const wrapW = $("compare").clientWidth;
+  afterC.style.width = wrapW + "px";
+  metaEl.textContent = sw + "×" + sh + " → " + dw + "×" + dh + " ピクセル　／　仕切りを左右に動かすと見くらべできます";
+  setSplit(0.5);
+}
+
+function setSplit(t){
+  t = Math.max(0, Math.min(1, t));
+  afterWrap.style.width = (t * 100) + "%";
+  handle.style.left = (t * 100) + "%";
+}
+let dragging = false;
+function pointTo(e){
+  const r = $("compare").getBoundingClientRect();
+  setSplit((e.clientX - r.left) / r.width);
+}
+$("compare").addEventListener("pointerdown", e => { dragging = true; $("compare").setPointerCapture(e.pointerId); pointTo(e); });
+$("compare").addEventListener("pointermove", e => { if(dragging) pointTo(e); });
+$("compare").addEventListener("pointerup", () => { dragging = false; });
+window.addEventListener("resize", () => {
+  if(resultEl.style.display === "block") afterC.style.width = $("compare").clientWidth + "px";
+});
+
+/* ------------ 保存 ------------ */
+function save(type, ext, quality){
+  if(!outCanvas){ fail("保存するものがまだありません。先に「大きくする」を押してください。"); return; }
+  outCanvas.toBlob(b => {
+    if(!b){ fail("保存用のデータを作れませんでした。倍率を下げて試してください。"); return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = srcName + "_" + scale + "x." + ext;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, type, quality);
+}
+$("savePng").addEventListener("click", () => save("image/png", "png"));
+$("saveJpg").addEventListener("click", () => save("image/jpeg", "jpg", 0.95));
+
+goBtn.addEventListener("click", () => {
+  run().catch(e => fail("途中で止まりました。（" + e.message + "）\n倍率を下げるか、小さめの画像で試してください。"));
+});
+</script>
+</body>
+</html>
