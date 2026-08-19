@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>きりとり</title>
+<style>
+  :root{
+    --bg:#f5f5f7; --fg:#1d1d1f; --sub:#6e6e73; --card:#fff;
+    --accent:#155bd0; --line:rgba(0,0,0,.08); --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#000; --fg:#f5f5f7; --sub:#98989d; --card:#1c1c1e;
+      --accent:#4d94ff; --line:rgba(255,255,255,.1); --shadow:none; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 24px 64px; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:960px; margin:0 auto}
+  header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px}
+  h1{font-size:28px; font-weight:700; letter-spacing:-.02em; margin:0}
+  .rev{font-size:12px; color:var(--sub)}
+  .lead{color:var(--sub); font-size:14px; margin:0 0 32px; line-height:1.7}
+  .card{background:var(--card); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin-bottom:24px}
+
+  #drop{border:2px dashed var(--line); border-radius:16px; padding:48px 24px; text-align:center; cursor:pointer; transition:.2s}
+  #drop:hover, #drop.hot{border-color:var(--accent); background:rgba(21,91,208,.04)}
+  #drop .big{font-size:17px; font-weight:600; margin-bottom:8px}
+  #drop .small{font-size:13px; color:var(--sub)}
+
+  #editor{display:none}
+  .row{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:16px}
+  .label{width:96px; flex:none; font-size:14px; font-weight:600}
+  .seg{display:flex; gap:8px; flex-wrap:wrap}
+  .seg button{font:inherit; font-size:14px; padding:8px 16px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--fg)}
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+
+  /* 切り取り台 */
+  #stage{position:relative; margin:8px 0 16px; line-height:0; touch-action:none; user-select:none; background:#888; border-radius:12px; overflow:hidden}
+  #stage img{width:100%; height:auto; display:block}
+  #shade{position:absolute; inset:0; pointer-events:none}
+  #sel{position:absolute; border:1px solid rgba(255,255,255,.9); box-shadow:0 0 0 9999px rgba(0,0,0,.5); cursor:move}
+  #sel .grid{position:absolute; inset:0; pointer-events:none;
+    background-image:linear-gradient(to right,rgba(255,255,255,.35) 1px,transparent 1px),
+                     linear-gradient(to bottom,rgba(255,255,255,.35) 1px,transparent 1px);
+    background-size:33.333% 33.333%; background-position:-1px -1px}
+  .h{position:absolute; width:20px; height:20px; background:#fff; border-radius:50%; box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .h.nw{left:-10px; top:-10px; cursor:nwse-resize}
+  .h.ne{right:-10px; top:-10px; cursor:nesw-resize}
+  .h.sw{left:-10px; bottom:-10px; cursor:nesw-resize}
+  .h.se{right:-10px; bottom:-10px; cursor:nwse-resize}
+
+  .meta{font-size:13px; color:var(--sub); text-align:center; margin:0 0 16px; font-variant-numeric:tabular-nums}
+  .save{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+  .save button{font:inherit; font-size:15px; font-weight:600; padding:12px 24px; border-radius:10px;
+    border:1px solid var(--line); background:transparent; color:var(--accent); cursor:pointer}
+  .save button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .hint{font-size:12px; color:var(--sub); margin:16px 0 0; line-height:1.7; text-align:center}
+  #err{display:none; margin-top:16px; font-size:14px; color:#c0392b; line-height:1.7; white-space:pre-wrap}
+  @media (prefers-color-scheme: dark){ #err{color:#ff6b6b} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>きりとり</h1>
+    <span class="rev">rev1</span>
+  </header>
+  <p class="lead">画像の要る所だけを四角く切って保存します。ネットにつながっていなくても動き、画像がこのパソコンの外に出ることはありません。</p>
+
+  <div class="card">
+    <div id="drop">
+      <div class="big">ここに画像を落とす</div>
+      <div class="small">押してファイルを選ぶこともできます（Ctrl+V の貼り付けもOK）</div>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+    <div id="err"></div>
+
+    <div id="editor">
+      <div class="row" style="margin-top:24px">
+        <span class="label">かたち</span>
+        <div class="seg" id="ratio">
+          <button data-v="0" class="on">自由</button>
+          <button data-v="1">正方形</button>
+          <button data-v="1.7778">16:9</button>
+          <button data-v="1.3333">4:3</button>
+          <button data-v="0.75">3:4（たて）</button>
+        </div>
+      </div>
+
+      <div id="stage">
+        <img id="pic" alt="">
+        <div id="sel"><div class="grid"></div>
+          <span class="h nw" data-c="nw"></span><span class="h ne" data-c="ne"></span>
+          <span class="h sw" data-c="sw"></span><span class="h se" data-c="se"></span>
+        </div>
+      </div>
+
+      <p class="meta" id="meta"></p>
+      <div class="save">
+        <button class="primary" id="savePng">PNGで保存</button>
+        <button id="saveJpg">JPGで保存</button>
+        <button id="reset">全体にもどす</button>
+      </div>
+      <p class="hint">枠の中を押して動かす／四隅の丸を引いて大きさを変える。矢印キーで1ずつ、Shift+矢印で10ずつ動きます。</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const drop=$("drop"), fileEl=$("file"), errEl=$("err"), editor=$("editor");
+const stage=$("stage"), pic=$("pic"), sel=$("sel"), metaEl=$("meta");
+
+let img=null, srcName="", ratio=0;
+// 切り取り範囲は「もとの画像のピクセル」で持つ（画面の大きさが変わってもズレないように）
+let box={x:0,y:0,w:0,h:0};
+
+function fail(msg){ errEl.style.display="block"; errEl.textContent="うまくいきませんでした。\n"+msg; }
+function clearErr(){ errEl.style.display="none"; errEl.textContent=""; }
+
+/* ---- 画像を受け取る ---- */
+drop.addEventListener("click", () => fileEl.click());
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hot"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hot"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("hot");
+  if(e.dataTransfer.files.length) load(e.dataTransfer.files[0]); });
+fileEl.addEventListener("change", () => { if(fileEl.files.length) load(fileEl.files[0]); });
+window.addEventListener("paste", e => {
+  for(const it of (e.clipboardData && e.clipboardData.items) || [])
+    if(it.type.indexOf("image") === 0){ load(it.getAsFile()); break; }
+});
+
+function load(f){
+  clearErr();
+  if(!f || f.type.indexOf("image") !== 0){
+    fail("画像のファイルではないようです。PNG・JPG・WEBPのどれかを選んでください。"); return;
+  }
+  const url = URL.createObjectURL(f);
+  const im = new Image();
+  im.onload = () => {
+    img = im; srcName = (f.name || "image").replace(/\.[^.]+$/, "");
+    pic.src = url;                       // 表示用（revokeはしない。表示し続けるため）
+    drop.querySelector(".big").textContent = f.name;
+    drop.querySelector(".small").textContent = im.width + " × " + im.height + " ピクセル　（別の画像に替えるならもう一度押す）";
+    editor.style.display = "block";
+    resetBox();
+  };
+  im.onerror = () => { URL.revokeObjectURL(url);
+    fail("この画像を開けませんでした。ファイルが壊れているか、対応していない形式かもしれません。"); };
+  im.src = url;
+}
+
+/* ---- 表示座標 ⇄ 画像座標 ---- */
+// 表示は横幅いっぱいに合わせている。幅が取れないとき(画面が隠れている等)は1として割り算の破綻を防ぐ
+const zoom = () => (stage.clientWidth > 0 ? stage.clientWidth / img.width : 1);
+
+function resetBox(){
+  // はじめは全体を選んだ状態（「かたち」指定があればその形で最大の枠）
+  if(ratio === 0){ box = {x:0, y:0, w:img.width, h:img.height}; }
+  else{
+    let w = img.width, h = w / ratio;
+    if(h > img.height){ h = img.height; w = h * ratio; }
+    box = {x:(img.width-w)/2, y:(img.height-h)/2, w:w, h:h};
+  }
+  draw();
+}
+
+function clampBox(){
+  box.w = Math.max(8, Math.min(box.w, img.width));
+  box.h = Math.max(8, Math.min(box.h, img.height));
+  box.x = Math.max(0, Math.min(box.x, img.width - box.w));
+  box.y = Math.max(0, Math.min(box.y, img.height - box.h));
+}
+
+function draw(){
+  clampBox();
+  const z = zoom();
+  sel.style.left   = (box.x * z) + "px";
+  sel.style.top    = (box.y * z) + "px";
+  sel.style.width  = (box.w * z) + "px";
+  sel.style.height = (box.h * z) + "px";
+  metaEl.textContent = "切り取る大きさ " + Math.round(box.w) + " × " + Math.round(box.h)
+    + " ピクセル　（もとの画像 " + img.width + " × " + img.height + "）";
+}
+window.addEventListener("resize", () => { if(img) draw(); });
+
+/* ---- かたち（比率） ---- */
+$("ratio").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  [...$("ratio").children].forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  ratio = parseFloat(b.dataset.v);
+  if(img) resetBox();
+});
+
+/* ---- ドラッグで動かす・大きさを変える ---- */
+let drag = null;
+stage.addEventListener("pointerdown", e => {
+  if(!img) return;
+  const corner = e.target.dataset ? e.target.dataset.c : null;
+  const inside = e.target === sel || e.target.classList.contains("grid");
+  if(!corner && !inside) return;
+  stage.setPointerCapture(e.pointerId);
+  drag = { corner, sx:e.clientX, sy:e.clientY, start:Object.assign({}, box) };
+  e.preventDefault();
+});
+stage.addEventListener("pointermove", e => {
+  if(!drag) return;
+  const z = zoom();
+  const dx = (e.clientX - drag.sx) / z, dy = (e.clientY - drag.sy) / z;
+  const s = drag.start;
+
+  if(!drag.corner){                       // 枠ごと移動
+    box.x = s.x + dx; box.y = s.y + dy;
+    draw(); return;
+  }
+
+  // 四隅をつまんで拡縮。対角の角は動かさない
+  const right = drag.corner.indexOf("e") >= 0, bottom = drag.corner.indexOf("s") >= 0;
+  const ax = right ? s.x : s.x + s.w;     // 動かさない側の角
+  const ay = bottom ? s.y : s.y + s.h;
+  let px = (right ? s.x + s.w : s.x) + dx;
+  let py = (bottom ? s.y + s.h : s.y) + dy;
+  px = Math.max(0, Math.min(px, img.width));
+  py = Math.max(0, Math.min(py, img.height));
+
+  let w = Math.abs(px - ax), h = Math.abs(py - ay);
+  if(ratio > 0){                          // 比率を保つ（小さいほうに合わせる）
+    if(w / h > ratio) w = h * ratio; else h = w / ratio;
+    const limW = right ? img.width - ax : ax, limH = bottom ? img.height - ay : ay;
+    if(w > limW){ w = limW; h = w / ratio; }
+    if(h > limH){ h = limH; w = h * ratio; }
+  }
+  box.w = w; box.h = h;
+  box.x = right ? ax : ax - w;
+  box.y = bottom ? ay : ay - h;
+  draw();
+});
+stage.addEventListener("pointerup", () => { drag = null; });
+stage.addEventListener("pointercancel", () => { drag = null; });
+
+/* ---- 矢印キーで細かく ---- */
+window.addEventListener("keydown", e => {
+  if(!img || editor.style.display !== "block") return;
+  const step = e.shiftKey ? 10 : 1;
+  if(e.key === "ArrowLeft")      box.x -= step;
+  else if(e.key === "ArrowRight")box.x += step;
+  else if(e.key === "ArrowUp")   box.y -= step;
+  else if(e.key === "ArrowDown") box.y += step;
+  else return;
+  e.preventDefault(); draw();
+});
+
+$("reset").addEventListener("click", resetBox);
+
+/* ---- 保存 ---- */
+function save(type, ext, quality){
+  clearErr();
+  if(!img){ fail("先に画像を選んでください。"); return; }
+  const w = Math.max(1, Math.round(box.w)), h = Math.max(1, Math.round(box.h));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  if(type === "image/jpeg"){            // JPGは透明を扱えないので白で埋める
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, w, h);
+  }
+  c.getContext("2d").drawImage(img, Math.round(box.x), Math.round(box.y), w, h, 0, 0, w, h);
+  c.toBlob(b => {
+    if(!b){ fail("保存用のデータを作れませんでした。範囲を小さくして試してください。"); return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = srcName + "_切" + w + "x" + h + "." + ext;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, type, quality);
+}
+$("savePng").addEventListener("click", () => save("image/png", "png"));
+$("saveJpg").addEventListener("click", () => save("image/jpeg", "jpg", 0.95));
+</script>
+</body>
+</html>
