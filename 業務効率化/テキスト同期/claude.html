@@ -370,7 +370,8 @@
   <div id="threadList"></div>
   <button data-cmd="状態">いまの状態</button>
   <button data-cmd="一覧">会話の一覧</button>
-  <button data-cmd="PC一覧">パソコンの会話</button>
+  <button data-cmd="PC一覧 30">パソコンの会話（30件）</button>
+  <button id="searchBtn">パソコンの会話を探す</button>
   <button id="switchBtn">会話を切り替える</button>
   <button id="connectBtn">パソコンの会話につなぐ</button>
   <hr>
@@ -379,7 +380,7 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
-  <div class="rev" style="padding: 6px 12px;">rev10</div>
+  <div class="rev" style="padding: 6px 12px;">rev11</div>
 </div>
 
 <div id="topzone" class="topzone" hidden></div>
@@ -1017,6 +1018,12 @@
     menuEl.classList.remove("open");
     var name = prompt("どの会話に切り替えますか（新しい名前でも作れます）");
     if (name && name.trim()) setThread(name.trim(), true);
+  });
+
+  el("searchBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    var word = prompt("パソコンの過去の会話から、どの言葉を探しますか（例: 顔モザイク）");
+    if (word && word.trim()) send("さがす " + word.trim());
   });
 
   el("connectBtn").addEventListener("click", function () {
