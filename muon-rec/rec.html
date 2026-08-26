@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>無音レコーダー</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; padding:0; height:100%; background:#000; color:#eee;
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif; overscroll-behavior:none; }
+  body { display:flex; flex-direction:column; }
+  #rev { position:fixed; top:env(safe-area-inset-top,8px); right:10px; font-size:11px; color:#555; z-index:5; }
+  .wrap { flex:1; display:flex; flex-direction:column; padding:20px 16px calc(20px + env(safe-area-inset-bottom,0px)); overflow-y:auto; }
+  h1 { font-size:18px; margin:24px 0 4px; font-weight:600; }
+  .sub { font-size:12px; color:#888; margin:0 0 20px; line-height:1.6; }
+  #recBtn { width:190px; height:190px; border-radius:50%; margin:10px auto 18px; border:none;
+    background:#c0392b; color:#fff; font-size:22px; font-weight:600; display:flex;
+    align-items:center; justify-content:center; box-shadow:0 0 0 6px #2a1211; }
+  #recBtn:active { background:#96291d; }
+  #recBtn[disabled] { background:#444; box-shadow:none; }
+  .note { font-size:12px; color:#8a8a8a; line-height:1.7; background:#111; border:1px solid #222;
+    border-radius:10px; padding:12px 14px; margin:6px 0 18px; }
+  .note b { color:#d0a24c; font-weight:600; }
+  #msg { font-size:13px; color:#e08b7a; min-height:20px; margin:0 0 10px; line-height:1.6; white-space:pre-wrap; }
+  h2 { font-size:14px; color:#999; margin:14px 0 8px; font-weight:600; }
+  .item { background:#111; border:1px solid #222; border-radius:10px; padding:12px; margin-bottom:10px; }
+  .item .t { font-size:13px; color:#ccc; margin-bottom:8px; }
+  .item .cloud { font-size:12px; color:#6f9b6f; margin-bottom:6px; }
+  .item .cloud.no { color:#9b8a6f; }
+  .item audio { width:100%; height:34px; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row button { flex:1; padding:9px 0; font-size:13px; border-radius:8px; border:1px solid #333;
+    background:#1c1c1c; color:#ddd; }
+  .row button.del { color:#c0705f; }
+  /* OneDrive欄 */
+  #od { background:#0d1116; border:1px solid #1d2733; border-radius:10px; padding:12px 14px; margin:0 0 18px; }
+  #od .h { font-size:13px; color:#7fa8d0; font-weight:600; margin-bottom:6px; }
+  #od .s { font-size:12px; color:#8a8a8a; line-height:1.7; }
+  #od input { width:100%; margin-top:8px; padding:9px 10px; font-size:13px; border-radius:8px;
+    border:1px solid #2a3644; background:#080b0e; color:#ddd; }
+  #od button { margin-top:8px; padding:9px 14px; font-size:13px; border-radius:8px;
+    border:1px solid #2a3644; background:#16202b; color:#bcd6ee; }
+  #od button.off { background:#1c1c1c; border-color:#333; color:#aaa; }
+  /* 録音中の真っ黒画面 */
+  #black { position:fixed; inset:0; background:#000; z-index:100; display:none;
+    align-items:flex-end; justify-content:center; padding-bottom:40px; }
+  #black.on { display:flex; }
+  #hint { color:#0a0a0a; font-size:11px; }
+</style>
+</head>
+<body>
+<div id="rev">rev6</div>
+<div class="wrap">
+  <h1>無音レコーダー</h1>
+  <p class="sub">ボタンを押すと画面が真っ黒になり、そのまま録音します。</p>
+
+  <button id="recBtn">録音する</button>
+  <p id="msg"></p>
+
+  <div id="od">
+    <div class="h">OneDriveへの自動保存</div>
+    <div class="s" id="odState">確認中…</div>
+    <div id="odSetup" style="display:none">
+      <input id="odCid" type="text" inputmode="latin" autocapitalize="off" autocorrect="off"
+             spellcheck="false" placeholder="つなぐための番号(アプリケーションID)を貼り付け">
+      <button id="odConnect">OneDriveにつなぐ</button>
+    </div>
+    <button id="odOff" class="off" style="display:none">つなぐのをやめる</button>
+  </div>
+
+  <div class="note">
+    <b>iPhoneでの注意</b><br>
+    ・録音中に <b>画面を消す・他のアプリに切り替える</b>と、iPhoneの仕様で録音が止まります。切り替えた時点までは自動で保存します。<br>
+    ・真っ黒画面のときも画面は点いています。ポケットに入れると誤って触れることがあります。<br>
+    ・真っ黒画面を解除するには <b>画面を2回続けてタップ</b>します。<br>
+    ・必ず <b>Safariで開いて</b>ください。「ホーム画面に追加」したアイコンから開くと、iPhoneの不具合でマイクが動かないことがあります。<br>
+    ・録音は端末のブラウザの中にも残ります。<b>7日間この画面を開かないと、iPhoneが自動で消してしまいます。</b>OneDriveにつないでおけば、そちらには残ります。
+  </div>
+
+  <h2>録音したもの</h2>
+  <div id="list"></div>
+</div>
+
+<div id="black"><span id="hint">2回タップで停止</span></div>
+
+<script>
+(function () {
+  "use strict";
+  var recBtn = document.getElementById("recBtn");
+  var msgEl  = document.getElementById("msg");
+  var listEl = document.getElementById("list");
+  var black  = document.getElementById("black");
+  var odState = document.getElementById("odState");
+  var odSetup = document.getElementById("odSetup");
+  var odCid   = document.getElementById("odCid");
+  var odOff   = document.getElementById("odOff");
+
+  var db = null, rec = null, stream = null, chunks = [], startedAt = 0, wakeLock = null;
+  var lastTap = 0, lastXY = [0,0], urls = [];
+
+  function say(t) { msgEl.textContent = t || ""; }
+
+  // 無言で終わる経路をなくす
+  window.addEventListener("error", function (e) { say("エラーが起きました: " + (e.message || e)); });
+  window.addEventListener("unhandledrejection", function (e) {
+    say("エラーが起きました: " + ((e.reason && e.reason.message) || e.reason));
+  });
+
+  /* ================= OneDrive(Microsoft Graph / 認可コード+PKCE) =================
+     ライブラリは使わない。個人のMicrosoftアカウント専用エンドポイント(consumers)。
+     権限は Files.ReadWrite.AppFolder のみ = このアプリ専用フォルダしか触れない。 */
+  var AUTH  = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
+  var TOKEN = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+  var SCOPE = "Files.ReadWrite.AppFolder offline_access";
+  var REDIRECT = location.origin + location.pathname;
+  var CHUNK = 5 * 1024 * 1024;      // 320KiBの倍数であること(Graphの決まり)
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  function cid() { return lsGet("muonrec.cid") || ""; }
+  function tok() { try { return JSON.parse(lsGet("muonrec.tok") || "null"); } catch (e) { return null; } }
+  function setTok(t) { lsSet("muonrec.tok", JSON.stringify(t)); }
+
+  function b64url(buf) {
+    var s = btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
+    return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function randomStr() {
+    var a = new Uint8Array(32); crypto.getRandomValues(a); return b64url(a.buffer);
+  }
+
+  function connect() {
+    var id = odCid.value.trim();
+    if (!id) { say("つなぐための番号(アプリケーションID)を貼り付けてください。"); return; }
+    if (!crypto.subtle) { say("この画面ではOneDriveにつなげません。Safariで、https:// で始まるアドレスから開いてください。"); return; }
+    lsSet("muonrec.cid", id);
+    var verifier = randomStr(), state = randomStr();
+    sessionStorage.setItem("muonrec.ver", verifier);
+    sessionStorage.setItem("muonrec.state", state);
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then(function (h) {
+      location.href = AUTH
+        + "?client_id=" + encodeURIComponent(id)
+        + "&response_type=code"
+        + "&redirect_uri=" + encodeURIComponent(REDIRECT)
+        + "&scope=" + encodeURIComponent(SCOPE)
+        + "&code_challenge=" + b64url(h)
+        + "&code_challenge_method=S256"
+        + "&state=" + encodeURIComponent(state);
+    });
+  }
+
+  function postToken(params) {
+    var body = [];
+    for (var k in params) body.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+    return fetch(TOKEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.join("&")
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) {
+          throw new Error("OneDriveにつなげませんでした(" + (j.error || r.status) + ")。\n"
+            + "番号(アプリケーションID)の貼り間違い、または「リダイレクトURI」の登録もれの可能性があります。");
+        }
+        return j;
+      });
+    });
+  }
+
+  // 戻ってきたとき(?code=... )の処理
+  function handleRedirect() {
+    var q = new URLSearchParams(location.search);
+    if (q.get("error")) {
+      var d = q.get("error_description") || q.get("error");
+      history.replaceState({}, "", REDIRECT);
+      say("OneDriveの許可が下りませんでした。\n" + d);
+      return Promise.resolve();
+    }
+    var code = q.get("code");
+    if (!code) return Promise.resolve();
+    var expect = sessionStorage.getItem("muonrec.state");
+    var verifier = sessionStorage.getItem("muonrec.ver");
+    history.replaceState({}, "", REDIRECT);
+    if (!verifier || q.get("state") !== expect) {
+      say("OneDriveの接続がうまく引き継げませんでした。もう一度「OneDriveにつなぐ」を押してください。");
+      return Promise.resolve();
+    }
+    return postToken({
+      client_id: cid(), grant_type: "authorization_code", code: code,
+      redirect_uri: REDIRECT, code_verifier: verifier
+    }).then(function (j) {
+      j.expires_at = Date.now() + (j.expires_in || 3600) * 1000 - 60000;
+      setTok(j);
+      say("OneDriveにつながりました。これから録音は自動で保存されます。");
+    }).catch(function (e) { say(e.message); });
+  }
+
+  function accessToken() {
+    var t = tok();
+    if (!t) return Promise.reject(new Error("OneDriveにつないでいません。"));
+    if (t.access_token && Date.now() < (t.expires_at || 0)) return Promise.resolve(t.access_token);
+    if (!t.refresh_token) { lsDel("muonrec.tok"); return Promise.reject(new Error("OneDriveの接続が切れました。もう一度つないでください。")); }
+    return postToken({
+      client_id: cid(), grant_type: "refresh_token",
+      refresh_token: t.refresh_token, scope: SCOPE, redirect_uri: REDIRECT
+    }).then(function (j) {
+      j.expires_at = Date.now() + (j.expires_in || 3600) * 1000 - 60000;
+      if (!j.refresh_token) j.refresh_token = t.refresh_token;
+      setTok(j);
+      return j.access_token;
+    }).catch(function () {
+      lsDel("muonrec.tok"); drawOd();
+      throw new Error("OneDriveの接続が切れました。しばらく使わないと切れます。もう一度「OneDriveにつなぐ」を押してください。");
+    });
+  }
+
+  // 小さいものは一発、大きいものは分割で上げる
+  function upload(blob, name) {
+    return accessToken().then(function (at) {
+      var base = "https://graph.microsoft.com/v1.0/me/drive/special/approot:/" + encodeURIComponent(name);
+      if (blob.size < 4 * 1024 * 1024) {
+        return fetch(base + ":/content", {
+          method: "PUT",
+          headers: { Authorization: "Bearer " + at, "Content-Type": blob.type || "application/octet-stream" },
+          body: blob
+        }).then(chk);
+      }
+      return fetch(base + ":/createUploadSession", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + at, "Content-Type": "application/json" },
+        body: JSON.stringify({ item: { "@microsoft.graph.conflictBehavior": "rename" } })
+      }).then(chk).then(function (s) {
+        var url = s.uploadUrl, pos = 0;
+        function next() {
+          if (pos >= blob.size) return Promise.resolve(true);
+          var end = Math.min(pos + CHUNK, blob.size);
+          var part = blob.slice(pos, end);
+          var range = "bytes " + pos + "-" + (end - 1) + "/" + blob.size;
+          return fetch(url, { method: "PUT", headers: { "Content-Range": range }, body: part })
+            .then(function (r) {
+              if (r.status !== 202 && !r.ok) throw new Error("OneDriveへの送信が途中で止まりました(" + r.status + ")。");
+              pos = end;
+              return next();
+            });
+        }
+        return next();
+      });
+    });
+  }
+  function chk(r) {
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) { lsDel("muonrec.tok"); drawOd(); throw new Error("OneDriveの接続が切れました。もう一度つないでください。"); }
+      if (r.status === 507) throw new Error("OneDriveの空き容量が足りません。");
+      throw new Error("OneDriveに保存できませんでした(" + r.status + ")。通信の状態を確かめてください。");
+    }
+    return r.status === 204 ? {} : r.json();
+  }
+
+  function drawOd() {
+    var t = tok();
+    if (t) {
+      odState.textContent = "つながっています。録音を止めると自動でOneDriveへ送ります。\n保存先: OneDrive の「アプリ」→「無音レコーダー」フォルダ";
+      odState.style.whiteSpace = "pre-wrap";
+      odSetup.style.display = "none";
+      odOff.style.display = "";
+    } else {
+      odState.textContent = cid()
+        ? "まだつながっていません。下のボタンでサインインしてください。"
+        : "使うには最初に一度だけ準備が必要です。同じフォルダの「OneDriveにつなぐ準備.txt」の通りに進めてください。";
+      odSetup.style.display = "";
+      odCid.value = cid();
+      odOff.style.display = tok() ? "" : "none";
+    }
+  }
+
+  // まだ送れていないものを、開いたときにまとめて送る
+  function sendPending() {
+    if (!tok()) return Promise.resolve();
+    return all().then(function (rows) {
+      var todo = rows.filter(function (r) { return !r.up; });
+      if (!todo.length) return;
+      say(todo.length + "件をOneDriveへ送っています…");
+      var i = 0;
+      function next() {
+        if (i >= todo.length) { say("OneDriveへの保存が終わりました。"); return refresh(); }
+        var r = todo[i++];
+        return upload(r.blob, fileName(r)).then(function () {
+          return mark(r.id);
+        }).then(next).catch(function (e) { say(e.message); return refresh(); });
+      }
+      return next();
+    });
+  }
+
+  /* ---------- 保存(IndexedDB) ---------- */
+  function openDB() {
+    return new Promise(function (res, rej) {
+      if (typeof indexedDB === "undefined") {
+        rej(new Error("この画面では保存できません。Safari(またはChrome)で開き直してください。"));
+        return;
+      }
+      var r;
+      try {
+        r = indexedDB.open("muon-recorder", 1);
+      } catch (e) {
+        rej(new Error("この画面では録音を保存できません。\nLINEやメールの中の簡易ブラウザで開いている可能性があります。Safariで開き直してください。"));
+        return;
+      }
+      r.onupgradeneeded = function () {
+        r.result.createObjectStore("rec", { keyPath: "id", autoIncrement: true });
+      };
+      r.onsuccess = function () { db = r.result; res(db); };
+      r.onerror = function () { rej(new Error("録音を保存する場所を開けませんでした。ブラウザの設定で「サイトデータ」がブロックされていないか確認してください。")); };
+    });
+  }
+  function tx(mode) { return db.transaction("rec", mode).objectStore("rec"); }
+  function put(o) {
+    return new Promise(function (res, rej) {
+      var q = tx("readwrite").add(o);
+      q.onsuccess = function () { res(q.result); };
+      q.onerror = function () { rej(new Error("保存できませんでした(空き容量が足りない可能性があります)。")); };
+    });
+  }
+  function all() {
+    return new Promise(function (res, rej) {
+      var q = tx("readonly").getAll();
+      q.onsuccess = function () { res(q.result || []); };
+      q.onerror = function () { rej(new Error("一覧を読めませんでした。")); };
+    });
+  }
+  function del(id) {
+    return new Promise(function (res, rej) {
+      var q = tx("readwrite").delete(id);
+      q.onsuccess = res;
+      q.onerror = function () { rej(new Error("消せませんでした。")); };
+    });
+  }
+  function mark(id) {                       // OneDriveへ送れた印を付ける
+    return new Promise(function (res, rej) {
+      var st = tx("readwrite"), g = st.get(id);
+      g.onsuccess = function () {
+        var o = g.result; if (!o) { res(); return; }
+        o.up = 1; var p = st.put(o);
+        p.onsuccess = function () { res(); }; p.onerror = function () { rej(new Error("印を付けられませんでした。")); };
+      };
+      g.onerror = function () { rej(new Error("印を付けられませんでした。")); };
+    });
+  }
+
+  /* ---------- 一覧 ---------- */
+  function fmt(ms) {
+    var s = Math.round(ms / 1000);
+    return Math.floor(s / 60) + "分" + ("0" + (s % 60)).slice(-2) + "秒";
+  }
+  function fileName(r) {
+    var d = new Date(r.time);
+    return d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0"+d.getDate()).slice(-2)
+         + "_" + ("0"+d.getHours()).slice(-2) + ("0"+d.getMinutes()).slice(-2) + ("0"+d.getSeconds()).slice(-2)
+         + "." + r.ext;
+  }
+  function refresh() {
+    return all().then(function (rows) {
+      urls.forEach(URL.revokeObjectURL); urls = [];
+      listEl.innerHTML = "";
+      if (!rows.length) {
+        listEl.innerHTML = '<p class="sub">まだありません。</p>';
+        return;
+      }
+      rows.reverse().forEach(function (r) {
+        var url = URL.createObjectURL(r.blob); urls.push(url);
+        var name = fileName(r);
+
+        var box = document.createElement("div"); box.className = "item";
+        var t = document.createElement("div"); t.className = "t";
+        t.textContent = new Date(r.time).toLocaleString("ja-JP") + "  /  " + fmt(r.dur);
+
+        var c = document.createElement("div");
+        c.className = "cloud" + (r.up ? "" : " no");
+        c.textContent = r.up ? "OneDriveに保存済み" : (tok() ? "OneDriveへまだ送れていません" : "この端末の中だけにあります");
+
+        var a = document.createElement("audio"); a.controls = true; a.src = url; a.preload = "none";
+        var row = document.createElement("div"); row.className = "row";
+
+        var sv = document.createElement("button"); sv.textContent = "保存";
+        sv.onclick = function () {
+          var link = document.createElement("a");
+          link.href = url; link.download = name; link.click();
+          say("保存先を選ぶ画面が出ない場合は、再生バーの共有ボタンをお使いください。");
+        };
+        var sh = document.createElement("button"); sh.textContent = "共有";
+        sh.onclick = function () {
+          var f = new File([r.blob], name, { type: r.blob.type || "audio/mp4" });
+          if (navigator.canShare && navigator.canShare({ files: [f] })) {
+            say("共有の画面で「\"ファイル\"に保存」を選ぶと端末に残せます。うまくいかないときは「保存」ボタンをお使いください。");
+            navigator.share({ files: [f] }).catch(function () {});
+          } else {
+            say("このブラウザでは共有できません。「保存」でファイルに落としてください。");
+          }
+        };
+        var rm = document.createElement("button"); rm.textContent = "消す"; rm.className = "del";
+        rm.onclick = function () {
+          if (!confirm("この録音を消します。よろしいですか?\n(OneDriveに送ったものは残ります)")) return;
+          del(r.id).then(refresh).catch(function (e) { say(e.message); });
+        };
+
+        row.appendChild(sv); row.appendChild(sh);
+        if (tok() && !r.up) {
+          var re = document.createElement("button"); re.textContent = "再送";
+          re.onclick = function () {
+            say("OneDriveへ送っています…");
+            upload(r.blob, name).then(function () { return mark(r.id); })
+              .then(function () { say("OneDriveに保存しました。"); return refresh(); })
+              .catch(function (e) { say(e.message); });
+          };
+          row.appendChild(re);
+        }
+        row.appendChild(rm);
+        box.appendChild(t); box.appendChild(c); box.appendChild(a); box.appendChild(row);
+        listEl.appendChild(box);
+      });
+    }).catch(function (e) { say(e.message); });
+  }
+
+  /* ---------- 録音 ---------- */
+  function pickType() {
+    // AACを明示したmp4を最優先(Safari向け)。ここを素の"audio/mp4"にすると、Chromeが
+    // 中身Opusのmp4を作り、.m4aで保存したのに再生できないファイルになる(実測)
+    var c = ['audio/mp4;codecs="mp4a.40.2"', "audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+    for (var i = 0; i < c.length; i++) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c[i])) return c[i];
+    }
+    return "";
+  }
+
+  function start() {
+    say("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      say("このブラウザではマイクを使えません。SafariかChromeで開いてください。"); return;
+    }
+    if (!window.MediaRecorder) { say("このブラウザは録音に対応していません。"); return; }
+
+    recBtn.disabled = true;
+    navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    }).then(function (s) {
+      stream = s;
+      var mt = pickType();
+      rec = mt ? new MediaRecorder(s, { mimeType: mt }) : new MediaRecorder(s);
+      chunks = [];
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onerror = function () { say("録音中にエラーが起きました。もう一度お試しください。"); stop(); };
+      rec.onstop = save;
+      rec.start(1000);              // 1秒ごとに切り出し。途中で止まっても失わない
+      startedAt = Date.now();
+      showBlack();
+      recBtn.disabled = false;
+      keepAwake();
+    }).catch(function (e) {
+      recBtn.disabled = false;
+      if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) {
+        say("マイクの使用が許可されていません。\niPhoneの「設定」→「Safari」→「マイク」を確認するか、画面に出る許可のダイアログで「許可」を選んでください。");
+      } else if (e && e.name === "NotFoundError") {
+        say("マイクが見つかりませんでした。");
+      } else {
+        say("マイクを開けませんでした: " + (e && e.message ? e.message : e));
+      }
+    });
+  }
+
+  function save() {
+    var dur = Date.now() - startedAt;
+    var type = (rec && rec.mimeType) || "audio/mp4";
+    var blob = new Blob(chunks, { type: type });
+    chunks = [];
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    rec = null;
+    releaseAwake();
+    hideBlack();
+
+    if (!blob.size) { say("音が録れていませんでした(録音時間が短すぎた可能性があります)。"); return; }
+    var ext = type.indexOf("webm") >= 0 ? "webm"
+            : (type.indexOf("mp4") >= 0 && type.indexOf("opus") < 0) ? "m4a" : "webm";
+    var row = { time: Date.now(), dur: dur, ext: ext, blob: blob, up: 0 };
+    put(row)
+      .then(function (id) {
+        row.id = id;
+        say(fmt(dur) + " の録音を保存しました。");
+        return refresh().then(function () {
+          if (!tok()) return;
+          say(fmt(dur) + " の録音を保存しました。OneDriveへ送っています…");
+          return upload(blob, fileName(row))
+            .then(function () { return mark(id); })
+            .then(function () { say("OneDriveに保存しました。"); return refresh(); })
+            .catch(function (e) {
+              // 接続切れのときは「再送」ボタン自体が出ないので、案内を場合分けする
+              say(e.message + (lsGet("muonrec.tok")
+                ? "\nこの録音は端末に残っています。「再送」を押すか、電波のあるところでこの画面を開き直すと自動で送ります。"
+                : "\nこの録音は端末に残っています。もう一度OneDriveにつなぐと、自動で送り直します。"));
+              return refresh();
+            });
+        });
+      })
+      .catch(function (e) { say(e.message); });
+  }
+
+  function stop() {
+    if (rec && rec.state !== "inactive") { rec.stop(); }
+    else { releaseAwake(); hideBlack(); }
+  }
+
+  /* ---------- 真っ黒画面 / 画面を消させない ---------- */
+  function showBlack() { black.classList.add("on"); }
+  function hideBlack() { black.classList.remove("on"); }
+
+  function keepAwake() {
+    if (navigator.wakeLock && navigator.wakeLock.request) {
+      navigator.wakeLock.request("screen").then(function (w) { wakeLock = w; }).catch(function () {});
+    }
+  }
+  function releaseAwake() {
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+
+  // 真っ黒画面はダブルタップで解除(=録音停止)。誤って1回触れただけでは止まらない。
+  // touchstartでpreventDefaultしないと、iOSでダブルタップ拡大が起きる(無音カメラrev6の実機知見)
+  function tapAt(x, y, ev) {
+    if (ev && ev.cancelable) ev.preventDefault();
+    var now = Date.now();
+    if (now - lastTap < 300 && Math.abs(x - lastXY[0]) < 80 && Math.abs(y - lastXY[1]) < 80) {
+      lastTap = 0; stop();
+    } else { lastTap = now; lastXY = [x, y]; }
+  }
+  black.addEventListener("touchstart", function (e) {
+    var t = e.touches[0]; if (t) tapAt(t.clientX, t.clientY, e);
+  }, { passive: false });
+  black.addEventListener("click", function (e) {
+    if (e.detail === 0) return;          // touchstartで処理済みの合成clickは無視
+    if (!("ontouchstart" in window)) tapAt(e.clientX, e.clientY, null);
+  });
+
+  // 画面が隠れた(ロック・アプリ切替)= iOSでは録音が止まる。そこまでを保存する
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && rec && rec.state === "recording") { stop(); }
+    else if (!document.hidden && wakeLock === null && rec && rec.state === "recording") { keepAwake(); }
+  });
+
+  recBtn.addEventListener("click", function () {
+    if (rec && rec.state === "recording") stop(); else start();
+  });
+  document.getElementById("odConnect").addEventListener("click", connect);
+  odOff.addEventListener("click", function () {
+    if (!confirm("OneDriveへの自動保存をやめます。よろしいですか?\n(すでにOneDriveにあるものは消えません)")) return;
+    lsDel("muonrec.tok"); drawOd(); refresh();
+    say("OneDriveへの自動保存をやめました。");
+  });
+
+  /* ---------- 起動 ---------- */
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});   // iOSでは保証にならないが、要求はしておく
+  }
+  openDB()
+    .then(handleRedirect)
+    .then(function () { drawOd(); return refresh(); })
+    .then(sendPending)
+    .catch(function (e) { say(e.message); });
+})();
+</script>
+</body>
+</html>

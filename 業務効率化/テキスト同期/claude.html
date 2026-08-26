@@ -365,6 +365,9 @@
 </header>
 
 <div id="menu" class="menu">
+  <button id="newChatBtn">＋ 新しい会話をはじめる</button>
+  <hr>
+  <div id="threadList"></div>
   <button data-cmd="状態">いまの状態</button>
   <button data-cmd="一覧">会話の一覧</button>
   <button data-cmd="PC一覧">パソコンの会話</button>
@@ -376,7 +379,7 @@
   <hr>
   <button id="clearBtn">画面の表示を消す</button>
   <button id="resetBtn">合言葉を入れ直す</button>
-  <div class="rev" style="padding: 6px 12px;">rev8</div>
+  <div class="rev" style="padding: 6px 12px;">rev10</div>
 </div>
 
 <div id="topzone" class="topzone" hidden></div>
@@ -421,9 +424,11 @@
   var FIXED_SALT = "filesync-angou-v1";
   var PHRASE_RE = /^[0-9A-HJ-NP-Z]{8,32}$/;
 
-  var POLL_MS = 2500;
+  var POLL_MS = 1200;
   var PHRASE_KEY = "remoteClaudePhrases";
-  var LOG_KEY = "remoteClaudeLog";
+  var LOG_KEY = "remoteClaudeLog";          // 旧: 会話を分けていなかった頃の置き場
+  var LOG_PREFIX = "remoteClaudeLog::";     // 新: 会話の名前ごとに分けて保存する
+  var CUR_KEY = "remoteClaudeThread";       // いま画面に出している会話の名前
   var MAX_LOG = 200;
 
   var el = function (id) { return document.getElementById(id); };
@@ -437,6 +442,11 @@
   var waiting = false;
   var pollTimer = null;
   var history = [];
+  var currentThread = "ふだん";
+  try {
+    var savedThread = localStorage.getItem(CUR_KEY);
+    if (savedThread) currentThread = savedThread;
+  } catch (error) { /* 読めなければ「ふだん」から始める */ }
 
   // ---- 保存まわり ------------------------------------------------------
 
@@ -453,9 +463,11 @@
     } catch (error) { /* 保存できなくても、この場では使える */ }
   }
 
+  function logKeyOf(name) { return LOG_PREFIX + name; }
+
   function loadHistory() {
     try {
-      var raw = localStorage.getItem(LOG_KEY);
+      var raw = localStorage.getItem(logKeyOf(currentThread));
       history = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(history)) history = [];
     } catch (error) { history = []; }
@@ -463,8 +475,70 @@
 
   function saveHistory() {
     try {
-      localStorage.setItem(LOG_KEY, JSON.stringify(history.slice(-MAX_LOG)));
+      localStorage.setItem(logKeyOf(currentThread), JSON.stringify(history.slice(-MAX_LOG)));
     } catch (error) { /* あふれても表示は続ける */ }
+  }
+
+  // このスマホに残っている会話の名前を、新しく使った順に並べて返す。
+  function threadNames() {
+    var names = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key && key.indexOf(LOG_PREFIX) === 0) names.push(key.slice(LOG_PREFIX.length));
+      }
+    } catch (error) { /* 読めなければ空のまま */ }
+    names.sort();
+    return names;
+  }
+
+  // 画面に出す会話を切り替える(スマホの中だけの操作。通信はしない)。
+  function setThread(name, tellPc) {
+    if (!name || name === currentThread) {
+      if (tellPc) send("切替 " + name);
+      return;
+    }
+    saveHistory();                       // いまの会話を、いまの名前で保存してから移る
+    currentThread = name;
+    try { localStorage.setItem(CUR_KEY, name); } catch (error) { /* 覚えられなくても動く */ }
+    loadHistory();
+    threadEl.textContent = name;
+    render();
+    if (tellPc) send("切替 " + name);    // パソコン側も同じ会話に合わせる
+  }
+
+  // 旧版(会話を分けていなかった頃)のログを、いまの会話へ引き取る。
+  function migrateOldLog() {
+    try {
+      var raw = localStorage.getItem(LOG_KEY);
+      if (!raw) return;
+      if (!localStorage.getItem(logKeyOf(currentThread))) {
+        localStorage.setItem(logKeyOf(currentThread), raw);
+      }
+      localStorage.removeItem(LOG_KEY);
+    } catch (error) { /* 引き取れなくても新しい会話は使える */ }
+  }
+
+  // ⋯メニューの中に、この端末に残っている会話を並べる。
+  function buildThreadMenu() {
+    var box = el("threadList");
+    if (!box) return;
+    box.innerHTML = "";
+    var names = threadNames();
+    if (!names.length) return;
+
+    names.forEach(function (name) {
+      var button = document.createElement("button");
+      button.textContent = (name === currentThread ? "● " : "　") + name;
+      button.addEventListener("click", function () {
+        menuEl.classList.remove("open");
+        setThread(name, true);
+      });
+      box.appendChild(button);
+    });
+
+    var line = document.createElement("hr");
+    box.appendChild(line);
   }
 
   // ---- 暗号(angou.htmlと同じ) ------------------------------------------
@@ -822,7 +896,12 @@
           var parts = splitFooter(text);
 
           waiting = false;
-          if (parts.footer) threadEl.textContent = parts.footer;
+          if (parts.footer) {
+            // footerは「名前 / モデル / 工数x / 続き」の形。先頭が会話の名前。
+            var pcName = parts.footer.split("/")[0].trim();
+            if (pcName) setThread(pcName, false);
+            threadEl.textContent = parts.footer;
+          }
           push("ai", parts.body);
           setDot("ok", "つながっています");
           showBar();  // 返事が来たら、どの会話・どの設定だったかを一度見せる
@@ -910,6 +989,7 @@
 
   el("menuBtn").addEventListener("click", function (event) {
     event.stopPropagation();
+    if (!menuEl.classList.contains("open")) buildThreadMenu();
     menuEl.classList.toggle("open");
     showBar(menuEl.classList.contains("open"));
   });
@@ -927,10 +1007,16 @@
     }
   });
 
+  el("newChatBtn").addEventListener("click", function () {
+    menuEl.classList.remove("open");
+    var name = prompt("新しい会話の名前を決めてください（例: かいもの）\n※いまの会話はそのまま残ります");
+    if (name && name.trim()) setThread(name.trim(), true);
+  });
+
   el("switchBtn").addEventListener("click", function () {
     menuEl.classList.remove("open");
     var name = prompt("どの会話に切り替えますか（新しい名前でも作れます）");
-    if (name && name.trim()) send("切替 " + name.trim());
+    if (name && name.trim()) setThread(name.trim(), true);
   });
 
   el("connectBtn").addEventListener("click", function () {
@@ -956,7 +1042,9 @@
   // 次の送信ボタンで、質問と一緒に(質問が空なら指示だけ)まとめて送られる。
 
   // 最初の表示
+  migrateOldLog();
   loadHistory();
+  threadEl.textContent = currentThread;
   var saved = loadPhrases();
 
   if (!window.crypto || !crypto.subtle) {

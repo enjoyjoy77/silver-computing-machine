@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QR共有</title>
 <script src="../../libs/qrcode.min.js"></script>
+<script src="../../libs/jsQR.min.js"></script>
 <style>
   body {
     font-family: "Meiryo", "Yu Gothic", sans-serif;
@@ -27,6 +28,21 @@
   .wrap {
     max-width: 480px;
     margin: 0 auto;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .tabs button {
+    flex: 1;
+    margin-top: 0;
+    background: #dfe3ea;
+    color: #444;
+  }
+  .tabs button.on {
+    background: #2d6cdf;
+    color: #fff;
   }
   textarea {
     width: 100%;
@@ -62,6 +78,9 @@
   button:active {
     background: #1e4fad;
   }
+  button.sub {
+    background: #6b7686;
+  }
   #qrBox {
     margin-top: 20px;
     text-align: center;
@@ -86,30 +105,82 @@
     color: #c0392b;
     margin-top: 8px;
     display: none;
+    white-space: pre-wrap;
+  }
+  #video {
+    width: 100%;
+    border-radius: 12px;
+    background: #000;
+    display: none;
+  }
+  #resultBox {
+    display: none;
+    margin-top: 16px;
+  }
+  #resultText {
+    height: 140px;
+  }
+  .ok {
+    font-size: 13px;
+    color: #1d7a34;
+    margin-top: 8px;
+    display: none;
   }
 </style>
 </head>
 <body>
-<div class="rev">rev1</div>
+<div class="rev">rev2</div>
 <div class="wrap">
-  <h1>QR共有 - パソコンのテキストをスマホへ</h1>
+  <h1>QR共有 - テキストをQRでやりとり</h1>
 
-  <textarea id="inputText" placeholder="ここにスマホへ送りたい文章を貼り付けてください"></textarea>
-  <div class="count" id="charCount">0文字</div>
-  <div class="msg" id="errMsg"></div>
+  <div class="tabs">
+    <button id="tabMake" class="on">つくる (PC→スマホ)</button>
+    <button id="tabRead">よみとる (カメラで受け取る)</button>
+  </div>
 
-  <button id="makeBtn">QRコードを作る</button>
+  <!-- ===== つくる ===== -->
+  <div id="paneMake">
+    <textarea id="inputText" placeholder="ここにスマホへ送りたい文章を貼り付けてください"></textarea>
+    <div class="count" id="charCount">0文字</div>
+    <div class="msg" id="errMsg"></div>
 
-  <div id="qrBox">
-    <div id="qrCanvas"></div>
-    <div class="hint">
-      スマホの標準カメラ(またはQR読み取りアプリ)をこのQRコードに向けてください。<br>
-      表示された通知をタップすると、文章がスマホで読めます。
+    <button id="makeBtn">QRコードを作る</button>
+
+    <div id="qrBox">
+      <div id="qrCanvas"></div>
+      <div class="hint">
+        スマホの標準カメラ(またはQR読み取りアプリ)をこのQRコードに向けてください。<br>
+        表示された通知をタップすると、文章がスマホで読めます。
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== よみとる ===== -->
+  <div id="paneRead" style="display:none">
+    <div class="hint" style="margin-top:0">
+      パソコンのカメラにQRコードをかざすと、中の文章を受け取れます。<br>
+      最初に「カメラの使用を許可しますか?」と出たら「許可」を押してください。
+    </div>
+
+    <button id="camBtn">カメラで読み取りを始める</button>
+    <video id="video" playsinline muted></video>
+
+    <button id="fileBtn" class="sub">画像ファイルのQRを読み取る</button>
+    <input type="file" id="fileInput" accept="image/*" style="display:none">
+
+    <div class="msg" id="readErr"></div>
+
+    <div id="resultBox">
+      <div class="hint">読み取れた文章:</div>
+      <textarea id="resultText" readonly></textarea>
+      <button id="copyBtn">文章をコピーする</button>
+      <div class="ok" id="copyOk">コピーしました。貼り付け先で Ctrl+V を押してください。</div>
     </div>
   </div>
 </div>
 
 <script>
+  // ===== つくる側(rev1のまま) =====
   var LIMIT = 700; // QRコードに安全に収まる目安の文字数(日本語込み)
   var inputEl = document.getElementById('inputText');
   var countEl = document.getElementById('charCount');
@@ -144,6 +215,164 @@
     } catch (e) {
       errEl.textContent = 'エラー: 文章が長すぎてQRコードにできませんでした(' + text.length + '文字)。文章を短くするか、分けて送ってください。';
       errEl.style.display = 'block';
+    }
+  });
+
+  // ===== タブ切り替え =====
+  var tabMake = document.getElementById('tabMake');
+  var tabRead = document.getElementById('tabRead');
+  var paneMake = document.getElementById('paneMake');
+  var paneRead = document.getElementById('paneRead');
+
+  tabMake.addEventListener('click', function () {
+    stopCamera();
+    tabMake.className = 'on'; tabRead.className = '';
+    paneMake.style.display = ''; paneRead.style.display = 'none';
+  });
+  tabRead.addEventListener('click', function () {
+    tabMake.className = ''; tabRead.className = 'on';
+    paneMake.style.display = 'none'; paneRead.style.display = '';
+  });
+
+  // ===== よみとる側 =====
+  var video = document.getElementById('video');
+  var camBtn = document.getElementById('camBtn');
+  var readErr = document.getElementById('readErr');
+  var resultBox = document.getElementById('resultBox');
+  var resultText = document.getElementById('resultText');
+  var copyOk = document.getElementById('copyOk');
+  var stream = null;
+  var scanTimer = null;
+  var scanCanvas = document.createElement('canvas');
+
+  function showReadError(msg) {
+    readErr.textContent = msg;
+    readErr.style.display = 'block';
+  }
+
+  function stopCamera() {
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+    if (stream) {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      stream = null;
+    }
+    video.style.display = 'none';
+    camBtn.textContent = 'カメラで読み取りを始める';
+  }
+
+  function showResult(text) {
+    resultText.value = text;
+    resultBox.style.display = 'block';
+    copyOk.style.display = 'none';
+  }
+
+  camBtn.addEventListener('click', function () {
+    readErr.style.display = 'none';
+    copyOk.style.display = 'none';
+
+    if (stream) { // 動作中なら止める
+      stopCamera();
+      return;
+    }
+    if (typeof jsQR !== 'function') {
+      showReadError('エラー: 読み取り部品(jsQR.min.js)が見つかりません。\nこのHTMLはツールボックスのフォルダごと移動してください(libsフォルダとセットで動きます)。');
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showReadError('エラー: このブラウザではカメラを使えません。\n下の「画像ファイルのQRを読み取る」をお使いください(QRを写真に撮って選ぶ)。');
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      .then(function (s) {
+        stream = s;
+        video.srcObject = s;
+        video.style.display = 'block';
+        camBtn.textContent = '読み取りをやめる';
+        return video.play();
+      })
+      .then(function () {
+        scanTimer = setInterval(scanFrame, 250); // 0.25秒ごとに1回調べる(負荷を抑える)
+      })
+      .catch(function (e) {
+        stopCamera();
+        if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+          showReadError('エラー: カメラの使用が許可されませんでした。\nブラウザのアドレス欄近くのカメラマークから「許可」に変えて、もう一度押してください。');
+        } else if (e && e.name === 'NotFoundError') {
+          showReadError('エラー: このパソコンにカメラが見つかりません。\n下の「画像ファイルのQRを読み取る」をお使いください。');
+        } else {
+          showReadError('エラー: カメラを起動できませんでした(' + (e && e.name ? e.name : '不明') + ')。\n他のアプリがカメラを使っていないか確認してください。');
+        }
+      });
+  });
+
+  function scanFrame() {
+    if (!stream || video.readyState < 2) return;
+    var w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+    scanCanvas.width = w;
+    scanCanvas.height = h;
+    var ctx = scanCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+    var img = ctx.getImageData(0, 0, w, h);
+    var code = jsQR(img.data, w, h);
+    if (code && code.data) {
+      stopCamera();
+      showResult(code.data);
+    }
+  }
+
+  // 画像ファイルから読み取り(カメラが無い/使えないときの逃げ道)
+  var fileInput = document.getElementById('fileInput');
+  document.getElementById('fileBtn').addEventListener('click', function () {
+    readErr.style.display = 'none';
+    if (typeof jsQR !== 'function') {
+      showReadError('エラー: 読み取り部品(jsQR.min.js)が見つかりません。\nこのHTMLはツールボックスのフォルダごと移動してください(libsフォルダとセットで動きます)。');
+      return;
+    }
+    fileInput.value = '';
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    var img = new Image();
+    img.onload = function () {
+      URL.revokeObjectURL(img.src);
+      scanCanvas.width = img.naturalWidth;
+      scanCanvas.height = img.naturalHeight;
+      var ctx = scanCanvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      var data = ctx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+      var code = jsQR(data.data, scanCanvas.width, scanCanvas.height);
+      if (code && code.data) {
+        showResult(code.data);
+      } else {
+        showReadError('エラー: この画像からQRコードを見つけられませんでした。\nQRコード全体がはっきり写った画像でもう一度お試しください。');
+      }
+    };
+    img.onerror = function () {
+      showReadError('エラー: 画像を開けませんでした。JPEGかPNGの画像を選んでください。');
+    };
+    img.src = URL.createObjectURL(f);
+  });
+
+  // コピー
+  document.getElementById('copyBtn').addEventListener('click', function () {
+    resultText.select();
+    var done = false;
+    try { done = document.execCommand('copy'); } catch (e) {}
+    if (!done && navigator.clipboard) {
+      navigator.clipboard.writeText(resultText.value).then(function () {
+        copyOk.style.display = 'block';
+      });
+      return;
+    }
+    if (done) {
+      copyOk.style.display = 'block';
+    } else {
+      showReadError('エラー: コピーできませんでした。文章の欄を選んで Ctrl+C でコピーしてください。');
     }
   });
 </script>

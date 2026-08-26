@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>もじアイコン</title>
+<style>
+  :root{ --line:#dadce0; --txt:#202124; --sub:#5f6368; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; padding:20px; font-family:"Segoe UI","Yu Gothic UI",sans-serif; color:var(--txt); background:#f6f7f9; }
+  .rev{ position:fixed; top:8px; right:12px; font-size:12px; color:var(--sub); }
+  h1{ font-size:20px; margin:0 0 4px; }
+  .lead{ font-size:13px; color:var(--sub); margin:0 0 18px; }
+  .wrap{ display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; max-width:900px; }
+  .panel{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .left{ flex:1 1 380px; }
+  .right{ flex:0 0 260px; text-align:center; }
+  label{ display:block; font-size:13px; font-weight:600; margin:14px 0 6px; }
+  label:first-child{ margin-top:0; }
+  input[type=text]{ width:100%; padding:10px; font-size:20px; border:1px solid var(--line); border-radius:8px; }
+  select{ width:100%; padding:8px; font-size:14px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .colors{ display:flex; flex-wrap:wrap; gap:8px; }
+  .sw{ width:34px; height:34px; border-radius:50%; border:2px solid transparent; cursor:pointer; }
+  .sw.on{ border-color:#202124; }
+  .row{ display:flex; gap:10px; align-items:center; }
+  .row > *{ flex:1; }
+  input[type=range]{ width:100%; }
+  #preview{ background:
+      linear-gradient(45deg,#eee 25%,transparent 25%,transparent 75%,#eee 75%),
+      linear-gradient(45deg,#eee 25%,#fff 25%,#fff 75%,#eee 75%);
+    background-size:16px 16px; background-position:0 0,8px 8px;
+    border-radius:12px; padding:10px; display:inline-block; }
+  canvas{ display:block; width:200px; height:200px; }
+  button{ margin-top:14px; width:100%; padding:12px; font-size:15px; font-weight:600;
+    background:#1a73e8; color:#fff; border:0; border-radius:8px; cursor:pointer; }
+  button:hover{ background:#1765cc; }
+  .note{ font-size:12px; color:var(--sub); margin-top:10px; line-height:1.6; text-align:left; }
+</style>
+</head>
+<body>
+<div class="rev">rev1</div>
+<h1>もじアイコン</h1>
+<p class="lead">Googleのアカウント画像みたいな「丸に文字」の画像を作って、PNGで保存します。画像はこのパソコンの中だけで作られ、どこにも送られません。</p>
+
+<div class="wrap">
+  <div class="panel left">
+    <label>文字（1〜2文字がきれいです）</label>
+    <input type="text" id="txt" value="S" maxlength="4" autocomplete="off">
+
+    <label>色</label>
+    <div class="colors" id="colors"></div>
+    <div class="row" style="margin-top:8px">
+      <span style="flex:0 0 auto;font-size:13px;color:var(--sub)">好きな色：</span>
+      <input type="color" id="custom" value="#1a73e8" style="height:34px;padding:0;border:1px solid var(--line);border-radius:6px">
+    </div>
+
+    <label>文字の色</label>
+    <select id="fg">
+      <option value="#ffffff">白</option>
+      <option value="#202124">黒っぽい</option>
+    </select>
+
+    <label>形</label>
+    <select id="shape">
+      <option value="circle">丸（Googleふう・外は透明）</option>
+      <option value="square">四角（全面をぬりつぶす）</option>
+    </select>
+
+    <label>文字の大きさ　<span id="szv">45</span>%</label>
+    <input type="range" id="sz" min="25" max="70" value="45">
+
+    <label>書体</label>
+    <select id="font">
+      <option value='"Segoe UI","Yu Gothic UI",sans-serif'>ゴシック（標準）</option>
+      <option value='"Yu Mincho","MS Mincho",serif'>明朝</option>
+      <option value='"Arial Black",sans-serif'>太いゴシック</option>
+    </select>
+
+    <label>保存する大きさ</label>
+    <select id="px">
+      <option value="512">512ピクセル（おすすめ）</option>
+      <option value="256">256ピクセル</option>
+      <option value="128">128ピクセル</option>
+      <option value="1024">1024ピクセル</option>
+    </select>
+  </div>
+
+  <div class="panel right">
+    <div id="preview"><canvas id="cv" width="512" height="512"></canvas></div>
+    <button id="save">PNGで保存する</button>
+    <p class="note">保存したファイルは、ふだんダウンロードが入るフォルダに置かれます。<br>
+    Googleアカウントの写真を変えるには、アカウント画像の変更画面でこのPNGを選んでください（このツールは画像を作るだけで、アカウントには触りません）。</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  var PALETTE = ["#1a73e8","#d93025","#188038","#f9ab00","#9334e6","#e8710a",
+                 "#0b8043","#c5221f","#3949ab","#00897b","#8d6e63","#5f6368"];
+  var state = { color:"#1a73e8" };
+  var $ = function(id){ return document.getElementById(id); };
+
+  var cv = $("cv"), ctx = cv.getContext("2d");
+
+  // 色見本を並べる
+  PALETTE.forEach(function(c){
+    var d = document.createElement("div");
+    d.className = "sw"; d.style.background = c; d.title = c;
+    d.onclick = function(){
+      state.color = c;
+      Array.prototype.forEach.call(document.querySelectorAll(".sw"), function(e){ e.classList.remove("on"); });
+      d.classList.add("on");
+      $("custom").value = c;
+      draw();
+    };
+    $("colors").appendChild(d);
+  });
+  document.querySelector(".sw").classList.add("on");
+
+  function draw(){
+    var n = parseInt($("px").value, 10);
+    cv.width = n; cv.height = n;
+    ctx.clearRect(0,0,n,n);
+    ctx.fillStyle = state.color;
+    if ($("shape").value === "circle") {
+      ctx.beginPath();
+      ctx.arc(n/2, n/2, n/2, 0, Math.PI*2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(0,0,n,n);
+    }
+    var t = $("txt").value.trim();
+    if (t) {
+      var ratio = parseInt($("sz").value,10) / 100;
+      ctx.fillStyle = $("fg").value;
+      ctx.font = "600 " + Math.round(n*ratio) + "px " + $("font").value;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      // 実際の文字の高さで中央に合わせる（baseline任せだと少し下にずれる）
+      var m = ctx.measureText(t);
+      var up = m.actualBoundingBoxAscent, dn = m.actualBoundingBoxDescent;
+      var dy = (typeof up === "number" && typeof dn === "number") ? (up - dn)/2 : 0;
+      ctx.fillText(t, n/2, n/2 + dy);
+    }
+  }
+
+  ["txt","fg","shape","sz","font","px"].forEach(function(id){
+    $(id).addEventListener("input", draw);
+    $(id).addEventListener("change", draw);
+  });
+  $("sz").addEventListener("input", function(){ $("szv").textContent = $("sz").value; });
+  $("custom").addEventListener("input", function(){
+    state.color = $("custom").value;
+    Array.prototype.forEach.call(document.querySelectorAll(".sw"), function(e){ e.classList.remove("on"); });
+    draw();
+  });
+
+  $("save").addEventListener("click", function(){
+    try {
+      var name = ($("txt").value.trim() || "icon").replace(/[\\\/:*?"<>|]/g, "_");
+      cv.toBlob(function(blob){
+        if (!blob) { alert("画像を作れませんでした。ブラウザをChromeかEdgeに変えて、もう一度お試しください。"); return; }
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url; a.download = "アイコン_" + name + ".png";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 3000);
+      }, "image/png");
+    } catch (e) {
+      alert("保存できませんでした：" + e.message + "\nブラウザをChromeかEdgeで開き直してから、もう一度お試しください。");
+    }
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>
