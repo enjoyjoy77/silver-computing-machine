@@ -1,0 +1,24 @@
+{
+  "有効": true,
+  "ダウンロード先": "C:\\Users\\sirak\\Downloads",
+  "移動先": "C:\\Users\\sirak\\OneDrive\\写真倉庫",
+  "対象の拡張子": [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".bmp",
+    ".heic",
+    ".heif",
+    ".tif",
+    ".tiff",
+    ".avif",
+    ".jfif",
+    ".ico"
+  ],
+  "書きかけとみなす秒数": 15,
+  "日付フォルダを作る": true,
+  "日付の決め方": "ファイルの日付",
+  "自動で動かす間隔（分）": 5
+}

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>かくす</title>
+<style>
+  :root{
+    --bg:#f5f5f7; --fg:#1d1d1f; --sub:#6e6e73; --card:#fff;
+    --accent:#155bd0; --line:rgba(0,0,0,.08); --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#000; --fg:#f5f5f7; --sub:#98989d; --card:#1c1c1e;
+      --accent:#4d94ff; --line:rgba(255,255,255,.1); --shadow:none; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 24px 64px; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px; margin:0 auto}
+  header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px}
+  h1{font-size:28px; font-weight:700; letter-spacing:-.02em; margin:0}
+  .rev{font-size:12px; color:var(--sub)}
+  .lead{color:var(--sub); font-size:14px; margin:0 0 32px; line-height:1.7}
+  .card{background:var(--card); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin-bottom:24px}
+
+  #drop{border:2px dashed var(--line); border-radius:16px; padding:48px 24px; text-align:center; cursor:pointer; transition:.2s}
+  #drop:hover, #drop.hot{border-color:var(--accent); background:rgba(21,91,208,.04)}
+  #drop .big{font-size:17px; font-weight:600; margin-bottom:8px}
+  #drop .small{font-size:13px; color:var(--sub)}
+
+  #editor{display:none}
+  .row{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:16px}
+  .label{width:80px; flex:none; font-size:14px; font-weight:600}
+  .seg{display:flex; gap:8px; flex-wrap:wrap}
+  .seg button{font:inherit; font-size:14px; padding:8px 16px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--fg)}
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+
+  #stage{position:relative; margin:8px auto 16px; line-height:0; touch-action:none; user-select:none;
+    background:#888; border-radius:12px; overflow:hidden; width:max-content; max-width:100%}
+  #base, #ui{display:block}
+  #ui{position:absolute; left:0; top:0; cursor:crosshair}
+
+  .meta{font-size:13px; color:var(--sub); text-align:center; margin:0 0 16px; line-height:1.7}
+  .save{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+  .save button{font:inherit; font-size:15px; font-weight:600; padding:12px 24px; border-radius:10px;
+    border:1px solid var(--line); background:transparent; color:var(--accent); cursor:pointer}
+  .save button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .save button.plain{color:var(--fg); font-weight:500}
+  .hint{font-size:12px; color:var(--sub); margin:16px 0 0; line-height:1.7; text-align:center}
+  #err{display:none; margin-top:16px; font-size:14px; color:#c0392b; line-height:1.7; white-space:pre-wrap}
+  @media (prefers-color-scheme: dark){ #err{color:#ff6b6b} }
+  @media (max-width:700px){
+    body{padding:20px 12px 48px}
+    .label{width:100%}
+    .seg button{font-size:16px; padding:10px 14px}
+    .save button{font-size:16px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>かくす</h1>
+    <span class="rev">rev1</span>
+  </header>
+  <p class="lead">写真の顔や名前など、見せたくない所を指でなぞって隠します。モザイク・ぼかし・黒塗りから選べます。ネットにつながっていなくても動き、画像がこのパソコンの外に出ることはありません。</p>
+
+  <div class="card">
+    <div id="drop">
+      <div class="big">ここに画像を落とす</div>
+      <div class="small">押してファイルを選ぶこともできます（Ctrl+V の貼り付けもOK）</div>
+    </div>
+    <input type="file" id="file" accept="image/*" hidden>
+    <div id="err"></div>
+
+    <div id="editor">
+      <div class="row" style="margin-top:24px">
+        <span class="label">隠し方</span>
+        <div class="seg" id="mode">
+          <button data-v="mosaic" class="on">モザイク</button>
+          <button data-v="blur">ぼかし</button>
+          <button data-v="black">黒でぬる</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">強さ</span>
+        <div class="seg" id="power">
+          <button data-v="14">よわい</button>
+          <button data-v="9" class="on">ふつう</button>
+          <button data-v="6">つよい</button>
+          <button data-v="4">とても強い</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">かたち</span>
+        <div class="seg" id="shape">
+          <button data-v="rect" class="on">四角</button>
+          <button data-v="ellipse">丸</button>
+        </div>
+      </div>
+
+      <div id="stage">
+        <canvas id="base"></canvas>
+        <canvas id="ui"></canvas>
+      </div>
+
+      <p class="meta" id="meta"></p>
+
+      <div class="save">
+        <button class="plain" id="undo">ひとつ戻す</button>
+        <button class="plain" id="del">選んだ所を消す</button>
+        <button class="plain" id="clear">ぜんぶ消す</button>
+      </div>
+      <div class="save" style="margin-top:8px">
+        <button class="primary" id="savePng">PNGで保存</button>
+        <button id="saveJpg">JPGで保存</button>
+        <button class="plain" id="another">別の画像にする</button>
+      </div>
+      <p class="hint">画像の上をドラッグすると、その場所が隠れます。<br>
+        置いた所を押すと選べて、真ん中をドラッグで移動、四隅の白い丸で大きさ変え。<br>
+        「隠し方」「強さ」「かたち」は、これから置く分に効きます。置いたものを変えたいときは、押して選んでから変えてください。<br>
+        キーボード: Delete=消す / 矢印=1ドット動かす（Shiftで10ドット）</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var drop=$('drop'), file=$('file'), editor=$('editor'), err=$('err');
+  var base=$('base'), ui=$('ui'), stage=$('stage'), meta=$('meta');
+
+  var img=null, baseName='image';
+  var shapes=[];          // {kind:'rect'|'ellipse', mode, div, x,y,w,h}
+  var sel=-1;             // 選んでいる番号
+  var cur={mode:'mosaic', div:9, kind:'rect'};
+  var scale=1;            // 表示倍率（表示px / 画像px）
+  var blurCache={};       // 半径ごとのぼかし済み画像
+
+  function showErr(msg){ err.textContent=msg; err.style.display='block'; }
+  function hideErr(){ err.style.display='none'; }
+
+  /* ---------- 画像の読み込み ---------- */
+  drop.addEventListener('click', function(){ file.click(); });
+  file.addEventListener('change', function(){ if(file.files && file.files[0]) load(file.files[0]); });
+  ['dragenter','dragover'].forEach(function(t){
+    drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add('hot'); });
+  });
+  ['dragleave','drop'].forEach(function(t){
+    drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.remove('hot'); });
+  });
+  drop.addEventListener('drop', function(e){
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) load(f); else showErr('画像として受け取れませんでした。もう一度ファイルを落とすか、押してファイルを選んでください。');
+  });
+  window.addEventListener('paste', function(e){
+    var items = e.clipboardData && e.clipboardData.items; if(!items) return;
+    for(var i=0;i<items.length;i++){
+      if(items[i].type && items[i].type.indexOf('image/')===0){ var f=items[i].getAsFile(); if(f){ load(f); return; } }
+    }
+  });
+
+  function load(f){
+    hideErr();
+    if(!f.type || f.type.indexOf('image/')!==0){
+      showErr('これは画像ファイルではないようです（'+(f.type||'種類不明')+'）。jpg・png・webp などを選んでください。');
+      return;
+    }
+    baseName = (f.name||'image').replace(/\.[^.]+$/,'');
+    var url = URL.createObjectURL(f);
+    var im = new Image();
+    im.onload = function(){
+      if(!im.naturalWidth){ showErr('画像を開けませんでした。ファイルが壊れているかもしれません。'); return; }
+      img = im; shapes=[]; sel=-1; blurCache={};
+      base.width = ui.width = im.naturalWidth;
+      base.height = ui.height = im.naturalHeight;
+      editor.style.display='block';
+      drop.querySelector('.big').textContent = '別の画像に取りかえる';
+      fit(); render();
+    };
+    im.onerror = function(){ showErr('画像を開けませんでした。別のファイルで試してください。'); URL.revokeObjectURL(url); };
+    im.src = url;
+  }
+
+  /* ---------- 表示の大きさ（画面に収める。拡大はしない） ---------- */
+  function fit(){
+    if(!img) return;
+    // 「使える幅」はカード自身ではなく wrap から取る（カードの幅は中身で決まるので循環する）
+    var wrap = document.querySelector('.wrap');
+    var avail = Math.max(240, wrap.clientWidth - 48 - 4);
+    var availH = Math.max(200, window.innerHeight - 200);
+    scale = Math.min(avail/img.naturalWidth, availH/img.naturalHeight, 1);
+    var w = Math.round(img.naturalWidth*scale), h = Math.round(img.naturalHeight*scale);
+    base.style.width = ui.style.width = w+'px';
+    base.style.height = ui.style.height = h+'px';
+  }
+  window.addEventListener('resize', function(){ fit(); drawUi(); });
+
+  /* ---------- 描画 ---------- */
+  function blurred(radius){
+    var key = String(radius);
+    if(blurCache[key]) return blurCache[key];
+    var c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    var g = c.getContext('2d');
+    g.filter = 'blur('+radius+'px)';
+    g.drawImage(img,0,0);
+    g.filter = 'none';
+    blurCache[key] = c;
+    return c;
+  }
+
+  function pathOf(g,s){
+    g.beginPath();
+    if(s.kind==='ellipse'){
+      g.ellipse(s.x+s.w/2, s.y+s.h/2, Math.max(1,s.w/2), Math.max(1,s.h/2), 0, 0, Math.PI*2);
+    } else {
+      g.rect(s.x, s.y, s.w, s.h);
+    }
+  }
+
+  function render(){
+    if(!img) return;
+    var g = base.getContext('2d');
+    g.clearRect(0,0,base.width,base.height);
+    g.drawImage(img,0,0);
+    for(var i=0;i<shapes.length;i++){
+      var s = shapes[i];
+      if(s.w<1 || s.h<1) continue;
+      var unit = Math.max(2, Math.round(Math.min(s.w,s.h)/s.div));  // 隠す所の大きさに合わせる
+      g.save();
+      pathOf(g,s); g.clip();
+      if(s.mode==='black'){
+        g.fillStyle='#000'; g.fillRect(s.x,s.y,s.w,s.h);
+      } else if(s.mode==='blur'){
+        g.drawImage(blurred(unit), 0,0);
+      } else {
+        var cw = Math.max(1, Math.round(s.w/unit)), ch = Math.max(1, Math.round(s.h/unit));
+        var t = document.createElement('canvas'); t.width=cw; t.height=ch;
+        var tg = t.getContext('2d');
+        tg.drawImage(img, s.x, s.y, s.w, s.h, 0, 0, cw, ch);
+        g.imageSmoothingEnabled = false;
+        g.drawImage(t, 0,0,cw,ch, s.x, s.y, s.w, s.h);
+        g.imageSmoothingEnabled = true;
+      }
+      g.restore();
+    }
+    drawUi();
+    meta.textContent = img.naturalWidth+' × '+img.naturalHeight+' ドット／隠している所 '+shapes.length+'か所'
+      + (scale<1 ? '（画面では'+Math.round(scale*100)+'%で表示。保存は元の大きさ）' : '');
+  }
+
+  function drawUi(){
+    if(!img) return;
+    var g = ui.getContext('2d');
+    g.clearRect(0,0,ui.width,ui.height);
+    var lw = Math.max(1, 1/scale);
+    for(var i=0;i<shapes.length;i++){
+      var s=shapes[i];
+      g.lineWidth = lw*(i===sel?2:1);
+      g.strokeStyle = i===sel ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.55)';
+      pathOf(g,s); g.stroke();
+      g.strokeStyle = i===sel ? 'rgba(0,0,0,.6)' : 'rgba(0,0,0,.3)';
+      g.lineWidth = lw;
+      g.setLineDash([6/scale,4/scale]);
+      pathOf(g,s); g.stroke();
+      g.setLineDash([]);
+    }
+    if(sel>=0){
+      var s2=shapes[sel], r=7/scale;
+      var pts=[[s2.x,s2.y],[s2.x+s2.w,s2.y],[s2.x,s2.y+s2.h],[s2.x+s2.w,s2.y+s2.h]];
+      for(var k=0;k<4;k++){
+        g.beginPath(); g.arc(pts[k][0],pts[k][1],r,0,Math.PI*2);
+        g.fillStyle='#fff'; g.fill();
+        g.lineWidth=lw; g.strokeStyle='rgba(0,0,0,.5)'; g.stroke();
+      }
+    }
+  }
+
+  /* ---------- 操作 ---------- */
+  function pos(e){
+    var r = ui.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) / r.width * img.naturalWidth,
+      y: (e.clientY - r.top) / r.height * img.naturalHeight
+    };
+  }
+  function hitHandle(s,p){
+    var t = 14/scale;
+    var c=[['nw',s.x,s.y],['ne',s.x+s.w,s.y],['sw',s.x,s.y+s.h],['se',s.x+s.w,s.y+s.h]];
+    for(var i=0;i<4;i++){
+      if(Math.abs(p.x-c[i][1])<=t && Math.abs(p.y-c[i][2])<=t) return c[i][0];
+    }
+    return null;
+  }
+  function hitShape(p){
+    for(var i=shapes.length-1;i>=0;i--){
+      var s=shapes[i];
+      if(p.x>=s.x && p.x<=s.x+s.w && p.y>=s.y && p.y<=s.y+s.h) return i;
+    }
+    return -1;
+  }
+
+  var drag=null;
+  ui.addEventListener('pointerdown', function(e){
+    if(!img) return;
+    ui.setPointerCapture(e.pointerId);
+    var p = pos(e);
+    if(sel>=0){
+      var h = hitHandle(shapes[sel], p);
+      if(h){ drag={type:'resize', corner:h, s:shapes[sel]}; return; }
+    }
+    var i = hitShape(p);
+    if(i>=0){
+      sel=i;
+      drag={type:'move', s:shapes[i], dx:p.x-shapes[i].x, dy:p.y-shapes[i].y};
+      render();
+      return;
+    }
+    // 新しく置く
+    shapes.push({kind:cur.kind, mode:cur.mode, div:cur.div, x:p.x, y:p.y, w:0, h:0});
+    sel = shapes.length-1;
+    drag={type:'new', s:shapes[sel], ox:p.x, oy:p.y};
+  });
+  ui.addEventListener('pointermove', function(e){
+    if(!drag) return;
+    var p = pos(e), s = drag.s;
+    if(drag.type==='new'){
+      s.x = Math.min(drag.ox,p.x); s.y = Math.min(drag.oy,p.y);
+      s.w = Math.abs(p.x-drag.ox); s.h = Math.abs(p.y-drag.oy);
+    } else if(drag.type==='move'){
+      s.x = p.x-drag.dx; s.y = p.y-drag.dy;
+    } else {
+      var x1=s.x, y1=s.y, x2=s.x+s.w, y2=s.y+s.h;
+      if(drag.corner.indexOf('n')>=0) y1=p.y; else y2=p.y;
+      if(drag.corner.indexOf('w')>=0) x1=p.x; else x2=p.x;
+      s.x=Math.min(x1,x2); s.y=Math.min(y1,y2); s.w=Math.abs(x2-x1); s.h=Math.abs(y2-y1);
+    }
+    round(s); render();
+  });
+  function endDrag(){
+    if(!drag) return;
+    var s=drag.s;
+    if(drag.type==='new'){
+      if(s.w<4 || s.h<4){
+        shapes.splice(shapes.indexOf(s),1);  // ただ押しただけ → 置かない
+      }
+      // 置いた直後は選択を外す。選んだままだと、次の分のつもりで変えた「隠し方」が
+      // 今置いたものまで変えてしまう（試験で実際に起きた）
+      sel=-1;
+    }
+    drag=null; render();
+  }
+  ['pointerup','pointercancel','lostpointercapture'].forEach(function(t){
+    ui.addEventListener(t, endDrag);
+  });
+
+  function round(s){
+    s.x = Math.max(0, Math.round(s.x)); s.y = Math.max(0, Math.round(s.y));
+    s.w = Math.round(s.w); s.h = Math.round(s.h);
+    if(s.x+s.w > img.naturalWidth) s.w = img.naturalWidth - s.x;
+    if(s.y+s.h > img.naturalHeight) s.h = img.naturalHeight - s.y;
+  }
+
+  /* ---------- ボタン ---------- */
+  function segment(id, key, cast){
+    var box=$(id);
+    box.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('button') : null;
+      if(!b || !box.contains(b)) return;
+      var btns = box.getElementsByTagName('button');
+      for(var i=0;i<btns.length;i++) btns[i].classList.remove('on');
+      b.classList.add('on');
+      var v = cast ? cast(b.getAttribute('data-v')) : b.getAttribute('data-v');
+      cur[key]=v;
+      if(sel>=0){ shapes[sel][key]=v; render(); }
+    });
+  }
+  segment('mode','mode',null);
+  segment('power','div',function(v){ return parseInt(v,10); });
+  segment('shape','kind',null);
+
+  $('undo').addEventListener('click', function(){
+    if(!shapes.length) return;
+    shapes.pop(); sel=-1; render();
+  });
+  $('del').addEventListener('click', function(){
+    if(sel<0){ showErr('先に、消したい所を画像の上で押して選んでください。'); return; }
+    hideErr(); shapes.splice(sel,1); sel=-1; render();
+  });
+  $('clear').addEventListener('click', function(){ shapes=[]; sel=-1; render(); });
+  $('another').addEventListener('click', function(){ file.value=''; file.click(); });
+
+  window.addEventListener('keydown', function(e){
+    if(!img || sel<0) return;
+    var s=shapes[sel], step = e.shiftKey?10:1, used=true;
+    if(e.key==='Delete' || e.key==='Backspace'){ shapes.splice(sel,1); sel=-1; }
+    else if(e.key==='ArrowLeft')  s.x-=step;
+    else if(e.key==='ArrowRight') s.x+=step;
+    else if(e.key==='ArrowUp')    s.y-=step;
+    else if(e.key==='ArrowDown')  s.y+=step;
+    else if(e.key==='Escape')     sel=-1;
+    else used=false;
+    if(used){ if(sel>=0) round(shapes[sel]); e.preventDefault(); render(); }
+  });
+
+  function save(type, ext){
+    if(!img) return;
+    if(!shapes.length){
+      showErr('まだ何も隠していません。画像の上をドラッグして、隠したい所を選んでください。');
+      return;
+    }
+    hideErr();
+    var done = function(blob){
+      if(!blob){ showErr('保存に失敗しました。画像が大きすぎるかもしれません。'); return; }
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = baseName + '_かくす.' + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    };
+    try{
+      if(type==='image/jpeg'){
+        // JPGは透明を扱えないので白地に敷いてから
+        var c=document.createElement('canvas'); c.width=base.width; c.height=base.height;
+        var g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+        g.drawImage(base,0,0);
+        c.toBlob(done, type, 0.92);
+      } else {
+        base.toBlob(done, type);
+      }
+    }catch(ex){
+      showErr('保存に失敗しました: '+ex.message);
+    }
+  }
+  $('savePng').addEventListener('click', function(){ save('image/png','png'); });
+  $('saveJpg').addEventListener('click', function(){ save('image/jpeg','jpg'); });
+})();
+</script>
+</body>
+</html>
