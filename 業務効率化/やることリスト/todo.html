@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>やることリスト</title>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --text: #1d1d1f;
+    --sub: rgba(29,29,31,0.6);
+    --line: rgba(0,0,0,0.08);
+    --tint: #0071e3;
+    --danger: #d70015;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+  h1 { font-size: 28px; font-weight: 700; margin: 0; }
+  .rev { font-size: 12px; color: var(--sub); }
+  .add { display: flex; gap: 8px; margin-bottom: 16px; }
+  .add input {
+    flex: 1; font: inherit; padding: 12px 16px; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--card); outline: none;
+  }
+  .add input:focus { border-color: var(--tint); }
+  button {
+    font: inherit; border: none; border-radius: 12px; padding: 12px 20px;
+    background: var(--tint); color: #fff; cursor: pointer;
+  }
+  button:active { opacity: 0.7; }
+  button.ghost { background: transparent; color: var(--tint); padding: 8px 12px; }
+  .msg { min-height: 24px; font-size: 14px; color: var(--danger); margin-bottom: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: 16px; overflow: hidden; }
+  li { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  li:last-child { border-bottom: none; }
+  li input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--tint); flex: none; cursor: pointer; }
+  li .text { flex: 1; cursor: text; word-break: break-word; }
+  li.done .text { color: var(--sub); text-decoration: line-through; }
+  li .edit { flex: 1; font: inherit; padding: 4px 8px; border: 1px solid var(--tint); border-radius: 8px; outline: none; }
+  li .del { background: none; color: var(--sub); padding: 4px 8px; font-size: 18px; line-height: 1; }
+  li .del:hover { color: var(--danger); }
+  .empty { padding: 32px 16px; text-align: center; color: var(--sub); }
+  footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; color: var(--sub); font-size: 14px; }
+  .note { margin-top: 32px; font-size: 12px; color: var(--sub); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>やることリスト</h1>
+    <span class="rev">rev1</span>
+  </header>
+
+  <div class="add">
+    <input id="newText" type="text" placeholder="やることを書いて Enter" autocomplete="off">
+    <button id="addBtn">追加</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <ul id="list"></ul>
+
+  <footer>
+    <span id="count"></span>
+    <button class="ghost" id="clearDone">完了したものを消す</button>
+  </footer>
+
+  <p class="note">
+    このリストは今使っているブラウザの中だけに保存されます。別のPCやスマホには同期されません。
+    ブラウザの「閲覧データを削除」をするとリストも消えます。
+  </p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var KEY = 'yarukoto.v1';
+  // データの形(あとで機能を足すときはここを広げる)
+  // task = { id, text, done, created, children: [], shift: null }
+  //   children … まじっくtodo風に分割した小タスクを入れる予定の場所
+  //   shift    … シフト(勤務)に紐づけて自動で出し入れする予定の場所
+  var state = { tasks: [] };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var listEl = $('list'), msgEl = $('msg'), countEl = $('count'), input = $('newText');
+
+  function say(text) { msgEl.textContent = text || ''; }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var obj = JSON.parse(raw);
+        if (obj && Array.isArray(obj.tasks)) state = obj;
+      }
+    } catch (e) {
+      say('保存されていたリストを読めませんでした。新しいリストとして始めます。(' + e.message + ')');
+      state = { tasks: [] };
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (e) {
+      say('保存に失敗しました。ブラウザの保存領域がいっぱいか、プライベートモードの可能性があります。(' + e.message + ')');
+    }
+  }
+
+  function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  function addTask(text) {
+    text = (text || '').trim();
+    if (!text) { say('やることが空です。何か書いてから「追加」を押してください。'); return; }
+    state.tasks.push({ id: newId(), text: text, done: false, created: Date.now(), children: [], shift: null });
+    say('');
+    save(); render();
+  }
+
+  function render() {
+    listEl.innerHTML = '';
+    if (state.tasks.length === 0) {
+      var em = document.createElement('li');
+      em.className = 'empty';
+      em.textContent = 'まだ何もありません。上の枠に書いて追加してください。';
+      listEl.appendChild(em);
+    }
+    var remain = 0;
+    state.tasks.forEach(function (t) {
+      if (!t.done) remain++;
+      var li = document.createElement('li');
+      li.className = t.done ? 'done' : '';
+      li.dataset.id = t.id;
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!t.done;
+      cb.title = t.done ? '未完了に戻す' : '完了にする';
+      cb.addEventListener('change', function () { t.done = cb.checked; save(); render(); });
+
+      var span = document.createElement('span');
+      span.className = 'text';
+      span.textContent = t.text;
+      span.title = 'クリックで書き換え';
+      span.addEventListener('click', function () { startEdit(li, t, span); });
+
+      var del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '×';
+      del.title = '削除';
+      del.addEventListener('click', function () {
+        if (!confirm('「' + t.text + '」を削除しますか?')) return;
+        state.tasks = state.tasks.filter(function (x) { return x.id !== t.id; });
+        save(); render();
+      });
+
+      li.appendChild(cb); li.appendChild(span); li.appendChild(del);
+      listEl.appendChild(li);
+    });
+    countEl.textContent = state.tasks.length === 0 ? '' : '残り ' + remain + ' 件 / 全 ' + state.tasks.length + ' 件';
+  }
+
+  function startEdit(li, t, span) {
+    var ed = document.createElement('input');
+    ed.type = 'text';
+    ed.className = 'edit';
+    ed.value = t.text;
+    li.replaceChild(ed, span);
+    ed.focus();
+    ed.setSelectionRange(ed.value.length, ed.value.length);
+    var finished = false;
+    function finish(commit) {
+      if (finished) return;
+      finished = true;
+      var v = ed.value.trim();
+      if (commit && v) t.text = v;
+      if (commit && !v) say('空にはできません。消したいときは × を押してください。');
+      save(); render();
+    }
+    ed.addEventListener('keydown', function (e) {
+      if (e.isComposing) return;
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+    });
+    ed.addEventListener('blur', function () { finish(true); });
+  }
+
+  $('addBtn').addEventListener('click', function () { addTask(input.value); input.value = ''; input.focus(); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.isComposing) { addTask(input.value); input.value = ''; }
+  });
+  $('clearDone').addEventListener('click', function () {
+    var n = state.tasks.filter(function (t) { return t.done; }).length;
+    if (n === 0) { say('完了したものはまだありません。'); return; }
+    if (!confirm('完了した ' + n + ' 件を消しますか?')) return;
+    state.tasks = state.tasks.filter(function (t) { return !t.done; });
+    say(''); save(); render();
+  });
+  window.addEventListener('pagehide', save);
+
+  load();
+  render();
+  input.focus();
+})();
+</script>
+</body>
+</html>

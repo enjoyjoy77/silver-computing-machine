@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>かさねる</title>
+<style>
+  :root{
+    --bg:#f5f5f7; --fg:#1d1d1f; --sub:#6e6e73; --card:#fff;
+    --accent:#155bd0; --line:rgba(0,0,0,.08); --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#000; --fg:#f5f5f7; --sub:#98989d; --card:#1c1c1e;
+      --accent:#4d94ff; --line:rgba(255,255,255,.1); --shadow:none; }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:32px 24px 64px; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px; margin:0 auto}
+  header{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px}
+  h1{font-size:28px; font-weight:700; letter-spacing:-.02em; margin:0}
+  .rev{font-size:12px; color:var(--sub)}
+  .lead{color:var(--sub); font-size:14px; margin:0 0 32px; line-height:1.7}
+  .card{background:var(--card); border-radius:16px; padding:24px; box-shadow:var(--shadow); margin-bottom:24px}
+
+  .drops{display:flex; gap:16px; flex-wrap:wrap}
+  .dz{flex:1 1 260px; border:2px dashed var(--line); border-radius:16px; padding:28px 20px; text-align:center; cursor:pointer; transition:.2s}
+  .dz:hover, .dz.hot{border-color:var(--accent); background:rgba(21,91,208,.04)}
+  .dz .big{font-size:16px; font-weight:600; margin-bottom:6px}
+  .dz .small{font-size:12px; color:var(--sub); line-height:1.6}
+  .dz.ready{border-style:solid; border-color:var(--accent)}
+
+  #editor{display:none}
+  .row{display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:14px}
+  .label{width:88px; flex:none; font-size:14px; font-weight:600}
+  .seg{display:flex; gap:8px; flex-wrap:wrap}
+  .seg button{font:inherit; font-size:14px; padding:8px 16px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--line); background:transparent; color:var(--fg)}
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  input[type=range]{flex:1 1 200px; min-width:160px; accent-color:var(--accent)}
+  .val{width:64px; flex:none; font-size:13px; color:var(--sub); text-align:right; font-variant-numeric:tabular-nums}
+
+  #stage{position:relative; margin:8px auto 16px; line-height:0; touch-action:none; user-select:none;
+    background:#888; border-radius:12px; overflow:hidden; width:max-content; max-width:100%}
+  #base, #ui{display:block}
+  #ui{position:absolute; left:0; top:0; cursor:move}
+
+  .meta{font-size:13px; color:var(--sub); text-align:center; margin:0 0 16px; line-height:1.7}
+  .save{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
+  .save button{font:inherit; font-size:15px; font-weight:600; padding:12px 24px; border-radius:10px;
+    border:1px solid var(--line); background:transparent; color:var(--accent); cursor:pointer}
+  .save button.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+  .save button.plain{color:var(--fg); font-weight:500}
+  .hint{font-size:12px; color:var(--sub); margin:16px 0 0; line-height:1.7; text-align:center}
+  #err{display:none; margin-top:16px; font-size:14px; color:#c0392b; line-height:1.7; white-space:pre-wrap}
+  @media (prefers-color-scheme: dark){ #err{color:#ff6b6b} }
+  @media (max-width:700px){
+    body{padding:20px 12px 48px}
+    .label{width:100%}
+    .seg button{font-size:16px; padding:10px 14px}
+    .save button{font-size:16px}
+    .val{width:100%; text-align:left}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>かさねる</h1>
+    <span class="rev">rev1</span>
+  </header>
+  <p class="lead">下じきの写真の上に、もう1枚の画像（切り抜いた絵・ロゴ・文字画像）を好きな位置と大きさで重ねて、1枚の画像として保存します。ネットにつながっていなくても動き、画像がこのパソコンの外に出ることはありません。</p>
+
+  <div class="card">
+    <div class="drops">
+      <div class="dz" id="dzBase">
+        <div class="big">① 下になる写真</div>
+        <div class="small" id="nameBase">ここに落とす／押して選ぶ</div>
+      </div>
+      <div class="dz" id="dzTop">
+        <div class="big">② 上にのせる画像</div>
+        <div class="small" id="nameTop">ここに落とす／押して選ぶ</div>
+      </div>
+    </div>
+    <input type="file" id="fileBase" accept="image/*" hidden>
+    <input type="file" id="fileTop" accept="image/*" hidden>
+    <div id="err"></div>
+
+    <div id="editor">
+      <div id="stage">
+        <canvas id="base"></canvas>
+        <canvas id="ui"></canvas>
+      </div>
+
+      <div class="row">
+        <span class="label">大きさ</span>
+        <input type="range" id="size" min="2" max="300" value="100">
+        <span class="val" id="sizeV">100%</span>
+      </div>
+      <div class="row">
+        <span class="label">回転</span>
+        <input type="range" id="rot" min="-180" max="180" value="0">
+        <span class="val" id="rotV">0°</span>
+      </div>
+      <div class="row">
+        <span class="label">すけ具合</span>
+        <input type="range" id="alpha" min="0" max="100" value="100">
+        <span class="val" id="alphaV">100%</span>
+      </div>
+      <div class="row">
+        <span class="label">重ね方</span>
+        <div class="seg" id="blend">
+          <button data-v="source-over" class="on">ふつう</button>
+          <button data-v="multiply">かけ算（白が消える）</button>
+          <button data-v="screen">スクリーン（黒が消える）</button>
+        </div>
+      </div>
+
+      <p class="meta" id="meta"></p>
+
+      <div class="save">
+        <button class="plain" id="center">真ん中に置く</button>
+        <button class="plain" id="fit">はみ出しをなおす</button>
+        <button class="plain" id="swap">上下を入れかえる</button>
+        <button class="plain" id="reset">のせた画像をやめる</button>
+      </div>
+      <div class="save" style="margin-top:8px">
+        <button class="primary" id="savePng">PNGで保存</button>
+        <button id="saveJpg">JPGで保存</button>
+      </div>
+      <p class="hint">画像の上をドラッグ＝位置を動かす／右下の白い丸を引く＝大きさ変え<br>
+        矢印キー＝1ドット動かす（Shiftで10ドット）／[ ]キー＝回転<br>
+        保存される大きさは「下になる写真」の大きさです。<br>
+        白い背景つきのロゴは「かけ算」にすると白が消えて、切り抜かなくても重ねられます。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $=function(id){ return document.getElementById(id); };
+  var base=$('base'), ui=$('ui'), editor=$('editor'), err=$('err'), meta=$('meta');
+  var imgB=null, imgT=null, nameB='image', nameT='';
+  // のせた画像の状態（下の写真の座標で持つ）
+  var ov={cx:0, cy:0, scale:1, rot:0, alpha:1, blend:'source-over'};
+  var scale=1;   // 画面の表示倍率
+
+  function showErr(m){ err.textContent=m; err.style.display='block'; }
+  function hideErr(){ err.style.display='none'; }
+
+  /* ---------- 読み込み ---------- */
+  function hookDrop(zone, input, which){
+    zone.addEventListener('click', function(){ input.click(); });
+    input.addEventListener('change', function(){ if(input.files&&input.files[0]) load(input.files[0], which); });
+    ['dragenter','dragover'].forEach(function(t){
+      zone.addEventListener(t, function(e){ e.preventDefault(); zone.classList.add('hot'); });
+    });
+    ['dragleave','drop'].forEach(function(t){
+      zone.addEventListener(t, function(e){ e.preventDefault(); zone.classList.remove('hot'); });
+    });
+    zone.addEventListener('drop', function(e){
+      var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+      if(f) load(f, which);
+      else showErr('画像として受け取れませんでした。もう一度落とすか、押してファイルを選んでください。');
+    });
+  }
+  hookDrop($('dzBase'), $('fileBase'), 'base');
+  hookDrop($('dzTop'),  $('fileTop'),  'top');
+
+  window.addEventListener('paste', function(e){
+    var items=e.clipboardData&&e.clipboardData.items; if(!items) return;
+    for(var i=0;i<items.length;i++){
+      if(items[i].type && items[i].type.indexOf('image/')===0){
+        var f=items[i].getAsFile();
+        if(f){ load(f, imgB ? 'top' : 'base'); return; }   // 下→上の順で埋める
+      }
+    }
+  });
+
+  function load(f, which){
+    hideErr();
+    if(!f.type || f.type.indexOf('image/')!==0){
+      showErr('これは画像ファイルではないようです（'+(f.type||'種類不明')+'）。jpg・png・webp などを選んでください。');
+      return;
+    }
+    var url=URL.createObjectURL(f);
+    var im=new Image();
+    im.onload=function(){
+      if(!im.naturalWidth){ showErr('画像を開けませんでした。ファイルが壊れているかもしれません。'); return; }
+      if(which==='base'){
+        imgB=im; nameB=(f.name||'image').replace(/\.[^.]+$/,'');
+        base.width=ui.width=im.naturalWidth; base.height=ui.height=im.naturalHeight;
+        $('nameBase').textContent=im.naturalWidth+' × '+im.naturalHeight+' ドット（押すと取りかえ）';
+        $('dzBase').classList.add('ready');
+        if(imgT) place();      // 下を変えたらのせた画像は置き直す
+      } else {
+        imgT=im; nameT=(f.name||'').replace(/\.[^.]+$/,'');
+        $('nameTop').textContent=im.naturalWidth+' × '+im.naturalHeight+' ドット（押すと取りかえ）';
+        $('dzTop').classList.add('ready');
+        if(imgB) place();
+      }
+      if(imgB){ editor.style.display='block'; fit(); render(); }
+      if(imgB && !imgT) meta.textContent='つぎに「② 上にのせる画像」を入れてください。';
+    };
+    im.onerror=function(){ showErr('画像を開けませんでした。別のファイルで試してください。'); URL.revokeObjectURL(url); };
+    im.src=url;
+  }
+
+  // のせた画像の初期配置: 下の写真の真ん中に、幅の1/3くらいで置く
+  function place(){
+    ov.cx=imgB.naturalWidth/2; ov.cy=imgB.naturalHeight/2; ov.rot=0;
+    var s=Math.min(imgB.naturalWidth/3/imgT.naturalWidth, imgB.naturalHeight/3/imgT.naturalHeight);
+    ov.scale=Math.max(0.02, Math.min(3, s));
+    $('size').value=Math.round(ov.scale*100); $('sizeV').textContent=Math.round(ov.scale*100)+'%';
+    $('rot').value=0; $('rotV').textContent='0°';
+  }
+
+  /* ---------- 表示の大きさ ---------- */
+  function fit(){
+    if(!imgB) return;
+    var wrap=document.querySelector('.wrap');
+    var avail=Math.max(240, wrap.clientWidth-48-4);
+    var availH=Math.max(200, window.innerHeight-260);
+    scale=Math.min(avail/imgB.naturalWidth, availH/imgB.naturalHeight, 1);
+    var w=Math.round(imgB.naturalWidth*scale), h=Math.round(imgB.naturalHeight*scale);
+    base.style.width=ui.style.width=w+'px';
+    base.style.height=ui.style.height=h+'px';
+  }
+  window.addEventListener('resize', function(){ fit(); drawUi(); });
+
+  /* ---------- 描画 ---------- */
+  function render(){
+    if(!imgB) return;
+    var g=base.getContext('2d');
+    g.clearRect(0,0,base.width,base.height);
+    g.drawImage(imgB,0,0);
+    if(imgT){
+      g.save();
+      g.globalAlpha=ov.alpha;
+      g.globalCompositeOperation=ov.blend;
+      g.translate(ov.cx, ov.cy);
+      g.rotate(ov.rot*Math.PI/180);
+      var w=imgT.naturalWidth*ov.scale, h=imgT.naturalHeight*ov.scale;
+      g.drawImage(imgT, -w/2, -h/2, w, h);
+      g.restore();
+    }
+    drawUi();
+    if(imgT){
+      meta.textContent='保存の大きさ '+imgB.naturalWidth+' × '+imgB.naturalHeight+' ドット'
+        + '／のせた画像 '+Math.round(imgT.naturalWidth*ov.scale)+' × '+Math.round(imgT.naturalHeight*ov.scale)+' ドット'
+        + (scale<1 ? '（画面では'+Math.round(scale*100)+'%で表示）' : '');
+    }
+  }
+
+  function corners(){
+    var w=imgT.naturalWidth*ov.scale/2, h=imgT.naturalHeight*ov.scale/2;
+    var a=ov.rot*Math.PI/180, co=Math.cos(a), si=Math.sin(a);
+    var pts=[[-w,-h],[w,-h],[w,h],[-w,h]];
+    return pts.map(function(p){
+      return [ov.cx + p[0]*co - p[1]*si, ov.cy + p[0]*si + p[1]*co];
+    });
+  }
+
+  function drawUi(){
+    var g=ui.getContext('2d');
+    g.clearRect(0,0,ui.width,ui.height);
+    if(!imgT) return;
+    var c=corners(), lw=Math.max(1,1/scale);
+    g.beginPath(); g.moveTo(c[0][0],c[0][1]);
+    for(var i=1;i<4;i++) g.lineTo(c[i][0],c[i][1]);
+    g.closePath();
+    g.lineWidth=lw*2; g.strokeStyle='rgba(255,255,255,.9)'; g.stroke();
+    g.lineWidth=lw; g.strokeStyle='rgba(0,0,0,.5)'; g.setLineDash([6/scale,4/scale]); g.stroke(); g.setLineDash([]);
+    // 右下(回転後の3番目)に大きさのつまみ
+    g.beginPath(); g.arc(c[2][0],c[2][1],8/scale,0,Math.PI*2);
+    g.fillStyle='#fff'; g.fill(); g.lineWidth=lw; g.strokeStyle='rgba(0,0,0,.5)'; g.stroke();
+  }
+
+  /* ---------- 操作 ---------- */
+  function pos(e){
+    var r=ui.getBoundingClientRect();
+    return { x:(e.clientX-r.left)/r.width*imgB.naturalWidth, y:(e.clientY-r.top)/r.height*imgB.naturalHeight };
+  }
+  function dist(ax,ay,bx,by){ return Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by)); }
+
+  var drag=null;
+  ui.addEventListener('pointerdown', function(e){
+    if(!imgB||!imgT) return;
+    ui.setPointerCapture(e.pointerId);
+    var p=pos(e), c=corners();
+    if(dist(p.x,p.y,c[2][0],c[2][1]) <= 16/scale){
+      drag={type:'size', d0:dist(p.x,p.y,ov.cx,ov.cy), s0:ov.scale};
+    } else {
+      drag={type:'move', dx:p.x-ov.cx, dy:p.y-ov.cy};
+    }
+  });
+  ui.addEventListener('pointermove', function(e){
+    if(!drag) return;
+    var p=pos(e);
+    if(drag.type==='move'){ ov.cx=p.x-drag.dx; ov.cy=p.y-drag.dy; }
+    else{
+      var d=dist(p.x,p.y,ov.cx,ov.cy);
+      if(drag.d0>0.5){
+        ov.scale=Math.max(0.02, Math.min(3, drag.s0*d/drag.d0));
+        $('size').value=Math.round(ov.scale*100); $('sizeV').textContent=Math.round(ov.scale*100)+'%';
+      }
+    }
+    render();
+  });
+  ['pointerup','pointercancel','lostpointercapture'].forEach(function(t){
+    ui.addEventListener(t, function(){ drag=null; });
+  });
+
+  window.addEventListener('keydown', function(e){
+    if(!imgB||!imgT) return;
+    var step=e.shiftKey?10:1, used=true;
+    if(e.key==='ArrowLeft') ov.cx-=step;
+    else if(e.key==='ArrowRight') ov.cx+=step;
+    else if(e.key==='ArrowUp') ov.cy-=step;
+    else if(e.key==='ArrowDown') ov.cy+=step;
+    else if(e.key==='[' ) ov.rot-=e.shiftKey?10:1;
+    else if(e.key===']' ) ov.rot+=e.shiftKey?10:1;
+    else used=false;
+    if(used){
+      if(ov.rot>180) ov.rot-=360; if(ov.rot<-180) ov.rot+=360;
+      $('rot').value=Math.round(ov.rot); $('rotV').textContent=Math.round(ov.rot)+'°';
+      e.preventDefault(); render();
+    }
+  });
+
+  /* ---------- つまみ・ボタン ---------- */
+  $('size').addEventListener('input', function(){
+    ov.scale=parseInt(this.value,10)/100; $('sizeV').textContent=this.value+'%'; render();
+  });
+  $('rot').addEventListener('input', function(){
+    ov.rot=parseInt(this.value,10); $('rotV').textContent=this.value+'°'; render();
+  });
+  $('alpha').addEventListener('input', function(){
+    ov.alpha=parseInt(this.value,10)/100; $('alphaV').textContent=this.value+'%'; render();
+  });
+  $('blend').addEventListener('click', function(e){
+    var b=e.target.closest?e.target.closest('button'):null;
+    if(!b||!this.contains(b)) return;
+    var btns=this.getElementsByTagName('button');
+    for(var i=0;i<btns.length;i++) btns[i].classList.remove('on');
+    b.classList.add('on');
+    ov.blend=b.getAttribute('data-v'); render();
+  });
+
+  $('center').addEventListener('click', function(){
+    if(!imgB) return;
+    ov.cx=imgB.naturalWidth/2; ov.cy=imgB.naturalHeight/2; render();
+  });
+  $('fit').addEventListener('click', function(){
+    if(!imgB||!imgT) return;
+    // 回転後の外接四角を出し、大きすぎるときだけ縮めて、あとは中へ押し戻す
+    // （縮めるだけだと、隅に置いたものが極端に小さくなるだけで終わる）
+    var W=imgB.naturalWidth, H=imgB.naturalHeight;
+    var a=ov.rot*Math.PI/180, co=Math.abs(Math.cos(a)), si=Math.abs(Math.sin(a));
+    var w0=imgT.naturalWidth, h0=imgT.naturalHeight;
+    var ext=function(s){ return { hx:(w0*co+h0*si)*s/2, hy:(w0*si+h0*co)*s/2 }; };
+    var e=ext(ov.scale);
+    if(e.hx*2>W || e.hy*2>H){
+      ov.scale=Math.max(0.02, ov.scale*Math.min(W/(e.hx*2), H/(e.hy*2)));
+      e=ext(ov.scale);
+    }
+    ov.cx=Math.max(e.hx, Math.min(W-e.hx, ov.cx));
+    ov.cy=Math.max(e.hy, Math.min(H-e.hy, ov.cy));
+    $('size').value=Math.round(ov.scale*100); $('sizeV').textContent=Math.round(ov.scale*100)+'%';
+    render();
+  });
+  $('swap').addEventListener('click', function(){
+    if(!imgB||!imgT){ showErr('入れかえるには2枚とも必要です。'); return; }
+    hideErr();
+    var t=imgB; imgB=imgT; imgT=t;
+    var n=nameB; nameB=nameT||'image'; nameT=n;
+    base.width=ui.width=imgB.naturalWidth; base.height=ui.height=imgB.naturalHeight;
+    $('nameBase').textContent=imgB.naturalWidth+' × '+imgB.naturalHeight+' ドット（押すと取りかえ）';
+    $('nameTop').textContent=imgT.naturalWidth+' × '+imgT.naturalHeight+' ドット（押すと取りかえ）';
+    place(); fit(); render();
+  });
+  $('reset').addEventListener('click', function(){
+    imgT=null; $('fileTop').value='';
+    $('nameTop').textContent='ここに落とす／押して選ぶ';
+    $('dzTop').classList.remove('ready');
+    render(); meta.textContent='のせた画像をやめました。「② 上にのせる画像」を入れると、また重ねられます。';
+  });
+
+  /* ---------- 保存 ---------- */
+  function save(type, ext){
+    if(!imgB){ showErr('先に「① 下になる写真」を入れてください。'); return; }
+    if(!imgT){ showErr('まだ何も重なっていません。「② 上にのせる画像」を入れてください。'); return; }
+    hideErr();
+    var done=function(blob){
+      if(!blob){ showErr('保存に失敗しました。画像が大きすぎるかもしれません。'); return; }
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=nameB+'_かさねる.'+ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); },4000);
+    };
+    try{
+      if(type==='image/jpeg'){
+        var c=document.createElement('canvas'); c.width=base.width; c.height=base.height;
+        var g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+        g.drawImage(base,0,0);
+        c.toBlob(done,type,0.92);
+      } else {
+        base.toBlob(done,type);
+      }
+    }catch(ex){ showErr('保存に失敗しました: '+ex.message); }
+  }
+  $('savePng').addEventListener('click', function(){ save('image/png','png'); });
+  $('saveJpg').addEventListener('click', function(){ save('image/jpeg','jpg'); });
+})();
+</script>
+</body>
+</html>
