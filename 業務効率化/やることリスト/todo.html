@@ -13,6 +13,7 @@
     --line: rgba(0,0,0,0.08);
     --tint: #0071e3;
     --danger: #d70015;
+    --ok: #1a7f37;
   }
   * { box-sizing: border-box; }
   body {
@@ -28,14 +29,14 @@
   h1 { font-size: 28px; font-weight: 700; margin: 0; }
   .rev { font-size: 12px; color: var(--sub); }
   .add { display: flex; gap: 8px; margin-bottom: 16px; }
-  .add input {
+  input[type=text] {
     flex: 1; font: inherit; padding: 12px 16px; border: 1px solid var(--line);
-    border-radius: 12px; background: var(--card); outline: none;
+    border-radius: 12px; background: var(--card); outline: none; min-width: 0;
   }
-  .add input:focus { border-color: var(--tint); }
+  input[type=text]:focus { border-color: var(--tint); }
   button {
     font: inherit; border: none; border-radius: 12px; padding: 12px 20px;
-    background: var(--tint); color: #fff; cursor: pointer;
+    background: var(--tint); color: #fff; cursor: pointer; white-space: nowrap;
   }
   button:active { opacity: 0.7; }
   button.ghost { background: transparent; color: var(--tint); padding: 8px 12px; }
@@ -51,6 +52,15 @@
   li .del:hover { color: var(--danger); }
   .empty { padding: 32px 16px; text-align: center; color: var(--sub); }
   footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; color: var(--sub); font-size: 14px; }
+
+  .sync { margin-top: 32px; background: var(--card); border-radius: 16px; padding: 16px; }
+  .sync h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  .sync .status { font-size: 14px; color: var(--sub); min-height: 22px; }
+  .sync .status.ok { color: var(--ok); }
+  .sync .status.error { color: var(--danger); }
+  .sync .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .sync .phrase { font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: 2px; }
+  .sync .help { font-size: 12px; color: var(--sub); margin: 8px 0 0; }
   .note { margin-top: 32px; font-size: 12px; color: var(--sub); }
 </style>
 </head>
@@ -58,7 +68,7 @@
 <div class="wrap">
   <header>
     <h1>やることリスト</h1>
-    <span class="rev">rev1</span>
+    <span class="rev">rev2</span>
   </header>
 
   <div class="add">
@@ -74,9 +84,36 @@
     <button class="ghost" id="clearDone">完了したものを消す</button>
   </footer>
 
+  <section class="sync" id="sync">
+    <h2>PCとスマホで同期する</h2>
+    <div class="status" id="syncStatus"></div>
+
+    <div id="syncOffline" hidden>
+      <p class="help">同期は公開サイトで開いたときだけ使えます。<br>
+        <a id="siteLink" href="https://silver-computing-machine-7ql.pages.dev/業務効率化/やることリスト/todo.html">公開サイトでこのページを開く</a></p>
+    </div>
+
+    <div id="syncSetup" hidden>
+      <div class="row">
+        <input id="phraseInput" type="text" placeholder="合言葉(10文字)" autocomplete="off" autocapitalize="characters" maxlength="12">
+        <button id="usePhraseBtn">つかう</button>
+        <button id="makePhraseBtn" class="ghost">新しく作る</button>
+      </div>
+      <p class="help">最初の端末で「新しく作る」→ 出た10文字を、もう片方の端末に入れて「つかう」。合言葉を知っている端末どうしが同じリストになります。中身は合言葉から作った鍵で暗号化して送るので、サーバーでは読めません。</p>
+    </div>
+
+    <div id="syncOn" hidden>
+      <div class="row" style="align-items:center">
+        <span>合言葉: <span class="phrase" id="phraseShow"></span></span>
+        <button id="stopSyncBtn" class="ghost">同期をやめる</button>
+      </div>
+      <p class="help">合言葉は誰にも見せないでください。知られると、その人もリストを読み書きできます。</p>
+    </div>
+  </section>
+
   <p class="note">
-    このリストは今使っているブラウザの中だけに保存されます。別のPCやスマホには同期されません。
-    ブラウザの「閲覧データを削除」をするとリストも消えます。
+    このリストはブラウザの中に保存されます。同期を設定していないときは、この端末だけのリストです。
+    ブラウザの「閲覧データを削除」をすると消えます(同期していれば、合言葉を入れ直せば戻ります)。
   </p>
 </div>
 
@@ -84,14 +121,17 @@
 (function () {
   'use strict';
   var KEY = 'yarukoto.v1';
+  var PHRASE_KEY = 'yarukoto.syncPhrase';
   // データの形(あとで機能を足すときはここを広げる)
-  // task = { id, text, done, created, children: [], shift: null }
+  // task = { id, text, done, created, updated, children: [], shift: null }
   //   children … まじっくtodo風に分割した小タスクを入れる予定の場所
   //   shift    … シフト(勤務)に紐づけて自動で出し入れする予定の場所
+  //   updated  … 同期で衝突したとき、新しい方を採るための時刻
   var state = { tasks: [] };
 
   var $ = function (id) { return document.getElementById(id); };
   var listEl = $('list'), msgEl = $('msg'), countEl = $('count'), input = $('newText');
+  var editing = false;
 
   function say(text) { msgEl.textContent = text || ''; }
 
@@ -116,14 +156,20 @@
     }
   }
 
+  // 変更があったら: ブラウザに保存 → 画面を描き直す → (同期中なら)送る
+  function changed() {
+    save(); render(); sync.scheduleSend();
+  }
+
   function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
   function addTask(text) {
     text = (text || '').trim();
     if (!text) { say('やることが空です。何か書いてから「追加」を押してください。'); return; }
-    state.tasks.push({ id: newId(), text: text, done: false, created: Date.now(), children: [], shift: null });
+    var now = Date.now();
+    state.tasks.push({ id: newId(), text: text, done: false, created: now, updated: now, children: [], shift: null });
     say('');
-    save(); render();
+    changed();
   }
 
   function render() {
@@ -145,7 +191,7 @@
       cb.type = 'checkbox';
       cb.checked = !!t.done;
       cb.title = t.done ? '未完了に戻す' : '完了にする';
-      cb.addEventListener('change', function () { t.done = cb.checked; save(); render(); });
+      cb.addEventListener('change', function () { t.done = cb.checked; t.updated = Date.now(); changed(); });
 
       var span = document.createElement('span');
       span.className = 'text';
@@ -160,7 +206,7 @@
       del.addEventListener('click', function () {
         if (!confirm('「' + t.text + '」を削除しますか?')) return;
         state.tasks = state.tasks.filter(function (x) { return x.id !== t.id; });
-        save(); render();
+        changed();
       });
 
       li.appendChild(cb); li.appendChild(span); li.appendChild(del);
@@ -175,16 +221,18 @@
     ed.className = 'edit';
     ed.value = t.text;
     li.replaceChild(ed, span);
+    editing = true;
     ed.focus();
     ed.setSelectionRange(ed.value.length, ed.value.length);
     var finished = false;
     function finish(commit) {
       if (finished) return;
       finished = true;
+      editing = false;
       var v = ed.value.trim();
-      if (commit && v) t.text = v;
+      if (commit && v && v !== t.text) { t.text = v; t.updated = Date.now(); }
       if (commit && !v) say('空にはできません。消したいときは × を押してください。');
-      save(); render();
+      changed();
     }
     ed.addEventListener('keydown', function (e) {
       if (e.isComposing) return;
@@ -203,12 +251,278 @@
     if (n === 0) { say('完了したものはまだありません。'); return; }
     if (!confirm('完了した ' + n + ' 件を消しますか?')) return;
     state.tasks = state.tasks.filter(function (t) { return !t.done; });
-    say(''); save(); render();
+    say(''); changed();
   });
   window.addEventListener('pagehide', save);
 
+  // ===== 同期(テキスト同期の暗号版 angou.html と同じ型) =====
+  // 合言葉10文字 → (a)サーバーに渡す置き場番号6文字 (b)暗号の鍵。サーバーは暗号文しか持たない。
+  var sync = (function () {
+    var ALPHABET = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+    var PHRASE_RE = /^[0-9A-HJ-NP-Z]{10}$/;
+    var MAGIC = 'TDENC1';
+    var PBKDF2_ITER = 300000;
+    var FIXED_SALT = 'yarukoto-sync-v1';
+    var SEND_DELAY_MS = 800;
+    var POLL_MS = 4000;
+
+    var statusEl = $('syncStatus'), setupEl = $('syncSetup'), onEl = $('syncOn'), offlineEl = $('syncOffline');
+    var phraseInput = $('phraseInput');
+    var phrase = '', locker = '', aesKey = null;
+    var lastSeen = '';          // サーバーで最後に見た updatedAt(上書き事故よけに送る)
+    var lastSentText = null;    // 直前に送った暗号化前の文字列(同じなら送らない)
+    var sendTimer = null, pollTimer = null, sending = false, sendAgain = false, gen = 0;
+    var online = location.protocol === 'http:' || location.protocol === 'https:';
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text || '';
+      statusEl.className = 'status' + (kind ? ' ' + kind : '');
+    }
+    function show(which) {
+      setupEl.hidden = which !== 'setup';
+      onEl.hidden = which !== 'on';
+      offlineEl.hidden = which !== 'offline';
+    }
+    function apiUrl() { return '/api/todo/' + locker; }
+    function supportsCrypto() {
+      return !!(window.crypto && crypto.subtle && typeof crypto.subtle.importKey === 'function' && typeof TextEncoder !== 'undefined');
+    }
+    function normalizePhrase(v) { return String(v || '').trim().replace(/[\s-]+/g, '').toUpperCase(); }
+
+    function generatePhrase() {
+      var result = '', random = new Uint8Array(1);
+      var limit = Math.floor(256 / ALPHABET.length) * ALPHABET.length;
+      while (result.length < 10) {
+        crypto.getRandomValues(random);
+        if (random[0] < limit) result += ALPHABET.charAt(random[0] % ALPHABET.length);
+      }
+      return result;
+    }
+
+    async function derive(p) {
+      var enc = new TextEncoder();
+      var digest = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode('todo-locker:' + FIXED_SALT + ':' + p)));
+      var loc = '';
+      for (var i = 0; i < 6; i++) loc += ALPHABET.charAt(digest[i] % ALPHABET.length);
+      var base = await crypto.subtle.importKey('raw', enc.encode(p), 'PBKDF2', false, ['deriveKey']);
+      var key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('todo-key:' + FIXED_SALT), iterations: PBKDF2_ITER, hash: 'SHA-256' },
+        base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      return { loc: loc, key: key };
+    }
+
+    function b64(bytes) {
+      var s = '';
+      for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    }
+    function unb64(text) {
+      var bin = atob(text), out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    async function encrypt(text) {
+      var iv = new Uint8Array(12); crypto.getRandomValues(iv);
+      var cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, aesKey, new TextEncoder().encode(text)));
+      var out = new Uint8Array(iv.length + cipher.length); out.set(iv, 0); out.set(cipher, iv.length);
+      return MAGIC + b64(out);
+    }
+    async function decrypt(payload) {
+      if (payload.indexOf(MAGIC) !== 0) throw new Error('この置き場には別の形式のデータがあります。合言葉を変えてください。');
+      var bytes;
+      try { bytes = unb64(payload.slice(MAGIC.length)); } catch (e) { throw new Error('データが壊れています。'); }
+      if (bytes.length < 12 + 17) throw new Error('データが壊れています。');
+      try {
+        var plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, aesKey, bytes.subarray(12));
+        return new TextDecoder().decode(plain);
+      } catch (e) { throw new Error('開けませんでした。合言葉が違う可能性があります。'); }
+    }
+
+    async function requestJson(url, options) {
+      var res;
+      try { res = await fetch(url, options); }
+      catch (e) { throw new Error('通信できません。ネットにつながっているか確かめてください。'); }
+      var body = null;
+      try { body = await res.json(); } catch (e) { body = null; }
+      if (!body) throw new Error('サーバーの返事が読めませんでした(' + res.status + ')。');
+      body._status = res.status;
+      return body;
+    }
+
+    function serialize() { return JSON.stringify(state); }
+
+    // 衝突時の混ぜ方: id で合わせ、両方にあるものは updated が新しい方。片方にしかないものは残す。
+    function merge(remote, local) {
+      var byId = {}, order = [];
+      function put(t) {
+        if (!t || !t.id) return;
+        if (!byId[t.id]) { byId[t.id] = t; order.push(t.id); }
+        else if ((t.updated || 0) > (byId[t.id].updated || 0)) byId[t.id] = t;
+      }
+      (remote.tasks || []).forEach(put);
+      (local.tasks || []).forEach(put);
+      return { tasks: order.map(function (id) { return byId[id]; }) };
+    }
+
+    function applyRemote(obj) {
+      if (!obj || !Array.isArray(obj.tasks)) throw new Error('受け取ったデータの形が違います。');
+      state = obj; save(); render();
+    }
+
+    async function pull(first) {
+      if (!aesKey) return;
+      var myGen = gen;
+      var body = await requestJson(apiUrl(), { method: 'GET', cache: 'no-store' });
+      if (myGen !== gen) return;
+      if (!body.ok) throw new Error(body.message || '読み込みに失敗しました。');
+      if (!body.text) {
+        // サーバーはまだ空。手元のリストを最初の内容として送る
+        lastSeen = '';
+        if (first) { lastSentText = null; scheduleSend(true); }
+        return;
+      }
+      if (body.updatedAt === lastSeen) return;
+      var plain = await decrypt(body.text);
+      if (myGen !== gen) return;
+      var remote = JSON.parse(plain);
+      if (first && state.tasks.length) {
+        // 初回に手元にもリストがある → 混ぜて送る(どちらも消さない)
+        state = merge(remote, state); save(); render();
+        lastSeen = body.updatedAt; lastSentText = null; scheduleSend(true);
+        return;
+      }
+      if (editing) return; // 書き換え中は上書きしない。次の巡回で取り込む
+      lastSeen = body.updatedAt;
+      lastSentText = plain;
+      applyRemote(remote);
+      setStatus('同期中(' + new Date().toLocaleTimeString() + ' 受信)', 'ok');
+    }
+
+    async function send() {
+      if (!aesKey) return;
+      if (sending) { sendAgain = true; return; }
+      var text = serialize();
+      if (text === lastSentText) return;
+      sending = true;
+      var myGen = gen;
+      try {
+        var payload = await encrypt(text);
+        var body = await requestJson(apiUrl(), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Todo-Base': lastSeen },
+          body: payload
+        });
+        if (myGen !== gen) return;
+        if (body._status === 409) {
+          // 別の端末が先に書いていた → 取り直して混ぜて、もう一度送る
+          var cur = await requestJson(apiUrl(), { method: 'GET', cache: 'no-store' });
+          if (myGen !== gen) return;
+          if (cur.ok && cur.text) {
+            var remote = JSON.parse(await decrypt(cur.text));
+            state = merge(remote, state); save(); render();
+            lastSeen = cur.updatedAt || '';
+          } else {
+            lastSeen = '';
+          }
+          lastSentText = null; sendAgain = true;
+          return;
+        }
+        if (!body.ok) throw new Error(body.message || '送信に失敗しました。');
+        lastSeen = body.updatedAt || '';
+        lastSentText = text;
+        setStatus('同期中(' + new Date().toLocaleTimeString() + ' 送信)', 'ok');
+      } catch (e) {
+        setStatus('同期エラー: ' + e.message, 'error');
+      } finally {
+        sending = false;
+        if (sendAgain) { sendAgain = false; scheduleSend(); }
+      }
+    }
+
+    function scheduleSend(now) {
+      if (!aesKey) return;
+      if (sendTimer) clearTimeout(sendTimer);
+      sendTimer = setTimeout(function () { sendTimer = null; send(); }, now ? 0 : SEND_DELAY_MS);
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(function () {
+        if (document.visibilityState === 'hidden') return;
+        pull(false).catch(function (e) { setStatus('同期エラー: ' + e.message, 'error'); });
+      }, POLL_MS);
+    }
+    function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+    function savePhrase(p) { try { localStorage.setItem(PHRASE_KEY, p); } catch (e) { setStatus('合言葉をブラウザに保存できませんでした。閉じる前に控えてください。', 'error'); } }
+    function loadPhrase() { try { return localStorage.getItem(PHRASE_KEY) || ''; } catch (e) { return ''; } }
+    function removePhrase() { try { localStorage.removeItem(PHRASE_KEY); } catch (e) {} }
+
+    async function start(p) {
+      p = normalizePhrase(p);
+      if (!PHRASE_RE.test(p)) { setStatus('合言葉は、IとOを除く半角英数字10文字です。', 'error'); return; }
+      gen++;
+      stopPolling();
+      setStatus('鍵を作っています…');
+      try {
+        var d = await derive(p);
+        phrase = p; locker = d.loc; aesKey = d.key;
+        lastSeen = ''; lastSentText = null;
+        savePhrase(p);
+        $('phraseShow').textContent = p;
+        show('on');
+        await pull(true);
+        setStatus('同期中', 'ok');
+        startPolling();
+      } catch (e) {
+        aesKey = null; phrase = ''; locker = '';
+        setStatus('同期を始められませんでした: ' + e.message, 'error');
+        show('setup');
+      }
+    }
+
+    function stop() {
+      gen++;
+      stopPolling();
+      if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+      aesKey = null; phrase = ''; locker = ''; lastSeen = ''; lastSentText = null;
+      removePhrase();
+      phraseInput.value = '';
+      show('setup');
+      setStatus('同期していません(この端末だけのリスト)。');
+    }
+
+    $('usePhraseBtn').addEventListener('click', function () { start(phraseInput.value); });
+    phraseInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) start(phraseInput.value); });
+    $('makePhraseBtn').addEventListener('click', function () {
+      var p = generatePhrase();
+      phraseInput.value = p;
+      start(p);
+    });
+    $('stopSyncBtn').addEventListener('click', function () {
+      if (!confirm('この端末の同期をやめますか?(リストは残ります。もう一度同じ合言葉を入れれば再開できます)')) return;
+      stop();
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible' && aesKey) {
+        pull(false).catch(function (e) { setStatus('同期エラー: ' + e.message, 'error'); });
+      }
+    });
+
+    function init() {
+      if (!online) { show('offline'); setStatus('同期していません(この端末だけのリスト)。'); return; }
+      if (!supportsCrypto()) { show('offline'); setStatus('このブラウザは暗号化に対応していないので同期できません。ChromeかSafari本体で開いてください。', 'error'); return; }
+      var saved = loadPhrase();
+      if (saved) { phraseInput.value = saved; start(saved); }
+      else { show('setup'); setStatus('同期していません(この端末だけのリスト)。'); }
+    }
+
+    return { init: init, scheduleSend: scheduleSend };
+  })();
+
   load();
   render();
+  sync.init();
   input.focus();
 })();
 </script>
