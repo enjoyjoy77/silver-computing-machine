@@ -278,6 +278,78 @@
     line-height: 1.7;
   }
 
+  .send-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ---- カメラ画面(全面) ---- */
+  .cam-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cam-overlay[hidden] {
+    display: none;
+  }
+
+  #camVideo,
+  #camShot {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+
+  #camVideo.mirror {
+    transform: scaleX(-1);
+  }
+
+  #camVideo[hidden],
+  #camShot[hidden] {
+    display: none;
+  }
+
+  .cam-msg {
+    margin: 0;
+    padding: 6px 12px;
+    min-height: 1.6em;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #fff;
+    text-align: center;
+    background: #111;
+  }
+
+  .cam-msg.error {
+    color: #ff8a80;
+    font-weight: bold;
+  }
+
+  .cam-bar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: #111;
+  }
+
+  .cam-bar[hidden] {
+    display: none;
+  }
+
+  .cam-bar button {
+    flex: 1;
+    padding: 14px 8px;
+    font-size: 15px;
+  }
+
   @media (max-width: 420px) {
     .code-row,
     .button-row {
@@ -291,7 +363,7 @@
 </style>
 </head>
 <body>
-<div class="rev">rev1</div>
+<div class="rev">rev2</div>
 
 <div class="wrap">
   <h1>暗号ファイル同期</h1>
@@ -336,11 +408,16 @@
 
     <section class="file-area">
       <div class="send-panel" id="dropZone">
-        <button id="pickBtn" type="button" disabled>ファイルを選ぶ（複数OK）</button>
+        <div class="send-buttons">
+          <button id="pickBtn" type="button" disabled>ファイルを選ぶ（複数OK）</button>
+          <button id="cameraBtn" type="button" disabled>📷 カメラで撮って送る</button>
+        </div>
         <input id="fileInput" type="file" multiple hidden>
         <p>
           何件でも追加で送れます（1件100MB・合計30件まで）。<br>
           暗号化のぶん、ふつう版より少しだけ時間がかかります。<br>
+          「カメラで撮って送る」は、撮った写真を端末に残さず
+          暗号化して送ります（写真アプリには保存されません）。<br>
           パソコンでは、スクリーンショットをコピーして
           この画面で貼り付け（Ctrl+V）でも、
           ファイルをこの枠にドラッグしても送れます。
@@ -373,6 +450,22 @@
       </p>
     </section>
   </main>
+</div>
+
+<div id="camOverlay" class="cam-overlay" hidden>
+  <video id="camVideo" playsinline autoplay muted></video>
+  <canvas id="camCanvas" hidden></canvas>
+  <img id="camShot" alt="撮った写真" hidden>
+  <p id="camMsg" class="cam-msg"></p>
+  <div id="camLiveBar" class="cam-bar">
+    <button id="camCloseBtn" class="secondary" type="button">閉じる</button>
+    <button id="camShotBtn" type="button">撮る</button>
+    <button id="camFlipBtn" class="secondary" type="button">前後切替</button>
+  </div>
+  <div id="camShotBar" class="cam-bar" hidden>
+    <button id="camRetakeBtn" class="secondary" type="button">撮り直す</button>
+    <button id="camSendBtn" type="button">この写真を送る</button>
+  </div>
 </div>
 
 <script>
@@ -410,6 +503,19 @@
   var saveAllBtn = document.getElementById("saveAllBtn");
   var clearBtn = document.getElementById("clearBtn");
   var statusEl = document.getElementById("status");
+  var cameraBtn = document.getElementById("cameraBtn");
+  var camOverlay = document.getElementById("camOverlay");
+  var camVideo = document.getElementById("camVideo");
+  var camCanvas = document.getElementById("camCanvas");
+  var camShot = document.getElementById("camShot");
+  var camMsg = document.getElementById("camMsg");
+  var camLiveBar = document.getElementById("camLiveBar");
+  var camShotBar = document.getElementById("camShotBar");
+  var camCloseBtn = document.getElementById("camCloseBtn");
+  var camShotBtn = document.getElementById("camShotBtn");
+  var camFlipBtn = document.getElementById("camFlipBtn");
+  var camRetakeBtn = document.getElementById("camRetakeBtn");
+  var camSendBtn = document.getElementById("camSendBtn");
 
   var currentCode = "";
   var lockerCode = "";
@@ -471,6 +577,7 @@
 
   function enableControls(enabled) {
     pickBtn.disabled = !enabled;
+    cameraBtn.disabled = !enabled;
     clearBtn.disabled = !enabled;
   }
 
@@ -1198,6 +1305,273 @@
     }
   }
 
+  // ---- カメラ(その場で撮って送る) ------------------------------------
+  // 写真はブラウザのメモリ上だけで作り、暗号化して送ったら捨てる。
+  // 端末(写真アプリ・ダウンロード)には一切保存しない。通信先は既存の /api/file だけ。
+
+  var camStream = null;
+  var camFacing = "environment";
+  var camShotBlob = null;
+  var camShotUrl = null;
+  var camBusy = false;
+
+  function supportsCamera() {
+    return !!(
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function"
+    );
+  }
+
+  function setCamMsg(message, isError) {
+    camMsg.textContent = message || "";
+    camMsg.className = isError ? "cam-msg error" : "cam-msg";
+  }
+
+  function cameraErrorMessage(error) {
+    var name = error && error.name ? error.name : "";
+
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return "カメラの使用が許可されませんでした。ブラウザの設定でこのサイトのカメラを「許可」にしてから、もう一度お試しください。";
+    }
+
+    if (name === "NotFoundError" || name === "OverconstrainedError") {
+      return "この端末にカメラが見つかりません。";
+    }
+
+    if (name === "NotReadableError" || name === "AbortError") {
+      return "カメラを他のアプリが使っています。そちらを閉じてからもう一度お試しください。";
+    }
+
+    return "カメラを起動できませんでした" + (name ? "（" + name + "）" : "") + "。";
+  }
+
+  function stopCameraStream() {
+    if (camStream) {
+      camStream.getTracks().forEach(function (track) {
+        track.stop();
+      });
+      camStream = null;
+    }
+
+    camVideo.srcObject = null;
+  }
+
+  function discardShot() {
+    camShotBlob = null;
+
+    if (camShotUrl) {
+      URL.revokeObjectURL(camShotUrl);
+      camShotUrl = null;
+    }
+
+    camShot.removeAttribute("src");
+    camShot.hidden = true;
+    camVideo.hidden = false;
+    camCanvas.width = 1;
+    camCanvas.height = 1;
+    camShotBar.hidden = true;
+    camLiveBar.hidden = false;
+  }
+
+  // 映像が実際に来ているか(幅が付くか)を最大7秒待つ。
+  // ホーム画面に追加したアプリ等ではカメラが起動しても映像が来ないことがある。
+  function waitForVideoFrame() {
+    return new Promise(function (resolve, reject) {
+      var waited = 0;
+
+      var timer = setInterval(function () {
+        if (camVideo.videoWidth > 0 && camVideo.videoHeight > 0) {
+          clearInterval(timer);
+          resolve();
+          return;
+        }
+
+        waited += 100;
+
+        if (waited >= 7000 || !camStream) {
+          clearInterval(timer);
+          reject(new Error(
+            "カメラの映像が来ません。ホーム画面に追加したアプリからではなく、SafariやChrome本体でこのページを開いてください。",
+          ));
+        }
+      }, 100);
+    });
+  }
+
+  async function startCameraStream() {
+    stopCameraStream();
+    setCamMsg("カメラを起動しています...");
+
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: camFacing,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+    } catch (error) {
+      // 前後の指定で失敗したら(パソコンのWebカメラなど)指定なしでもう一度
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: true,
+        });
+      } catch (error2) {
+        throw new Error(cameraErrorMessage(error2));
+      }
+    }
+
+    camVideo.className = camFacing === "user" ? "mirror" : "";
+    camVideo.srcObject = camStream;
+
+    try {
+      await camVideo.play();
+    } catch (error) {
+      // autoplay属性で再生されるので、ここの失敗は無視してよい(映像確認は次で行う)
+    }
+
+    await waitForVideoFrame();
+    setCamMsg("");
+  }
+
+  async function openCamera() {
+    if (!currentCode || !aesKey) {
+      setStatus("先に合言葉を設定してください。", "error");
+      return;
+    }
+
+    if (!supportsCamera()) {
+      setStatus(
+        "このブラウザではカメラを使えません。SafariかChrome本体でこのページを開いてください。",
+        "error",
+      );
+      return;
+    }
+
+    if (camBusy) {
+      return;
+    }
+
+    camBusy = true;
+    discardShot();
+    camOverlay.hidden = false;
+
+    try {
+      await startCameraStream();
+    } catch (error) {
+      setCamMsg(error.message, true);
+    } finally {
+      camBusy = false;
+    }
+  }
+
+  function closeCamera() {
+    stopCameraStream();
+    discardShot();
+    camOverlay.hidden = true;
+    setCamMsg("");
+  }
+
+  function takeShot() {
+    if (!camStream || camVideo.videoWidth === 0) {
+      setCamMsg("まだ映像が来ていません。少し待ってからもう一度押してください。", true);
+      return;
+    }
+
+    var width = camVideo.videoWidth;
+    var height = camVideo.videoHeight;
+
+    camCanvas.width = width;
+    camCanvas.height = height;
+    camCanvas.getContext("2d").drawImage(camVideo, 0, 0, width, height);
+
+    camCanvas.toBlob(function (blob) {
+      if (!blob) {
+        setCamMsg("写真を作れませんでした。もう一度撮ってください。", true);
+        return;
+      }
+
+      camShotBlob = blob;
+      camShotUrl = URL.createObjectURL(blob);
+      camShot.src = camShotUrl;
+      camShot.hidden = false;
+      camVideo.hidden = true;
+      camLiveBar.hidden = true;
+      camShotBar.hidden = false;
+      setCamMsg(width + "×" + height + "・" + formatSize(blob.size));
+    }, "image/jpeg", 0.92);
+  }
+
+  function shotFileName() {
+    var d = new Date();
+
+    function two(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    return (
+      "photo_" +
+      d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate()) +
+      "_" +
+      two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds()) +
+      ".jpg"
+    );
+  }
+
+  async function sendShot() {
+    if (!camShotBlob) {
+      return;
+    }
+
+    var name = shotFileName();
+    var file;
+
+    try {
+      file = new File([camShotBlob], name, { type: "image/jpeg" });
+    } catch (error) {
+      file = camShotBlob;
+      file.name = name;
+    }
+
+    closeCamera();
+    await sendFiles([file]);
+  }
+
+  async function flipCamera() {
+    if (camBusy) {
+      return;
+    }
+
+    camBusy = true;
+    camFacing = camFacing === "user" ? "environment" : "user";
+
+    try {
+      await startCameraStream();
+    } catch (error) {
+      setCamMsg(error.message, true);
+    } finally {
+      camBusy = false;
+    }
+  }
+
+  cameraBtn.addEventListener("click", openCamera);
+  camCloseBtn.addEventListener("click", closeCamera);
+  camShotBtn.addEventListener("click", takeShot);
+  camFlipBtn.addEventListener("click", flipCamera);
+  camRetakeBtn.addEventListener("click", function () {
+    discardShot();
+    setCamMsg("");
+  });
+  camSendBtn.addEventListener("click", sendShot);
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !camOverlay.hidden) {
+      closeCamera();
+    }
+  });
+
   async function clearFiles() {
     if (!currentCode) {
       return;
@@ -1360,13 +1734,28 @@
     if (document.visibilityState === "visible") {
       refreshList(false);
       startPolling();
+
+      // カメラ画面を開いたまま戻ってきたら、映像を取り直す(アプリ切替中に止まるため)
+      if (!camOverlay.hidden && !camShotBlob && !camBusy) {
+        camBusy = true;
+        startCameraStream().catch(function (error) {
+          setCamMsg(error.message, true);
+        }).then(function () {
+          camBusy = false;
+        });
+      }
     } else {
       stopPolling();
+
+      if (!camOverlay.hidden) {
+        stopCameraStream();
+      }
     }
   });
 
   window.addEventListener("beforeunload", function () {
     stopPolling();
+    stopCameraStream();
   });
 
   function initialize() {
