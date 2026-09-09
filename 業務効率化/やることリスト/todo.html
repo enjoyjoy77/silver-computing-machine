@@ -25,42 +25,72 @@
     line-height: 1.5;
   }
   .wrap { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
   h1 { font-size: 28px; font-weight: 700; margin: 0; }
   .rev { font-size: 12px; color: var(--sub); }
+
+  .today { background: var(--card); border-radius: 16px; padding: 12px 16px; margin-bottom: 16px; }
+  .today .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .today .date { font-weight: 600; }
+  .today .shift { color: var(--tint); font-weight: 600; }
+  .today select { font: inherit; font-size: 14px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); }
+  .today .cal { font-size: 13px; color: var(--sub); margin-top: 4px; }
+  .today .cal.error { color: var(--danger); }
+  .today ul { list-style: none; margin: 8px 0 0; padding: 0; font-size: 14px; }
+  .today ul li { display: flex; gap: 8px; padding: 2px 0; border: none; }
+  .today ul li .time { color: var(--sub); min-width: 7.5em; }
+
   .add { display: flex; gap: 8px; margin-bottom: 16px; }
-  input[type=text] {
+  input[type=text], input[type=url], textarea {
     flex: 1; font: inherit; padding: 12px 16px; border: 1px solid var(--line);
     border-radius: 12px; background: var(--card); outline: none; min-width: 0;
   }
-  input[type=text]:focus { border-color: var(--tint); }
+  input[type=text]:focus, input[type=url]:focus, textarea:focus { border-color: var(--tint); }
   button {
     font: inherit; border: none; border-radius: 12px; padding: 12px 20px;
     background: var(--tint); color: #fff; cursor: pointer; white-space: nowrap;
   }
   button:active { opacity: 0.7; }
+  button:disabled { opacity: 0.4; cursor: default; }
   button.ghost { background: transparent; color: var(--tint); padding: 8px 12px; }
+  button.ico { background: transparent; color: var(--tint); padding: 4px 6px; font-size: 14px; }
   .msg { min-height: 24px; font-size: 14px; color: var(--danger); margin-bottom: 8px; }
-  ul { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: 16px; overflow: hidden; }
-  li { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  li:last-child { border-bottom: none; }
-  li input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--tint); flex: none; cursor: pointer; }
-  li .text { flex: 1; cursor: text; word-break: break-word; }
-  li.done .text { color: var(--sub); text-decoration: line-through; }
-  li .edit { flex: 1; font: inherit; padding: 4px 8px; border: 1px solid var(--tint); border-radius: 8px; outline: none; }
-  li .del { background: none; color: var(--sub); padding: 4px 8px; font-size: 18px; line-height: 1; }
-  li .del:hover { color: var(--danger); }
+
+  ul#list { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: 16px; overflow: hidden; }
+  ul#list > li { border-bottom: 1px solid var(--line); }
+  ul#list > li:last-child { border-bottom: none; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 16px; }
+  .row input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--tint); flex: none; cursor: pointer; }
+  .row .text { flex: 1; cursor: text; word-break: break-word; }
+  .row.done .text { color: var(--sub); text-decoration: line-through; }
+  .row .edit { flex: 1; font: inherit; padding: 4px 8px; border: 1px solid var(--tint); border-radius: 8px; outline: none; }
+  .row .del { background: none; color: var(--sub); padding: 4px 6px; font-size: 18px; line-height: 1; }
+  .row .del:hover { color: var(--danger); }
+  .row .tag { font-size: 11px; color: var(--sub); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+  ul.children { list-style: none; margin: 0; padding: 0 0 6px 36px; }
+  ul.children .row { padding: 4px 12px 4px 0; font-size: 15px; }
+  ul.children .row input[type=checkbox] { width: 18px; height: 18px; }
+  .childAdd { display: flex; gap: 8px; padding: 4px 12px 8px 36px; }
+  .childAdd input { padding: 6px 12px; border-radius: 8px; font-size: 15px; }
+  .childAdd button { padding: 6px 12px; border-radius: 8px; font-size: 14px; }
   .empty { padding: 32px 16px; text-align: center; color: var(--sub); }
   footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; color: var(--sub); font-size: 14px; }
 
-  .sync { margin-top: 32px; background: var(--card); border-radius: 16px; padding: 16px; }
-  .sync h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
-  .sync .status { font-size: 14px; color: var(--sub); min-height: 22px; }
-  .sync .status.ok { color: var(--ok); }
-  .sync .status.error { color: var(--danger); }
-  .sync .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .sync .phrase { font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: 2px; }
-  .sync .help { font-size: 12px; color: var(--sub); margin: 8px 0 0; }
+  section.card { margin-top: 24px; background: var(--card); border-radius: 16px; padding: 16px; }
+  section.card h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  details > summary { cursor: pointer; font-size: 15px; font-weight: 600; list-style: none; }
+  details > summary::before { content: "▸ "; color: var(--sub); }
+  details[open] > summary::before { content: "▾ "; }
+  .status { font-size: 14px; color: var(--sub); min-height: 22px; }
+  .status.ok { color: var(--ok); }
+  .status.error { color: var(--danger); }
+  .rowf { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  .phrase { font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: 2px; }
+  .help { font-size: 12px; color: var(--sub); margin: 8px 0 0; }
+  .shiftBox { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; }
+  .shiftBox label { display: block; font-size: 12px; color: var(--sub); margin-top: 8px; }
+  .shiftBox input, .shiftBox textarea { width: 100%; padding: 8px 12px; border-radius: 8px; font-size: 15px; }
+  .shiftBox textarea { min-height: 72px; resize: vertical; }
   .note { margin-top: 32px; font-size: 12px; color: var(--sub); }
 </style>
 </head>
@@ -68,8 +98,19 @@
 <div class="wrap">
   <header>
     <h1>やることリスト</h1>
-    <span class="rev">rev2</span>
+    <span class="rev">rev3</span>
   </header>
+
+  <div class="today" id="today">
+    <div class="head">
+      <span class="date" id="todayDate"></span>
+      <span class="shift" id="todayShift"></span>
+      <select id="shiftOverride" title="今日のシフトを手で直す"></select>
+      <button class="ico" id="calRefresh" title="カレンダーを読み直す">更新</button>
+    </div>
+    <div class="cal" id="calStatus"></div>
+    <ul id="todayEvents"></ul>
+  </div>
 
   <div class="add">
     <input id="newText" type="text" placeholder="やることを書いて Enter" autocomplete="off">
@@ -84,31 +125,47 @@
     <button class="ghost" id="clearDone">完了したものを消す</button>
   </footer>
 
-  <section class="sync" id="sync">
+  <section class="card" id="sync">
     <h2>PCとスマホで同期する</h2>
     <div class="status" id="syncStatus"></div>
-
     <div id="syncOffline" hidden>
-      <p class="help">同期は公開サイトで開いたときだけ使えます。<br>
-        <a id="siteLink" href="https://silver-computing-machine-7ql.pages.dev/業務効率化/やることリスト/todo.html">公開サイトでこのページを開く</a></p>
+      <p class="help">同期・カレンダー・AI分割は公開サイトで開いたときだけ使えます。<br>
+        <a href="https://silver-computing-machine-7ql.pages.dev/業務効率化/やることリスト/todo.html">公開サイトでこのページを開く</a></p>
     </div>
-
     <div id="syncSetup" hidden>
-      <div class="row">
+      <div class="rowf">
         <input id="phraseInput" type="text" placeholder="合言葉(10文字)" autocomplete="off" autocapitalize="characters" maxlength="12">
         <button id="usePhraseBtn">つかう</button>
         <button id="makePhraseBtn" class="ghost">新しく作る</button>
       </div>
       <p class="help">最初の端末で「新しく作る」→ 出た10文字を、もう片方の端末に入れて「つかう」。合言葉を知っている端末どうしが同じリストになります。中身は合言葉から作った鍵で暗号化して送るので、サーバーでは読めません。</p>
     </div>
-
     <div id="syncOn" hidden>
-      <div class="row" style="align-items:center">
+      <div class="rowf">
         <span>合言葉: <span class="phrase" id="phraseShow"></span></span>
         <button id="stopSyncBtn" class="ghost">同期をやめる</button>
       </div>
       <p class="help">合言葉は誰にも見せないでください。知られると、その人もリストを読み書きできます。</p>
     </div>
+  </section>
+
+  <section class="card">
+    <details id="settingsBox">
+      <summary>設定(カレンダーとシフト)</summary>
+      <label class="help" for="icalInput">Googleカレンダーの「iCal形式の非公開URL」</label>
+      <div class="rowf">
+        <input id="icalInput" type="url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" autocomplete="off">
+      </div>
+      <p class="help">Googleカレンダー(PC版)の「設定」→ 左でカレンダーを選ぶ →「カレンダーの統合」→「iCal形式の非公開URL」をコピーして貼る。このURLは合言葉と同じ秘密です。</p>
+
+      <div id="shiftList"></div>
+      <div class="rowf">
+        <button class="ghost" id="addShiftBtn">＋ シフトを足す</button>
+        <button id="saveSettingsBtn">設定を保存</button>
+        <span class="status" id="settingsStatus"></span>
+      </div>
+      <p class="help">シフトごとに「カレンダーの予定名に含まれる言葉」と「その日に自動で出るやること(1行に1つ)」を書きます。今日の予定名に言葉が含まれていれば、その日1回だけやることが増えます。</p>
+    </details>
   </section>
 
   <p class="note">
@@ -122,56 +179,104 @@
   'use strict';
   var KEY = 'yarukoto.v1';
   var PHRASE_KEY = 'yarukoto.syncPhrase';
-  // データの形(あとで機能を足すときはここを広げる)
-  // task = { id, text, done, created, updated, children: [], shift: null }
-  //   children … まじっくtodo風に分割した小タスクを入れる予定の場所
-  //   shift    … シフト(勤務)に紐づけて自動で出し入れする予定の場所
-  //   updated  … 同期で衝突したとき、新しい方を採るための時刻
-  var state = { tasks: [] };
+  var ICS_CACHE_KEY = 'yarukoto.icsCache';
+  // データの形
+  // state = { tasks, settings:{updated, icalUrl, shifts:[{id,name,keywords,templates}]}, spawned:{"日付|shiftId":true}, override:{"日付": shiftId|"none"} }
+  // task  = { id, text, done, created, updated, children:[{id,text,done}], origin:{shiftId,date}|null }
+  var state = freshState();
+
+  function freshState() {
+    return { tasks: [], settings: { updated: 0, icalUrl: '', shifts: [] }, spawned: {}, override: {} };
+  }
+  function normalizeState(obj) {
+    if (!obj || !Array.isArray(obj.tasks)) return null;
+    var s = freshState();
+    s.tasks = obj.tasks.filter(function (t) { return t && t.id; }).map(function (t) {
+      if (!Array.isArray(t.children)) t.children = [];
+      if (!t.updated) t.updated = t.created || 0;
+      return t;
+    });
+    if (obj.settings && typeof obj.settings === 'object') {
+      s.settings.updated = obj.settings.updated || 0;
+      s.settings.icalUrl = String(obj.settings.icalUrl || '');
+      s.settings.shifts = Array.isArray(obj.settings.shifts) ? obj.settings.shifts.filter(function (x) { return x && x.id; }) : [];
+    }
+    if (obj.spawned && typeof obj.spawned === 'object') s.spawned = obj.spawned;
+    if (obj.override && typeof obj.override === 'object') s.override = obj.override;
+    return s;
+  }
 
   var $ = function (id) { return document.getElementById(id); };
   var listEl = $('list'), msgEl = $('msg'), countEl = $('count'), input = $('newText');
   var editing = false;
+  var openChildAdd = null; // 子を足す入力欄を開いている親のid
 
   function say(text) { msgEl.textContent = text || ''; }
+  function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function todayStr() { return ymd(new Date()); }
 
   function load() {
     try {
       var raw = localStorage.getItem(KEY);
       if (raw) {
-        var obj = JSON.parse(raw);
-        if (obj && Array.isArray(obj.tasks)) state = obj;
+        var s = normalizeState(JSON.parse(raw));
+        if (s) state = s;
       }
     } catch (e) {
       say('保存されていたリストを読めませんでした。新しいリストとして始めます。(' + e.message + ')');
-      state = { tasks: [] };
+      state = freshState();
     }
   }
-
   function save() {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch (e) {
-      say('保存に失敗しました。ブラウザの保存領域がいっぱいか、プライベートモードの可能性があります。(' + e.message + ')');
-    }
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch (e) { say('保存に失敗しました。ブラウザの保存領域がいっぱいか、プライベートモードの可能性があります。(' + e.message + ')'); }
   }
-
   // 変更があったら: ブラウザに保存 → 画面を描き直す → (同期中なら)送る
-  function changed() {
-    save(); render(); sync.scheduleSend();
+  function changed() { save(); render(); sync.scheduleSend(); }
+  // 同期で丸ごと入れ替わったとき
+  // (設定が他端末から届いたときはカレンダーも読み直す。refreshは未設定・読込済みなら描画だけする)
+  function stateReplaced() { save(); render(); settingsUi.fill(); calendar.refresh(false); }
+
+  function findTask(id) {
+    for (var i = 0; i < state.tasks.length; i++) if (state.tasks[i].id === id) return state.tasks[i];
+    return null;
   }
 
-  function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-
-  function addTask(text) {
+  function addTask(text, origin, fixedId) {
     text = (text || '').trim();
-    if (!text) { say('やることが空です。何か書いてから「追加」を押してください。'); return; }
+    if (!text) { say('やることが空です。何か書いてから「追加」を押してください。'); return null; }
     var now = Date.now();
-    state.tasks.push({ id: newId(), text: text, done: false, created: now, updated: now, children: [], shift: null });
+    var t = { id: fixedId || newId(), text: text, done: false, created: now, updated: now, children: [], origin: origin || null };
+    state.tasks.push(t);
     say('');
-    changed();
+    return t;
   }
 
+  function addChild(parent, text) {
+    text = (text || '').trim();
+    if (!text) return false;
+    parent.children.push({ id: newId(), text: text, done: false });
+    if (parent.done) parent.done = false;
+    parent.updated = Date.now();
+    return true;
+  }
+
+  function setParentDone(t, v) {
+    t.done = v;
+    t.children.forEach(function (c) { c.done = v; });
+    t.updated = Date.now();
+  }
+  function setChildDone(t, c, v) {
+    c.done = v;
+    var allDone = t.children.length > 0 && t.children.every(function (x) { return x.done; });
+    t.done = allDone;
+    t.updated = Date.now();
+  }
+
+  // ---- 描画 ----
   function render() {
     listEl.innerHTML = '';
     if (state.tasks.length === 0) {
@@ -184,43 +289,122 @@
     state.tasks.forEach(function (t) {
       if (!t.done) remain++;
       var li = document.createElement('li');
-      li.className = t.done ? 'done' : '';
       li.dataset.id = t.id;
-
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!t.done;
-      cb.title = t.done ? '未完了に戻す' : '完了にする';
-      cb.addEventListener('change', function () { t.done = cb.checked; t.updated = Date.now(); changed(); });
-
-      var span = document.createElement('span');
-      span.className = 'text';
-      span.textContent = t.text;
-      span.title = 'クリックで書き換え';
-      span.addEventListener('click', function () { startEdit(li, t, span); });
-
-      var del = document.createElement('button');
-      del.className = 'del';
-      del.textContent = '×';
-      del.title = '削除';
-      del.addEventListener('click', function () {
-        if (!confirm('「' + t.text + '」を削除しますか?')) return;
-        state.tasks = state.tasks.filter(function (x) { return x.id !== t.id; });
-        changed();
-      });
-
-      li.appendChild(cb); li.appendChild(span); li.appendChild(del);
+      li.appendChild(buildRow(t, null));
+      if (t.children.length) {
+        var ul = document.createElement('ul');
+        ul.className = 'children';
+        t.children.forEach(function (c) {
+          var cli = document.createElement('li');
+          cli.appendChild(buildRow(t, c));
+          ul.appendChild(cli);
+        });
+        li.appendChild(ul);
+      }
+      if (openChildAdd === t.id) li.appendChild(buildChildAdd(t));
       listEl.appendChild(li);
     });
     countEl.textContent = state.tasks.length === 0 ? '' : '残り ' + remain + ' 件 / 全 ' + state.tasks.length + ' 件';
   }
 
-  function startEdit(li, t, span) {
+  // 親(c=null)または子(c)の1行
+  function buildRow(t, c) {
+    var item = c || t;
+    var row = document.createElement('div');
+    row.className = 'row' + (item.done ? ' done' : '') + (c ? ' child' : '');
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!item.done;
+    cb.title = item.done ? '未完了に戻す' : '完了にする';
+    cb.addEventListener('change', function () {
+      if (c) setChildDone(t, c, cb.checked); else setParentDone(t, cb.checked);
+      changed();
+    });
+
+    var span = document.createElement('span');
+    span.className = 'text';
+    span.textContent = item.text;
+    span.title = 'クリックで書き換え';
+    span.addEventListener('click', function () { startEdit(row, t, item, span); });
+
+    row.appendChild(cb);
+    row.appendChild(span);
+
+    if (!c) {
+      if (t.origin && t.origin.shiftId) {
+        var tag = document.createElement('span');
+        tag.className = 'tag';
+        var sh = shiftById(t.origin.shiftId);
+        tag.textContent = sh ? sh.name : 'シフト';
+        row.appendChild(tag);
+      }
+      var ai = document.createElement('button');
+      ai.className = 'ico';
+      ai.textContent = 'AIで分ける';
+      ai.title = 'AIが小さな手順に分けます';
+      ai.addEventListener('click', function () { breakdown(t, ai); });
+      row.appendChild(ai);
+
+      var plus = document.createElement('button');
+      plus.className = 'ico';
+      plus.textContent = '＋手順';
+      plus.title = '手で小さな手順を足す';
+      plus.addEventListener('click', function () {
+        openChildAdd = (openChildAdd === t.id) ? null : t.id;
+        render();
+        var f = listEl.querySelector('.childAdd input');
+        if (f) f.focus();
+      });
+      row.appendChild(plus);
+    }
+
+    var del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '×';
+    del.title = '削除';
+    del.addEventListener('click', function () {
+      if (!confirm('「' + item.text + '」を削除しますか?')) return;
+      if (c) {
+        t.children = t.children.filter(function (x) { return x.id !== c.id; });
+        t.updated = Date.now();
+      } else {
+        state.tasks = state.tasks.filter(function (x) { return x.id !== t.id; });
+      }
+      changed();
+    });
+    row.appendChild(del);
+    return row;
+  }
+
+  function buildChildAdd(t) {
+    var box = document.createElement('div');
+    box.className = 'childAdd';
+    var f = document.createElement('input');
+    f.type = 'text';
+    f.placeholder = '小さな手順を書いて Enter';
+    f.autocomplete = 'off';
+    var b = document.createElement('button');
+    b.textContent = '足す';
+    function commit() {
+      if (addChild(t, f.value)) { f.value = ''; changed(); var nf = listEl.querySelector('.childAdd input'); if (nf) nf.focus(); }
+    }
+    f.addEventListener('keydown', function (e) {
+      if (e.isComposing) return;
+      if (e.key === 'Enter') commit();
+      if (e.key === 'Escape') { openChildAdd = null; render(); }
+    });
+    b.addEventListener('click', commit);
+    box.appendChild(f); box.appendChild(b);
+    return box;
+  }
+
+  function startEdit(row, t, item, span) {
     var ed = document.createElement('input');
     ed.type = 'text';
     ed.className = 'edit';
-    ed.value = t.text;
-    li.replaceChild(ed, span);
+    ed.value = item.text;
+    row.replaceChild(ed, span);
     editing = true;
     ed.focus();
     ed.setSelectionRange(ed.value.length, ed.value.length);
@@ -230,7 +414,7 @@
       finished = true;
       editing = false;
       var v = ed.value.trim();
-      if (commit && v && v !== t.text) { t.text = v; t.updated = Date.now(); }
+      if (commit && v && v !== item.text) { item.text = v; t.updated = Date.now(); }
       if (commit && !v) say('空にはできません。消したいときは × を押してください。');
       changed();
     }
@@ -242,9 +426,33 @@
     ed.addEventListener('blur', function () { finish(true); });
   }
 
-  $('addBtn').addEventListener('click', function () { addTask(input.value); input.value = ''; input.focus(); });
+  // ---- AIで分ける ----
+  async function breakdown(t, btn) {
+    if (!sync.locker()) { say('「AIで分ける」は、下の「PCとスマホで同期する」を設定すると使えます。'); return; }
+    btn.disabled = true;
+    say('AIが「' + t.text + '」を小さな手順に分けています…');
+    try {
+      var body = await sync.requestJson('/api/breakdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locker: sync.locker(), text: t.text })
+      });
+      if (!body.ok || !Array.isArray(body.steps)) throw new Error(body.message || 'AIから手順が返ってきませんでした。');
+      var live = findTask(t.id);
+      if (!live) { say('分けている間に、そのやることが消えていました。'); return; }
+      body.steps.forEach(function (s) { addChild(live, s); });
+      say('');
+      changed();
+    } catch (e) {
+      say('AIで分けられませんでした: ' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  $('addBtn').addEventListener('click', function () { if (addTask(input.value)) changed(); input.value = ''; input.focus(); });
   input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.isComposing) { addTask(input.value); input.value = ''; }
+    if (e.key === 'Enter' && !e.isComposing) { if (addTask(input.value)) changed(); input.value = ''; }
   });
   $('clearDone').addEventListener('click', function () {
     var n = state.tasks.filter(function (t) { return t.done; }).length;
@@ -254,6 +462,379 @@
     say(''); changed();
   });
   window.addEventListener('pagehide', save);
+
+  // ---- シフト設定 ----
+  function shiftById(id) {
+    for (var i = 0; i < state.settings.shifts.length; i++) if (state.settings.shifts[i].id === id) return state.settings.shifts[i];
+    return null;
+  }
+  function splitWords(s) { return String(s || '').split(/[,、，\s]+/).map(function (x) { return x.trim(); }).filter(Boolean); }
+  function splitLines(s) { return String(s || '').split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean); }
+
+  var settingsUi = (function () {
+    var listBox = $('shiftList'), icalInput = $('icalInput'), statusEl = $('settingsStatus');
+    var draft = [];
+    function setStatus(t, kind) { statusEl.textContent = t || ''; statusEl.className = 'status' + (kind ? ' ' + kind : ''); }
+    function fill() {
+      icalInput.value = state.settings.icalUrl || '';
+      draft = state.settings.shifts.map(function (s) { return { id: s.id, name: s.name, keywords: s.keywords, templates: s.templates }; });
+      renderDraft();
+    }
+    function renderDraft() {
+      listBox.innerHTML = '';
+      draft.forEach(function (s, idx) {
+        var box = document.createElement('div');
+        box.className = 'shiftBox';
+        box.innerHTML =
+          '<label>シフトの名前</label><input type="text" data-k="name" placeholder="例: 早番">' +
+          '<label>カレンダーの予定名に含まれる言葉(カンマ区切り)</label><input type="text" data-k="keywords" placeholder="例: 早番, 早">' +
+          '<label>その日に自動で出るやること(1行に1つ)</label><textarea data-k="templates" placeholder="例:\n朝の点呼\n日誌を書く"></textarea>' +
+          '<div class="rowf"><button class="ghost" data-act="del">このシフトを消す</button></div>';
+        box.querySelector('[data-k=name]').value = s.name || '';
+        box.querySelector('[data-k=keywords]').value = s.keywords || '';
+        box.querySelector('[data-k=templates]').value = s.templates || '';
+        box.querySelectorAll('[data-k]').forEach(function (el) {
+          el.addEventListener('input', function () { s[el.dataset.k] = el.value; });
+        });
+        box.querySelector('[data-act=del]').addEventListener('click', function () {
+          if (!confirm('シフト「' + (s.name || '(名前なし)') + '」を消しますか?')) return;
+          draft.splice(idx, 1); renderDraft();
+        });
+        listBox.appendChild(box);
+      });
+    }
+    $('addShiftBtn').addEventListener('click', function () {
+      draft.push({ id: 's' + newId(), name: '', keywords: '', templates: '' });
+      renderDraft();
+      var boxes = listBox.querySelectorAll('.shiftBox');
+      var last = boxes[boxes.length - 1];
+      if (last) last.querySelector('[data-k=name]').focus();
+    });
+    $('saveSettingsBtn').addEventListener('click', function () {
+      var url = icalInput.value.trim();
+      if (url && !/^https:\/\/calendar\.google\.com\/calendar\/ical\/.+\.ics$/.test(url)) {
+        setStatus('URLは calendar.google.com/calendar/ical/…/basic.ics の形です。', 'error'); return;
+      }
+      var bad = draft.filter(function (s) { return !String(s.name || '').trim(); });
+      if (bad.length) { setStatus('名前が空のシフトがあります。', 'error'); return; }
+      var urlChanged = url !== (state.settings.icalUrl || '');
+      state.settings.icalUrl = url;
+      state.settings.shifts = draft.map(function (s) {
+        return { id: s.id, name: s.name.trim(), keywords: String(s.keywords || '').trim(), templates: String(s.templates || '').trim() };
+      });
+      state.settings.updated = Date.now();
+      setStatus('保存しました。', 'ok');
+      changed();
+      if (urlChanged) calendar.refresh(true); else calendar.applyToday();
+    });
+    return { fill: fill };
+  })();
+
+  // ---- Googleカレンダー(iCal)の読み取り ----
+  var ical = (function () {
+    function unfold(text) {
+      var lines = text.split(/\r?\n/), out = [];
+      lines.forEach(function (l) {
+        if ((l.charAt(0) === ' ' || l.charAt(0) === '\t') && out.length) out[out.length - 1] += l.slice(1);
+        else out.push(l);
+      });
+      return out;
+    }
+    function parseLine(l) {
+      var i = l.indexOf(':'), j = l.indexOf(';');
+      var nameEnd = (j >= 0 && j < i) ? j : i;
+      if (i < 0) return null;
+      var name = l.slice(0, nameEnd).toUpperCase();
+      var params = {};
+      if (j >= 0 && j < i) {
+        l.slice(j + 1, i).split(';').forEach(function (p) {
+          var k = p.indexOf('=');
+          if (k > 0) params[p.slice(0, k).toUpperCase()] = p.slice(k + 1).replace(/^"|"$/g, '');
+        });
+      }
+      return { name: name, params: params, value: l.slice(i + 1) };
+    }
+    function unescape(v) { return String(v).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\'); }
+    // 日付/日時 → { date: Date, allDay }。TZID付き・無印は端末の時刻(日本)として読む。Zは世界時から変換
+    function parseDT(value, params) {
+      var v = String(value).trim();
+      var m;
+      if ((params && params.VALUE === 'DATE') || /^\d{8}$/.test(v)) {
+        m = /^(\d{4})(\d{2})(\d{2})$/.exec(v);
+        if (!m) return null;
+        return { date: new Date(+m[1], +m[2] - 1, +m[3]), allDay: true };
+      }
+      m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?(Z)?$/.exec(v);
+      if (!m) return null;
+      if (m[7]) return { date: new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0))), allDay: false };
+      return { date: new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)), allDay: false };
+    }
+    function parse(text) {
+      var lines = unfold(text), events = [], cur = null, depth = 0;
+      lines.forEach(function (l) {
+        var p = parseLine(l);
+        if (!p) return;
+        if (p.name === 'BEGIN') {
+          if (p.value.toUpperCase() === 'VEVENT') { cur = { exdates: [] }; depth = 0; }
+          else if (cur) depth++;
+          return;
+        }
+        if (p.name === 'END') {
+          if (cur && depth > 0) { depth--; return; }
+          if (p.value.toUpperCase() === 'VEVENT' && cur) { events.push(cur); cur = null; }
+          return;
+        }
+        if (!cur || depth > 0) return;
+        if (p.name === 'UID') cur.uid = p.value;
+        else if (p.name === 'SUMMARY') cur.summary = unescape(p.value);
+        else if (p.name === 'DTSTART') cur.start = parseDT(p.value, p.params);
+        else if (p.name === 'DTEND') cur.end = parseDT(p.value, p.params);
+        else if (p.name === 'DURATION') cur.duration = p.value;
+        else if (p.name === 'RRULE') cur.rrule = p.value;
+        else if (p.name === 'STATUS') cur.status = p.value.toUpperCase();
+        else if (p.name === 'RECURRENCE-ID') cur.recurrenceId = parseDT(p.value, p.params);
+        else if (p.name === 'EXDATE') {
+          p.value.split(',').forEach(function (x) { var d = parseDT(x, p.params); if (d) cur.exdates.push(d.date.getTime()); });
+        }
+      });
+      return events;
+    }
+    function parseDuration(s) {
+      var m = /^(-)?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(s || '');
+      if (!m) return 0;
+      var ms = ((+m[2] || 0) * 7 + (+m[3] || 0)) * 86400000 + (+m[4] || 0) * 3600000 + (+m[5] || 0) * 60000 + (+m[6] || 0) * 1000;
+      return m[1] ? -ms : ms;
+    }
+    var DAYS = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+    function addDays(d, n) { var x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
+    function addMonths(d, n) { var x = new Date(d.getTime()); var day = x.getDate(); x.setDate(1); x.setMonth(x.getMonth() + n); var max = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate(); x.setDate(Math.min(day, max)); return x; }
+    // 繰り返しを展開(FREQ=DAILY/WEEKLY/MONTHLY/YEARLY、INTERVAL、COUNT、UNTIL、BYDAY(週)、BYMONTHDAY(月))
+    function expand(ev, winStart, winEnd) {
+      var start = ev.start.date;
+      var dur = ev.end ? ev.end.date.getTime() - start.getTime() : (ev.duration ? parseDuration(ev.duration) : (ev.start.allDay ? 86400000 : 0));
+      var out = [];
+      function push(d) {
+        var e = new Date(d.getTime() + dur);
+        if (e > winStart && d < winEnd) out.push({ summary: ev.summary || '(無題)', start: d, end: e, allDay: ev.start.allDay, uid: ev.uid });
+      }
+      if (!ev.rrule) { push(start); return out; }
+      var rule = {};
+      ev.rrule.split(';').forEach(function (kv) { var k = kv.indexOf('='); if (k > 0) rule[kv.slice(0, k).toUpperCase()] = kv.slice(k + 1); });
+      var freq = rule.FREQ, interval = Math.max(1, parseInt(rule.INTERVAL || '1', 10));
+      var count = rule.COUNT ? parseInt(rule.COUNT, 10) : Infinity;
+      var until = rule.UNTIL ? parseDT(rule.UNTIL, {}) : null;
+      var untilMs = until ? (until.allDay ? until.date.getTime() + 86400000 - 1 : until.date.getTime()) : Infinity;
+      var ex = {};
+      ev.exdates.forEach(function (ms) { ex[ms] = true; });
+      var skip = ev.overridden || {};
+      var n = 0, guard = 0;
+      function emit(d) {
+        if (d.getTime() < start.getTime()) return true;
+        if (d.getTime() > untilMs || n >= count) return false;
+        n++;
+        if (!ex[d.getTime()] && !skip[d.getTime()]) push(d);
+        return true;
+      }
+      var wkst = DAYS[(rule.WKST || 'MO').toUpperCase()] || 1;
+      if (freq === 'WEEKLY' && rule.BYDAY) {
+        var days = rule.BYDAY.split(',').map(function (x) { return DAYS[x.replace(/^[-+]?\d+/, '').toUpperCase()]; }).filter(function (x) { return x !== undefined; }).sort();
+        var weekStart = addDays(start, -((start.getDay() - wkst + 7) % 7));
+        for (var w = 0; guard++ < 3000; w++) {
+          var base = addDays(weekStart, w * interval * 7);
+          if (base > winEnd && n >= 0) break;
+          var stop = false;
+          for (var di = 0; di < days.length; di++) {
+            var d = addDays(base, (days[di] - wkst + 7) % 7);
+            if (!emit(d)) { stop = true; break; }
+          }
+          if (stop) break;
+        }
+        return out;
+      }
+      var monthDays = rule.BYMONTHDAY ? rule.BYMONTHDAY.split(',').map(Number) : null;
+      for (var k = 0; guard++ < 3000; k++) {
+        var d2;
+        if (freq === 'DAILY') d2 = addDays(start, k * interval);
+        else if (freq === 'WEEKLY') d2 = addDays(start, k * interval * 7);
+        else if (freq === 'MONTHLY') d2 = addMonths(start, k * interval);
+        else if (freq === 'YEARLY') d2 = addMonths(start, k * interval * 12);
+        else { push(start); break; }
+        if (freq === 'MONTHLY' && monthDays) {
+          var stop2 = false;
+          for (var mi = 0; mi < monthDays.length; mi++) {
+            var dm = new Date(d2.getFullYear(), d2.getMonth(), monthDays[mi], d2.getHours(), d2.getMinutes(), d2.getSeconds());
+            if (dm.getMonth() !== d2.getMonth()) continue;
+            if (!emit(dm)) { stop2 = true; break; }
+          }
+          if (stop2 || d2 > winEnd) break;
+          continue;
+        }
+        if (!emit(d2)) break;
+        if (d2 > winEnd) break;
+      }
+      return out;
+    }
+    // 指定の範囲に入る予定の実体(繰り返しは展開済み)を返す
+    function instances(text, winStart, winEnd) {
+      var events = parse(text).filter(function (e) { return e.start && e.status !== 'CANCELLED'; });
+      var overridden = {};
+      events.forEach(function (e) {
+        if (e.recurrenceId && e.uid) {
+          overridden[e.uid] = overridden[e.uid] || {};
+          overridden[e.uid][e.recurrenceId.date.getTime()] = true;
+        }
+      });
+      var out = [];
+      events.forEach(function (e) {
+        if (e.uid && overridden[e.uid] && !e.recurrenceId) e.overridden = overridden[e.uid];
+        out.push.apply(out, expand(e, winStart, winEnd));
+      });
+      out.sort(function (a, b) { return a.start - b.start; });
+      return out;
+    }
+    return { instances: instances, parse: parse };
+  })();
+
+  var calendar = (function () {
+    var dateEl = $('todayDate'), shiftEl = $('todayShift'), selEl = $('shiftOverride'), statusEl = $('calStatus'), evEl = $('todayEvents');
+    var REFRESH_MS = 30 * 60 * 1000;
+    var icsText = null, fetchedAt = 0, fetchedUrl = '';
+    var online = location.protocol === 'http:' || location.protocol === 'https:';
+    var loading = false;
+    var lastDay = '';
+
+    function setStatus(t, kind) { statusEl.textContent = t || ''; statusEl.className = 'cal' + (kind ? ' ' + kind : ''); }
+    function loadCache() {
+      try {
+        var c = JSON.parse(localStorage.getItem(ICS_CACHE_KEY) || 'null');
+        if (c && c.ics && c.url) { icsText = c.ics; fetchedAt = c.fetchedAt || 0; fetchedUrl = c.url; }
+      } catch (e) {}
+    }
+    function saveCache() {
+      try { localStorage.setItem(ICS_CACHE_KEY, JSON.stringify({ url: fetchedUrl, fetchedAt: fetchedAt, ics: icsText })); } catch (e) {}
+    }
+    function fmtTime(d) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+
+    function todayEvents() {
+      if (!icsText) return [];
+      var t0 = new Date(); t0.setHours(0, 0, 0, 0);
+      var t1 = new Date(t0.getTime() + 86400000);
+      return ical.instances(icsText, t0, t1);
+    }
+    // 今日のシフトを決める: 手で直したものが最優先、次にカレンダーの予定名
+    function detectShift(events) {
+      var day = todayStr();
+      var ov = state.override[day];
+      if (ov === 'none') return { shift: null, how: 'manual' };
+      if (ov) { var s = shiftById(ov); if (s) return { shift: s, how: 'manual' }; }
+      for (var i = 0; i < state.settings.shifts.length; i++) {
+        var sh = state.settings.shifts[i], words = splitWords(sh.keywords);
+        if (!words.length) continue;
+        for (var j = 0; j < events.length; j++) {
+          var name = String(events[j].summary || '').toLowerCase();
+          for (var k = 0; k < words.length; k++) if (name.indexOf(words[k].toLowerCase()) >= 0) return { shift: sh, how: 'calendar' };
+        }
+      }
+      return { shift: null, how: 'calendar' };
+    }
+    // そのシフトのひな形から、今日のやることを1回だけ生やす
+    function spawn(shift) {
+      var day = todayStr(), key = day + '|' + shift.id;
+      if (state.spawned[key]) return false;
+      var lines = splitLines(shift.templates);
+      state.spawned[key] = true;
+      lines.forEach(function (text, i) {
+        var id = 'sp-' + day + '-' + shift.id + '-' + i;
+        if (findTask(id)) return;
+        addTask(text, { shiftId: shift.id, date: day }, id);
+      });
+      // 古い記録は捨てる(60日)
+      Object.keys(state.spawned).forEach(function (k) {
+        var d = new Date(k.slice(0, 10));
+        if (!isNaN(d) && Date.now() - d.getTime() > 60 * 86400000) delete state.spawned[k];
+      });
+      return true;
+    }
+
+    function renderToday() {
+      var now = new Date();
+      dateEl.textContent = (now.getMonth() + 1) + '月' + now.getDate() + '日(' + '日月火水木金土'.charAt(now.getDay()) + ')';
+      var events = todayEvents();
+      var det = detectShift(events);
+      shiftEl.textContent = det.shift ? det.shift.name : (state.settings.shifts.length ? 'シフトなし' : '');
+      shiftEl.title = det.how === 'manual' ? '手で直したシフト' : 'カレンダーから判定';
+      // 手直し用の選択肢
+      selEl.innerHTML = '';
+      var opt = document.createElement('option'); opt.value = 'auto'; opt.textContent = '自動(カレンダーから)'; selEl.appendChild(opt);
+      state.settings.shifts.forEach(function (s) { var o = document.createElement('option'); o.value = s.id; o.textContent = s.name; selEl.appendChild(o); });
+      var on = document.createElement('option'); on.value = 'none'; on.textContent = 'シフトなし'; selEl.appendChild(on);
+      selEl.value = state.override[todayStr()] || 'auto';
+      selEl.hidden = state.settings.shifts.length === 0;
+      // 予定一覧
+      evEl.innerHTML = '';
+      events.forEach(function (e) {
+        var li = document.createElement('li');
+        var tm = document.createElement('span'); tm.className = 'time';
+        tm.textContent = e.allDay ? '終日' : fmtTime(e.start) + '–' + fmtTime(e.end);
+        var nm = document.createElement('span'); nm.textContent = e.summary;
+        li.appendChild(tm); li.appendChild(nm); evEl.appendChild(li);
+      });
+      return det;
+    }
+
+    // 画面を描き直し、必要ならやることを生やす
+    function applyToday() {
+      var det = renderToday();
+      if (det.shift && spawn(det.shift)) changed();
+    }
+
+    async function refresh(force) {
+      var url = state.settings.icalUrl;
+      if (!url) { icsText = null; setStatus(state.settings.shifts.length || true ? '設定でGoogleカレンダーのURLを貼ると、今日の予定とシフトが出ます。' : ''); applyToday(); return; }
+      if (!online) { setStatus('カレンダーは公開サイトで開いたときだけ読めます。', 'error'); applyToday(); return; }
+      if (!force && icsText && fetchedUrl === url && Date.now() - fetchedAt < REFRESH_MS) {
+        setStatus('カレンダー読み込み済み(' + new Date(fetchedAt).toLocaleTimeString() + ')');
+        applyToday(); return;
+      }
+      if (loading) return;
+      loading = true;
+      setStatus('カレンダーを読んでいます…');
+      try {
+        var body = await sync.requestJson('/api/ical', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url })
+        });
+        if (!body.ok || !body.ics) throw new Error(body.message || 'カレンダーを読めませんでした。');
+        icsText = body.ics; fetchedAt = Date.now(); fetchedUrl = url; saveCache();
+        setStatus('カレンダー読み込み済み(' + new Date(fetchedAt).toLocaleTimeString() + ')');
+      } catch (e) {
+        setStatus('カレンダーを読めませんでした: ' + e.message + (icsText ? '(前回の内容で表示)' : ''), 'error');
+      } finally {
+        loading = false;
+        applyToday();
+      }
+    }
+
+    selEl.addEventListener('change', function () {
+      var day = todayStr();
+      if (selEl.value === 'auto') delete state.override[day]; else state.override[day] = selEl.value;
+      changed();
+      applyToday();
+    });
+    $('calRefresh').addEventListener('click', function () { refresh(true); });
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') tick(); });
+    function tick() {
+      if (todayStr() !== lastDay) { lastDay = todayStr(); applyToday(); }
+      if (state.settings.icalUrl) refresh(false);
+    }
+    setInterval(tick, 60 * 1000);
+
+    function init() {
+      loadCache();
+      lastDay = todayStr();
+      refresh(false);
+    }
+    return { init: init, refresh: refresh, applyToday: applyToday };
+  })();
 
   // ===== 同期(テキスト同期の暗号版 angou.html と同じ型) =====
   // 合言葉10文字 → (a)サーバーに渡す置き場番号6文字 (b)暗号の鍵。サーバーは暗号文しか持たない。
@@ -269,24 +850,15 @@
     var statusEl = $('syncStatus'), setupEl = $('syncSetup'), onEl = $('syncOn'), offlineEl = $('syncOffline');
     var phraseInput = $('phraseInput');
     var phrase = '', locker = '', aesKey = null;
-    var lastSeen = '';          // サーバーで最後に見た updatedAt(上書き事故よけに送る)
-    var lastSentText = null;    // 直前に送った暗号化前の文字列(同じなら送らない)
+    var lastSeen = '';
+    var lastSentText = null;
     var sendTimer = null, pollTimer = null, sending = false, sendAgain = false, gen = 0;
     var online = location.protocol === 'http:' || location.protocol === 'https:';
 
-    function setStatus(text, kind) {
-      statusEl.textContent = text || '';
-      statusEl.className = 'status' + (kind ? ' ' + kind : '');
-    }
-    function show(which) {
-      setupEl.hidden = which !== 'setup';
-      onEl.hidden = which !== 'on';
-      offlineEl.hidden = which !== 'offline';
-    }
+    function setStatus(text, kind) { statusEl.textContent = text || ''; statusEl.className = 'status' + (kind ? ' ' + kind : ''); }
+    function show(which) { setupEl.hidden = which !== 'setup'; onEl.hidden = which !== 'on'; offlineEl.hidden = which !== 'offline'; }
     function apiUrl() { return '/api/todo/' + locker; }
-    function supportsCrypto() {
-      return !!(window.crypto && crypto.subtle && typeof crypto.subtle.importKey === 'function' && typeof TextEncoder !== 'undefined');
-    }
+    function supportsCrypto() { return !!(window.crypto && crypto.subtle && typeof crypto.subtle.importKey === 'function' && typeof TextEncoder !== 'undefined'); }
     function normalizePhrase(v) { return String(v || '').trim().replace(/[\s-]+/g, '').toUpperCase(); }
 
     function generatePhrase() {
@@ -298,7 +870,6 @@
       }
       return result;
     }
-
     async function derive(p) {
       var enc = new TextEncoder();
       var digest = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode('todo-locker:' + FIXED_SALT + ':' + p)));
@@ -310,7 +881,6 @@
         base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
       return { loc: loc, key: key };
     }
-
     function b64(bytes) {
       var s = '';
       for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -337,7 +907,6 @@
         return new TextDecoder().decode(plain);
       } catch (e) { throw new Error('開けませんでした。合言葉が違う可能性があります。'); }
     }
-
     async function requestJson(url, options) {
       var res;
       try { res = await fetch(url, options); }
@@ -361,12 +930,19 @@
       }
       (remote.tasks || []).forEach(put);
       (local.tasks || []).forEach(put);
-      return { tasks: order.map(function (id) { return byId[id]; }) };
+      var out = freshState();
+      out.tasks = order.map(function (id) { return byId[id]; });
+      var rs = remote.settings || { updated: 0 }, ls = local.settings || { updated: 0 };
+      out.settings = ((rs.updated || 0) > (ls.updated || 0)) ? rs : ls;
+      out.spawned = Object.assign({}, remote.spawned || {}, local.spawned || {});
+      out.override = Object.assign({}, remote.override || {}, local.override || {});
+      return normalizeState(out) || out;
     }
 
     function applyRemote(obj) {
-      if (!obj || !Array.isArray(obj.tasks)) throw new Error('受け取ったデータの形が違います。');
-      state = obj; save(); render();
+      var s = normalizeState(obj);
+      if (!s) throw new Error('受け取ったデータの形が違います。');
+      state = s; stateReplaced();
     }
 
     async function pull(first) {
@@ -376,7 +952,6 @@
       if (myGen !== gen) return;
       if (!body.ok) throw new Error(body.message || '読み込みに失敗しました。');
       if (!body.text) {
-        // サーバーはまだ空。手元のリストを最初の内容として送る
         lastSeen = '';
         if (first) { lastSentText = null; scheduleSend(true); }
         return;
@@ -385,13 +960,12 @@
       var plain = await decrypt(body.text);
       if (myGen !== gen) return;
       var remote = JSON.parse(plain);
-      if (first && state.tasks.length) {
-        // 初回に手元にもリストがある → 混ぜて送る(どちらも消さない)
-        state = merge(remote, state); save(); render();
+      if (first && (state.tasks.length || state.settings.shifts.length)) {
+        state = merge(remote, state); stateReplaced();
         lastSeen = body.updatedAt; lastSentText = null; scheduleSend(true);
         return;
       }
-      if (editing) return; // 書き換え中は上書きしない。次の巡回で取り込む
+      if (editing) return;
       lastSeen = body.updatedAt;
       lastSentText = plain;
       applyRemote(remote);
@@ -414,12 +988,11 @@
         });
         if (myGen !== gen) return;
         if (body._status === 409) {
-          // 別の端末が先に書いていた → 取り直して混ぜて、もう一度送る
           var cur = await requestJson(apiUrl(), { method: 'GET', cache: 'no-store' });
           if (myGen !== gen) return;
           if (cur.ok && cur.text) {
             var remote = JSON.parse(await decrypt(cur.text));
-            state = merge(remote, state); save(); render();
+            state = merge(remote, state); stateReplaced();
             lastSeen = cur.updatedAt || '';
           } else {
             lastSeen = '';
@@ -438,13 +1011,11 @@
         if (sendAgain) { sendAgain = false; scheduleSend(); }
       }
     }
-
     function scheduleSend(now) {
       if (!aesKey) return;
       if (sendTimer) clearTimeout(sendTimer);
       sendTimer = setTimeout(function () { sendTimer = null; send(); }, now ? 0 : SEND_DELAY_MS);
     }
-
     function startPolling() {
       stopPolling();
       pollTimer = setInterval(function () {
@@ -453,7 +1024,6 @@
       }, POLL_MS);
     }
     function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
-
     function savePhrase(p) { try { localStorage.setItem(PHRASE_KEY, p); } catch (e) { setStatus('合言葉をブラウザに保存できませんでした。閉じる前に控えてください。', 'error'); } }
     function loadPhrase() { try { return localStorage.getItem(PHRASE_KEY) || ''; } catch (e) { return ''; } }
     function removePhrase() { try { localStorage.removeItem(PHRASE_KEY); } catch (e) {} }
@@ -480,7 +1050,6 @@
         show('setup');
       }
     }
-
     function stop() {
       gen++;
       stopPolling();
@@ -494,19 +1063,13 @@
 
     $('usePhraseBtn').addEventListener('click', function () { start(phraseInput.value); });
     phraseInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.isComposing) start(phraseInput.value); });
-    $('makePhraseBtn').addEventListener('click', function () {
-      var p = generatePhrase();
-      phraseInput.value = p;
-      start(p);
-    });
+    $('makePhraseBtn').addEventListener('click', function () { var p = generatePhrase(); phraseInput.value = p; start(p); });
     $('stopSyncBtn').addEventListener('click', function () {
       if (!confirm('この端末の同期をやめますか?(リストは残ります。もう一度同じ合言葉を入れれば再開できます)')) return;
       stop();
     });
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible' && aesKey) {
-        pull(false).catch(function (e) { setStatus('同期エラー: ' + e.message, 'error'); });
-      }
+      if (document.visibilityState === 'visible' && aesKey) pull(false).catch(function (e) { setStatus('同期エラー: ' + e.message, 'error'); });
     });
 
     function init() {
@@ -516,14 +1079,18 @@
       if (saved) { phraseInput.value = saved; start(saved); }
       else { show('setup'); setStatus('同期していません(この端末だけのリスト)。'); }
     }
-
-    return { init: init, scheduleSend: scheduleSend };
+    return { init: init, scheduleSend: scheduleSend, requestJson: requestJson, locker: function () { return aesKey ? locker : ''; } };
   })();
 
   load();
   render();
+  settingsUi.fill();
   sync.init();
+  calendar.init();
   input.focus();
+
+  // 検証用(ブラウザの開発ツールから): __dbg.state() で今の状態のコピー、__dbg.ical(text) で予定の切り出し
+  window.__dbg = { state: function () { return JSON.parse(JSON.stringify(state)); }, ical: ical, refresh: calendar.refresh, applyToday: calendar.applyToday };
 })();
 </script>
 </body>
