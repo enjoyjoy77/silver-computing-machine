@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>ボードゲーム(合言葉つき)</title>
+<style>
+  body{margin:0;background:#12151c;color:#eee;font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;padding:20px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#9aa3b5;font-size:13px;margin:0 0 18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;max-width:900px}
+  a.tool{display:block;background:#1c2029;border:1px solid #3a4150;border-radius:12px;padding:14px 16px;color:#eee;text-decoration:none}
+  a.tool:hover{border-color:#6c8}
+  .name{font-size:17px;font-weight:bold;display:block;margin-bottom:4px}
+  .desc{font-size:13px;color:#aab;line-height:1.5}
+  .note{margin-top:22px;font-size:12px;color:#889;max-width:900px;line-height:1.6}
+  .home{display:inline-block;margin-top:18px;font-size:13px;color:#8ab}
+  #lock{margin-top:14px;font-size:12px;background:none;border:1px solid #556;color:#aab;border-radius:8px;padding:6px 10px;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>🎲 ボードゲーム(合言葉つき) <span style="font-size:11px;color:#667;font-weight:normal">rev1 (2026-09-11)</span></h1>
+<p class="sub">どれかを開くと合言葉を聞かれます。1回入れれば、この端末では全部そのまま開けます。</p>
+
+<div class="grid">
+  <a class="tool" href="karesansui.html">
+    <span class="name">🪨 枯山水</span>
+    <span class="desc">砂紋タイルを敷いて石を置き、庭の美しさを競う。CPU対戦・2〜4人</span>
+  </a>
+  <a class="tool" href="deckrogue.html">
+    <span class="name">🗡️ デックローグ</span>
+    <span class="desc">カードを増やしながら10体の敵を倒す、ひとり用のデッキ構築ローグライク</span>
+  </a>
+  <a class="tool" href="mahjong.html">
+    <span class="name">🀄 タイパ至上主義麻雀</span>
+    <span class="desc">牌36枚・手牌5枚・約5分の麻雀。CPU対戦・2〜4人</span>
+  </a>
+  <a class="tool" href="hanafuda.html">
+    <span class="name">🎴 タイパ花札</span>
+    <span class="desc">役は4つ・5分で1戦。れんしゅうモードつき。CPU対戦</span>
+  </a>
+  <a class="tool" href="monster-maker.html">
+    <span class="name">🐉 モンスターメーカー</span>
+    <span class="desc">迷宮を進んで宝を持ち帰る1988年のカードゲーム。CPU対戦・2〜6人</span>
+  </a>
+</div>
+
+<p class="note">
+  市販のゲームを個人で遊ぶために再現したものです。合言葉を知っている人だけで楽しんでください。<br>
+  中身は暗号化してあり、合言葉が無いと開けません。
+</p>
+<button id="lock">🔒 保存した合言葉を消す</button><br>
+<a class="home" href="../">← ツール一覧へ</a>
+
+<script>
+document.getElementById("lock").onclick = function(){
+  try{ localStorage.removeItem("boardgames_pw"); sessionStorage.removeItem("boardgames_pw"); }catch(e){}
+  alert("この端末に保存した合言葉を消しました。次に開くときは入力が要ります。");
+};
+</script>
+</body>
+</html>
