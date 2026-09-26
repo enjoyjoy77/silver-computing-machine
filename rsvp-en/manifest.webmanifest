@@ -1,0 +1,17 @@
+{
+  "name": "戻れるRSVP",
+  "short_name": "RSVP",
+  "description": "英文を一語ずつ流す。止まれる、戻れる、わからない語に印を付けられる。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#161A1F",
+  "theme_color": "#1B2530",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

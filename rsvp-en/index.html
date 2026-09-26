@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>戻れるRSVP</title>
+<meta name="theme-color" content="#1B2530">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RSVP">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#E9EDF0;
+  --panel:#F6F8F9;
+  --ink:#1B2530;
+  --muted:#5F6E7B;
+  --line:#C9D1D8;
+  --pivot:#B4302E;
+  --mark:#B4302E;
+  --markbg:rgba(180,48,46,.12);
+  --btn:#1B2530;
+  --btnink:#F6F8F9;
+  --focus:#2F6FBF;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#161A1F; --panel:#1F252B; --ink:#E7EBEE; --muted:#8C99A5; --line:#343D46;
+    --pivot:#E25B55; --mark:#E25B55; --markbg:rgba(226,91,85,.18);
+    --btn:#E7EBEE; --btnink:#161A1F; --focus:#6FA8F0;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#161A1F; --panel:#1F252B; --ink:#E7EBEE; --muted:#8C99A5; --line:#343D46;
+  --pivot:#E25B55; --mark:#E25B55; --markbg:rgba(226,91,85,.18);
+  --btn:#E7EBEE; --btnink:#161A1F; --focus:#6FA8F0;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:inherit}
+body{
+  margin:0;height:100%;
+  background:var(--bg);color:var(--ink);
+  font-family:"Atkinson Hyperlegible","Helvetica Neue",Arial,"Hiragino Sans","Noto Sans JP",sans-serif;
+  font-size:16px;line-height:1.55;
+  -webkit-text-size-adjust:100%;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,textarea:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+textarea,input,select{font:inherit;color:var(--ink)}
+.screen{display:none;min-height:100%;flex-direction:column}
+.screen.on{display:flex}
+.wrap{width:100%;max-width:38rem;margin:0 auto;padding:1.25rem 1.1rem 2rem}
+
+/* ---------- setup ---------- */
+h1{font-size:1.35rem;font-weight:700;margin:.2rem 0 .2rem;letter-spacing:-.01em}
+.lead{color:var(--muted);margin:0 0 1.1rem;font-size:.95rem}
+textarea{
+  width:100%;min-height:11rem;resize:vertical;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:.8rem .9rem;line-height:1.5;
+}
+textarea::placeholder{color:var(--muted)}
+.row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.7rem}
+.row .spacer{flex:1}
+.btn{
+  background:var(--btn);color:var(--btnink);
+  border-radius:999px;padding:.7rem 1.3rem;font-weight:700;
+}
+.btn.big{padding:.9rem 1.8rem;font-size:1.05rem}
+.btn.quiet{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:400}
+.btn:disabled{opacity:.4;cursor:default}
+.count{color:var(--muted);font-size:.9rem}
+details{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
+summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:.5rem}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";width:.5rem;height:.5rem;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+details[open] summary::before{transform:rotate(45deg)}
+.set{display:grid;grid-template-columns:1fr auto;gap:.6rem 1rem;align-items:center;padding:.6rem 0;border-bottom:1px solid var(--line)}
+.set:last-child{border-bottom:0}
+.set label{display:block}
+.set small{display:block;color:var(--muted);font-size:.82rem;margin-top:.1rem}
+.set input[type=number],.set select{
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.4rem .5rem;width:6.2rem;
+}
+.set input[type=checkbox]{width:1.2rem;height:1.2rem;accent-color:var(--pivot)}
+.wordbank{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
+.wordbank h2{font-size:1rem;margin:0 0 .4rem}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0 .6rem}
+.chip{background:var(--markbg);color:var(--mark);border-radius:6px;padding:.15rem .5rem;font-size:.92rem}
+.empty{color:var(--muted);font-size:.9rem}
+
+/* ---------- reader ---------- */
+#reader{height:100%;user-select:none;-webkit-user-select:none}
+.prog{height:3px;background:var(--line);position:relative}
+.prog i{position:absolute;left:0;top:0;bottom:0;background:var(--pivot);width:0}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;color:var(--muted);font-size:.85rem}
+.topbar button{color:var(--muted);padding:.3rem .5rem}
+.stage{
+  overflow:hidden;
+  flex:1;display:flex;flex-direction:column;justify-content:center;align-items:stretch;
+  position:relative;touch-action:pan-y;min-height:0;
+}
+.ticks{position:relative;height:1.1rem}
+.ticks::after{content:"";position:absolute;left:50%;top:0;width:2px;height:100%;margin-left:-1px;background:var(--pivot);opacity:.55}
+.ticks.bottom::after{top:auto;bottom:0}
+.word{
+  display:flex;align-items:baseline;white-space:nowrap;
+  font-weight:400;line-height:1.15;padding:.35rem 0;
+  font-size:min(9vw,3.6rem);
+}
+.word .pre{flex:1 1 0;text-align:right;min-width:0}
+.word .piv{flex:0 0 auto;color:var(--pivot);font-weight:700}
+.word .post{flex:1 1 0;text-align:left;min-width:0}
+.word.marked .pre,.word.marked .post{text-decoration:underline;text-decoration-color:var(--mark);text-underline-offset:.15em}
+.hint{text-align:center;color:var(--muted);font-size:.85rem;min-height:1.4rem;margin-top:.9rem}
+.context{
+  padding:0 1.2rem;margin-top:.4rem;
+  font-size:1.05rem;line-height:1.65;text-align:center;color:var(--muted);
+  max-height:9.5rem;overflow-y:auto;
+}
+.context.hidden{visibility:hidden}
+.context .w{display:inline;cursor:pointer;padding:0 .08em;border-radius:3px}
+.context .w.cur{color:var(--ink);font-weight:700}
+.context .w.mk{background:var(--markbg);color:var(--mark)}
+.controls{
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;
+  padding:.8rem 1rem 1.1rem;
+}
+.controls .ctl{
+  border:1px solid var(--line);border-radius:14px;padding:.85rem .4rem;
+  text-align:center;font-weight:700;background:var(--panel);
+}
+.controls .ctl small{display:block;font-weight:400;color:var(--muted);font-size:.75rem;margin-top:.1rem}
+.controls .ctl.play{background:var(--btn);color:var(--btnink);border-color:var(--btn)}
+.controls .ctl.play small{color:var(--btnink);opacity:.7}
+.controls .ctl.mark{color:var(--mark);border-color:var(--mark)}
+.controls .ctl.mark.on{background:var(--markbg)}
+.wpmrow{display:flex;justify-content:center;align-items:center;gap:1rem;padding:0 1rem .4rem;color:var(--muted);font-size:.9rem}
+.wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;font-weight:700;color:var(--ink)}
+.wpmrow b{color:var(--ink);font-size:1.1rem;min-width:4.5rem;text-align:center}
+
+/* ---------- done ---------- */
+.stats{display:flex;gap:1.6rem;flex-wrap:wrap;margin:.6rem 0 1.2rem}
+.stats div b{display:block;font-size:1.6rem;line-height:1.1}
+.stats div span{color:var(--muted);font-size:.85rem}
+.marklist{list-style:none;padding:0;margin:.4rem 0 1rem}
+.marklist li{padding:.55rem 0;border-bottom:1px solid var(--line)}
+.marklist b{color:var(--mark)}
+.marklist p{margin:.15rem 0 0;color:var(--muted);font-size:.9rem}
+.marklist p mark{background:var(--markbg);color:var(--mark)}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (min-width:640px){.word{font-size:min(6vw,4.2rem)}}
+</style>
+</head>
+<body>
+
+<!-- ============ 入力 ============ -->
+<section id="setup" class="screen on">
+  <div class="wrap">
+    <h1>戻れるRSVP</h1>
+    <p class="lead">英文を一語ずつ流す。止まれる、戻れる、わからない語に印を付けられる。</p>
+    <textarea id="text" placeholder="ここに英文を貼り付け（記事、ニュース、なんでも）" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn big" id="start">読む</button>
+      <button class="btn quiet" id="sample">サンプル</button>
+      <button class="btn quiet" id="clear">消す</button>
+      <span class="spacer"></span>
+      <span class="count" id="count"></span>
+    </div>
+
+    <details id="settings">
+      <summary>設定</summary>
+      <div class="set">
+        <label>速さ（WPM）<small>1分あたりの語数。最初は200〜250が無難</small></label>
+        <input type="number" id="wpm" min="60" max="1200" step="10" value="220">
+      </div>
+      <div class="set">
+        <label>一度に出す語数<small>1語が本来のRSVP。2〜3語は句のまとまりで読む</small></label>
+        <select id="chunk"><option value="1">1語</option><option value="2">2語</option><option value="3">3語</option></select>
+      </div>
+      <div class="set">
+        <label>文末の間（ミリ秒）<small>ピリオドの後に意味を組み立てる時間</small></label>
+        <input type="number" id="pause" min="0" max="3000" step="50" value="350">
+      </div>
+      <div class="set">
+        <label>だんだん速くする<small>下の速さから上の速さまで、文章の終わりに向けて上げていく</small></label>
+        <input type="checkbox" id="ramp">
+      </div>
+      <div class="set">
+        <label>到達WPM<small>「だんだん速く」がオンのときの最終速度</small></label>
+        <input type="number" id="target" min="60" max="1500" step="10" value="320">
+      </div>
+      <div class="set">
+        <label>文脈を常に見せる<small>オフなら一時停止中だけ、その文全体が下に出る</small></label>
+        <input type="checkbox" id="alwaysctx">
+      </div>
+    </details>
+
+    <div class="wordbank">
+      <h2>印を付けた語</h2>
+      <div id="bank" class="chips"></div>
+      <div class="row">
+        <button class="btn quiet" id="copybank">コピー</button>
+        <button class="btn quiet" id="clearbank">全部消す</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 読む ============ -->
+<section id="reader" class="screen">
+  <div class="prog"><i id="bar"></i></div>
+  <div class="topbar">
+    <button id="quit">← 戻る</button>
+    <span id="pos"></span>
+    <span id="curwpm"></span>
+  </div>
+  <div class="stage" id="stage">
+    <div class="ticks"></div>
+    <div class="word" id="word"><span class="pre"></span><span class="piv"></span><span class="post"></span></div>
+    <div class="ticks bottom"></div>
+    <div class="hint" id="hint">タップで開始</div>
+    <div class="context hidden" id="ctx"></div>
+  </div>
+  <div class="wpmrow">
+    <button id="slower" aria-label="遅く">−</button>
+    <b id="wpmlabel">220</b>
+    <button id="faster" aria-label="速く">＋</button>
+  </div>
+  <div class="controls">
+    <button class="ctl" id="back">◀ 文<small>戻る</small></button>
+    <button class="ctl play" id="play">▶<small>再生</small></button>
+    <button class="ctl mark" id="mark">？<small>わからない</small></button>
+  </div>
+</section>
+
+<!-- ============ 終了 ============ -->
+<section id="done" class="screen">
+  <div class="wrap">
+    <h1>読み終えた</h1>
+    <div class="stats">
+      <div><b id="s_words">0</b><span>語</span></div>
+      <div><b id="s_time">0:00</b><span>かかった時間</span></div>
+      <div><b id="s_wpm">0</b><span>実効WPM</span></div>
+      <div><b id="s_marks">0</b><span>印を付けた語</span></div>
+    </div>
+    <ul class="marklist" id="marklist"></ul>
+    <div class="row">
+      <button class="btn big" id="again">もう一度読む</button>
+      <button class="btn quiet" id="tosetup">別の文章</button>
+      <button class="btn quiet" id="copymarks">印をコピー</button>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const KEY='rsvp_en_v1';
+
+/* ---------- state ---------- */
+let S={wpm:220,chunk:1,pause:350,ramp:false,target:320,alwaysctx:false,text:'',bank:[]};
+let tokens=[],sentences=[],frames=[];
+let idx=0,playing=false,timer=null,startedAt=0,elapsed=0,lastTick=0;
+let marks=new Set();
+
+/* ---------- storage ---------- */
+function load(){try{const r=localStorage.getItem(KEY);if(r){Object.assign(S,JSON.parse(r));}}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+
+/* ---------- tokenize ---------- */
+const ABBR=/\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|U\.S|U\.K|U\.N|No|Fig|Inc|Ltd|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|a\.m|p\.m)\.$/i;
+function tokenize(text){
+  tokens=[];sentences=[];
+  const paras=text.replace(/\r/g,'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  paras.forEach((p,pi)=>{
+    const words=p.split(/\s+/).filter(Boolean);
+    let sStart=tokens.length;
+    words.forEach((w,wi)=>{
+      const t={i:tokens.length,text:w,sent:sentences.length,para:pi,end:false,pend:false,comma:false};
+      const last=wi===words.length-1;
+      const next=words[wi+1]||'';
+      const looksEnd=/[.!?\u2026]["'\u201D\u2019)\]]*$/.test(w)&&!ABBR.test(w)&&(last||/^["'\u201C\u2018(\[]?[A-Z0-9]/.test(next));
+      t.comma=/[,;:\u2014\u2013-]["'\u201D\u2019)\]]*$/.test(w)||/^[\u2014\u2013]/.test(next);
+      if(looksEnd||last){t.end=true;if(last)t.pend=true;}
+      tokens.push(t);
+      if(t.end){sentences.push({start:sStart,end:tokens.length-1});sStart=tokens.length;}
+    });
+  });
+}
+function buildFrames(){
+  frames=[];const n=S.chunk;let i=0;
+  while(i<tokens.length){
+    const grp=[tokens[i]];let j=i;
+    while(grp.length<n&&!tokens[j].end&&!tokens[j].comma&&j+1<tokens.length&&tokens[j+1].sent===tokens[i].sent){
+      j++;grp.push(tokens[j]);
+    }
+    const lastT=grp[grp.length-1];
+    frames.push({text:grp.map(t=>t.text).join(' '),ti:i,tokens:grp,sent:tokens[i].sent,end:lastT.end,pend:lastT.pend,comma:lastT.comma});
+    i=j+1;
+  }
+}
+
+/* ---------- timing ---------- */
+function wpmAt(i){
+  if(!S.ramp||frames.length<2)return S.wpm;
+  const p=i/(frames.length-1);
+  return Math.round(S.wpm+(S.target-S.wpm)*p);
+}
+function duration(f,i){
+  const base=60000/wpmAt(i);
+  let d=base*f.tokens.length;
+  if(f.tokens.length>1)d*=0.85;
+  const maxLen=Math.max(...f.tokens.map(t=>t.text.length));
+  if(maxLen>7)d+=base*(maxLen-7)*0.08;
+  if(/\d/.test(f.text))d+=base*0.3;
+  if(f.comma)d+=base*0.5;
+  if(f.end){d+=base*0.8+S.pause;}
+  if(f.pend)d+=base*0.6+S.pause*0.5;
+  return d;
+}
+function orp(len){if(len<=1)return 0;if(len<=5)return 1;if(len<=9)return 2;if(len<=13)return 3;return 4;}
+
+/* ---------- render ---------- */
+const wordEl=$('word'),preEl=wordEl.querySelector('.pre'),pivEl=wordEl.querySelector('.piv'),postEl=wordEl.querySelector('.post');
+function showFrame(i){
+  const f=frames[i];if(!f)return;
+  const s=f.text;
+  let start=0;while(start<s.length&&!/[A-Za-z0-9]/.test(s[start]))start++;
+  const core=s.slice(start);
+  const k=start+orp(core.length||1);
+  preEl.textContent=s.slice(0,k);pivEl.textContent=s[k]||'';postEl.textContent=s.slice(k+1);
+  const len=s.length;
+  wordEl.style.fontSize=len>10?`clamp(1.3rem, ${Math.max(4.5,90/len)}vw, 3.6rem)`:'';
+  const anyMarked=f.tokens.some(t=>marks.has(t.i));
+  wordEl.classList.toggle('marked',anyMarked);
+  $('mark').classList.toggle('on',anyMarked);
+  $('bar').style.width=((i+1)/frames.length*100)+'%';
+  $('pos').textContent=`文 ${f.sent+1} / ${sentences.length}`;
+  const w=wpmAt(i);$('curwpm').textContent=S.ramp?`${w} wpm ↗`:`${w} wpm`;
+  $('wpmlabel').textContent=S.wpm;
+  renderCtx();
+}
+function renderCtx(){
+  const f=frames[idx];const ctx=$('ctx');if(!f)return;
+  const show=S.alwaysctx||!playing;
+  ctx.classList.toggle('hidden',!show);
+  const sen=sentences[f.sent];const curSet=new Set(f.tokens.map(t=>t.i));
+  ctx.innerHTML='';
+  for(let t=sen.start;t<=sen.end;t++){
+    const sp=document.createElement('span');sp.className='w';sp.textContent=tokens[t].text;
+    if(curSet.has(t))sp.classList.add('cur');
+    if(marks.has(t))sp.classList.add('mk');
+    sp.dataset.t=t;ctx.appendChild(sp);ctx.appendChild(document.createTextNode(' '));
+  }
+}
+function setHint(s){$('hint').textContent=s;}
+
+/* ---------- playback ---------- */
+function tick(){
+  if(!playing)return;
+  const f=frames[idx];
+  const d=duration(f,idx);
+  timer=setTimeout(()=>{
+    if(idx>=frames.length-1){finish();return;}
+    idx++;showFrame(idx);tick();
+  },d);
+}
+function play(){
+  if(playing)return;
+  if(idx>=frames.length-1&&frames.length){idx=0;}
+  playing=true;lastTick=Date.now();
+  $('play').innerHTML='❚❚<small>停止</small>';setHint('');
+  renderCtx();
+  timer=setTimeout(()=>{tick();},idx===0?500:150);
+}
+function pause(){
+  if(!playing)return;
+  playing=false;clearTimeout(timer);elapsed+=Date.now()-lastTick;
+  $('play').innerHTML='▶<small>再生</small>';setHint('一時停止中。下の単語をタップで印。右スワイプで1文戻る');
+  renderCtx();
+}
+function toggle(){playing?pause():play();}
+function sentStartFrame(sent){for(let i=0;i<frames.length;i++)if(frames[i].sent===sent)return i;return 0;}
+function backSentence(){
+  const wasPlaying=playing;pause();
+  const cur=frames[idx].sent;const st=sentStartFrame(cur);
+  idx=(idx>st)?st:sentStartFrame(Math.max(0,cur-1));
+  showFrame(idx);if(wasPlaying)play();
+}
+function fwdSentence(){
+  const wasPlaying=playing;pause();
+  const cur=frames[idx].sent;
+  if(cur+1<sentences.length){idx=sentStartFrame(cur+1);showFrame(idx);if(wasPlaying)play();}
+}
+function bumpWpm(d){
+  S.wpm=Math.min(1200,Math.max(60,S.wpm+d));
+  if(S.ramp&&S.target<S.wpm)S.target=S.wpm;
+  $('wpm').value=S.wpm;$('target').value=S.target;save();showFrame(idx);
+}
+function markCurrent(){
+  const f=frames[idx];const ids=f.tokens.map(t=>t.i);
+  const all=ids.every(i=>marks.has(i));
+  ids.forEach(i=>all?marks.delete(i):marks.add(i));
+  showFrame(idx);
+}
+function cleanWord(w){return w.replace(/^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g,'');}
+
+/* ---------- screens ---------- */
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));window.scrollTo(0,0);}
+function startReading(){
+  const text=$('text').value.trim();
+  if(!text){setCount('英文を貼り付けてから');return;}
+  S.text=text;readSettings();save();
+  tokenize(text);buildFrames();
+  if(!frames.length)return;
+  idx=0;marks=new Set();elapsed=0;playing=false;
+  show('reader');showFrame(0);setHint('タップで開始');
+  $('play').innerHTML='▶<small>再生</small>';
+}
+function finish(){
+  pause();
+  const words=tokens.length;const ms=Math.max(1,elapsed);
+  $('s_words').textContent=words;
+  const sec=Math.round(ms/1000);$('s_time').textContent=`${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
+  $('s_wpm').textContent=Math.round(words/(ms/60000));
+  const list=$('marklist');list.innerHTML='';
+  const seen=new Map();
+  [...marks].sort((a,b)=>a-b).forEach(t=>{
+    const w=cleanWord(tokens[t].text);if(!w)return;
+    const key=w.toLowerCase();if(seen.has(key))return;seen.set(key,t);
+    const sen=sentences[tokens[t].sent];
+    const li=document.createElement('li');
+    const b=document.createElement('b');b.textContent=w;li.appendChild(b);
+    const p=document.createElement('p');
+    for(let i=sen.start;i<=sen.end;i++){
+      if(i===t){const m=document.createElement('mark');m.textContent=tokens[i].text;p.appendChild(m);}
+      else p.appendChild(document.createTextNode(tokens[i].text));
+      p.appendChild(document.createTextNode(' '));
+    }
+    li.appendChild(p);list.appendChild(li);
+    if(!S.bank.some(x=>x.toLowerCase()===key))S.bank.push(w);
+  });
+  $('s_marks').textContent=seen.size;
+  save();renderBank();
+  show('done');
+}
+
+/* ---------- settings ui ---------- */
+function readSettings(){
+  S.wpm=+$('wpm').value||220;S.chunk=+$('chunk').value||1;S.pause=+$('pause').value||0;
+  S.ramp=$('ramp').checked;S.target=+$('target').value||S.wpm;S.alwaysctx=$('alwaysctx').checked;
+}
+function writeSettings(){
+  $('wpm').value=S.wpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
+  $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
+  $('text').value=S.text||'';setCount();
+}
+function setCount(msg){
+  const n=$('text').value.trim().split(/\s+/).filter(Boolean).length;
+  const w=+$('wpm').value||220;
+  $('count').textContent=msg||(n?`${n}語 · 約${Math.max(1,Math.round(n/w))}分`:'');
+}
+function renderBank(){
+  const el=$('bank');el.innerHTML='';
+  if(!S.bank.length){el.innerHTML='<span class="empty">まだない。読みながら「？」を押すとここに溜まる。</span>';return;}
+  S.bank.forEach(w=>{const c=document.createElement('span');c.className='chip';c.textContent=w;el.appendChild(c);});
+}
+function copyText(t,btn){
+  const done=()=>{const o=btn.textContent;btn.textContent='コピーした';setTimeout(()=>btn.textContent=o,1200);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done).catch(()=>fallback());}
+  else fallback();
+  function fallback(){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(ta);}
+}
+
+const SAMPLE=`Reading one word at a time feels strange for the first minute. Your eyes want to wander, and there is nowhere for them to go. Then something settles. The words arrive like drops from a tap, steady and small, and you stop hurrying.
+
+The trick is not speed. It is control. If a sentence slips past you, stop. Go back to where it began and let it come again. Nobody is timing you, and nothing is lost by reading a line twice.
+
+Watch for the words you do not know. Do not chase them now. Press the mark, keep going, and look them up when you are finished. Most of them will still make sense from the sentence around them. The ones that do not are the ones worth learning.
+
+When you find a comfortable pace, hold it for a while before you push it higher. Comprehension grows slowly, and it does not care how fast the screen can flash.`;
+
+/* ---------- events ---------- */
+load();writeSettings();renderBank();
+$('start').addEventListener('click',startReading);
+$('sample').addEventListener('click',()=>{$('text').value=SAMPLE;setCount();});
+$('clear').addEventListener('click',()=>{$('text').value='';setCount();});
+$('text').addEventListener('input',()=>{S.text=$('text').value;setCount();save();});
+['wpm','chunk','pause','ramp','target','alwaysctx'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
+$('copybank').addEventListener('click',e=>copyText(S.bank.join('\n'),e.currentTarget));
+$('clearbank').addEventListener('click',()=>{if(!S.bank.length)return;if(confirm('印を付けた語を全部消す？')){S.bank=[];save();renderBank();}});
+
+$('play').addEventListener('click',toggle);
+$('back').addEventListener('click',backSentence);
+$('mark').addEventListener('click',markCurrent);
+$('slower').addEventListener('click',()=>bumpWpm(-20));
+$('faster').addEventListener('click',()=>bumpWpm(20));
+$('quit').addEventListener('click',()=>{pause();show('setup');});
+$('again').addEventListener('click',()=>{idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
+$('tosetup').addEventListener('click',()=>show('setup'));
+$('copymarks').addEventListener('click',e=>{
+  const ws=[...new Set([...marks].map(t=>cleanWord(tokens[t].text)).filter(Boolean))];
+  copyText(ws.join('\n'),e.currentTarget);
+});
+
+/* stage: tap = play/pause, swipe = sentence back/forward */
+const stage=$('stage');let tx=0,ty=0,tt=0;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];tx=t.clientX;ty=t.clientY;tt=Date.now();},{passive:true});
+stage.addEventListener('touchend',e=>{
+  const t=e.changedTouches[0];const dx=t.clientX-tx,dy=t.clientY-ty;
+  if(Math.abs(dx)>60&&Math.abs(dy)<50){dx>0?backSentence():fwdSentence();}
+});
+stage.addEventListener('click',e=>{
+  const w=e.target.closest('.w');
+  if(w){const t=+w.dataset.t;marks.has(t)?marks.delete(t):marks.add(t);showFrame(idx);return;}
+  if(e.target.closest('.context'))return;
+  toggle();
+});
+
+document.addEventListener('keydown',e=>{
+  if(!$('reader').classList.contains('on'))return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  switch(e.key){
+    case ' ':e.preventDefault();toggle();break;
+    case 'ArrowLeft':backSentence();break;
+    case 'ArrowRight':fwdSentence();break;
+    case 'ArrowUp':bumpWpm(20);break;
+    case 'ArrowDown':bumpWpm(-20);break;
+    case '?':case 'm':case 'M':markCurrent();break;
+    case 'Escape':pause();show('setup');break;
+  }
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});
+}
+})();
+</script>
+</body>
+</html>
