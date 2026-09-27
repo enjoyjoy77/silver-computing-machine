@@ -3,53 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>戻れるRSVP</title>
-<meta name="theme-color" content="#1B2530">
+<title>戻れるRSVP 日本語</title>
+<meta name="theme-color" content="#2B2521">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="RSVP">
+<meta name="apple-mobile-web-app-title" content="RSVP日">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <style>
 :root{
   box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
-  --bg:#E9EDF0;
-  --panel:#F6F8F9;
-  --ink:#1B2530;
-  --muted:#5F6E7B;
-  --line:#C9D1D8;
+  --bg:#F1EDE6;
+  --panel:#FAF7F2;
+  --ink:#2B2521;
+  --muted:#6E645C;
+  --line:#D8D0C4;
   --pivot:#B4302E;
   --mark:#B4302E;
   --markbg:rgba(180,48,46,.12);
-  --btn:#1B2530;
-  --btnink:#F6F8F9;
+  --btn:#2B2521;
+  --btnink:#FAF7F2;
   --focus:#2F6FBF;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --bg:#161A1F; --panel:#1F252B; --ink:#E7EBEE; --muted:#8C99A5; --line:#343D46;
+    --bg:#1C1916; --panel:#262220; --ink:#EDE7DE; --muted:#9C9187; --line:#3D3630;
     --pivot:#E25B55; --mark:#E25B55; --markbg:rgba(226,91,85,.18);
-    --btn:#E7EBEE; --btnink:#161A1F; --focus:#6FA8F0;
+    --btn:#EDE7DE; --btnink:#1C1916; --focus:#6FA8F0;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#161A1F; --panel:#1F252B; --ink:#E7EBEE; --muted:#8C99A5; --line:#343D46;
+  --bg:#1C1916; --panel:#262220; --ink:#EDE7DE; --muted:#9C9187; --line:#3D3630;
   --pivot:#E25B55; --mark:#E25B55; --markbg:rgba(226,91,85,.18);
-  --btn:#E7EBEE; --btnink:#161A1F; --focus:#6FA8F0;
+  --btn:#EDE7DE; --btnink:#1C1916; --focus:#6FA8F0;
 }
 html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
 *{box-sizing:inherit}
 body{
   margin:0;height:100%;
   background:var(--bg);color:var(--ink);
-  font-family:"Atkinson Hyperlegible","Helvetica Neue",Arial,"Hiragino Sans","Noto Sans JP",sans-serif;
-  font-size:16px;line-height:1.55;
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic","BIZ UDPGothic","Noto Sans JP",Meiryo,sans-serif;
+  font-size:16px;line-height:1.65;
   -webkit-text-size-adjust:100%;
 }
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -67,7 +65,7 @@ h1{font-size:1.35rem;font-weight:700;margin:.2rem 0 .2rem;letter-spacing:-.01em}
 textarea{
   width:100%;min-height:11rem;resize:vertical;
   background:var(--panel);border:1px solid var(--line);border-radius:10px;
-  padding:.8rem .9rem;line-height:1.5;
+  padding:.8rem .9rem;line-height:1.7;
 }
 textarea::placeholder{color:var(--muted)}
 .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-top:.7rem}
@@ -90,7 +88,7 @@ details[open] summary::before{transform:rotate(45deg)}
 .set label{display:block}
 .set small{display:block;color:var(--muted);font-size:.82rem;margin-top:.1rem}
 .set input[type=number],.set select{
-  background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.4rem .5rem;width:6.2rem;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.4rem .5rem;width:6.6rem;
 }
 .set input[type=checkbox]{width:1.2rem;height:1.2rem;accent-color:var(--pivot)}
 .wordbank{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
@@ -98,6 +96,7 @@ details[open] summary::before{transform:rotate(45deg)}
 .chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0 .6rem}
 .chip{background:var(--markbg);color:var(--mark);border-radius:6px;padding:.15rem .5rem;font-size:.92rem}
 .empty{color:var(--muted);font-size:.9rem}
+.note{color:var(--muted);font-size:.82rem;margin:1.4rem 0 0;line-height:1.6}
 
 /* ---------- reader ---------- */
 #reader{height:100%;user-select:none;-webkit-user-select:none}
@@ -115,8 +114,8 @@ details[open] summary::before{transform:rotate(45deg)}
 .ticks.bottom::after{top:auto;bottom:0}
 .word{
   display:flex;align-items:baseline;white-space:nowrap;
-  font-weight:400;line-height:1.15;padding:.35rem 0;
-  font-size:min(9vw,3.6rem);
+  font-weight:500;line-height:1.2;padding:.35rem 0;
+  font-size:min(11vw,3.6rem);
 }
 .word .pre{flex:1 1 0;text-align:right;min-width:0}
 .word .piv{flex:0 0 auto;color:var(--pivot);font-weight:700}
@@ -125,11 +124,11 @@ details[open] summary::before{transform:rotate(45deg)}
 .hint{text-align:center;color:var(--muted);font-size:.85rem;min-height:1.4rem;margin-top:.9rem}
 .context{
   padding:0 1.2rem;margin-top:.4rem;
-  font-size:1.05rem;line-height:1.65;text-align:center;color:var(--muted);
+  font-size:1.05rem;line-height:1.9;text-align:center;color:var(--muted);
   max-height:9.5rem;overflow-y:auto;
 }
 .context.hidden{visibility:hidden}
-.context .w{display:inline;cursor:pointer;padding:0 .08em;border-radius:3px}
+.context .w{display:inline-block;cursor:pointer;padding:0 .1em;margin:0 .05em;border-radius:3px;border-bottom:1px dotted var(--line)}
 .context .w.cur{color:var(--ink);font-weight:700}
 .context .w.mk{background:var(--markbg);color:var(--mark)}
 .controls{
@@ -147,7 +146,8 @@ details[open] summary::before{transform:rotate(45deg)}
 .controls .ctl.mark.on{background:var(--markbg)}
 .wpmrow{display:flex;justify-content:center;align-items:center;gap:1rem;padding:0 1rem .4rem;color:var(--muted);font-size:.9rem}
 .wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;font-weight:700;color:var(--ink)}
-.wpmrow b{color:var(--ink);font-size:1.1rem;min-width:4.5rem;text-align:center}
+.wpmrow b{color:var(--ink);font-size:1.1rem;min-width:5.5rem;text-align:center}
+.wpmrow b small{font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.15rem}
 
 /* ---------- done ---------- */
 .stats{display:flex;gap:1.6rem;flex-wrap:wrap;margin:.6rem 0 1.2rem}
@@ -156,7 +156,7 @@ details[open] summary::before{transform:rotate(45deg)}
 .marklist{list-style:none;padding:0;margin:.4rem 0 1rem}
 .marklist li{padding:.55rem 0;border-bottom:1px solid var(--line)}
 .marklist b{color:var(--mark)}
-.marklist p{margin:.15rem 0 0;color:var(--muted);font-size:.9rem}
+.marklist p{margin:.15rem 0 0;color:var(--muted);font-size:.9rem;line-height:1.7}
 .marklist p mark{background:var(--markbg);color:var(--mark)}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -168,13 +168,14 @@ details[open] summary::before{transform:rotate(45deg)}
 <!-- ============ 入力 ============ -->
 <section id="setup" class="screen on">
   <div class="wrap">
-    <h1>戻れるRSVP</h1>
-    <p class="lead">英文を一語ずつ流す。止まれる、戻れる、わからない語に印を付けられる。</p>
-    <p class="alt"><a href="../rsvp-ja/index.html">日本語版はこちら →</a></p>
-    <textarea id="text" placeholder="ここに英文を貼り付け（記事、ニュース、なんでも）" spellcheck="false"></textarea>
+    <h1>戻れるRSVP 日本語</h1>
+    <p class="lead">文章を文節ごとに一つずつ流す。止まれる、戻れる、気になる語に印を付けられる。</p>
+    <p class="alt"><a href="../rsvp-en/index.html">英語版はこちら →</a></p>
+    <textarea id="text" placeholder="ここに日本語の文章を貼り付け（記事、小説、なんでも）" spellcheck="false"></textarea>
     <div class="row">
       <button class="btn big" id="start">読む</button>
       <button class="btn quiet" id="sample">サンプル</button>
+      <button class="btn quiet" id="soseki">漱石</button>
       <button class="btn quiet" id="clear">消す</button>
       <span class="spacer"></span>
       <span class="count" id="count"></span>
@@ -183,24 +184,24 @@ details[open] summary::before{transform:rotate(45deg)}
     <details id="settings">
       <summary>設定</summary>
       <div class="set">
-        <label>速さ（WPM）<small>1分あたりの語数。最初は200〜250が無難</small></label>
-        <input type="number" id="wpm" min="60" max="1200" step="10" value="220">
+        <label>速さ（字/分）<small>1分あたりの文字数。黙読の平均は500〜600くらい。まずは400〜500から</small></label>
+        <input type="number" id="cpm" min="100" max="3000" step="25" value="500">
       </div>
       <div class="set">
-        <label>一度に出す語数<small>1語が本来のRSVP。2〜3語は句のまとまりで読む</small></label>
-        <select id="chunk"><option value="1">1語</option><option value="2">2語</option><option value="3">3語</option></select>
+        <label>一度に出す文節数<small>1文節が基本。2〜3文節は句のまとまりで読む。「読点まで」は句読点で区切る</small></label>
+        <select id="chunk"><option value="1">1文節</option><option value="2">2文節</option><option value="3">3文節</option><option value="comma">読点まで</option></select>
       </div>
       <div class="set">
-        <label>文末の間（ミリ秒）<small>ピリオドの後に意味を組み立てる時間</small></label>
-        <input type="number" id="pause" min="0" max="3000" step="50" value="350">
+        <label>文末の間（ミリ秒）<small>句点の後に意味を組み立てる時間</small></label>
+        <input type="number" id="pause" min="0" max="3000" step="50" value="400">
       </div>
       <div class="set">
         <label>だんだん速くする<small>下の速さから上の速さまで、文章の終わりに向けて上げていく</small></label>
         <input type="checkbox" id="ramp">
       </div>
       <div class="set">
-        <label>到達WPM<small>「だんだん速く」がオンのときの最終速度</small></label>
-        <input type="number" id="target" min="60" max="1500" step="10" value="320">
+        <label>到達速度（字/分）<small>「だんだん速く」がオンのときの最終速度</small></label>
+        <input type="number" id="target" min="100" max="4000" step="25" value="800">
       </div>
       <div class="set">
         <label>文脈を常に見せる<small>オフなら一時停止中だけ、その文全体が下に出る</small></label>
@@ -216,6 +217,8 @@ details[open] summary::before{transform:rotate(45deg)}
         <button class="btn quiet" id="clearbank">全部消す</button>
       </div>
     </div>
+
+    <p class="note">文節の切り出しは機械まかせなので、たまに変な所で切れる。気になったら「読点まで」にすると切れ目が減る。</p>
   </div>
 </section>
 
@@ -236,13 +239,13 @@ details[open] summary::before{transform:rotate(45deg)}
   </div>
   <div class="wpmrow">
     <button id="slower" aria-label="遅く">−</button>
-    <b id="wpmlabel">220</b>
+    <b><span id="wpmlabel">500</span><small>字/分</small></b>
     <button id="faster" aria-label="速く">＋</button>
   </div>
   <div class="controls">
     <button class="ctl" id="back">◀ 文<small>戻る</small></button>
     <button class="ctl play" id="play">▶<small>再生</small></button>
-    <button class="ctl mark" id="mark">？<small>わからない</small></button>
+    <button class="ctl mark" id="mark">印<small>気になる</small></button>
   </div>
 </section>
 
@@ -251,9 +254,9 @@ details[open] summary::before{transform:rotate(45deg)}
   <div class="wrap">
     <h1>読み終えた</h1>
     <div class="stats">
-      <div><b id="s_words">0</b><span>語</span></div>
+      <div><b id="s_chars">0</b><span>字</span></div>
       <div><b id="s_time">0:00</b><span>かかった時間</span></div>
-      <div><b id="s_wpm">0</b><span>実効WPM</span></div>
+      <div><b id="s_cpm">0</b><span>実効 字/分</span></div>
       <div><b id="s_marks">0</b><span>印を付けた語</span></div>
     </div>
     <ul class="marklist" id="marklist"></ul>
@@ -269,89 +272,186 @@ details[open] summary::before{transform:rotate(45deg)}
 (function(){
 'use strict';
 const $=id=>document.getElementById(id);
-const KEY='rsvp_en_v1';
+const KEY='rsvp_ja_v1';
 
 /* ---------- state ---------- */
-let S={wpm:220,chunk:1,pause:350,ramp:false,target:320,alwaysctx:false,text:'',bank:[]};
+let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,text:'',bank:[]};
 let tokens=[],sentences=[],frames=[];
-let idx=0,playing=false,timer=null,startedAt=0,elapsed=0,lastTick=0;
+let idx=0,playing=false,timer=null,elapsed=0,lastTick=0;
 let marks=new Set();
 
 /* ---------- storage ---------- */
-function load(){try{const r=localStorage.getItem(KEY);if(r){Object.assign(S,JSON.parse(r));}}catch(e){}}
+function load(){try{const r=localStorage.getItem(KEY);if(r){Object.assign(S,JSON.parse(r));}}catch(e){}S.chunk=String(S.chunk);}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
 
+/* ---------- 文節切り ----------
+   Intl.Segmenter で単語に割り、助詞・助動詞・送り仮名を前の自立語に寄せて文節にする。
+   ICU は動詞を「泣/い/て」のように漢字1字＋送り仮名に割るので、そこも吸収する。 */
+const PART=new Set('は が を に へ と で から まで より も の か や ね よ な ぞ ぜ さ わ かな こそ しか だけ ばかり など なら ほど くらい ぐらい ずつ でも とか って だの やら なり きり のみ ば けど けれど けれども のに ので という といった として っていう とかいう'.split(' '));
+const SOFT=new Set(['て','ながら','たり','つつ']);
+const AUX=new Set('いる いく ゆく くる おく しまう みる ある くれる もらう あげる やる ほしい たい ない ます まし た だ です でしょ だろ う よう そう らしい みたい ぬ ず れる られる せる させる ちゃう じゃう とく てる でる ん こと もの ところ わけ はず つもり ため する した して します しない され される された させ すれ しよう しろ せ'.split(' '));
+const ADV=new Set('今日 明日 昨日 今 今朝 今晩 今夜 今年 去年 来年 来週 先週 今週 毎日 毎朝 毎晩 毎年 毎週 時々 当時 現在 最近 突然 全然 一番 少し 多分 一体 一応 結局 大変 非常 例えば 必ず 今回 前回 次回 昨夜 早速 実際 事実 本当 特別 普通 最初 最後 同時 直後 直前'.split(' '));
+const isHira=s=>/^[ぁ-ゖ]+$/.test(s);
+const isKata=s=>/^[ァ-ヺー]+$/.test(s);
+const isKanji=s=>/^[一-龯々〆ヵヶ]+$/.test(s);
+const hasContent=s=>/[一-龯々〆ヵヶァ-ヺA-Za-z0-9Ａ-Ｚａ-ｚ０-９]/.test(s);
+const OPEN=/^[「『（(［\[【〈《“‘"']+$/;
+const CLOSE=/^[」』）)］\]】〉》”’"']+$/;
+const TOUTEN=/^[、，,]$/;
+const KUTEN=/^[。．.！!？?‼⁉…‥]+$/;
+const JOIN=/^[・～〜ー]$/;
+const SMALL=/^[っゃゅょぁぃぅぇぉゎ]/;
+
+function rawSegments(text){
+  if(window.Intl&&Intl.Segmenter){
+    try{return [...new Intl.Segmenter('ja',{granularity:'word'}).segment(text)].map(x=>x.segment);}catch(e){}
+  }
+  return text.match(/[一-龯々〆ヵヶ]+|[ァ-ヺー]+|[ぁ-ゖ]+|[A-Za-z0-9Ａ-Ｚａ-ｚ０-９][A-Za-z0-9Ａ-Ｚａ-ｚ０-９.,]*|\s+|[\s\S]/g)||[];
+}
+function segmentJa(text){
+  const segs=rawSegments(text);
+  const out=[];let cur=null,prev='',prefix='';
+  const push=()=>{if(cur&&cur.text){out.push(cur);}cur=null;};
+  const start=s=>{cur={text:prefix+s,body:s,closed:false,soft:false,content:hasContent(s),end:false,comma:false};prefix='';};
+  const add=s=>{cur.text+=s;cur.body+=s;};
+  const last=()=>out[out.length-1];
+  for(let i=0;i<segs.length;i++){
+    const s=segs[i],next=segs[i+1]||'';
+    if(/^\s+$/.test(s)){if(cur)cur.closed=true;prev='';continue;}
+    if(OPEN.test(s)){push();prefix+=s;prev='';continue;}
+    if(CLOSE.test(s)){if(cur)cur.text+=s;else if(out.length){last().text+=s;last().quoteEnd=true;}prev='';continue;}
+    if(TOUTEN.test(s)){if(cur){cur.text+=s;cur.comma=true;push();}else if(out.length){last().text+=s;last().comma=true;}prev='';continue;}
+    if(KUTEN.test(s)){if(cur){cur.text+=s;cur.end=true;push();}else if(out.length){last().text+=s;last().end=true;}prev='';continue;}
+    if(JOIN.test(s)){if(cur)add(s);else start(s);prev=s;continue;}
+    if(!cur){
+      if(PART.has(s)&&out.length&&last().quoteEnd){last().text+=s;last().end=false;last().quoteEnd=false;prev=s;continue;}   // 「…。」と
+      start(s);prev=s;continue;
+    }
+    if(isHira(s)){
+      const afterKanji1=/^[一-龯々]$/.test(prev);
+      // 漢字1字の直後の1文字助詞は、次もひらがななら送り仮名（行/か/ない）、そうでなければ助詞（日/に/新しい）
+      const stem=(afterKanji1&&(!PART.has(s)||(s.length===1&&isHira(next))))||(cur.body.length===1&&isHira(cur.body));
+      if(SMALL.test(s)){add(s);cur.closed=false;}
+      else if(stem&&!cur.closed){add(s);if(/[てで]$/.test(s))cur.soft=true;}
+      else if(PART.has(s)||s==='で'){
+        const softDe=s==='で'&&/[んい]$/.test(prev)&&!cur.closed;
+        if(cur.closed&&!PART.has(s)){push();start(s);}
+        else{add(s);if(softDe)cur.soft=true;else{cur.closed=true;cur.soft=false;}}
+      }
+      else if(SOFT.has(s)){if(cur.closed){push();start(s);}else{add(s);cur.soft=true;}}
+      else if(AUX.has(s)){
+        if(cur.closed&&prev==='で'&&(s==='ある'||s==='あり'||s==='あっ')){add(s);}   // である
+        else if(cur.closed){push();start(s);}
+        else{add(s);cur.soft=false;}
+      }
+      else{
+        if(cur.closed){push();start(s);}
+        else if(cur.content&&s.length>=2&&!isHira(prev)){push();start(s);}   // 薄暗い｜じめじめ。取れ+なく は繋ぐ
+        else{add(s);cur.content=true;}
+      }
+    }else{
+      if(cur.closed){push();start(s);}
+      else if(cur.soft){
+        const m=/^([ぁ-ゖ]+)(.*)$/.exec(s);
+        if(m){add(m[1]);if(m[2]){push();start(m[2]);}}   // て+いた事 → 「…ていた」「事…」
+        else{push();start(s);}
+      }
+      else if(!cur.content){if(cur.body.length>=2){push();start(s);}else add(s);}
+      else if(isKata(prev)&&isKata(s))add(s);
+      else if(/[きぎしじちみびり]$/.test(prev)&&(/[ぁ-ゖ]/.test(s)||(s.length===1&&isHira(next))))add(s);   // 複合動詞：巻き戻す・読み終わる・落ち/着/か
+      else if(/[ぁ-ゖ]$/.test(prev)){push();start(s);}
+      else if(isKanji(prev)&&isKanji(s)&&!ADV.has(prev)&&!ADV.has(s)&&(cur.body+s).length<=8){
+        const verbStem=s.length===1&&isHira(next)&&!PART.has(next);   // 泣/い → 動詞の頭
+        if(verbStem&&prev.length>=2){push();start(s);}else add(s);
+      }
+      else if(prev.length>=2&&s.length>=2){push();start(s);}
+      else if(isKata(prev)&&s.length===1&&isHira(next)&&!PART.has(next)){push();start(s);}
+      else add(s);
+    }
+    prev=s;
+  }
+  push();
+  return out;
+}
+
 /* ---------- tokenize ---------- */
-const ABBR=/\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|U\.S|U\.K|U\.N|No|Fig|Inc|Ltd|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|a\.m|p\.m)\.$/i;
 function tokenize(text){
   tokens=[];sentences=[];
   const paras=text.replace(/\r/g,'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
   paras.forEach((p,pi)=>{
-    const words=p.split(/\s+/).filter(Boolean);
+    const chunks=segmentJa(p);
     let sStart=tokens.length;
-    words.forEach((w,wi)=>{
-      const t={i:tokens.length,text:w,sent:sentences.length,para:pi,end:false,pend:false,comma:false};
-      const last=wi===words.length-1;
-      const next=words[wi+1]||'';
-      const looksEnd=/[.!?\u2026]["'\u201D\u2019)\]]*$/.test(w)&&!ABBR.test(w)&&(last||/^["'\u201C\u2018(\[]?[A-Z0-9]/.test(next));
-      t.comma=/[,;:\u2014\u2013-]["'\u201D\u2019)\]]*$/.test(w)||/^[\u2014\u2013]/.test(next);
-      if(looksEnd||last){t.end=true;if(last)t.pend=true;}
+    chunks.forEach((c,ci)=>{
+      const last=ci===chunks.length-1;
+      const t={i:tokens.length,text:c.text,sent:sentences.length,para:pi,end:c.end||last,pend:last,comma:c.comma};
       tokens.push(t);
       if(t.end){sentences.push({start:sStart,end:tokens.length-1});sStart=tokens.length;}
     });
   });
 }
 function buildFrames(){
-  frames=[];const n=S.chunk;let i=0;
+  frames=[];
+  const comma=S.chunk==='comma';const n=comma?99:(+S.chunk||1);const maxLen=comma?16:14;
+  let i=0;
   while(i<tokens.length){
-    const grp=[tokens[i]];let j=i;
-    while(grp.length<n&&!tokens[j].end&&!tokens[j].comma&&j+1<tokens.length&&tokens[j+1].sent===tokens[i].sent){
-      j++;grp.push(tokens[j]);
+    const grp=[tokens[i]];let j=i;let len=tokens[i].text.length;
+    while(grp.length<n&&!tokens[j].end&&!tokens[j].comma&&j+1<tokens.length&&tokens[j+1].sent===tokens[i].sent&&len+tokens[j+1].text.length<=maxLen){
+      j++;grp.push(tokens[j]);len+=tokens[j].text.length;
     }
     const lastT=grp[grp.length-1];
-    frames.push({text:grp.map(t=>t.text).join(' '),ti:i,tokens:grp,sent:tokens[i].sent,end:lastT.end,pend:lastT.pend,comma:lastT.comma});
+    frames.push({text:grp.map(t=>t.text).join(''),ti:i,tokens:grp,sent:tokens[i].sent,end:lastT.end,pend:lastT.pend,comma:lastT.comma});
     i=j+1;
   }
 }
 
 /* ---------- timing ---------- */
-function wpmAt(i){
-  if(!S.ramp||frames.length<2)return S.wpm;
+function units(s){
+  let u=0;
+  for(const ch of s){
+    if(/[一-龯々〆ヵヶ]/.test(ch))u+=1;
+    else if(/[ァ-ヺー]/.test(ch))u+=0.7;
+    else if(/[ぁ-ゖ]/.test(ch))u+=0.55;
+    else if(/[A-Za-z0-9Ａ-Ｚａ-ｚ０-９]/.test(ch))u+=0.5;
+  }
+  return u;
+}
+function cpmAt(i){
+  if(!S.ramp||frames.length<2)return S.cpm;
   const p=i/(frames.length-1);
-  return Math.round(S.wpm+(S.target-S.wpm)*p);
+  return Math.round(S.cpm+(S.target-S.cpm)*p);
 }
 function duration(f,i){
-  const base=60000/wpmAt(i);
-  let d=base*f.tokens.length;
-  if(f.tokens.length>1)d*=0.85;
-  const maxLen=Math.max(...f.tokens.map(t=>t.text.length));
-  if(maxLen>7)d+=base*(maxLen-7)*0.08;
-  if(/\d/.test(f.text))d+=base*0.3;
-  if(f.comma)d+=base*0.5;
-  if(f.end){d+=base*0.8+S.pause;}
-  if(f.pend)d+=base*0.6+S.pause*0.5;
+  const base=60000/cpmAt(i);
+  let d=base*Math.max(2,units(f.text));
+  if(f.tokens.length>1)d*=0.9;
+  if(/[0-9０-９]/.test(f.text))d+=base*0.5;
+  if(f.comma)d+=base*2;
+  if(f.end){d+=base*3+S.pause;}
+  if(f.pend)d+=base*2+S.pause*0.5;
   return d;
 }
-function orp(len){if(len<=1)return 0;if(len<=5)return 1;if(len<=9)return 2;if(len<=13)return 3;return 4;}
+function orp(len){if(len<=1)return 0;if(len<=3)return 1;if(len<=6)return 2;if(len<=9)return 3;return 4;}
+const LETTER=/[一-龯々〆ヵヶァ-ヺぁ-ゖA-Za-z0-9Ａ-Ｚａ-ｚ０-９]/;
+function charCount(s){return s.replace(/\s+/g,'').length;}
 
 /* ---------- render ---------- */
 const wordEl=$('word'),preEl=wordEl.querySelector('.pre'),pivEl=wordEl.querySelector('.piv'),postEl=wordEl.querySelector('.post');
 function showFrame(i){
   const f=frames[i];if(!f)return;
   const s=f.text;
-  let start=0;while(start<s.length&&!/[A-Za-z0-9]/.test(s[start]))start++;
-  const core=s.slice(start);
-  const k=start+orp(core.length||1);
+  let start=0;while(start<s.length&&!LETTER.test(s[start]))start++;
+  let core=s.length-start;while(core>0&&!LETTER.test(s[start+core-1]))core--;
+  const k=start+orp(core||1);
   preEl.textContent=s.slice(0,k);pivEl.textContent=s[k]||'';postEl.textContent=s.slice(k+1);
   const len=s.length;
-  wordEl.style.fontSize=len>10?`clamp(1.3rem, ${Math.max(4.5,90/len)}vw, 3.6rem)`:'';
+  wordEl.style.fontSize=len>4?`clamp(1.2rem, ${(92/len).toFixed(1)}vw, 3.6rem)`:'';
   const anyMarked=f.tokens.some(t=>marks.has(t.i));
   wordEl.classList.toggle('marked',anyMarked);
   $('mark').classList.toggle('on',anyMarked);
   $('bar').style.width=((i+1)/frames.length*100)+'%';
   $('pos').textContent=`文 ${f.sent+1} / ${sentences.length}`;
-  const w=wpmAt(i);$('curwpm').textContent=S.ramp?`${w} wpm ↗`:`${w} wpm`;
-  $('wpmlabel').textContent=S.wpm;
+  const w=cpmAt(i);$('curwpm').textContent=S.ramp?`${w} 字/分 ↗`:`${w} 字/分`;
+  $('wpmlabel').textContent=S.cpm;
   renderCtx();
 }
 function renderCtx(){
@@ -364,7 +464,7 @@ function renderCtx(){
     const sp=document.createElement('span');sp.className='w';sp.textContent=tokens[t].text;
     if(curSet.has(t))sp.classList.add('cur');
     if(marks.has(t))sp.classList.add('mk');
-    sp.dataset.t=t;ctx.appendChild(sp);ctx.appendChild(document.createTextNode(' '));
+    sp.dataset.t=t;ctx.appendChild(sp);
   }
 }
 function setHint(s){$('hint').textContent=s;}
@@ -390,7 +490,7 @@ function play(){
 function pause(){
   if(!playing)return;
   playing=false;clearTimeout(timer);elapsed+=Date.now()-lastTick;
-  $('play').innerHTML='▶<small>再生</small>';setHint('一時停止中。下の単語をタップで印。右スワイプで1文戻る');
+  $('play').innerHTML='▶<small>再生</small>';setHint('一時停止中。下の文節をタップで印。右スワイプで1文戻る');
   renderCtx();
 }
 function toggle(){playing?pause():play();}
@@ -406,10 +506,10 @@ function fwdSentence(){
   const cur=frames[idx].sent;
   if(cur+1<sentences.length){idx=sentStartFrame(cur+1);showFrame(idx);if(wasPlaying)play();}
 }
-function bumpWpm(d){
-  S.wpm=Math.min(1200,Math.max(60,S.wpm+d));
-  if(S.ramp&&S.target<S.wpm)S.target=S.wpm;
-  $('wpm').value=S.wpm;$('target').value=S.target;save();showFrame(idx);
+function bumpCpm(d){
+  S.cpm=Math.min(3000,Math.max(100,S.cpm+d));
+  if(S.ramp&&S.target<S.cpm)S.target=S.cpm;
+  $('cpm').value=S.cpm;$('target').value=S.target;save();showFrame(idx);
 }
 function markCurrent(){
   const f=frames[idx];const ids=f.tokens.map(t=>t.i);
@@ -417,13 +517,13 @@ function markCurrent(){
   ids.forEach(i=>all?marks.delete(i):marks.add(i));
   showFrame(idx);
 }
-function cleanWord(w){return w.replace(/^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g,'');}
+function cleanWord(w){return w.replace(/^[「『（(［\[【〈《“‘"'\s]+|[」』）)］\]】〉》”’"'、，,。．.！!？?‼⁉…‥\s]+$/g,'');}
 
 /* ---------- screens ---------- */
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on',s.id===id));window.scrollTo(0,0);}
 function startReading(){
   const text=$('text').value.trim();
-  if(!text){setCount('英文を貼り付けてから');return;}
+  if(!text){setCount('文章を貼り付けてから');return;}
   S.text=text;readSettings();save();
   tokenize(text);buildFrames();
   if(!frames.length)return;
@@ -433,15 +533,15 @@ function startReading(){
 }
 function finish(){
   pause();
-  const words=tokens.length;const ms=Math.max(1,elapsed);
-  $('s_words').textContent=words;
+  const chars=tokens.reduce((a,t)=>a+charCount(t.text),0);const ms=Math.max(1,elapsed);
+  $('s_chars').textContent=chars;
   const sec=Math.round(ms/1000);$('s_time').textContent=`${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
-  $('s_wpm').textContent=Math.round(words/(ms/60000));
+  $('s_cpm').textContent=Math.round(chars/(ms/60000));
   const list=$('marklist');list.innerHTML='';
   const seen=new Map();
   [...marks].sort((a,b)=>a-b).forEach(t=>{
     const w=cleanWord(tokens[t].text);if(!w)return;
-    const key=w.toLowerCase();if(seen.has(key))return;seen.set(key,t);
+    if(seen.has(w))return;seen.set(w,t);
     const sen=sentences[tokens[t].sent];
     const li=document.createElement('li');
     const b=document.createElement('b');b.textContent=w;li.appendChild(b);
@@ -449,10 +549,9 @@ function finish(){
     for(let i=sen.start;i<=sen.end;i++){
       if(i===t){const m=document.createElement('mark');m.textContent=tokens[i].text;p.appendChild(m);}
       else p.appendChild(document.createTextNode(tokens[i].text));
-      p.appendChild(document.createTextNode(' '));
     }
     li.appendChild(p);list.appendChild(li);
-    if(!S.bank.some(x=>x.toLowerCase()===key))S.bank.push(w);
+    if(!S.bank.includes(w))S.bank.push(w);
   });
   $('s_marks').textContent=seen.size;
   save();renderBank();
@@ -461,22 +560,22 @@ function finish(){
 
 /* ---------- settings ui ---------- */
 function readSettings(){
-  S.wpm=+$('wpm').value||220;S.chunk=+$('chunk').value||1;S.pause=+$('pause').value||0;
-  S.ramp=$('ramp').checked;S.target=+$('target').value||S.wpm;S.alwaysctx=$('alwaysctx').checked;
+  S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;
+  S.ramp=$('ramp').checked;S.target=+$('target').value||S.cpm;S.alwaysctx=$('alwaysctx').checked;
 }
 function writeSettings(){
-  $('wpm').value=S.wpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
+  $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
   $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
   $('text').value=S.text||'';setCount();
 }
 function setCount(msg){
-  const n=$('text').value.trim().split(/\s+/).filter(Boolean).length;
-  const w=+$('wpm').value||220;
-  $('count').textContent=msg||(n?`${n}語 · 約${Math.max(1,Math.round(n/w))}分`:'');
+  const n=charCount($('text').value);
+  const c=+$('cpm').value||500;
+  $('count').textContent=msg||(n?`${n}字 · 約${Math.max(1,Math.round(n/c))}分`:'');
 }
 function renderBank(){
   const el=$('bank');el.innerHTML='';
-  if(!S.bank.length){el.innerHTML='<span class="empty">まだない。読みながら「？」を押すとここに溜まる。</span>';return;}
+  if(!S.bank.length){el.innerHTML='<span class="empty">まだない。読みながら「印」を押すとここに溜まる。</span>';return;}
   S.bank.forEach(w=>{const c=document.createElement('span');c.className='chip';c.textContent=w;el.appendChild(c);});
 }
 function copyText(t,btn){
@@ -486,29 +585,33 @@ function copyText(t,btn){
   function fallback(){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(ta);}
 }
 
-const SAMPLE=`Reading one word at a time feels strange for the first minute. Your eyes want to wander, and there is nowhere for them to go. Then something settles. The words arrive like drops from a tap, steady and small, and you stop hurrying.
+const SAMPLE=`一度に一つの文節だけが目の前に出る。最初の一分は落ち着かない。目が動きたがるのに、行き先がない。そのうち慣れて、言葉が蛇口の水滴みたいに一定の間隔で落ちてくるようになる。
 
-The trick is not speed. It is control. If a sentence slips past you, stop. Go back to where it began and let it come again. Nobody is timing you, and nothing is lost by reading a line twice.
+大事なのは速さじゃない。止まれることだ。意味が取れなくなったら、止まる。その文の頭に戻して、もう一度流す。誰も時間を計っていないし、二回読んで減るものは何もない。
 
-Watch for the words you do not know. Do not chase them now. Press the mark, keep going, and look them up when you are finished. Most of them will still make sense from the sentence around them. The ones that do not are the ones worth learning.
+気になる言葉が出てきたら、その場で追いかけない。印を付けて先へ進み、読み終わってから見返す。前後の文でだいたい分かるものだし、分からなかったものだけが、覚える値打ちのある言葉だ。
 
-When you find a comfortable pace, hold it for a while before you push it higher. Comprehension grows slowly, and it does not care how fast the screen can flash.`;
+楽に読める速さが見つかったら、上げる前にしばらくそこに居る。理解は遅れてついてくる。画面がどれだけ速く光れるかとは、関係がない。`;
+
+const SOSEKI=`吾輩は猫である。名前はまだ無い。
+どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。吾輩はここで始めて人間というものを見た。しかもあとで聞くとそれは書生という人間中で一番獰悪な種族であったそうだ。この書生というのは時々我々を捕えて煮て食うという話である。しかしその当時は何という考もなかったから別段恐しいとも思わなかった。ただ彼の掌に載せられてスーと持ち上げられた時何だかフワフワした感じがあったばかりである。`;
 
 /* ---------- events ---------- */
 load();writeSettings();renderBank();
 $('start').addEventListener('click',startReading);
 $('sample').addEventListener('click',()=>{$('text').value=SAMPLE;setCount();});
+$('soseki').addEventListener('click',()=>{$('text').value=SOSEKI;setCount();});
 $('clear').addEventListener('click',()=>{$('text').value='';setCount();});
 $('text').addEventListener('input',()=>{S.text=$('text').value;setCount();save();});
-['wpm','chunk','pause','ramp','target','alwaysctx'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
+['cpm','chunk','pause','ramp','target','alwaysctx'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
 $('copybank').addEventListener('click',e=>copyText(S.bank.join('\n'),e.currentTarget));
 $('clearbank').addEventListener('click',()=>{if(!S.bank.length)return;if(confirm('印を付けた語を全部消す？')){S.bank=[];save();renderBank();}});
 
 $('play').addEventListener('click',toggle);
 $('back').addEventListener('click',backSentence);
 $('mark').addEventListener('click',markCurrent);
-$('slower').addEventListener('click',()=>bumpWpm(-20));
-$('faster').addEventListener('click',()=>bumpWpm(20));
+$('slower').addEventListener('click',()=>bumpCpm(-50));
+$('faster').addEventListener('click',()=>bumpCpm(50));
 $('quit').addEventListener('click',()=>{pause();show('setup');});
 $('again').addEventListener('click',()=>{idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
 $('tosetup').addEventListener('click',()=>show('setup'));
@@ -518,8 +621,8 @@ $('copymarks').addEventListener('click',e=>{
 });
 
 /* stage: tap = play/pause, swipe = sentence back/forward */
-const stage=$('stage');let tx=0,ty=0,tt=0;
-stage.addEventListener('touchstart',e=>{const t=e.touches[0];tx=t.clientX;ty=t.clientY;tt=Date.now();},{passive:true});
+const stage=$('stage');let tx=0,ty=0;
+stage.addEventListener('touchstart',e=>{const t=e.touches[0];tx=t.clientX;ty=t.clientY;},{passive:true});
 stage.addEventListener('touchend',e=>{
   const t=e.changedTouches[0];const dx=t.clientX-tx,dy=t.clientY-ty;
   if(Math.abs(dx)>60&&Math.abs(dy)<50){dx>0?backSentence():fwdSentence();}
@@ -538,8 +641,8 @@ document.addEventListener('keydown',e=>{
     case ' ':e.preventDefault();toggle();break;
     case 'ArrowLeft':backSentence();break;
     case 'ArrowRight':fwdSentence();break;
-    case 'ArrowUp':bumpWpm(20);break;
-    case 'ArrowDown':bumpWpm(-20);break;
+    case 'ArrowUp':bumpCpm(50);break;
+    case 'ArrowDown':bumpCpm(-50);break;
     case '?':case 'm':case 'M':markCurrent();break;
     case 'Escape':pause();show('setup');break;
   }
