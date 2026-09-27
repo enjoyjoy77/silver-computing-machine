@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f1d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="かいだん読み">
+<title>かいだん読み — 上から下のお手本</title>
+<style>
+  :root {
+    --ink: #1d1d1f; --paper: #f2f2f7; --muted: rgba(29,29,31,0.6);
+    --card: #ffffff; --accent: #155bd0; --warn: #b8641f; --good: #2a6b4a; --line: rgba(0,0,0,0.1);
+    --step: rgba(21,91,208,0.09); --hl: #ffd23f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f5f5f7; --paper: #000000; --muted: rgba(245,245,247,0.6);
+      --card: #1c1c1e; --accent: #4d94ff; --warn: #e0a273; --good: #6cb893; --line: rgba(255,255,255,0.14);
+      --step: rgba(77,148,255,0.14); --hl: #ffcf33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 16px;
+    padding-top: max(28px, env(safe-area-inset-top));
+    padding-bottom: max(120px, env(safe-area-inset-bottom));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .rev { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 4px 0 20px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); margin-bottom: 16px; }
+  label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 6px; }
+  textarea, input[type=text] {
+    width: 100%; padding: 12px; font-size: 1rem; font-family: inherit; line-height: 1.6;
+    border: 1px solid var(--line); border-radius: 10px;
+    background: var(--paper); color: var(--ink);
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  button {
+    font: inherit; font-weight: 600; font-size: 0.9rem;
+    padding: 11px 16px; border-radius: 10px; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button.sub2 { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button.mini { padding: 6px 10px; font-size: 0.8rem; border-radius: 8px; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:active:not(:disabled) { transform: scale(0.97); }
+  select { font: inherit; font-size: 0.9rem; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+  .opts { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+  .opts label { display: inline; font-weight: 500; margin: 0; }
+  #status { font-size: 0.82rem; color: var(--muted); margin-top: 10px; min-height: 1.2em; }
+  #status.ng { color: var(--warn); font-weight: 600; }
+  h2 { font-size: 0.72rem; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; margin: 28px 0 10px; }
+  .sentence { margin: 0 0 10px; }
+  .row { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  svg { display: block; font-family: inherit; }
+  svg text { fill: var(--ink); user-select: none; -webkit-user-select: none; }
+  svg text.kana { font-size: 14px; font-weight: 600; }
+  svg text.surf { font-size: 11px; fill: var(--muted); }
+  svg text.pk { font-size: 9px; font-weight: 700; fill: #fff; }
+  svg text.flag { font-size: 10px; font-weight: 700; }
+  svg .step { fill: var(--step); }
+  svg .line { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  svg .line.guess { stroke: var(--warn); stroke-dasharray: 5 4; }
+  svg .line.user { stroke: var(--good); }
+  svg .line.edit { stroke: var(--accent); }
+  svg .dot { fill: var(--accent); }
+  svg .dot.guess { fill: var(--warn); }
+  svg .dot.user { fill: var(--good); }
+  svg .peak { stroke: var(--card); stroke-width: 2; }
+  svg .sep { stroke: var(--line); stroke-width: 1; }
+  svg .hit { fill: transparent; cursor: pointer; }
+  svg .hit:active { fill: var(--step); }
+  svg .sel { fill: var(--hl); opacity: 0.22; }
+  svg .now { fill: var(--hl); opacity: 0.5; }
+  svg text.pause { fill: var(--muted); font-size: 14px; }
+  svg .tick { stroke: var(--accent); stroke-width: 2; }
+  .legend { font-size: 0.8rem; color: var(--muted); line-height: 1.8; }
+  .legend b { color: var(--ink); }
+  .swatch { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--accent); vertical-align: middle; margin: 0 4px; }
+  .swatch.guess { border-top-style: dashed; border-color: var(--warn); }
+  .swatch.user { border-color: var(--good); }
+  /* 編集シート */
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: var(--card); border-radius: 18px 18px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+    padding: 14px 16px; padding-bottom: max(16px, env(safe-area-inset-bottom));
+    max-height: 62vh; overflow-y: auto;
+  }
+  .sheet[hidden] { display: none; }
+  .sheet .shead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .sheet .shead b { font-size: 1.05rem; }
+  .sheet .field { margin-top: 10px; }
+  .kbtns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kbtns button { background: var(--paper); color: var(--ink); border: 1px solid var(--line); padding: 7px 10px; font-size: 0.85rem; font-weight: 500; border-radius: 8px; }
+  .kbtns button.on { border-color: var(--accent); color: var(--accent); font-weight: 700; box-shadow: inset 0 0 0 1px var(--accent); }
+  .kbtns button small { color: var(--muted); font-size: 0.7rem; margin-left: 4px; }
+  .parts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+  .parts .pt { padding: 4px 6px; background: var(--paper); border-radius: 6px; font-size: 0.85rem; }
+  .parts .cut { background: transparent; color: var(--accent); border: 1px dashed var(--accent); padding: 2px 6px; font-size: 0.75rem; border-radius: 6px; }
+  .note { font-size: 0.83rem; color: var(--muted); }
+  .note ul { padding-left: 1.2em; margin: 6px 0; }
+  .note li { margin-bottom: 5px; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 0.95rem; }
+  table.words { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 10px; }
+  table.words td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  table.words td.k { color: var(--muted); white-space: nowrap; }
+  .wform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .wform input[type=text] { padding: 9px 10px; font-size: 0.95rem; }
+  .wform .full { grid-column: 1 / -1; }
+  .foot { margin-top: 32px; font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+  pre.plain { white-space: pre-wrap; font-family: inherit; font-size: 0.9rem; background: var(--paper); border-radius: 10px; padding: 12px; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><h1>🪜 かいだん読み</h1><span class="rev">2026-09-27</span></div>
+  <p class="sub">文章を貼ると、単語ごとの高低（アクセント）を辞書から引き、山の頂点が文末へ一段ずつ下がる「上から下」のお手本を図にする。ナレーション・朗読の練習用。</p>
+
+  <div class="card">
+    <label for="text">読む文章</label>
+    <textarea id="text" placeholder="ここに文章を貼る。行ごとに段を仕切り直す。単語の間に空白を入れると、そこで山を切れる。"></textarea>
+    <div class="btnrow">
+      <button id="go">図にする</button>
+      <button id="sample" class="sub2">外郎売を入れる</button>
+      <button id="play" class="sub2" disabled>▶ 音で聞く</button>
+      <button id="png" class="sub2" disabled>画像で保存</button>
+      <button id="txt" class="sub2" disabled>文字で出す</button>
+    </div>
+    <div class="opts">
+      <span>段の仕切り:
+        <select id="resetMode">
+          <option value="auto">自動（長ければ読点でも）</option>
+          <option value="end">文末だけ</option>
+          <option value="pause">読点でも仕切る</option>
+        </select>
+      </span>
+      <span>速さ: <input id="speed" type="range" min="3" max="9" step="0.5" value="6" style="vertical-align:middle;width:110px"></span>
+    </div>
+    <div id="status">辞書を読み込み中…（初回だけ 20MB ほど。しばらく待つ）</div>
+  </div>
+
+  <div id="out"></div>
+  <pre id="plain" class="plain" hidden></pre>
+
+  <div class="card legend" id="legend" hidden>
+    <b>読み方</b><br>
+    線の高さ＝声の高さ。<b>●の数字</b>が山の頂点（最初に高くなる拍）で、この番号順に一段ずつ下げる。線が落ちる所がその単語の「核」。<br>
+    <span class="swatch"></span>辞書にあった　<span class="swatch guess"></span>辞書に無く推定（「?」付き。タップして直す）　<span class="swatch user"></span>ことば帳の語<br>
+    山をタップすると、読み・アクセント・切れ目を直せる。「読み?」は読みが取れなかった語。
+  </div>
+
+  <details class="card" id="wordsBox">
+    <summary>ことば帳（辞書に無い語・切り方を直したい語）</summary>
+    <p class="note">ここに入れた語は、形態素解析より先に切り出される。アクセントは「核の位置」（0＝平板、1＝頭高、2＝2拍目で落ちる…）。空欄なら推定。</p>
+    <div class="wform">
+      <input type="text" id="wSurface" placeholder="語（例: 二十里）">
+      <input type="text" id="wKana" placeholder="読み（例: にじゅうり）">
+      <input type="text" id="wK" placeholder="核の位置（例: 2）" inputmode="numeric">
+      <select id="wCat"><option value="n">名詞など</option><option value="v">動詞（連用形）</option><option value="a">形容詞</option></select>
+      <div class="full btnrow" style="margin-top:0"><button id="wAdd" class="mini">ことば帳に入れる</button><button id="wReset" class="mini sub2">最初の状態に戻す</button></div>
+    </div>
+    <table class="words" id="wordsTable"></table>
+  </details>
+
+  <details class="card">
+    <summary>仕組みと注意</summary>
+    <div class="note">
+      <ul>
+        <li>形態素解析は kuromoji.js（IPADIC）。アクセントは国立国語研究所の UniDic（コーパス BCCWJ を土台にした辞書。unidic-lite 2.1.2）のアクセント型・結合型を、IPADIC と重なる約12万語ぶん抜き出して使っている。</li>
+        <li>助詞・助動詞の付き方（「まで」は平板の後ろで核を作る、「ます」はいつも「ま」に核…）と、複合語の作り方（前の語の末尾に核 / 後ろの1拍目に核 / 平板化）は UniDic の結合型に従う。活用による核の移動（食べる→食べて）は東京式の一般規則で計算。</li>
+        <li>古文・固有名詞・言い回しが古い文章は解析が外れやすい。外れた語は山をタップして直し、「ことば帳に入れる」で次から効くようにする。</li>
+        <li>「読み」は東京式（共通語）アクセント。方言のアクセントは扱わない。辞書に候補が複数ある語は ★ で示す。</li>
+        <li>音は声ではなく高さの目安（ハミング）。実際の声はなだらかに動くので、段差そのものを真似るのではなく「頂点の順番」を耳で確かめる用途。</li>
+        <li>データは端末の中だけで処理する。文章・ことば帳はこのブラウザに保存される。</li>
+      </ul>
+    </div>
+  </details>
+
+  <p class="foot">
+    UniDic は国立国語研究所（BSD/LGPL/GPL のトリプルライセンス）。kuromoji.js は Apache-2.0、IPADIC は独自ライセンス。<br>
+    元ネタ: YouTube「あんじょーメソッド」の<a href="https://www.youtube.com/watch?v=N97n7yh7QVw" target="_blank" rel="noopener" style="color:var(--accent)">『ナレーションの“上から下”を外郎売で徹底解説』</a>。各単語のアクセントは崩さず、単語の一番高い音だけを文末へ向けて順に下げる、が肝。
+  </p>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="shead"><b id="edSurface"></b><button id="edClose" class="mini sub2">閉じる</button></div>
+  <div class="field"><label for="edKana">読み（かな）</label><input type="text" id="edKana"></div>
+  <div class="field"><label>アクセント（どこで落ちるか）</label><div class="kbtns" id="edK"></div></div>
+  <div class="field"><label>切れ目（タップした所で山を分ける）</label><div class="parts" id="edParts"></div></div>
+  <div class="btnrow">
+    <button id="edMerge" class="mini sub2">前の山とつなぐ</button>
+    <button id="edReset" class="mini sub2">ここから段を上に戻す</button>
+    <button id="edWord" class="mini sub2">ことば帳に入れる</button>
+  </div>
+</div>
+
+<script src="../libs/kuromoji/kuromoji.js"></script>
+<script src="kaidan-core.js"></script>
+<script>
+(() => {
+  'use strict';
+  const K = window.KaidanCore;
+  const $ = (id) => document.getElementById(id);
+  const LS = { text: 'kaidan.text', words: 'kaidan.words.v1', mode: 'kaidan.mode', speed: 'kaidan.speed' };
+
+  // 最初から入っていることば帳（外郎売の冒頭用）。核が空欄のものは推定
+  const SEED_WORDS = [
+    { surface: 'ござり', kana: 'ござり', k: 2, cat: 'v' },
+    { surface: 'ござる', kana: 'ござる', k: 2, cat: 'v' },
+    { surface: '二十里', kana: 'にじゅうり', k: 2, cat: 'n' },
+    { surface: 'ご存知', kana: 'ごぞんじ', k: 2, cat: 'n' },
+    { surface: '御存知', kana: 'ごぞんじ', k: 2, cat: 'n' },
+    { surface: '相州', kana: 'そうしゅう', k: 0, cat: 'n' },
+    { surface: '一色町', kana: 'いっしきまち', k: '', cat: 'n' },
+    { surface: '青物町', kana: 'あおものちょう', k: '', cat: 'n' },
+    { surface: '欄干橋', kana: 'らんかんばし', k: '', cat: 'n' },
+    { surface: '虎屋藤右衛門', kana: 'とらやとうえもん', k: '', cat: 'n' },
+    { surface: '円斎', kana: 'えんさい', k: '', cat: 'n' },
+    { surface: '外郎', kana: 'ういろう', k: '', cat: 'n' },
+    { surface: '元朝', kana: 'がんちょう', k: '', cat: 'n' },
+    { surface: '唐人', kana: 'とうじん', k: '', cat: 'n' },
+    { surface: '参内', kana: 'さんだい', k: 0, cat: 'n' },
+    { surface: '籠め置き', kana: 'こめおき', k: '', cat: 'v' },
+    { surface: '用ゆる', kana: 'もちゆる', k: '', cat: 'v' },
+  ];
+  const SAMPLE = '拙者親方と申すは、お立会いの内に、御存知のお方もござりましょうが、お江戸を発って二十里上方、相州小田原一色町をお過ぎなされて、青物町を登りへおいでなさるれば、欄干橋虎屋藤右衛門、只今は剃髪致して、円斎と名乗りまする。\n元朝より大晦日まで、お手に入れまするこの薬は、昔ちんの国の唐人、外郎という人、我が朝へ来たり、帝へ参内の折から、この薬を深く籠め置き、用ゆる時は一粒ずつ、冠のすき間より取り出す。';
+
+  const state = { tk: null, dict: null, an: null, phrases: [], words: [], sel: -1, ready: false };
+  const AUTO_MAX = 4; // 自動モード: 読点までにこの数以上の山があれば、そこで段を上に戻す
+
+  // ---------------------------------------------------------------- 保存
+  function loadWords() {
+    try {
+      const raw = localStorage.getItem(LS.words);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return SEED_WORDS.map((w) => Object.assign({}, w));
+  }
+  function saveWords() {
+    try { localStorage.setItem(LS.words, JSON.stringify(state.words)); } catch (e) {}
+  }
+  function lsGet(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  // ---------------------------------------------------------------- 読み込み
+  function setStatus(msg, ng) { const el = $('status'); el.textContent = msg; el.className = ng ? 'ng' : ''; }
+  async function init() {
+    state.words = loadWords();
+    renderWords();
+    $('text').value = lsGet(LS.text, '');
+    $('resetMode').value = lsGet(LS.mode, 'auto');
+    $('speed').value = lsGet(LS.speed, '6');
+    try {
+      const [dictText] = await Promise.all([
+        fetch('accent.tsv').then((r) => { if (!r.ok) throw new Error('accent.tsv ' + r.status); return r.text(); }),
+        new Promise((res, rej) => kuromoji.builder({ dicPath: '../libs/kuromoji/dict/' }).build((err, tk) => { if (err) rej(err); else { state.tk = tk; res(); } })),
+      ]);
+      state.dict = new K.AccentDict(dictText);
+      state.an = new K.Analyzer(state.dict);
+      state.ready = true;
+      setStatus('準備できた（アクセント辞書 ' + state.dict.size.toLocaleString() + ' 語）');
+      if ($('text').value.trim()) analyze();
+    } catch (e) {
+      console.error(e);
+      setStatus('辞書を読み込めなかった。ファイルから直接開いていると動かない（公開サイトかスマホから開く）。' + (e && e.message ? ' ' + e.message : ''), true);
+    }
+  }
+
+  // ---------------------------------------------------------------- 解析
+  function analyze() {
+    if (!state.ready) return;
+    const text = $('text').value;
+    lsSet(LS.text, text);
+    if (!text.trim()) { state.phrases = []; render(); return; }
+    const toks = K.tokenizeText(text, state.tk, state.words);
+    state.phrases = state.an.analyze(toks);
+    state.sel = -1;
+    applyLevels();
+    render();
+    closeSheet();
+  }
+  function applyLevels() {
+    const mode = $('resetMode').value;
+    const ps = state.phrases;
+    let group = [];
+    const flush = () => { const n = group.length; group.forEach((ph, i) => { ph.level = n - 1 - i; ph.groupSize = n; ph.groupIndex = i; }); group = []; };
+    for (let i = 0; i < ps.length; i++) {
+      const ph = ps[i], prev = ps[i - 1];
+      if (i > 0) {
+        let cut = ph.resetBefore || prev.end;
+        if (!cut && prev.pauseAfter) {
+          if (mode === 'pause') cut = true;
+          else if (mode === 'auto' && group.length >= AUTO_MAX) cut = true;
+        }
+        if (cut) flush();
+      }
+      group.push(ph);
+    }
+    flush();
+  }
+
+  // ---------------------------------------------------------------- 描画
+  const NS = 'http://www.w3.org/2000/svg';
+  const ROW_H = 132, Y_TOP = 16, Y_LOW = 66, Y_KANA = 92, Y_SURF = 112, GAP = 14, PAUSE_W = 18;
+  function cellW() { return Math.min(window.innerWidth, 860) < 420 ? 23 : 26; }
+  function el(tag, attrs, text) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function hY(ph) {
+    const n = ph.groupSize || 1;
+    const step = Math.max(2.5, Math.min(13, (Y_LOW - Y_TOP) / n));
+    return Y_LOW - ((ph.level || 0) + 1) * step;
+  }
+  function srcClass(ph) { return ph.src === 'guess' ? 'guess' : ph.src === 'user' ? 'user' : ph.src === 'edit' ? 'edit' : ''; }
+
+  function render() {
+    const out = $('out');
+    out.innerHTML = '';
+    const ps = state.phrases;
+    const has = ps.length > 0;
+    $('play').disabled = !has; $('png').disabled = !has; $('txt').disabled = !has;
+    $('legend').hidden = !has;
+    $('plain').hidden = true;
+    if (!has) return;
+    const CW = cellW();
+    const maxW = Math.max(240, out.clientWidth - 4);
+    // 文ごとに、幅に収まるよう山単位で折り返す
+    let sentence = document.createElement('div'); sentence.className = 'sentence';
+    let rowPhrases = [], rowW = 0;
+    const rows = []; // {sentence, phrases:[{idx, x}]}
+    const flushRow = () => { if (rowPhrases.length) rows.push({ sentence, items: rowPhrases, width: rowW }); rowPhrases = []; rowW = 0; };
+    ps.forEach((ph, idx) => {
+      const need = ph.morae.length * CW + GAP + (ph.pauseAfter ? PAUSE_W : 0);
+      if (rowPhrases.length && rowW + need > maxW) flushRow();
+      rowPhrases.push({ idx, x: rowW });
+      rowW += need;
+      if (ph.end) { flushRow(); sentence = document.createElement('div'); sentence.className = 'sentence'; }
+    });
+    flushRow();
+    let curSentence = null;
+    for (const row of rows) {
+      if (row.sentence !== curSentence) { curSentence = row.sentence; out.appendChild(curSentence); }
+      const wrap = document.createElement('div'); wrap.className = 'row';
+      const W = Math.max(row.width, maxW);
+      const svg = el('svg', { width: W, height: ROW_H, viewBox: `0 0 ${W} ${ROW_H}` });
+      for (const it of row.items) drawPhrase(svg, ps[it.idx], it.idx, it.x + GAP / 2, CW);
+      wrap.appendChild(svg);
+      curSentence.appendChild(wrap);
+    }
+  }
+  function drawPhrase(svg, ph, idx, x0, CW) {
+    const n = ph.morae.length;
+    const w = n * CW;
+    const yh = hY(ph);
+    const cls = srcClass(ph);
+    // 選択中の背景
+    if (idx === state.sel) svg.appendChild(el('rect', { x: x0 - GAP / 2 + 1, y: 2, width: w + GAP - 2, height: ROW_H - 4, rx: 8, class: 'sel' }));
+    // 段の背景
+    svg.appendChild(el('rect', { x: x0, y: yh, width: w, height: Y_LOW - yh, class: 'step' }));
+    // 仕切り線
+    svg.appendChild(el('line', { x1: x0 - GAP / 2, y1: Y_TOP - 6, x2: x0 - GAP / 2, y2: Y_SURF + 4, class: 'sep' }));
+    if (ph.resetBefore) svg.appendChild(el('text', { x: x0 - GAP / 2 + 3, y: Y_TOP - 4, class: 'flag', fill: 'var(--accent)' }, '↺'));
+    // 高低の線(段々)
+    const ys = ph.pattern.map((p) => (p === 'H' ? yh : Y_LOW));
+    let d = '';
+    for (let i = 0; i < n; i++) {
+      const xa = x0 + i * CW + 3, xb = x0 + (i + 1) * CW - 3;
+      d += (i === 0 ? 'M' : 'L') + xa + ' ' + ys[i] + ' L' + xb + ' ' + ys[i] + ' ';
+      if (i < n - 1) d += 'L' + (x0 + (i + 1) * CW - 3) + ' ' + ys[i + 1] + ' ';
+    }
+    svg.appendChild(el('path', { d, class: 'line ' + cls }));
+    // 各拍の点と、かな
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + i * CW + CW / 2;
+      svg.appendChild(el('circle', { cx, cy: ys[i], r: 3, class: 'dot ' + cls }));
+      svg.appendChild(el('text', { x: cx, y: Y_KANA, 'text-anchor': 'middle', class: 'kana', 'data-p': idx, 'data-i': i }, K.kataToHira(ph.morae[i])));
+    }
+    // 尾高: 後ろに何か付けば落ちる印
+    if (ph.k > 0 && ph.k === n && n > 0) {
+      const xt = x0 + n * CW - 3;
+      svg.appendChild(el('line', { x1: xt, y1: yh, x2: xt, y2: yh + 9, class: 'tick' }));
+    }
+    // 山の頂点(番号は段の順)
+    const pk = ph.peak - 1;
+    const px = x0 + pk * CW + CW / 2;
+    svg.appendChild(el('circle', { cx: px, cy: ys[pk], r: 7.5, class: 'dot peak ' + cls }));
+    svg.appendChild(el('text', { x: px, y: ys[pk] + 3.2, 'text-anchor': 'middle', class: 'pk' }, String((ph.groupIndex || 0) + 1)));
+    // 印
+    if (ph.needsReading) svg.appendChild(el('text', { x: x0 + w / 2, y: Y_TOP - 4, 'text-anchor': 'middle', class: 'flag', fill: 'var(--warn)' }, '読み?'));
+    else if (ph.src === 'guess') svg.appendChild(el('text', { x: px + 9, y: ys[pk] - 7, class: 'flag', fill: 'var(--warn)' }, '?'));
+    else if (ph.alt) svg.appendChild(el('text', { x: px + 9, y: ys[pk] - 7, class: 'flag', fill: 'var(--accent)' }, '★'));
+    // 元の文字
+    const surf = ph.surface.replace(/\n/g, '');
+    const st = el('text', { x: x0 + w / 2, y: Y_SURF, 'text-anchor': 'middle', class: 'surf' }, surf);
+    if (surf.length * 11 > w) { st.setAttribute('textLength', w); st.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
+    svg.appendChild(st);
+    // 読点
+    if (ph.pauseAfter) svg.appendChild(el('text', { x: x0 + w + GAP / 2 + 2, y: Y_KANA, class: 'pause' }, '、'));
+    // タップ用
+    const hit = el('rect', { x: x0 - GAP / 2, y: 0, width: w + GAP, height: ROW_H, class: 'hit' });
+    hit.addEventListener('click', () => openSheet(idx));
+    svg.appendChild(hit);
+  }
+
+  // ---------------------------------------------------------------- 編集シート
+  function openSheet(idx) {
+    state.sel = idx;
+    const ph = state.phrases[idx];
+    const sh = $('sheet');
+    sh.hidden = false;
+    $('edSurface').textContent = ph.surface.replace(/\n/g, '');
+    $('edKana').value = K.kataToHira(ph.morae.join(''));
+    $('edMerge').disabled = idx === 0 || state.phrases[idx - 1].end;
+    $('edReset').textContent = ph.resetBefore ? '段の戻しをやめる' : 'ここから段を上に戻す';
+    // 核の候補
+    const kb = $('edK'); kb.innerHTML = '';
+    const n = ph.morae.length;
+    for (let k = 0; k <= n; k++) {
+      if (k > 0 && K.isSpecial(ph.morae[k - 1])) continue; // ー・ン・ッ には核が乗らない
+      const b = document.createElement('button');
+      const name = k === 0 ? '平板' : k === 1 ? '頭高' : k === n ? '尾高' : String(k);
+      const shape = ph.morae.map((m, i) => K.kataToHira(m) + (i + 1 === k ? '↓' : '')).join('');
+      b.innerHTML = shape + '<small>' + name + (ph.alt && ph.alt.includes(k) ? ' ★' : '') + '</small>';
+      if (k === ph.k) b.className = 'on';
+      b.addEventListener('click', () => { ph.k = k; ph.src = ph.src === 'guess' ? 'edit' : ph.src; K.refresh(ph); render(); openSheet(idx); });
+      kb.appendChild(b);
+    }
+    // 切れ目
+    const pw = $('edParts'); pw.innerHTML = '';
+    ph.parts.forEach((pt, i) => {
+      if (i > 0) {
+        const c = document.createElement('button'); c.className = 'cut'; c.textContent = '切る';
+        c.addEventListener('click', () => { const two = K.splitPhrase(ph, i); state.phrases.splice(idx, 1, ...two); applyLevels(); render(); openSheet(idx + 1); });
+        pw.appendChild(c);
+      }
+      const s = document.createElement('span'); s.className = 'pt'; s.textContent = pt.surface.replace(/\n/g, '');
+      pw.appendChild(s);
+    });
+    render();
+    sh.scrollTop = 0;
+  }
+  function closeSheet() { $('sheet').hidden = true; if (state.sel >= 0) { state.sel = -1; render(); } }
+  $('edClose').addEventListener('click', closeSheet);
+  $('edKana').addEventListener('change', () => {
+    const idx = state.sel; if (idx < 0) return;
+    const ph = state.phrases[idx];
+    const kana = K.hiraToKata($('edKana').value.trim());
+    if (!kana) return;
+    ph.morae = K.toMorae(K.kanaToPron(kana));
+    ph.needsReading = false;
+    if (ph.src === 'guess') ph.src = 'edit';
+    K.refresh(ph);
+    render(); openSheet(idx);
+  });
+  $('edMerge').addEventListener('click', () => {
+    const idx = state.sel; if (idx <= 0) return;
+    const merged = K.mergePhrases(state.phrases[idx - 1], state.phrases[idx]);
+    state.phrases.splice(idx - 1, 2, merged);
+    applyLevels(); render(); openSheet(idx - 1);
+  });
+  $('edReset').addEventListener('click', () => {
+    const idx = state.sel; if (idx < 0) return;
+    state.phrases[idx].resetBefore = !state.phrases[idx].resetBefore;
+    applyLevels(); render(); openSheet(idx);
+  });
+  $('edWord').addEventListener('click', () => {
+    const idx = state.sel; if (idx < 0) return;
+    const ph = state.phrases[idx];
+    // 助詞・助動詞を除いた本体をことば帳の入力欄に入れる
+    const body = ph.parts.filter((p) => p.kind !== 'attach' && p.kind !== 'formal');
+    const surface = (body.length ? body : ph.parts).map((p) => p.surface).join('').replace(/\n/g, '');
+    const morae = [].concat(...(body.length ? body : ph.parts).map((p) => p.morae));
+    $('wSurface').value = surface;
+    $('wKana').value = K.kataToHira(morae.join(''));
+    $('wK').value = ph.k <= morae.length ? String(ph.k) : '';
+    $('wCat').value = ph.cat === 'v' || ph.cat === 'a' ? ph.cat : 'n';
+    $('wordsBox').open = true;
+    closeSheet();
+    $('wordsBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('wSurface').focus();
+  });
+
+  // ---------------------------------------------------------------- ことば帳
+  function renderWords() {
+    const t = $('wordsTable'); t.innerHTML = '';
+    state.words.forEach((w, i) => {
+      const tr = document.createElement('tr');
+      const kLabel = w.k === '' || w.k == null ? '推定' : String(w.k);
+      const cat = w.cat === 'v' ? '動' : w.cat === 'a' ? '形' : '名';
+      tr.innerHTML = `<td><b>${esc(w.surface)}</b></td><td>${esc(w.kana || '')}</td><td class="k">核 ${esc(kLabel)}・${cat}</td><td style="text-align:right"><button class="mini sub2" data-i="${i}">消す</button></td>`;
+      tr.querySelector('button').addEventListener('click', () => { state.words.splice(i, 1); saveWords(); renderWords(); analyze(); });
+      t.appendChild(tr);
+    });
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  $('wAdd').addEventListener('click', () => {
+    const surface = $('wSurface').value.trim();
+    const kana = $('wKana').value.trim();
+    const kRaw = $('wK').value.trim();
+    if (!surface) { $('wSurface').focus(); return; }
+    if (kana && !/^[ぁ-ゖァ-ヺーー]+$/.test(kana)) { alert('読みはかなで入れる'); return; }
+    const k = kRaw === '' ? '' : Number(kRaw);
+    if (k !== '' && (isNaN(k) || k < 0)) { alert('核の位置は 0 以上の数'); return; }
+    const w = { surface, kana: kana || surface, k, cat: $('wCat').value };
+    const i = state.words.findIndex((x) => x.surface === surface);
+    if (i >= 0) state.words[i] = w; else state.words.unshift(w);
+    saveWords(); renderWords();
+    $('wSurface').value = ''; $('wKana').value = ''; $('wK').value = '';
+    analyze();
+  });
+  $('wReset').addEventListener('click', () => {
+    if (!confirm('ことば帳を最初の状態（外郎売の語だけ）に戻す？')) return;
+    state.words = SEED_WORDS.map((w) => Object.assign({}, w));
+    saveWords(); renderWords(); analyze();
+  });
+
+  // ---------------------------------------------------------------- 音
+  const audio = { ctx: null, playing: false, raf: 0, events: [], stopAt: 0 };
+  function tone(ctx, f, t0, dur, gainV) {
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gainV, t0 + 0.015);
+    g.gain.setValueAtTime(gainV, t0 + dur - 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(lp); lp.connect(g); g.connect(ctx.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  async function play() {
+    if (audio.playing) { stop(); return; }
+    const ctx = audio.ctx || (audio.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    await ctx.resume();
+    const speed = parseFloat($('speed').value) || 6;
+    lsSet(LS.speed, String(speed));
+    const dur = 1 / speed;
+    let t = ctx.currentTime + 0.08;
+    audio.events = [];
+    state.phrases.forEach((ph, pi) => {
+      const n = ph.groupSize || 1;
+      ph.morae.forEach((m, i) => {
+        const high = ph.pattern[i] === 'H';
+        const st = high ? 3 + 9 * (((ph.level || 0) + 1) / n) : 0;
+        const f = 160 * Math.pow(2, st / 12);
+        tone(ctx, f, t, dur * 0.92, K.isSpecial(m) ? 0.16 : 0.24);
+        audio.events.push({ t, pi, i });
+        t += dur;
+      });
+      t += ph.end ? dur * 3 : ph.pauseAfter ? dur * 1.6 : dur * 0.4;
+    });
+    audio.stopAt = t;
+    audio.playing = true;
+    $('play').textContent = '■ 止める';
+    const tick = () => {
+      if (!audio.playing) return;
+      const now = ctx.currentTime;
+      if (now >= audio.stopAt) { stop(); return; }
+      let cur = null;
+      for (const e of audio.events) { if (e.t <= now) cur = e; else break; }
+      document.querySelectorAll('svg text.kana.now').forEach((e) => e.classList.remove('now'));
+      if (cur) { const e = document.querySelector(`svg text.kana[data-p="${cur.pi}"][data-i="${cur.i}"]`); if (e) { e.classList.add('now'); e.setAttribute('fill', 'var(--accent)'); } }
+      audio.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  }
+  function stop() {
+    audio.playing = false;
+    cancelAnimationFrame(audio.raf);
+    if (audio.ctx) { try { audio.ctx.close(); } catch (e) {} audio.ctx = null; }
+    $('play').textContent = '▶ 音で聞く';
+    document.querySelectorAll('svg text.kana.now').forEach((e) => { e.classList.remove('now'); e.removeAttribute('fill'); });
+  }
+  $('play').addEventListener('click', play);
+
+  // ---------------------------------------------------------------- 画像・文字
+  function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function buildFullSvg() {
+    const rows = Array.from(document.querySelectorAll('#out svg'));
+    const W = Math.max(...rows.map((s) => parseFloat(s.getAttribute('width'))));
+    const H = rows.length * ROW_H + 16;
+    const svg = el('svg', { xmlns: NS, width: W + 16, height: H, viewBox: `0 0 ${W + 16} ${H}` });
+    svg.appendChild(el('rect', { x: 0, y: 0, width: W + 16, height: H, fill: cssVar('--card') }));
+    // CSS 変数はそのままだと画像に出ないので値を埋め込む
+    const style = el('style', {}, `
+      text { font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif; fill: ${cssVar('--ink')}; }
+      text.kana { font-size: 14px; font-weight: 600; } text.surf { font-size: 11px; fill: ${cssVar('--muted')}; }
+      text.pk { font-size: 9px; font-weight: 700; fill: #fff; } text.flag { font-size: 10px; font-weight: 700; }
+      .step { fill: ${cssVar('--step')}; } .line { fill: none; stroke: ${cssVar('--accent')}; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+      .line.guess { stroke: ${cssVar('--warn')}; stroke-dasharray: 5 4; } .line.user { stroke: ${cssVar('--good')}; }
+      .dot { fill: ${cssVar('--accent')}; } .dot.guess { fill: ${cssVar('--warn')}; } .dot.user { fill: ${cssVar('--good')}; }
+      .peak { stroke: ${cssVar('--card')}; stroke-width: 2; } .sep { stroke: ${cssVar('--line')}; stroke-width: 1; }
+      .hit { fill: transparent; } .sel { fill: transparent; } text.pause { fill: ${cssVar('--muted')}; font-size: 14px; } .tick { stroke: ${cssVar('--accent')}; stroke-width: 2; }
+    `);
+    svg.appendChild(style);
+    rows.forEach((s, i) => {
+      const g = el('g', { transform: `translate(8, ${8 + i * ROW_H})` });
+      for (const c of Array.from(s.childNodes)) g.appendChild(c.cloneNode(true));
+      svg.appendChild(g);
+    });
+    return svg;
+  }
+  $('png').addEventListener('click', () => {
+    const svg = buildFullSvg();
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;
+      const c = document.createElement('canvas');
+      c.width = svg.getAttribute('width') * scale; c.height = svg.getAttribute('height') * scale;
+      const g = c.getContext('2d'); g.scale(scale, scale); g.drawImage(img, 0, 0);
+      c.toBlob((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'kaidan.png';
+        document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      }, 'image/png');
+    };
+    img.onerror = () => alert('画像にできなかった');
+    img.src = url;
+  });
+  $('txt').addEventListener('click', () => {
+    const lines = [];
+    let group = 0;
+    state.phrases.forEach((ph, i) => {
+      if (ph.groupIndex === 0) group++;
+      const shape = ph.morae.map((m, j) => K.kataToHira(m) + (j + 1 === ph.k ? '↓' : '')).join('');
+      const name = ph.k === 0 ? '平板' : ph.k === 1 ? '頭高' : ph.k === ph.morae.length ? '尾高' : '中高' + ph.k;
+      lines.push(`${ph.groupIndex === 0 ? '▶ ' : '   '}${(ph.groupIndex || 0) + 1}. ${ph.surface.replace(/\n/g, '')}　${shape}　${name}${ph.src === 'guess' ? '（推定）' : ''}${ph.pauseAfter ? '、' : ''}${ph.end ? '。' : ''}`);
+    });
+    const pre = $('plain');
+    pre.textContent = lines.join('\n');
+    pre.hidden = false;
+    if (navigator.clipboard) navigator.clipboard.writeText(pre.textContent).then(() => setStatus('文字にしてコピーした')).catch(() => {});
+  });
+
+  // ---------------------------------------------------------------- 操作
+  $('go').addEventListener('click', analyze);
+  $('sample').addEventListener('click', () => { $('text').value = SAMPLE; analyze(); });
+  $('resetMode').addEventListener('change', () => { lsSet(LS.mode, $('resetMode').value); applyLevels(); render(); });
+  $('text').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') analyze(); });
+  let rt = 0;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+  init();
+})();
+</script>
+</body>
+</html>
