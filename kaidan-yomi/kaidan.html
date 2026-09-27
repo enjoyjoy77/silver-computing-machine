@@ -124,7 +124,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="head"><h1>🪜 かいだん読み</h1><span class="rev">2026-09-27</span></div>
+  <div class="head"><h1>🪜 かいだん読み</h1><span class="rev">2026-09-27 b</span></div>
   <p class="sub">文章を貼ると、単語ごとの高低（アクセント）を辞書から引き、山の頂点が文末へ一段ずつ下がる「上から下」のお手本を図にする。ナレーション・朗読の練習用。</p>
 
   <div class="card">
@@ -133,7 +133,7 @@
     <div class="btnrow">
       <button id="go">図にする</button>
       <button id="sample" class="sub2">外郎売を入れる</button>
-      <button id="play" class="sub2" disabled>▶ 音で聞く</button>
+      <button id="play" class="sub2" disabled>▶ 声で聞く</button>
       <button id="png" class="sub2" disabled>画像で保存</button>
       <button id="txt" class="sub2" disabled>文字で出す</button>
     </div>
@@ -145,6 +145,7 @@
           <option value="pause">読点でも仕切る</option>
         </select>
       </span>
+      <span>声: <select id="voice"><option value="low">低め</option><option value="high">高め</option></select></span>
       <span>速さ: <input id="speed" type="range" min="3" max="9" step="0.5" value="6" style="vertical-align:middle;width:110px"></span>
     </div>
     <div id="status">辞書を読み込み中…（初回だけ 20MB ほど。しばらく待つ）</div>
@@ -181,14 +182,14 @@
         <li>助詞・助動詞の付き方（「まで」は平板の後ろで核を作る、「ます」はいつも「ま」に核…）と、複合語の作り方（前の語の末尾に核 / 後ろの1拍目に核 / 平板化）は UniDic の結合型に従う。活用による核の移動（食べる→食べて）は東京式の一般規則で計算。</li>
         <li>古文・固有名詞・言い回しが古い文章は解析が外れやすい。外れた語は山をタップして直し、「ことば帳に入れる」で次から効くようにする。</li>
         <li>「読み」は東京式（共通語）アクセント。方言のアクセントは扱わない。辞書に候補が複数ある語は ★ で示す。</li>
-        <li>音は声ではなく高さの目安（ハミング）。実際の声はなだらかに動くので、段差そのものを真似るのではなく「頂点の順番」を耳で確かめる用途。</li>
+        <li>声は klattsch（1980年代風のフォルマント合成、ロボ読みと同じ部品）で、拍ごとに高さを指定して読ませている。人の声ほど滑らかではないが、子音と母音があるので「どの拍で上がってどこで落ちるか」は聞き取れる。段の高さ: 一番上の山が基準の＋12半音、下の山ほど＋3半音に近づく。</li>
         <li>データは端末の中だけで処理する。文章・ことば帳はこのブラウザに保存される。</li>
       </ul>
     </div>
   </details>
 
   <p class="foot">
-    UniDic は国立国語研究所（BSD/LGPL/GPL のトリプルライセンス）。kuromoji.js は Apache-2.0、IPADIC は独自ライセンス。<br>
+    UniDic は国立国語研究所（BSD/LGPL/GPL のトリプルライセンス）。kuromoji.js は Apache-2.0、IPADIC は独自ライセンス。声の合成 klattsch は MIT（Tony Gies）。<br>
     元ネタ: YouTube「あんじょーメソッド」の<a href="https://www.youtube.com/watch?v=N97n7yh7QVw" target="_blank" rel="noopener" style="color:var(--accent)">『ナレーションの“上から下”を外郎売で徹底解説』</a>。各単語のアクセントは崩さず、単語の一番高い音だけを文末へ向けて順に下げる、が肝。
   </p>
 </div>
@@ -206,13 +207,14 @@
 </div>
 
 <script src="../libs/kuromoji/kuromoji.js"></script>
+<script src="../libs/klattsch/klattsch.js"></script>
 <script src="kaidan-core.js"></script>
 <script>
 (() => {
   'use strict';
   const K = window.KaidanCore;
   const $ = (id) => document.getElementById(id);
-  const LS = { text: 'kaidan.text', words: 'kaidan.words.v1', mode: 'kaidan.mode', speed: 'kaidan.speed' };
+  const LS = { text: 'kaidan.text', words: 'kaidan.words.v1', mode: 'kaidan.mode', speed: 'kaidan.speed', voice: 'kaidan.voice' };
 
   // 最初から入っていることば帳（外郎売の冒頭用）。核が空欄のものは推定
   const SEED_WORDS = [
@@ -261,6 +263,7 @@
     $('text').value = lsGet(LS.text, '');
     $('resetMode').value = lsGet(LS.mode, 'auto');
     $('speed').value = lsGet(LS.speed, '6');
+    $('voice').value = lsGet(LS.voice, 'low');
     try {
       const [dictText] = await Promise.all([
         fetch('accent.tsv').then((r) => { if (!r.ok) throw new Error('accent.tsv ' + r.status); return r.text(); }),
@@ -528,60 +531,126 @@
     saveWords(); renderWords(); analyze();
   });
 
-  // ---------------------------------------------------------------- 音
-  const audio = { ctx: null, playing: false, raf: 0, events: [], stopAt: 0 };
-  function tone(ctx, f, t0, dur, gainV) {
-    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gainV, t0 + 0.015);
-    g.gain.setValueAtTime(gainV, t0 + dur - 0.04);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(lp); lp.connect(g); g.connect(ctx.destination);
-    o.start(t0); o.stop(t0 + dur + 0.02);
+  // ---------------------------------------------------------------- 声
+  // klattsch(フォルマント合成)で、拍ごとに高さを指定して実際に読ませる。
+  // 声の高さは山の段に合わせる: 一番上の山が基準+12半音、下の山ほど+3半音に近づく。
+  // 山の中では 出だしの低い拍 → 高い拍(少しずつ下がる) → 核のあとの低い拍 と動く。
+  const VOICES = {
+    low:  { base: 105, scale: 1.0,  extra: 'g0.55 h0.02 t-0.05' },
+    high: { base: 190, scale: 1.14, extra: 'g0.5 h0.03 t0.05' },
+  };
+  const audio = { ctx: null, playing: false, raf: 0, events: [], sources: [], stopAt: 0, token: 0 };
+  function moraF0s(ph, base) {
+    const n = ph.groupSize || 1, lv = ph.level || 0;
+    const top = 3 + 9 * ((lv + 1) / n);
+    const hz = (st) => base * Math.pow(2, st / 12);
+    const out = [];
+    let hi = 0, low = 0;
+    for (let i = 0; i < ph.morae.length; i++) {
+      if (ph.pattern[i] === 'H') { out.push(hz(top - 0.3 * hi)); hi++; }
+      else if (i === 0) out.push(hz(top - 3));
+      else { out.push(hz(top - 5 - Math.min(2.5, 0.6 * low))); low++; }
+    }
+    return out;
+  }
+  // 山の列 → klattsch の並び。events は拍ごとの開始時刻(ms)
+  function buildSeq(phrases, voice, rate) {
+    let seq = `[bank=ja-hecko-2026] r${rate} s${voice.scale} ${voice.extra} b${voice.base} `;
+    const events = [];
+    let t = 0, lastVowel = 'A';
+    for (const ph of phrases) {
+      const f0s = moraF0s(ph, voice.base);
+      ph.morae.forEach((m, i) => {
+        const pi = ph.__idx;
+        if (m === 'ッ') { const d = Math.round(rate * 0.8); seq += `p${d} `; events.push({ t, pi, i }); t += d; return; }
+        let codes;
+        if (m === 'ー') codes = [lastVowel];
+        else if (m === 'ン') codes = ['N'];
+        else {
+          const c = window.klattsch.kanaToPhonemes(K.kataToHira(m));
+          codes = c ? c.map((x) => x.code).filter((x) => x !== '_') : [];
+        }
+        if (!codes.length) { seq += `p${rate} `; events.push({ t, pi, i }); t += rate; return; }
+        const v = codes[codes.length - 1];
+        if ('AIUEO'.includes(v)) lastVowel = v;
+        seq += `b${Math.round(f0s[i])} ( ${codes.join(' ')} ) `;
+        events.push({ t, pi, i });
+        t += rate;
+      });
+      const gap = Math.round(ph.end ? rate * 2.2 : ph.pauseAfter ? rate * 1.3 : rate * 0.3);
+      seq += `p${gap} `;
+      t += gap;
+    }
+    return { seq, events, totalMs: t };
   }
   async function play() {
     if (audio.playing) { stop(); return; }
+    if (!window.klattsch) { setStatus('声の部品(klattsch)が読み込めていない', true); return; }
     const ctx = audio.ctx || (audio.ctx = new (window.AudioContext || window.webkitAudioContext)());
     await ctx.resume();
     const speed = parseFloat($('speed').value) || 6;
     lsSet(LS.speed, String(speed));
-    const dur = 1 / speed;
-    let t = ctx.currentTime + 0.08;
-    audio.events = [];
-    state.phrases.forEach((ph, pi) => {
-      const n = ph.groupSize || 1;
-      ph.morae.forEach((m, i) => {
-        const high = ph.pattern[i] === 'H';
-        const st = high ? 3 + 9 * (((ph.level || 0) + 1) / n) : 0;
-        const f = 160 * Math.pow(2, st / 12);
-        tone(ctx, f, t, dur * 0.92, K.isSpecial(m) ? 0.16 : 0.24);
-        audio.events.push({ t, pi, i });
-        t += dur;
-      });
-      t += ph.end ? dur * 3 : ph.pauseAfter ? dur * 1.6 : dur * 0.4;
-    });
-    audio.stopAt = t;
+    lsSet(LS.voice, $('voice').value);
+    const voice = VOICES[$('voice').value] || VOICES.low;
+    const rate = Math.round(1000 / speed);
+    const myToken = ++audio.token;
     audio.playing = true;
+    audio.events = [];
+    audio.sources = [];
     $('play').textContent = '■ 止める';
+    // 文ごとに作って、できた順に途切れなくつなぐ
+    const chunks = [];
+    let cur = [];
+    state.phrases.forEach((ph, i) => { ph.__idx = i; cur.push(ph); if (ph.end) { chunks.push(cur); cur = []; } });
+    if (cur.length) chunks.push(cur);
+    const SR = 22050;
+    let at = ctx.currentTime + 0.15;
+    const t0 = at;
+    for (let c = 0; c < chunks.length; c++) {
+      if (audio.token !== myToken) return;
+      setStatus(`声を作っている… ${c + 1}/${chunks.length}`);
+      await new Promise((r) => setTimeout(r, 0));
+      const built = buildSeq(chunks[c], voice, rate);
+      let data;
+      try {
+        const r = window.klattsch.compileString(built.seq);
+        data = window.klattsch.renderToBuffer({ sampleRate: SR, schedule: r.schedule, totalMs: r.totalMs });
+      } catch (e) { console.error(e); setStatus('声を作れなかった: ' + e.message, true); stop(); return; }
+      if (audio.token !== myToken) return;
+      const buf = ctx.createBuffer(1, data.length, SR);
+      buf.getChannelData(0).set(data);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain(); g.gain.value = 0.9;
+      src.connect(g); g.connect(ctx.destination);
+      const startAt = Math.max(at, ctx.currentTime + 0.02);
+      src.start(startAt);
+      audio.sources.push(src);
+      for (const e of built.events) audio.events.push({ t: startAt + e.t / 1000, pi: e.pi, i: e.i });
+      at = startAt + built.totalMs / 1000;
+      audio.stopAt = at + 0.2;
+    }
+    setStatus('');
     const tick = () => {
-      if (!audio.playing) return;
+      if (!audio.playing || audio.token !== myToken) return;
       const now = ctx.currentTime;
       if (now >= audio.stopAt) { stop(); return; }
-      let cur = null;
-      for (const e of audio.events) { if (e.t <= now) cur = e; else break; }
-      document.querySelectorAll('svg text.kana.now').forEach((e) => e.classList.remove('now'));
-      if (cur) { const e = document.querySelector(`svg text.kana[data-p="${cur.pi}"][data-i="${cur.i}"]`); if (e) { e.classList.add('now'); e.setAttribute('fill', 'var(--accent)'); } }
+      let curE = null;
+      for (const e of audio.events) { if (e.t <= now) curE = e; else break; }
+      document.querySelectorAll('svg text.kana.now').forEach((e) => { e.classList.remove('now'); e.removeAttribute('fill'); });
+      if (curE) { const e = document.querySelector(`svg text.kana[data-p="${curE.pi}"][data-i="${curE.i}"]`); if (e) { e.classList.add('now'); e.setAttribute('fill', 'var(--accent)'); } }
       audio.raf = requestAnimationFrame(tick);
     };
     tick();
+    void t0;
   }
   function stop() {
     audio.playing = false;
+    audio.token++;
     cancelAnimationFrame(audio.raf);
-    if (audio.ctx) { try { audio.ctx.close(); } catch (e) {} audio.ctx = null; }
-    $('play').textContent = '▶ 音で聞く';
+    for (const s of audio.sources) { try { s.stop(); } catch (e) {} }
+    audio.sources = [];
+    $('play').textContent = '▶ 声で聞く';
+    setStatus('');
     document.querySelectorAll('svg text.kana.now').forEach((e) => { e.classList.remove('now'); e.removeAttribute('fill'); });
   }
   $('play').addEventListener('click', play);
