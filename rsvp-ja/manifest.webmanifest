@@ -1,0 +1,17 @@
+{
+  "name": "戻れるRSVP 日本語",
+  "short_name": "RSVP日",
+  "description": "日本語の文章を文節ごとに流す。止まれる、戻れる、気になる語に印を付けられる。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1C1916",
+  "theme_color": "#2B2521",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
