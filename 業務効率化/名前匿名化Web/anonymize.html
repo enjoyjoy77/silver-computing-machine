@@ -38,7 +38,7 @@
   #nameList { min-height: 3.5rem; }
   .hint { font-size: 0.72rem; color: var(--muted); margin: 0.2rem 0 0; }
   .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.7rem; }
-  .fileload { display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:0.4rem 0.8rem; background:var(--card); font-size:0.85rem; white-space:nowrap; }
+  .fileload { display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; border:1px solid var(--line); border-radius:8px; padding:0.4rem 0.8rem; background:var(--card); font-size:0.85rem; }  /* 長い説明はスマホで折り返す（はみ出すと画面ごと横に広がる） */
   .fileload:hover { border-color: var(--accent); }
   /* ドラッグ＆ドロップ中の見た目 */
   body.dragover::after {
@@ -92,7 +92,7 @@
 <body>
 <div class="wrap">
   <h1>🙈 名前匿名化</h1>
-  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-07-29 大きいファイルは分割処理（低スペックPC対応）</span></p>
+  <p class="sub">文章やExcel・Wordの実名を【A】【B】に置き換え。人名辞書内蔵で自動検出、すべて端末内で処理（送信されません）。<br><span style="opacity:.6">rev 2026-09-28 罫線だけの空セルの右にある名前を読み落とす不具合を修正</span></p>
 
   <label class="head" for="inputText">📝 テキスト（ここに貼る）</label>
   <textarea id="inputText" placeholder="匿名化したい文章を貼り付けてください（またはWord/テキストを読み込む）"></textarea>
@@ -31353,10 +31353,11 @@ window.TinySegmenter = { segment: segment };
     // 共有文字列（本文の実体はほぼここ）
     const shared = [];
     const ss = await zipText(z, "xl/sharedStrings.xml");
-    if (ss) for (const m of ss.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+    // 空の要素（<si/> <t/> <row .../> <c .../>）で次の要素を飲み込まないよう、閉じ方を両方みる
+    if (ss) for (const m of ss.matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g)) {
       // ふりがな(<rPh>)は本文ではない。取り込むと「佐藤サトウ」になって名前として一致しなくなる
-      const body = stripPhonetic(m[1]);
-      let t = ""; for (const g of body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) t += g[1];
+      const body = stripPhonetic(m[1] || "");
+      let t = ""; for (const g of body.matchAll(/<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g)) t += g[1] || "";
       shared.push(unent(t).replace(/[\r\n]+/g," "));
     }
     // シート名 → シートXMLの対応（workbook.xml と rels から）
@@ -31380,15 +31381,16 @@ window.TinySegmenter = { segment: segment };
     for (const sh of sheets) {
       const xml = await zipText(z, sh.path); if (xml == null) continue;
       const lines = [];
-      for (const r of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+      for (const r of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
         const cells = [];
-        for (const c of r[1].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        // 罫線だけの空セル <c r="C2" s="1"/> が、右のセルを飲み込まないように（[^>]*? で「/>」を先に見つける）
+        for (const c of (r[1] || "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
           const attr = c[1], body = c[2] || "";
           const ref = (attr.match(/r="([A-Z]+)\d+"/)||[])[1] || "";
           const ty = (attr.match(/t="([^"]+)"/)||[])[1] || "n";
           let v = "";
           if (ty === "s") { const i = parseInt((body.match(/<v>(\d+)<\/v>/)||[])[1], 10); v = shared[i] || ""; }
-          else if (ty === "inlineStr") { for (const g of stripPhonetic(body).matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) v += g[1]; v = unent(v); }
+          else if (ty === "inlineStr") { for (const g of stripPhonetic(body).matchAll(/<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g)) v += g[1] || ""; v = unent(v); }
           else { v = unent((body.match(/<v>([\s\S]*?)<\/v>/)||[])[1] || ""); }
           const idx = ref ? colNum(ref) : cells.length;
           while (cells.length < idx) cells.push("");
