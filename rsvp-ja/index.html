@@ -221,6 +221,10 @@ details[open] summary::before{transform:rotate(45deg)}
         <select id="chunk"><option value="1">1文節</option><option value="2">2文節</option><option value="3">3文節</option><option value="comma">読点まで</option></select>
       </div>
       <div class="set">
+        <label>一文節の長さの上限<small>これより長い塊は、助詞の後ろや漢字の切れ目で割って出す</small></label>
+        <select id="maxlen"><option value="6">6字</option><option value="8">8字</option><option value="10">10字</option><option value="99">制限なし</option></select>
+      </div>
+      <div class="set">
         <label>文末の間（ミリ秒）<small>句点の後に意味を組み立てる時間</small></label>
         <input type="number" id="pause" min="0" max="3000" step="50" value="400">
       </div>
@@ -307,7 +311,7 @@ const $=id=>document.getElementById(id);
 const KEY='rsvp_ja_v1';
 
 /* ---------- state ---------- */
-let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,folded:false,text:'',bank:[]};
+let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,folded:false,maxlen:8,text:'',bank:[]};
 let tokens=[],sentences=[],frames=[];
 let idx=0,playing=false,timer=null,elapsed=0,lastTick=0;
 let marks=new Set();
@@ -448,12 +452,56 @@ function mergeParts(text){
   const out=[];let prev=0;for(const p of keep){out.push(text.slice(prev,p));prev=p;}out.push(text.slice(prev));
   return out.filter(Boolean);
 }
+/* ---------- 長い塊を割る ----------
+   句読点を除いた文字数が上限を超えた塊は、良い所を探して二つに割る（再帰）。
+   良さの順: 助詞の後ろ ＞ ひらがな→漢字・カナ ＞ 漢字→数字・カナ ＞ 漢字の途中 ＞ 送り仮名の前。同点なら真ん中に近い方。 */
+const LETTER_STRIP=/[^一-龯々〆ヵヶァ-ヺぁ-ゖA-Za-z0-9Ａ-Ｚａ-ｚ０-９ー]/g;
+const PART_HARD=/(は|が|を|に|へ|と|から|まで|より|も|の|や|か|ね|よ|ば|しか|だけ|ほど|くらい|ぐらい|など|ばかり|ずつ|でも|とか|って|のに|ので|けど|けれど)$/;
+const PART_SOFT=/(て|で|ながら|たり|つつ)$/;
+const LONGP=['から','まで','より','しか','だけ','ほど','くらい','ぐらい','など','ばかり','ずつ','でも','とか','って','のに','ので','けど','けれど','ながら','たり','つつ','という','といった'];
+function spansBoundary(p,i){   // 境界 i をまたいで長い助詞が乗っていないか（あったばか｜り を防ぐ）
+  for(const w of LONGP){for(let st=i-w.length+1;st<i;st++){if(st>=0&&p.substr(st,w.length)===w)return true;}}
+  return false;
+}
+function splitLong(p,max){
+  if(p.replace(LETTER_STRIP,'').length<=max)return [p];
+  let bs=null;try{if(bdx&&bdx.scores)bs=bdx.scores(p);}catch(e){}
+  let best=-1,bestScore=0;
+  for(let i=2;i<=p.length-2;i++){
+    const a=p[i-1],b=p[i];
+    if(!LETTER.test(a)||!LETTER.test(b))continue;
+    if(SMALL.test(b)||b==='ー')continue;
+    if(spansBoundary(p,i))continue;
+    const before=p.slice(0,i),after=p.slice(i);
+    if(/^(いう|いった|いって)/.test(after))continue;
+    if(before.replace(LETTER_STRIP,'').length<2||after.replace(LETTER_STRIP,'').length<2)continue;   // 1字だけの欠片を作らない
+    let sc=0;
+    if(PART_HARD.test(before)&&isHiraC(a))sc=5;
+    else if(PART_SOFT.test(before)&&isHiraC(a))sc=3;
+    else if(isHiraC(a)&&!isHiraC(b))sc=4;
+    else if(/[0-9０-９]/.test(a)&&/[0-9０-９]/.test(b))sc=0;
+    else if(/[0-9０-９]/.test(a)&&isKanjiC(b)&&/[0-9０-９]/.test(p[i+1]||''))sc=0;
+    else if(isKanjiC(a)&&/[0-9０-９]/.test(b))sc=3;
+    else if(isKanjiC(a)&&isKataC(b))sc=3;
+    else if(isKanjiC(a)&&isKanjiC(b))sc=2;
+    else if(isKataC(a)&&isKataC(b))sc=0;                 // カタカナ語の途中では割らない
+    else if(!isHiraC(a)&&isHiraC(b))sc=1;
+    if(sc===0)continue;
+    const bal=1-Math.abs(i-p.length/2)/(p.length/2);     // 真ん中に近いほど良い（0〜1）
+    const bonus=bs?Math.max(-1.5,Math.min(1.5,bs[i]/3000)):0;   // BudouX の点数（漢字の複合語のどこで割るか）
+    const total=sc+bal+bonus;
+    if(total>bestScore){bestScore=total;best=i;}
+  }
+  if(best<0)return [p];                                   // 割れる所がなければそのまま
+  return [...splitLong(p.slice(0,best),max),...splitLong(p.slice(best),max)];
+}
 const END_RE=/[。．！？!?‼⁉…‥]+[」』）)］\]】〉》”’"']*$/;
 const COMMA_RE=/[、，,][」』）)］\]】〉》”’"']*$/;
 function segmentJa(text){
   const out=[];
   text.split(/\s+/).filter(Boolean).forEach(piece=>{
-    mergeParts(piece).forEach(p=>{out.push({text:p,end:END_RE.test(p),comma:COMMA_RE.test(p)});});
+    const max=+S.maxlen||99;
+    mergeParts(piece).forEach(q=>{splitLong(q,max).forEach(p=>{out.push({text:p,end:END_RE.test(p),comma:COMMA_RE.test(p)});});});
   });
   return out;
 }
@@ -476,7 +524,7 @@ function tokenize(text){
 }
 function buildFrames(){
   frames=[];
-  const comma=S.chunk==='comma';const n=comma?99:(+S.chunk||1);const maxLen=comma?16:14;
+  const comma=S.chunk==='comma';const n=comma?99:(+S.chunk||1);const maxLen=comma?16:12;
   let i=0;
   while(i<tokens.length){
     const grp=[tokens[i]];let j=i;let len=tokens[i].text.length;
@@ -654,12 +702,12 @@ function finish(){
 
 /* ---------- settings ui ---------- */
 function readSettings(){
-  S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;
+  S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;S.maxlen=+$('maxlen').value||8;
   S.ramp=$('ramp').checked;S.target=+$('target').value||S.cpm;S.alwaysctx=$('alwaysctx').checked;
   syncSpeed();
 }
 function writeSettings(){
-  $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
+  $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;$('maxlen').value=String(S.maxlen||8);
   $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
   syncSpeed();applyFold();
   $('text').value=S.text||'';setCount();
@@ -706,7 +754,7 @@ $('paste').addEventListener('click',async()=>{
 });
 $('clear').addEventListener('click',()=>{$('text').value='';setCount();});
 $('text').addEventListener('input',()=>{S.text=$('text').value;setCount();save();});
-['cpm','chunk','pause','ramp','target','alwaysctx'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
+['cpm','chunk','pause','ramp','target','alwaysctx','maxlen'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
 $('copybank').addEventListener('click',e=>copyText(S.bank.join('\n'),e.currentTarget));
 $('clearbank').addEventListener('click',()=>{if(!S.bank.length)return;if(confirm('印を付けた語を全部消す？')){S.bank=[];save();renderBank();}});
 
