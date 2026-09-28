@@ -78,6 +78,12 @@ textarea::placeholder{color:var(--muted)}
 .btn.quiet{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:400}
 .btn:disabled{opacity:.4;cursor:default}
 .count{color:var(--muted);font-size:.9rem}
+.speedbar{display:grid;grid-template-columns:auto 1fr auto auto;gap:.4rem .6rem;align-items:center;margin-top:.9rem;padding:.7rem .9rem;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.speedbar label{font-weight:700}
+.speedbar small{grid-column:1/-1;color:var(--muted);font-size:.82rem}
+.speedbar .unit{color:var(--muted);font-size:.85rem}
+.speedbar input[type=number]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.35rem .5rem;width:5.4rem}
+input[type=range]{accent-color:var(--pivot);width:100%;min-width:0;margin:0}
 details{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
 summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:.5rem}
 summary::-webkit-details-marker{display:none}
@@ -99,11 +105,13 @@ details[open] summary::before{transform:rotate(45deg)}
 .note{color:var(--muted);font-size:.82rem;margin:1.4rem 0 0;line-height:1.6}
 
 /* ---------- reader ---------- */
-#reader{height:100%;user-select:none;-webkit-user-select:none}
+#reader{height:100%;height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));user-select:none;-webkit-user-select:none;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .prog{height:3px;background:var(--line);position:relative}
 .prog i{position:absolute;left:0;top:0;bottom:0;background:var(--pivot);width:0}
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;color:var(--muted);font-size:.85rem}
 .topbar button{color:var(--muted);padding:.3rem .5rem}
+.tb-right{display:flex;align-items:center;gap:.4rem}
+.tb-right button{border:1px solid var(--line);border-radius:999px;font-size:.78rem;padding:.15rem .6rem}
 .stage{
   overflow:hidden;
   flex:1;display:flex;flex-direction:column;justify-content:center;align-items:stretch;
@@ -145,7 +153,10 @@ details[open] summary::before{transform:rotate(45deg)}
 .controls .ctl.mark{color:var(--mark);border-color:var(--mark)}
 .controls .ctl.mark.on{background:var(--markbg)}
 .wpmrow{display:flex;justify-content:center;align-items:center;gap:1rem;padding:0 1rem .4rem;color:var(--muted);font-size:.9rem}
-.wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;font-weight:700;color:var(--ink)}
+.wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;flex:0 0 auto;font-weight:700;color:var(--ink)}
+.wpmrow input[type=range]{flex:1 1 auto;max-width:18rem}
+.handle{align-self:center;color:var(--muted);font-size:.8rem;padding:.25rem 1rem;border-radius:999px}
+#reader.folded .wpmrow,#reader.folded .controls{display:none}
 .wpmrow b{color:var(--ink);font-size:1.1rem;min-width:5.5rem;text-align:center}
 .wpmrow b small{font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.15rem}
 
@@ -161,6 +172,21 @@ details[open] summary::before{transform:rotate(45deg)}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 @media (min-width:640px){.word{font-size:min(6vw,4.2rem)}}
+/* スマホ横向き：高さが足りないので詰める */
+@media (orientation:landscape) and (max-height:520px){
+  .topbar{padding:.2rem .8rem;font-size:.78rem}
+  .ticks{height:.6rem}
+  .word{padding:.15rem 0;font-size:min(13vh,3.6rem)}
+  .hint{margin-top:.2rem;min-height:1rem;font-size:.72rem}
+  .context{max-height:3.6rem;font-size:.88rem;line-height:1.5;margin-top:.2rem}
+  .wpmrow{padding:0 .8rem .1rem;gap:.6rem}
+  .wpmrow button{width:2rem;height:2rem}
+  .wpmrow b{font-size:.95rem;min-width:4.5rem}
+  .handle{padding:.1rem 1rem;font-size:.72rem}
+  .controls{padding:.25rem .8rem .4rem;gap:.4rem}
+  .controls .ctl{padding:.4rem .3rem;font-size:.9rem;border-radius:10px}
+  .controls .ctl small{display:none}
+}
 </style>
 </head>
 <body>
@@ -174,22 +200,29 @@ details[open] summary::before{transform:rotate(45deg)}
     <textarea id="text" placeholder="ここに日本語の文章を貼り付け（記事、小説、なんでも）" spellcheck="false"></textarea>
     <div class="row">
       <button class="btn big" id="start">読む</button>
+      <button class="btn quiet" id="paste">貼り付け</button>
       <button class="btn quiet" id="sample">サンプル</button>
-      <button class="btn quiet" id="soseki">漱石</button>
       <button class="btn quiet" id="clear">消す</button>
       <span class="spacer"></span>
       <span class="count" id="count"></span>
+    </div>
+    <div class="speedbar">
+      <label for="cpm">速さ</label>
+      <input type="range" id="cpmrange" min="100" max="1500" step="25" value="500" aria-label="速さ">
+      <input type="number" id="cpm" min="100" max="3000" step="25" value="500">
+      <span class="unit">字/分</span>
+      <small>1分あたりの文字数。黙読の平均は500〜600くらい。まずは400〜500から。読んでいる途中でも変えられる</small>
     </div>
 
     <details id="settings">
       <summary>設定</summary>
       <div class="set">
-        <label>速さ（字/分）<small>1分あたりの文字数。黙読の平均は500〜600くらい。まずは400〜500から</small></label>
-        <input type="number" id="cpm" min="100" max="3000" step="25" value="500">
-      </div>
-      <div class="set">
         <label>一度に出す文節数<small>1文節が基本。2〜3文節は句のまとまりで読む。「読点まで」は句読点で区切る</small></label>
         <select id="chunk"><option value="1">1文節</option><option value="2">2文節</option><option value="3">3文節</option><option value="comma">読点まで</option></select>
+      </div>
+      <div class="set">
+        <label>一文節の長さの上限<small>これより長い塊は、助詞の後ろや漢字の切れ目で割って出す</small></label>
+        <select id="maxlen"><option value="6">6字</option><option value="8">8字</option><option value="10">10字</option><option value="99">制限なし</option></select>
       </div>
       <div class="set">
         <label>文末の間（ミリ秒）<small>句点の後に意味を組み立てる時間</small></label>
@@ -218,7 +251,7 @@ details[open] summary::before{transform:rotate(45deg)}
       </div>
     </div>
 
-    <p class="note">文節の切り出しは機械まかせなので、たまに変な所で切れる。気になったら「読点まで」にすると切れ目が減る。</p>
+    <p class="note">文節の切り出しは、Googleの BudouX と独自の規則の合わせ技。それでもたまに変な所で切れる。気になったら「読点まで」にすると切れ目が減る。</p>
   </div>
 </section>
 
@@ -228,7 +261,7 @@ details[open] summary::before{transform:rotate(45deg)}
   <div class="topbar">
     <button id="quit">← 戻る</button>
     <span id="pos"></span>
-    <span id="curwpm"></span>
+    <span class="tb-right"><button id="fs" hidden>⤢ 横画面</button><span id="curwpm"></span></span>
   </div>
   <div class="stage" id="stage">
     <div class="ticks"></div>
@@ -237,10 +270,12 @@ details[open] summary::before{transform:rotate(45deg)}
     <div class="hint" id="hint">タップで開始</div>
     <div class="context hidden" id="ctx"></div>
   </div>
+  <button class="handle" id="fold" aria-label="操作パネルをしまう・出す">▾ しまう</button>
   <div class="wpmrow">
     <button id="slower" aria-label="遅く">−</button>
-    <b><span id="wpmlabel">500</span><small>字/分</small></b>
+    <input type="range" id="speed" min="100" max="1500" step="25" value="500" aria-label="速さ">
     <button id="faster" aria-label="速く">＋</button>
+    <b><span id="wpmlabel">500</span><small>字/分</small></b>
   </div>
   <div class="controls">
     <button class="ctl" id="back">◀ 文<small>戻る</small></button>
@@ -268,6 +303,7 @@ details[open] summary::before{transform:rotate(45deg)}
   </div>
 </section>
 
+<script src="budoux-ja.min.js"></script>
 <script>
 (function(){
 'use strict';
@@ -275,7 +311,7 @@ const $=id=>document.getElementById(id);
 const KEY='rsvp_ja_v1';
 
 /* ---------- state ---------- */
-let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,text:'',bank:[]};
+let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,folded:false,maxlen:8,text:'',bank:[]};
 let tokens=[],sentences=[],frames=[];
 let idx=0,playing=false,timer=null,elapsed=0,lastTick=0;
 let marks=new Set();
@@ -308,7 +344,7 @@ function rawSegments(text){
   }
   return text.match(/[一-龯々〆ヵヶ]+|[ァ-ヺー]+|[ぁ-ゖ]+|[A-Za-z0-9Ａ-Ｚａ-ｚ０-９][A-Za-z0-9Ａ-Ｚａ-ｚ０-９.,]*|\s+|[\s\S]/g)||[];
 }
-function segmentJa(text){
+function segmentRules(text){
   const segs=rawSegments(text);
   const out=[];let cur=null,prev='',prefix='';
   const push=()=>{if(cur&&cur.text){out.push(cur);}cur=null;};
@@ -374,6 +410,103 @@ function segmentJa(text){
   return out;
 }
 
+/* ---------- BudouX との合わせ技 ----------
+   BudouX（Google、Apache-2.0。budoux-ja.min.js を同梱）は日本語コーパスで「読みやすい区切り」を学習した
+   小さなモデル。改行位置向けなので「書生と｜いう」「読む｜こと」のように助詞の後ろで機械的に切る癖がある。
+   一方、上の規則版は辞書の癖で「生れ｜たか」「戻り｜読み」と割ることがある。
+   両方が出した境界を合わせ、片方だけの境界には「言葉として繋がっているべき所」の拒否規則をかける。 */
+let bdx=null;
+try{if(window.budoux&&window.budoux.loadDefaultJapaneseParser)bdx=window.budoux.loadDefaultJapaneseParser();}catch(e){bdx=null;}
+const PARTEND=/(は|が|を|に|へ|と|で|から|まで|より|も|の|や|か|ね|よ|ば|て|しか|だけ|ほど|くらい|ぐらい|など|ずつ|でも|とか|って|のに|ので|けど|けれど|ながら|たり|つつ)$/;
+const CONT=['いう','いった','いって','いわ','いえ','こと','もの','ところ','どころ','わけ','はず','つもり','ため','いる','いた','いない','いれ','いく','いき','ある','あっ','あり','ない','なかっ','なく','なる','なっ','なり','なれ','する','した','して','しない','しま','され','させ','でき','ます','まし','ませ','です','でし','だっ','たい','たがる','たがっ','らしい','みたい','そう','よう','ほしい','ほど','くらい','ぐらい','ばかり','だけ','など','まで','から','より','しか','のに','ので','けれど','けど','って','とか','ながら','つつ','たり','ちゃ','じゃ','てる','でる','とく','おく','おい','しまう','しまっ','くる','きた','きて','くれ','もらっ','もらう','あげ','やる','やっ','ず','ぬ','う','た','だ','て','で','な','に','の','は','が','を','と','も','か','へ','や','ね','よ'];
+const isHiraC=c=>/[ぁ-ゖ]/.test(c),isKanjiC=c=>/[一-龯々〆ヵヶ]/.test(c),isKataC=c=>/[ァ-ヺー]/.test(c);
+const RENYO=/[きぎしじちみびり]$/;
+function boundsOf(parts){const b=new Set();let p=0;for(let i=0;i<parts.length-1;i++){p+=parts[i].length;b.add(p);}return b;}
+function mergeParts(text){
+  const mParts=segmentRules(text).map(c=>c.text);
+  if(!bdx||mParts.join('')!==text)return mParts;
+  let bParts;try{bParts=bdx.parse(text);}catch(e){return mParts;}
+  if(bParts.join('')!==text)return mParts;
+  const B=boundsOf(bParts),M=boundsOf(mParts);
+  const all=[...new Set([...B,...M])].sort((a,b)=>a-b);
+  const keep=[];
+  for(const p of all){
+    const before=text.slice(0,p),after=text.slice(p);
+    const pb=before[before.length-1],pa=after[0];
+    if(!pb||!pa)continue;
+    if(B.has(p)&&M.has(p)){keep.push(p);continue;}                                   // 両者一致は採用
+    if(/[、。！？!?…」』）)]/.test(pb)||/[「『（(]/.test(pa)){keep.push(p);continue;}   // 句読点・括弧まわりは許可
+    if(/と$/.test(before)&&/^(いう|いった|いって|いわ|いえ|して)/.test(after))continue;   // と｜いう
+    if(RENYO.test(before)&&isKanjiC(pa)&&/^[一-龯々]+[ぁ-ゖ]/.test(after))continue;     // 戻り｜読み（複合動詞）
+    if(isHiraC(pb)&&isHiraC(pa)){                                                     // ひらがな｜ひらがな
+      if(PARTEND.test(before)){keep.push(p);continue;}                                //   助詞の後ろなら許可
+      if(CONT.some(w=>after.startsWith(w)))continue;                                  //   続きの語なら拒否
+      keep.push(p);continue;
+    }
+    if(isKataC(pb)&&isKataC(pa))continue;                                             // カタカナ語の途中
+    if(/[0-9０-９]/.test(pb)&&/[0-9０-９]/.test(pa))continue;                          // 数字の途中
+    if(M.has(p)&&!B.has(p)&&isKanjiC(pb)&&isKataC(pa))continue;                       // 新型｜コロナ（規則版だけの漢字→カタカナ）
+    if(!isHiraC(pb)&&isHiraC(pa)&&!PARTEND.test(before)&&CONT.some(w=>after.startsWith(w)))continue;   // 送り仮名の前
+    keep.push(p);
+  }
+  const out=[];let prev=0;for(const p of keep){out.push(text.slice(prev,p));prev=p;}out.push(text.slice(prev));
+  return out.filter(Boolean);
+}
+/* ---------- 長い塊を割る ----------
+   句読点を除いた文字数が上限を超えた塊は、良い所を探して二つに割る（再帰）。
+   良さの順: 助詞の後ろ ＞ ひらがな→漢字・カナ ＞ 漢字→数字・カナ ＞ 漢字の途中 ＞ 送り仮名の前。同点なら真ん中に近い方。 */
+const LETTER_STRIP=/[^一-龯々〆ヵヶァ-ヺぁ-ゖA-Za-z0-9Ａ-Ｚａ-ｚ０-９ー]/g;
+const PART_HARD=/(は|が|を|に|へ|と|から|まで|より|も|の|や|か|ね|よ|ば|しか|だけ|ほど|くらい|ぐらい|など|ばかり|ずつ|でも|とか|って|のに|ので|けど|けれど)$/;
+const PART_SOFT=/(て|で|ながら|たり|つつ)$/;
+const LONGP=['から','まで','より','しか','だけ','ほど','くらい','ぐらい','など','ばかり','ずつ','でも','とか','って','のに','ので','けど','けれど','ながら','たり','つつ','という','といった'];
+function spansBoundary(p,i){   // 境界 i をまたいで長い助詞が乗っていないか（あったばか｜り を防ぐ）
+  for(const w of LONGP){for(let st=i-w.length+1;st<i;st++){if(st>=0&&p.substr(st,w.length)===w)return true;}}
+  return false;
+}
+function splitLong(p,max){
+  if(p.replace(LETTER_STRIP,'').length<=max)return [p];
+  let bs=null;try{if(bdx&&bdx.scores)bs=bdx.scores(p);}catch(e){}
+  let best=-1,bestScore=0;
+  for(let i=2;i<=p.length-2;i++){
+    const a=p[i-1],b=p[i];
+    if(!LETTER.test(a)||!LETTER.test(b))continue;
+    if(SMALL.test(b)||b==='ー')continue;
+    if(spansBoundary(p,i))continue;
+    const before=p.slice(0,i),after=p.slice(i);
+    if(/^(いう|いった|いって)/.test(after))continue;
+    if(before.replace(LETTER_STRIP,'').length<2||after.replace(LETTER_STRIP,'').length<2)continue;   // 1字だけの欠片を作らない
+    let sc=0;
+    if(PART_HARD.test(before)&&isHiraC(a))sc=5;
+    else if(PART_SOFT.test(before)&&isHiraC(a))sc=3;
+    else if(isHiraC(a)&&!isHiraC(b))sc=4;
+    else if(/[0-9０-９]/.test(a)&&/[0-9０-９]/.test(b))sc=0;
+    else if(/[0-9０-９]/.test(a)&&isKanjiC(b)&&/[0-9０-９]/.test(p[i+1]||''))sc=0;
+    else if(isKanjiC(a)&&/[0-9０-９]/.test(b))sc=3;
+    else if(isKanjiC(a)&&isKataC(b))sc=3;
+    else if(isKanjiC(a)&&isKanjiC(b))sc=2;
+    else if(isKataC(a)&&isKataC(b))sc=0;                 // カタカナ語の途中では割らない
+    else if(!isHiraC(a)&&isHiraC(b))sc=1;
+    if(sc===0)continue;
+    const bal=1-Math.abs(i-p.length/2)/(p.length/2);     // 真ん中に近いほど良い（0〜1）
+    const bonus=bs?Math.max(-1.5,Math.min(1.5,bs[i]/3000)):0;   // BudouX の点数（漢字の複合語のどこで割るか）
+    const total=sc+bal+bonus;
+    if(total>bestScore){bestScore=total;best=i;}
+  }
+  if(best<0)return [p];                                   // 割れる所がなければそのまま
+  return [...splitLong(p.slice(0,best),max),...splitLong(p.slice(best),max)];
+}
+const END_RE=/[。．！？!?‼⁉…‥]+[」』）)］\]】〉》”’"']*$/;
+const COMMA_RE=/[、，,][」』）)］\]】〉》”’"']*$/;
+function segmentJa(text){
+  const out=[];
+  text.split(/\s+/).filter(Boolean).forEach(piece=>{
+    const max=+S.maxlen||99;
+    mergeParts(piece).forEach(q=>{splitLong(q,max).forEach(p=>{out.push({text:p,end:END_RE.test(p),comma:COMMA_RE.test(p)});});});
+  });
+  return out;
+}
+window.__rsvpSegment=t=>segmentJa(t).map(c=>c.text);
+
 /* ---------- tokenize ---------- */
 function tokenize(text){
   tokens=[];sentences=[];
@@ -391,7 +524,7 @@ function tokenize(text){
 }
 function buildFrames(){
   frames=[];
-  const comma=S.chunk==='comma';const n=comma?99:(+S.chunk||1);const maxLen=comma?16:14;
+  const comma=S.chunk==='comma';const n=comma?99:(+S.chunk||1);const maxLen=comma?16:12;
   let i=0;
   while(i<tokens.length){
     const grp=[tokens[i]];let j=i;let len=tokens[i].text.length;
@@ -506,10 +639,19 @@ function fwdSentence(){
   const cur=frames[idx].sent;
   if(cur+1<sentences.length){idx=sentStartFrame(cur+1);showFrame(idx);if(wasPlaying)play();}
 }
-function bumpCpm(d){
-  S.cpm=Math.min(3000,Math.max(100,S.cpm+d));
+function setCpm(v){
+  S.cpm=Math.min(3000,Math.max(100,Math.round(v)||500));
   if(S.ramp&&S.target<S.cpm)S.target=S.cpm;
-  $('cpm').value=S.cpm;$('target').value=S.target;save();showFrame(idx);
+  syncSpeed();save();
+  if($('reader').classList.contains('on'))showFrame(idx);else setCount();
+}
+function bumpCpm(d){setCpm(S.cpm+d);}
+function syncSpeed(){
+  $('cpm').value=S.cpm;$('cpmrange').value=S.cpm;$('speed').value=S.cpm;$('target').value=S.target;$('wpmlabel').textContent=S.cpm;
+}
+function applyFold(){
+  $('reader').classList.toggle('folded',!!S.folded);
+  $('fold').textContent=S.folded?'▴ 出す':'▾ しまう';
 }
 function markCurrent(){
   const f=frames[idx];const ids=f.tokens.map(t=>t.i);
@@ -560,12 +702,14 @@ function finish(){
 
 /* ---------- settings ui ---------- */
 function readSettings(){
-  S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;
+  S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;S.maxlen=+$('maxlen').value||8;
   S.ramp=$('ramp').checked;S.target=+$('target').value||S.cpm;S.alwaysctx=$('alwaysctx').checked;
+  syncSpeed();
 }
 function writeSettings(){
-  $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
+  $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;$('maxlen').value=String(S.maxlen||8);
   $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
+  syncSpeed();applyFold();
   $('text').value=S.text||'';setCount();
 }
 function setCount(msg){
@@ -593,17 +737,24 @@ const SAMPLE=`一度に一つの文節だけが目の前に出る。最初の一
 
 楽に読める速さが見つかったら、上げる前にしばらくそこに居る。理解は遅れてついてくる。画面がどれだけ速く光れるかとは、関係がない。`;
 
-const SOSEKI=`吾輩は猫である。名前はまだ無い。
-どこで生れたかとんと見当がつかぬ。何でも薄暗いじめじめした所でニャーニャー泣いていた事だけは記憶している。吾輩はここで始めて人間というものを見た。しかもあとで聞くとそれは書生という人間中で一番獰悪な種族であったそうだ。この書生というのは時々我々を捕えて煮て食うという話である。しかしその当時は何という考もなかったから別段恐しいとも思わなかった。ただ彼の掌に載せられてスーと持ち上げられた時何だかフワフワした感じがあったばかりである。`;
 
 /* ---------- events ---------- */
 load();writeSettings();renderBank();
 $('start').addEventListener('click',startReading);
-$('sample').addEventListener('click',()=>{$('text').value=SAMPLE;setCount();});
-$('soseki').addEventListener('click',()=>{$('text').value=SOSEKI;setCount();});
+$('sample').addEventListener('click',()=>{$('text').value=SAMPLE;S.text=SAMPLE;setCount();save();});
+$('paste').addEventListener('click',async()=>{
+  try{
+    if(navigator.clipboard&&navigator.clipboard.readText){
+      const t=await navigator.clipboard.readText();
+      if(t&&t.trim()){$('text').value=t;S.text=t;setCount();save();return;}
+      setCount('クリップボードが空');return;
+    }
+  }catch(e){}
+  $('text').focus();setCount('長押しで貼り付け');
+});
 $('clear').addEventListener('click',()=>{$('text').value='';setCount();});
 $('text').addEventListener('input',()=>{S.text=$('text').value;setCount();save();});
-['cpm','chunk','pause','ramp','target','alwaysctx'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
+['cpm','chunk','pause','ramp','target','alwaysctx','maxlen'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
 $('copybank').addEventListener('click',e=>copyText(S.bank.join('\n'),e.currentTarget));
 $('clearbank').addEventListener('click',()=>{if(!S.bank.length)return;if(confirm('印を付けた語を全部消す？')){S.bank=[];save();renderBank();}});
 
@@ -612,6 +763,22 @@ $('back').addEventListener('click',backSentence);
 $('mark').addEventListener('click',markCurrent);
 $('slower').addEventListener('click',()=>bumpCpm(-50));
 $('faster').addEventListener('click',()=>bumpCpm(50));
+$('speed').addEventListener('input',e=>setCpm(+e.target.value));
+$('cpmrange').addEventListener('input',e=>setCpm(+e.target.value));
+$('fold').addEventListener('click',()=>{S.folded=!S.folded;save();applyFold();});
+/* Android などで全画面＋横向き固定ができる時だけボタンを出す（iPhone は本体を回す） */
+(function(){
+  const b=$('fs');const root=document.documentElement;
+  if(!(root.requestFullscreen&&screen.orientation&&screen.orientation.lock))return;
+  b.hidden=false;
+  b.addEventListener('click',async()=>{
+    try{
+      if(!document.fullscreenElement){await root.requestFullscreen();try{await screen.orientation.lock('landscape');}catch(e){}}
+      else{try{screen.orientation.unlock();}catch(e){}await document.exitFullscreen();}
+    }catch(e){}
+  });
+  document.addEventListener('fullscreenchange',()=>{b.textContent=document.fullscreenElement?'⤡ 戻す':'⤢ 横画面';});
+})();
 $('quit').addEventListener('click',()=>{pause();show('setup');});
 $('again').addEventListener('click',()=>{idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
 $('tosetup').addEventListener('click',()=>show('setup'));
