@@ -80,6 +80,12 @@ textarea::placeholder{color:var(--muted)}
 .btn.quiet{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:400}
 .btn:disabled{opacity:.4;cursor:default}
 .count{color:var(--muted);font-size:.9rem}
+.speedbar{display:grid;grid-template-columns:auto 1fr auto auto;gap:.4rem .6rem;align-items:center;margin-top:.9rem;padding:.7rem .9rem;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.speedbar label{font-weight:700}
+.speedbar small{grid-column:1/-1;color:var(--muted);font-size:.82rem}
+.speedbar .unit{color:var(--muted);font-size:.85rem}
+.speedbar input[type=number]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.35rem .5rem;width:5.4rem}
+input[type=range]{accent-color:var(--pivot);width:100%;min-width:0;margin:0}
 details{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
 summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:.5rem}
 summary::-webkit-details-marker{display:none}
@@ -100,11 +106,13 @@ details[open] summary::before{transform:rotate(45deg)}
 .empty{color:var(--muted);font-size:.9rem}
 
 /* ---------- reader ---------- */
-#reader{height:100%;user-select:none;-webkit-user-select:none}
+#reader{height:100%;height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));user-select:none;-webkit-user-select:none;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .prog{height:3px;background:var(--line);position:relative}
 .prog i{position:absolute;left:0;top:0;bottom:0;background:var(--pivot);width:0}
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;color:var(--muted);font-size:.85rem}
 .topbar button{color:var(--muted);padding:.3rem .5rem}
+.tb-right{display:flex;align-items:center;gap:.4rem}
+.tb-right button{border:1px solid var(--line);border-radius:999px;font-size:.78rem;padding:.15rem .6rem}
 .stage{
   overflow:hidden;
   flex:1;display:flex;flex-direction:column;justify-content:center;align-items:stretch;
@@ -146,7 +154,10 @@ details[open] summary::before{transform:rotate(45deg)}
 .controls .ctl.mark{color:var(--mark);border-color:var(--mark)}
 .controls .ctl.mark.on{background:var(--markbg)}
 .wpmrow{display:flex;justify-content:center;align-items:center;gap:1rem;padding:0 1rem .4rem;color:var(--muted);font-size:.9rem}
-.wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;font-weight:700;color:var(--ink)}
+.wpmrow button{border:1px solid var(--line);border-radius:999px;width:2.4rem;height:2.4rem;flex:0 0 auto;font-weight:700;color:var(--ink)}
+.wpmrow input[type=range]{flex:1 1 auto;max-width:18rem}
+.handle{align-self:center;color:var(--muted);font-size:.8rem;padding:.25rem 1rem;border-radius:999px}
+#reader.folded .wpmrow,#reader.folded .controls{display:none}
 .wpmrow b{color:var(--ink);font-size:1.1rem;min-width:4.5rem;text-align:center}
 
 /* ---------- done ---------- */
@@ -161,6 +172,21 @@ details[open] summary::before{transform:rotate(45deg)}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 @media (min-width:640px){.word{font-size:min(6vw,4.2rem)}}
+/* スマホ横向き：高さが足りないので詰める */
+@media (orientation:landscape) and (max-height:520px){
+  .topbar{padding:.2rem .8rem;font-size:.78rem}
+  .ticks{height:.6rem}
+  .word{padding:.15rem 0;font-size:min(13vh,3.6rem)}
+  .hint{margin-top:.2rem;min-height:1rem;font-size:.72rem}
+  .context{max-height:3.6rem;font-size:.88rem;line-height:1.5;margin-top:.2rem}
+  .wpmrow{padding:0 .8rem .1rem;gap:.6rem}
+  .wpmrow button{width:2rem;height:2rem}
+  .wpmrow b{font-size:.95rem;min-width:4.5rem}
+  .handle{padding:.1rem 1rem;font-size:.72rem}
+  .controls{padding:.25rem .8rem .4rem;gap:.4rem}
+  .controls .ctl{padding:.4rem .3rem;font-size:.9rem;border-radius:10px}
+  .controls .ctl small{display:none}
+}
 </style>
 </head>
 <body>
@@ -180,13 +206,16 @@ details[open] summary::before{transform:rotate(45deg)}
       <span class="spacer"></span>
       <span class="count" id="count"></span>
     </div>
+    <div class="speedbar">
+      <label for="wpm">速さ</label>
+      <input type="range" id="wpmrange" min="60" max="800" step="10" value="220" aria-label="速さ">
+      <input type="number" id="wpm" min="60" max="1200" step="10" value="220">
+      <span class="unit">wpm</span>
+      <small>1分あたりの語数。最初は200〜250が無難。読んでいる途中でも変えられる</small>
+    </div>
 
     <details id="settings">
       <summary>設定</summary>
-      <div class="set">
-        <label>速さ（WPM）<small>1分あたりの語数。最初は200〜250が無難</small></label>
-        <input type="number" id="wpm" min="60" max="1200" step="10" value="220">
-      </div>
       <div class="set">
         <label>一度に出す語数<small>1語が本来のRSVP。2〜3語は句のまとまりで読む</small></label>
         <select id="chunk"><option value="1">1語</option><option value="2">2語</option><option value="3">3語</option></select>
@@ -226,7 +255,7 @@ details[open] summary::before{transform:rotate(45deg)}
   <div class="topbar">
     <button id="quit">← 戻る</button>
     <span id="pos"></span>
-    <span id="curwpm"></span>
+    <span class="tb-right"><button id="fs" hidden>⤢ 横画面</button><span id="curwpm"></span></span>
   </div>
   <div class="stage" id="stage">
     <div class="ticks"></div>
@@ -235,10 +264,12 @@ details[open] summary::before{transform:rotate(45deg)}
     <div class="hint" id="hint">タップで開始</div>
     <div class="context hidden" id="ctx"></div>
   </div>
+  <button class="handle" id="fold" aria-label="操作パネルをしまう・出す">▾ しまう</button>
   <div class="wpmrow">
     <button id="slower" aria-label="遅く">−</button>
-    <b id="wpmlabel">220</b>
+    <input type="range" id="speed" min="60" max="800" step="10" value="220" aria-label="速さ">
     <button id="faster" aria-label="速く">＋</button>
+    <b><span id="wpmlabel">220</span><small>wpm</small></b>
   </div>
   <div class="controls">
     <button class="ctl" id="back">◀ 文<small>戻る</small></button>
@@ -273,7 +304,7 @@ const $=id=>document.getElementById(id);
 const KEY='rsvp_en_v1';
 
 /* ---------- state ---------- */
-let S={wpm:220,chunk:1,pause:350,ramp:false,target:320,alwaysctx:false,text:'',bank:[]};
+let S={wpm:220,chunk:1,pause:350,ramp:false,target:320,alwaysctx:false,folded:false,text:'',bank:[]};
 let tokens=[],sentences=[],frames=[];
 let idx=0,playing=false,timer=null,startedAt=0,elapsed=0,lastTick=0;
 let marks=new Set();
@@ -407,10 +438,19 @@ function fwdSentence(){
   const cur=frames[idx].sent;
   if(cur+1<sentences.length){idx=sentStartFrame(cur+1);showFrame(idx);if(wasPlaying)play();}
 }
-function bumpWpm(d){
-  S.wpm=Math.min(1200,Math.max(60,S.wpm+d));
+function setWpm(v){
+  S.wpm=Math.min(1200,Math.max(60,Math.round(v)||220));
   if(S.ramp&&S.target<S.wpm)S.target=S.wpm;
-  $('wpm').value=S.wpm;$('target').value=S.target;save();showFrame(idx);
+  syncSpeed();save();
+  if($('reader').classList.contains('on'))showFrame(idx);else setCount();
+}
+function bumpWpm(d){setWpm(S.wpm+d);}
+function syncSpeed(){
+  $('wpm').value=S.wpm;$('wpmrange').value=S.wpm;$('speed').value=S.wpm;$('target').value=S.target;$('wpmlabel').textContent=S.wpm;
+}
+function applyFold(){
+  $('reader').classList.toggle('folded',!!S.folded);
+  $('fold').textContent=S.folded?'▴ 出す':'▾ しまう';
 }
 function markCurrent(){
   const f=frames[idx];const ids=f.tokens.map(t=>t.i);
@@ -464,10 +504,12 @@ function finish(){
 function readSettings(){
   S.wpm=+$('wpm').value||220;S.chunk=+$('chunk').value||1;S.pause=+$('pause').value||0;
   S.ramp=$('ramp').checked;S.target=+$('target').value||S.wpm;S.alwaysctx=$('alwaysctx').checked;
+  syncSpeed();
 }
 function writeSettings(){
   $('wpm').value=S.wpm;$('chunk').value=S.chunk;$('pause').value=S.pause;
   $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
+  syncSpeed();applyFold();
   $('text').value=S.text||'';setCount();
 }
 function setCount(msg){
@@ -520,6 +562,22 @@ $('back').addEventListener('click',backSentence);
 $('mark').addEventListener('click',markCurrent);
 $('slower').addEventListener('click',()=>bumpWpm(-20));
 $('faster').addEventListener('click',()=>bumpWpm(20));
+$('speed').addEventListener('input',e=>setWpm(+e.target.value));
+$('wpmrange').addEventListener('input',e=>setWpm(+e.target.value));
+$('fold').addEventListener('click',()=>{S.folded=!S.folded;save();applyFold();});
+/* Android などで全画面＋横向き固定ができる時だけボタンを出す（iPhone は本体を回す） */
+(function(){
+  const b=$('fs');const root=document.documentElement;
+  if(!(root.requestFullscreen&&screen.orientation&&screen.orientation.lock))return;
+  b.hidden=false;
+  b.addEventListener('click',async()=>{
+    try{
+      if(!document.fullscreenElement){await root.requestFullscreen();try{await screen.orientation.lock('landscape');}catch(e){}}
+      else{try{screen.orientation.unlock();}catch(e){}await document.exitFullscreen();}
+    }catch(e){}
+  });
+  document.addEventListener('fullscreenchange',()=>{b.textContent=document.fullscreenElement?'⤡ 戻す':'⤢ 横画面';});
+})();
 $('quit').addEventListener('click',()=>{pause();show('setup');});
 $('again').addEventListener('click',()=>{idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
 $('tosetup').addEventListener('click',()=>show('setup'));
