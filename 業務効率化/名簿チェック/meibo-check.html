@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<!-- この画面は外と一切つながらない設定。通信・画像・フォーム送信・外部ファイル読み込みをブラウザ自身が止める。
+     中のプログラムが何かを送ろうとしても、ブラウザがはねる。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>名簿チェック</title>
+<style>
+  :root {
+    --ink: #1f1d1a; --paper: #f7f4ed; --muted: #8b8275;
+    --line: #d4ccbe; --card: #fff; --accent: #2a6b4a; --warn: #b04a2e; --amber: #8a5c00;
+    --ok-bg: #e2efe6; --ng-bg: #f8e3dc; --wa-bg: #f5ead0; --in-bg: #ece8e0; --mark: #ffe08a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e4da; --paper: #181613; --muted: #97907f;
+      --line: #3e382e; --card: #211e18; --accent: #6cb893; --warn: #d97a55; --amber: #d6a74a;
+      --ok-bg: #1d3027; --ng-bg: #3a241c; --wa-bg: #342b17; --in-bg: #2a2620; --mark: #6b5514;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    background: var(--paper); color: var(--ink); line-height: 1.6;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 0.2rem; }
+  .sub { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.8rem; }
+  .guard { font-size: 0.8rem; border-radius: 10px; padding: 0.45rem 0.7rem; background: var(--in-bg); color: var(--muted); }
+  .guard.ok { background: var(--ok-bg); color: var(--accent); }
+  .guard.bad { background: var(--ng-bg); color: var(--warn); }
+  label.head { display: block; font-weight: 600; font-size: 0.88rem; margin: 1.1rem 0 0.35rem; }
+  .hint { font-size: 0.74rem; color: var(--muted); margin: 0.2rem 0 0; }
+  .err { color: var(--warn); font-weight: 600; }
+  .drop {
+    display: block; cursor: pointer; text-align: center;
+    border: 2px dashed var(--line); border-radius: 12px; background: var(--card);
+    padding: 1.1rem 0.8rem; font-size: 0.9rem;
+  }
+  .drop.small { padding: 0.55rem 0.8rem; font-size: 0.84rem; margin-top: 0.4rem; }
+  .drop:hover, .drop.over { border-color: var(--accent); }
+  textarea {
+    width: 100%; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); color: var(--ink); padding: 0.6rem;
+    font-size: 16px; line-height: 1.6; resize: vertical; min-height: 5.5rem;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.7rem; }
+  button {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+    color: var(--ink); padding: 0.55rem 0.9rem; font-size: 0.9rem; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; padding: 0.7rem 1.2rem; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  details { margin-top: 0.9rem; }
+  summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+  .opt { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.4rem 0.8rem; margin-top: 0.5rem; }
+  .opt label { font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.15rem; }
+  .opt input { font-size: 16px; padding: 0.3rem 0.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); width: 100%; }
+  #stats { font-size: 0.85rem; font-weight: 600; }
+  #stats .n-ng { color: var(--warn); } #stats .n-warn { color: var(--amber); } #stats .n-info { color: var(--muted); }
+  .detected { margin-top: 0.8rem; font-size: 0.76rem; color: var(--muted); }
+  .detected div { padding: 0.15rem 0; border-top: 1px dotted var(--line); }
+  .filters { display: flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; margin-top: 0.8rem; font-size: 0.8rem; }
+  .filters label { display: flex; align-items: center; gap: 0.25rem; }
+  .res {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.7rem;
+    padding: 0.6rem 0.7rem; margin-top: 0.45rem;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  }
+  .res > .body { min-width: 0; }
+  .lv { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.55rem; align-self: start; white-space: nowrap; margin-top: 0.15rem; }
+  .lv.ng { background: var(--ng-bg); color: var(--warn); }
+  .lv.warn { background: var(--wa-bg); color: var(--amber); }
+  .lv.info { background: var(--in-bg); color: var(--muted); }
+  .msg { font-weight: 700; font-size: 0.9rem; }
+  .cat { font-size: 0.7rem; color: var(--muted); font-weight: 400; margin-left: 0.35rem; }
+  .val { font-size: 0.95rem; word-break: break-all; }
+  .tip { font-size: 0.8rem; color: var(--muted); word-break: break-all; }
+  .loc { font-size: 0.74rem; color: var(--accent); word-break: break-all; }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 0.1em; }
+  .sp { background: rgba(127,127,127,0.22); border-radius: 2px; }
+  .more { margin-top: 0.6rem; }
+  .warnnote { font-size: 0.74rem; color: var(--warn); margin-top: 0.4rem; }
+  .about { font-size: 0.8rem; }
+  .about p { margin: 0.4rem 0; }
+  .toast {
+    position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);
+    background: var(--ink); color: var(--paper); border-radius: 999px;
+    padding: 0.5rem 1.1rem; font-size: 0.82rem; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+    max-width: 92vw;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 名簿チェック</h1>
+  <p class="sub">Excelの「日付」と「名前の字」のまちがいを探す。読み込んだファイルは、この画面の外に出ない作り。<br><span style="opacity:.6">rev 2026-09-28</span></p>
+  <div id="guard" class="guard">外への通信の禁止を確認中…</div>
+
+  <label class="head">① しらべるファイル</label>
+  <label class="drop" id="dropMain">📄 Excel（.xlsx）か CSV を選ぶ（ここにドラッグ＆ドロップでもOK）
+    <input type="file" id="fileMain" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+  </label>
+  <div id="mainMsg" class="hint"></div>
+  <div class="row" style="margin-top:0.4rem"><button id="sampleBtn">見本データで試す</button><span class="hint" style="margin:0">架空の名簿で、何が見つかるかを先に見られる</span></div>
+
+  <label class="head" for="masterText">② 正しい名簿（なくてもOK）</label>
+  <p class="hint" style="margin:0 0 0.3rem">正しい名前があると「名簿とちがう字」「1字だけちがう名前」まで見つけられる。1行に1人。Excelからそのまま貼ってもいい（見出しに「氏名」などがあれば、生年月日などの列も名簿とくらべる）。</p>
+  <textarea id="masterText" placeholder="山田　太郎&#10;高橋　花子&#10;…"></textarea>
+  <label class="drop small" id="dropMaster">📄 名簿をファイルから読む
+    <input type="file" id="fileMaster" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+  </label>
+  <div id="masterMsg" class="hint"></div>
+
+  <details id="colOpt">
+    <summary>列の指定（自動でうまく見つからないとき）</summary>
+    <div class="opt">
+      <label>見出しの行<input id="optHead" inputmode="numeric" placeholder="自動"></label>
+      <label>名前の列<input id="optName" placeholder="例: B"></label>
+      <label>よみの列<input id="optRead" placeholder="例: C"></label>
+      <label>日付の列<input id="optDate" placeholder="例: D,E"></label>
+      <label>曜日の列<input id="optWd" placeholder="例: F"></label>
+    </div>
+    <p class="hint">書いた欄だけ自動をやめて、その列を使う。全部のシートに効く。</p>
+  </details>
+
+  <div class="row">
+    <button class="primary" id="runBtn" disabled>▶ チェックする</button>
+    <span id="stats"></span>
+  </div>
+
+  <div id="detected" class="detected"></div>
+  <div id="filters" class="filters" hidden>
+    <label><input type="checkbox" data-f="ng" checked> 要確認</label>
+    <label><input type="checkbox" data-f="warn" checked> 念のため</label>
+    <label><input type="checkbox" data-f="info" checked> おしらせ</label>
+    <label><input type="checkbox" data-f="日付" checked> 日付</label>
+    <label><input type="checkbox" data-f="名前" checked> 名前</label>
+    <label><input type="checkbox" data-f="名簿" checked> 名簿とくらべる</label>
+  </div>
+  <div id="results"></div>
+  <div class="row" id="outRow" hidden>
+    <button id="copyBtn">結果をコピー</button>
+    <button id="csvBtn">結果をCSVで保存</button>
+    <button id="clearBtn">ぜんぶ消す</button>
+  </div>
+  <p class="warnnote" id="outNote" hidden>結果にも名前が入っている。コピー・保存したものは元のファイルと同じように扱う。</p>
+
+  <details class="about">
+    <summary>なぜ外に漏れないのか／できないこと</summary>
+    <p>・この画面はファイル1つだけでできていて、外から何も読み込まない。メモ帳で開けば中身は全部読める。</p>
+    <p>・いちばん上に「外への通信を禁止する」設定が書いてあり、ブラウザがそれを守る。中のプログラムが送ろうとしても、ブラウザが止める。上の緑の🔒は、その設定が実際に効いているのを開くたびに確かめた結果。</p>
+    <p>・ファイルはブラウザの中で読むだけ。どこにも保存しない。画面を閉じれば消える。</p>
+    <p>・いちばん確実なのは、このファイルをパソコンに保存して、ネットを切ってから開くこと。切っても全部動く。</p>
+    <p>・AIではない。決まったルールで調べるだけなので、同じファイルなら毎回同じ結果になる。そのかわり、見落としも言いすぎもある。最後は目で確かめる。</p>
+    <p>・その人の本当の字は、正しい名簿がないとわからない（「斉藤」も「斎藤」も正しい名前）。名簿がないときは「同じ名前なのに字がちがう」「1字だけちがう」を拾うところまで。</p>
+    <p>・古いExcel（.xls）とパスワード付きのExcelは読めない。Excelで開いて、パスワードを外して「.xlsx」で保存し直してから。</p>
+    <p>・元のファイルは書きかえない。色を付けたりもしない。</p>
+  </details>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  function toast(msg){
+    const t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2000);
+  }
+
+  // ================= 外に出ないことの確認 =================
+  // 端末の中だけにある小さな画像（data:）を、わざと読み込ませてみる。
+  // 設定で画像も禁止しているので、ブラウザが止めれば「禁止の設定が効いている」ことになる。ネットには出ない。
+  function guardCheck(){
+    const el = $("guard");
+    let blocked = null;
+    const net = () => navigator.onLine ? "ネットはつながっている（切ってもこの画面はそのまま動く）" : "ネットは切れている";
+    const show = () => {
+      if (blocked === null) return;
+      el.className = "guard " + (blocked ? "ok" : "bad");
+      el.textContent = (blocked
+        ? "🔒 外への通信：この画面の設定で禁止中（いま確かめた）"
+        : "⚠ 通信を禁止する設定が効いていない。ブラウザが古いかもしれない。ネットを切って使えば確実") + "　・　" + net();
+    };
+    document.addEventListener("securitypolicyviolation", () => { blocked = true; show(); });
+    const img = new Image();
+    img.onload = () => { if (blocked === null) { blocked = false; show(); } };
+    img.onerror = () => { blocked = true; show(); };
+    img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    addEventListener("online", show); addEventListener("offline", show);
+  }
+  guardCheck();
+
+  // ================= 日付の道具 =================
+  const WD = "日月火水木金土";
+  function dayNum(y, m, d){ const t = new Date(0); t.setUTCFullYear(y, m - 1, d); return Math.round(t.getTime() / 864e5); }
+  function ymd(dn){ const t = new Date(dn * 864e5); return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate(), w: t.getUTCDay() }; }
+  const fmtD = dn => { const o = ymd(dn); return `${o.y}/${o.m}/${o.d}(${WD[o.w]})`; };
+  const daysIn = (y, m) => [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  const NOW = new Date(), THIS_YEAR = NOW.getFullYear();
+  const TODAY = dayNum(THIS_YEAR, NOW.getMonth() + 1, NOW.getDate());
+
+  // Excelの日付の番号 → 日。1900年の方式には「1900/2/29」という存在しない日（60番）がある
+  function serialDn(n, d1904){
+    let s = Math.floor(n);
+    if (d1904) return s + dayNum(1904, 1, 1);
+    if (s === 60) return null;
+    if (s < 60) s += 1;
+    return s + dayNum(1899, 12, 30);
+  }
+
+  const ERAS = [
+    { k: "令和", a: "r", y0: 2019, from: dayNum(2019, 5, 1),   to: Infinity },
+    { k: "平成", a: "h", y0: 1989, from: dayNum(1989, 1, 8),   to: dayNum(2019, 4, 30) },
+    { k: "昭和", a: "s", y0: 1926, from: dayNum(1926, 12, 25), to: dayNum(1989, 1, 7) },
+    { k: "大正", a: "t", y0: 1912, from: dayNum(1912, 7, 30),  to: dayNum(1926, 12, 24) },
+    { k: "明治", a: "m", y0: 1868, from: dayNum(1868, 1, 25),  to: dayNum(1912, 7, 29) },
+  ];
+  function wareki(dn){
+    const e = ERAS.find(e => dn >= e.from); if (!e) return "";
+    const o = ymd(dn), n = o.y - e.y0 + 1;
+    return `${e.k}${n === 1 ? "元" : n}年${o.m}月${o.d}日`;
+  }
+
+  // 文字で書かれた日付を読む。日付っぽくなければ null
+  function parseDateText(raw){
+    // 時刻は空白を消す前に外す（「9/28 9:00」の 8 と 9 がくっつかないように）
+    let s = String(raw).normalize("NFKC").trim().replace(/(?:\s+|T)\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/, "").replace(/\s+/g, "");
+    if (!s || s.length > 30 || !/\d/.test(s)) return null;
+    let wd = null;
+    const w = s.match(/(?:\(([日月火水木金土])(?:曜日?)?\)|([日月火水木金土])曜日?)$/);
+    if (w) { wd = WD.indexOf(w[1] || w[2]); s = s.slice(0, w.index); }
+    let m, y = null, mo, d = null, era = null, yy2 = false;
+    if ((m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})日?$/)) || (m = s.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/))) {
+      y = +m[1]; mo = +m[2]; d = +m[3];
+    } else if ((m = s.match(/^(\d{4})(\d{2})(\d{2})$/))) {
+      if (+m[1] < 1868 || +m[1] > 2100) return null;       // 8けたでも日付じゃない番号
+      y = +m[1]; mo = +m[2]; d = +m[3];
+    } else if ((m = s.match(/^(明治|大正|昭和|平成|令和|[MTSHRmtshr])\.?(元|\d{1,2})[年\/\-.](\d{1,2})(?:[月\/\-.](\d{1,2})日?|月)$/))) {
+      era = ERAS.find(e => e.k === m[1] || e.a === m[1].toLowerCase());
+      y = era.y0 + (m[2] === "元" ? 1 : +m[2]) - 1; mo = +m[3]; d = m[4] ? +m[4] : null;
+    } else if ((m = s.match(/^(\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/))) {
+      yy2 = true; y = 2000 + +m[1] > THIS_YEAR + 10 ? 1900 + +m[1] : 2000 + +m[1]; mo = +m[2]; d = +m[3];
+    } else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})$/)) || (m = s.match(/^(\d{1,2})月(\d{1,2})日$/))) {
+      mo = +m[1]; d = +m[2];
+    } else if ((m = s.match(/^(\d{4})(?:[\/\-.]|年)(\d{1,2})月?$/))) {
+      y = +m[1]; mo = +m[2];
+    } else if (/[年月日\/]/.test(s) && s.length <= 20) {
+      return { bad: true };
+    } else return null;
+    if (mo < 1 || mo > 12) return { invalid: `${mo}月はない` };
+    if (d != null) {
+      const dim = y != null ? daysIn(y, mo) : [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+      if (d < 1 || d > dim) return { invalid: `${y != null ? y + "年" : ""}${mo}月は${dim}日まで` };
+    }
+    const r = { y, mo, d, wd, yy2 };
+    if (y != null && d != null) r.dn = dayNum(y, mo, d);
+    if (era && r.dn != null) {
+      if (r.dn > era.to) r.eraBad = `${era.k}は${wareki(era.to)}まで。${wareki(r.dn)}のこと？`;
+      else if (r.dn < era.from) r.eraBad = `${era.k}は${wareki(era.from)}から。${wareki(r.dn)}のこと？`;
+    }
+    return r;
+  }
+
+  // ================= 名前の文字の道具 =================
+  const isHan  = ch => /\p{Script=Han}/u.test(ch);
+  const isKata = ch => /[ァ-ヺー]/.test(ch);
+  const isHira = ch => /[ぁ-ゖ]/.test(ch);
+  // 見た目がそっくりなカタカナと漢字（「田ロ」の「ロ」、「ジョ一ジ」の「一」）
+  const KATA2KAN = { "カ":"力", "ロ":"口", "エ":"工", "ニ":"二", "ハ":"八", "タ":"夕", "ト":"卜", "ー":"一" };
+  const KAN2KATA = { "力":"カ", "口":"ロ", "工":"エ", "二":"ニ", "八":"ハ", "夕":"タ", "卜":"ト", "一":"ー" };
+  const DASHES = /[－‐\-−―]/;
+  // 旧字・異体字 → ふだんの字。字のゆれを見つけるときだけ使う（どちらが正しいかは決めない）
+  const VAR = new Map();
+  ("髙高 﨑崎 嵜崎 碕崎 邊辺 邉辺 齋斉 齊斉 斎斉 濵浜 濱浜 澤沢 廣広 國国 櫻桜 瀨瀬 眞真 惠恵 德徳 冨富 條条 藏蔵 龍竜 " +
+   "嶋島 嶌島 淺浅 榮栄 圓円 關関 實実 壽寿 將将 峯峰 桒桑 萬万 彌弥 禮礼 靜静 黑黒 會会 學学 兒児 槇槙 蘆芦 鷗鴎 " +
+   "薗園 曾曽 增増 瀧滝 莊荘 縣県 舘館 澁渋 燈灯 藝芸 傳伝 嶽岳 豐豊 渕淵 栁柳 檜桧 埜野 逹達 恆恒 堯尭 晉晋 淸清 " +
+   "靑青 顯顕 龜亀 與与 巖巌 嚴厳 驒騨 𠮷吉 凜凛 瑤瑶 穗穂 滿満 敎教 邨村 亙亘 聰聡 ヶケ 之の")
+    .split(" ").forEach(p => { const [a, b] = [...p]; VAR.set(a, b); });
+  // Windowsでは出るが JIS の外にある字（古いシステムや別の会社に渡すと「?」「・」に化けやすい）
+  const KISHU = new Set([..."丨仡仼伀伃伹佖侊侒侔侚俉俍俿倞倢偀偂偆偰傔僘僴兊兤冝冾凬刕劜劦劯勀勛匀匇匤卲厓厲叝咊咜咩哿喆坙坥垬埇埈增墲夋奓奛奝奣妤妺孖寀寘寬尞岦岺峵崧嵂嵓嵭嶸嶹巐弡弴彅彧德忞恝悅悊惕惞惲愑愠愰愷憘戓抦揵摠撝擎敎昀昉昕昞昤昮昱昻晗晙晥晳暙暠暲暿曺曻朎杦枻柀栁桄桒棈棏楨榘槢樰橆橫橳橾櫢櫤毖氿汜汯沆泚洄浯涇涖涬淏淲淸淼渧渹渼湜溿澈澵濵瀅瀇瀨炅炫炻焄焏煆煇煜燁燾犱犾猤獷玽珉珒珖珣珵琇琦琩琪琮瑢璉璟甁甯畯皂皛皜皞皦睆砡硎硤硺礰禔禛竑竧竫箞絈絜綠綷緖繒纊罇羡茁荢荿菇菶葈蒴蓜蕓蕙蕫薰蠇裵褜訒訷詹誧誾諟諶譓譿賰賴贒赶軏遧郞鄕鄧釗釚釞釤釥釭釮鈆鈊鈐鈹鈺鈼鉀鉎鉑鉙鉧鉷鉸銈銧鋐鋓鋕鋗鋙鋠鋧鋹鋻鋿錂錝錞錡錥鍈鍗鍰鎤鏆鏞鏸鐱鑅鑈閒隝隯霳霻靃靍靏靑靕顗顥餧馞驎髙髜魲魵鮏鮱鮻鰀鵫鵰鸙黑﨎﨏﨑﨓﨔﨟﨡﨣﨤﨧﨨﨩𠮷"]);
+  const INVISIBLE = /[​-‍⁠﻿ ­]/;
+  const IVS = /[︀-️]|\uDB40[\uDD00-\uDDEF]/;
+  const kataToHira = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+  // そっくり文字を、まわりに合わせて直した形にする（くらべるときだけ使う）
+  function fixLookalike(t){
+    const a = [...t];
+    return a.map((ch, i) => {
+      const nb = [a[i - 1], a[i + 1]].filter(x => x && !/\s/.test(x));
+      if (!nb.length) return ch;
+      if (KATA2KAN[ch] && nb.every(isHan)) return KATA2KAN[ch];
+      if (KAN2KATA[ch] && nb.every(x => isKata(x) || isHira(x))) return KAN2KATA[ch];
+      if (DASHES.test(ch) && a[i - 1] && (isKata(a[i - 1]) || isHira(a[i - 1]))) return "ー";
+      return ch;
+    }).join("");
+  }
+  // 「同じ名前か」をくらべるための形。空白・旧字・カタカナ/ひらがな・見えない文字のちがいを消す
+  function fold(s){
+    let t = String(s).normalize("NFKC").replace(/[︀-️​-‍⁠﻿­]|\uDB40[\uDD00-\uDDEF]/g, "").replace(/\s+/g, "");
+    t = fixLookalike(t).replace(/(.)々/gu, "$1$1");
+    t = [...t].map(ch => VAR.get(ch) || ch).join("");
+    return kataToHira(t);
+  }
+  const readKey = s => kataToHira(fixLookalike(String(s).normalize("NFKC").replace(/\s+/g, "")));
+  const noSpace = s => String(s).replace(/[\s　]+/g, "");
+  function lev(a, b, max){
+    const A = [...a], B = [...b];
+    if (Math.abs(A.length - B.length) > max) return max + 1;
+    let prev = Array.from({ length: B.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= A.length; i++) {
+      const cur = [i]; let best = i;
+      for (let j = 1; j <= B.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (A[i - 1] === B[j - 1] ? 0 : 1));
+        if (cur[j] < best) best = cur[j];
+      }
+      if (best > max) return max + 1;
+      prev = cur;
+    }
+    return prev[B.length];
+  }
+
+  // ================= ファイルを読む（外部ライブラリなし） =================
+  const _u16 = (dv, o) => dv.getUint16(o, true), _u32 = (dv, o) => dv.getUint32(o, true);
+  function zipIndex(arrayBuffer){
+    const buf = new Uint8Array(arrayBuffer), dv = new DataView(arrayBuffer);
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 65536; i--) {
+      if (_u32(dv, i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Excelファイルの形式が読めない（壊れているか、Excelではないファイル）");
+    const cdCount = _u16(dv, eocd + 10), cdOffset = _u32(dv, eocd + 16);
+    const map = new Map();
+    let p = cdOffset;
+    for (let n = 0; n < cdCount; n++) {
+      if (_u32(dv, p) !== 0x02014b50) break;
+      const method = _u16(dv, p + 10), compSize = _u32(dv, p + 20);
+      const fnLen = _u16(dv, p + 28), extraLen = _u16(dv, p + 30), commLen = _u16(dv, p + 32);
+      const localOff = _u32(dv, p + 42);
+      const fn = new TextDecoder("utf-8").decode(buf.subarray(p + 46, p + 46 + fnLen));
+      map.set(fn, { method, compSize, localOff });
+      p += 46 + fnLen + extraLen + commLen;
+    }
+    return { buf, dv, map };
+  }
+  async function zipText(z, name){
+    const e = z.map.get(name);
+    if (!e) return null;
+    const lo = e.localOff;
+    if (_u32(z.dv, lo) !== 0x04034b50) return null;
+    const dataStart = lo + 30 + _u16(z.dv, lo + 26) + _u16(z.dv, lo + 28);
+    const comp = z.buf.subarray(dataStart, dataStart + e.compSize);
+    let bytes;
+    if (e.method === 0) bytes = comp;
+    else {
+      if (typeof DecompressionStream === "undefined") throw new Error("このブラウザはExcel読み込みに未対応。新しめのChrome/Edgeで開く");
+      const stream = new Blob([comp]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  const unent = s => s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+                      .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+                      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  // ふりがな(<rPh>)は本文ではないので落とす。<t/> のような空要素で次の要素を飲み込まないよう、閉じ方を両方みる
+  const stripPhonetic = x => x.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").replace(/<phoneticPr\b[^>]*\/?>/g, "");
+  const tText = x => { let t = ""; for (const g of x.matchAll(/<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g)) t += g[1] || ""; return unent(t); };
+  const attr = (s, name) => (s.match(new RegExp("(?:^|\\s)" + name + '="([^"]*)"')) || [])[1];
+  const colNum = ref => { let n = 0; for (const ch of ref) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  const colName = c => { let s = ""; c++; while (c > 0) { const r = (c - 1) % 26; s = String.fromCharCode(65 + r) + s; c = Math.floor((c - 1) / 26); } return s; };
+
+  // 日付の表示形式かどうか。組み込みの番号（日本語版Excelの和暦などを含む）と、自分で作った形式の両方
+  const BUILTIN_DATE = new Set([14, 15, 16, 17, 22, 27, 28, 29, 30, 31, 34, 35, 36, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+  function isDateFmt(id, code){
+    if (code == null) return BUILTIN_DATE.has(id);
+    const c = code.split(";")[0].replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[[^\]]*\]/g, "")
+                  .replace(/General/gi, "").replace(/E[+-]/gi, "");
+    if (/[ydge]/i.test(c)) return true;
+    return /m/i.test(c) && !/[hs]/i.test(c);
+  }
+
+  async function readXlsx(ab){
+    const z = zipIndex(ab);
+    const shared = [];
+    const ss = await zipText(z, "xl/sharedStrings.xml");
+    if (ss) for (const m of ss.matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g)) {
+      const body = m[1] || "";
+      const text = tText(stripPhonetic(body));
+      // ふりがな（Excelが入力のときに覚えている読み）。名前の「よみ」として使う
+      let reading = null;
+      const rphs = [...body.matchAll(/<rPh\b([^>]*)>([\s\S]*?)<\/rPh>/g)]
+        .map(r => ({ sb: +attr(r[1], "sb"), eb: +attr(r[1], "eb"), t: tText(r[2]) })).sort((a, b) => a.sb - b.sb);
+      if (rphs.length) {
+        const A = [...text]; reading = ""; let pos = 0;
+        for (const r of rphs) { if (r.sb < pos) continue; reading += A.slice(pos, r.sb).join("") + r.t; pos = r.eb; }
+        reading += A.slice(pos).join("");
+      }
+      shared.push({ text, reading });
+    }
+    const styles = await zipText(z, "xl/styles.xml") || "";
+    const custom = new Map();
+    for (const m of styles.matchAll(/<numFmt\b[^>]*>/g)) custom.set(+attr(m[0], "numFmtId"), unent(attr(m[0], "formatCode") || ""));
+    const dateXf = [];
+    const cx = (styles.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/) || [])[1] || "";
+    for (const m of cx.matchAll(/<xf\b[^>]*>/g)) { const id = +(attr(m[0], "numFmtId") || 0); dateXf.push(isDateFmt(id, custom.get(id))); }
+
+    const wb = await zipText(z, "xl/workbook.xml") || "";
+    const d1904 = /<workbookPr\b[^>]*date1904="(1|true)"/.test(wb);
+    const rels = await zipText(z, "xl/_rels/workbook.xml.rels") || "";
+    const relMap = new Map();
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = attr(m[0], "Id"), tg = attr(m[0], "Target");
+      if (id && tg) relMap.set(id, "xl/" + tg.replace(/^\/?xl\//, "").replace(/^\.\//, ""));
+    }
+    const list = [];
+    for (const m of wb.matchAll(/<sheet\b[^>]*>/g)) {
+      const path = relMap.get(attr(m[0], "r:id"));
+      if (path && z.map.has(path)) list.push({ name: unent(attr(m[0], "name") || "シート"), path, hidden: /state="(hidden|veryHidden)"/.test(m[0]) });
+    }
+    if (!list.length) for (const k of z.map.keys()) if (/^xl\/worksheets\/sheet\d+\.xml$/.test(k)) list.push({ name: k.replace(/^.*\/|\.xml$/g, ""), path: k });
+    if (!list.length) throw new Error("Excelの中身が見つからない（対応していないファイルかもしれない）");
+
+    const sheets = [];
+    for (const sh of list) {
+      const xml = await zipText(z, sh.path); if (xml == null) continue;
+      const rows = []; let ncol = 0, rowAuto = 0;
+      for (const r of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+        const rn = +(attr(r[1], "r") || rowAuto + 1); rowAuto = rn;
+        if (!r[2]) continue;
+        const cells = []; let colAuto = 0;
+        for (const c of r[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const a = c[1], inner = c[2] || "";
+          const ref = (attr(a, "r") || "").replace(/\d+$/, "");
+          const ci = ref ? colNum(ref) : colAuto; colAuto = ci + 1;
+          const ty = attr(a, "t") || "n", st = +(attr(a, "s") || 0);
+          const vRaw = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+          let cell = null;
+          if (ty === "s") { const it = shared[+vRaw]; if (it) cell = { t: "str", v: it.text, rd: it.reading }; }
+          else if (ty === "inlineStr") cell = { t: "str", v: tText(stripPhonetic((inner.match(/<is>([\s\S]*?)<\/is>/) || [])[1] || "")) };
+          else if (ty === "str") cell = { t: "str", v: unent(vRaw || "") };
+          else if (ty === "b") cell = { t: "bool", v: vRaw === "1" ? "TRUE" : "FALSE" };
+          else if (ty === "e") cell = { t: "err", v: unent(vRaw || "") };
+          else if (ty === "d") { const p = parseDateText((vRaw || "").slice(0, 10)); cell = p && p.dn != null ? { t: "date", n: 1, dn: p.dn } : { t: "str", v: vRaw || "" }; }
+          else if (vRaw != null && vRaw !== "") {
+            const n = +vRaw;
+            if (dateXf[st] && isFinite(n)) cell = { t: "date", n, dn: serialDn(n, d1904), zero: Math.floor(n) === 0 };
+            else cell = { t: "num", n, v: vRaw };
+          }
+          if (cell) { cells[ci] = cell; if (ci + 1 > ncol) ncol = ci + 1; }
+        }
+        rows[rn - 1] = cells;
+      }
+      sheets.push({ name: sh.name, hidden: !!sh.hidden, rows, ncol });
+    }
+    return { sheets, typed: true, d1904 };
+  }
+
+  function decodeText(ab){
+    const u8 = new Uint8Array(ab);
+    if (u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF) return new TextDecoder("utf-8").decode(u8.subarray(3));
+    if (u8[0] === 0xFF && u8[1] === 0xFE) return new TextDecoder("utf-16le").decode(u8.subarray(2));
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(u8); }
+    catch (e) { return new TextDecoder("shift_jis").decode(u8); }      // 日本のExcelが書くCSVはたいていこっち
+  }
+  function parseDelimited(text){
+    const first = text.split("\n", 1)[0];
+    const sep = first.includes("\t") ? "\t" : ",";
+    const rows = []; let row = [], cur = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"' && cur === "") q = true;
+      else if (ch === sep) { row.push(cur); cur = ""; }
+      else if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+      else if (ch === "\r") { /* 読み飛ばす */ }
+      else cur += ch;
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    let ncol = 0;
+    const out = rows.map(r => { if (r.length > ncol) ncol = r.length; return r.map(v => v === "" ? undefined : { t: "str", v }); });
+    return { name: "シート", rows: out, ncol };
+  }
+  async function readFile(file){
+    const ab = await file.arrayBuffer();
+    const u8 = new Uint8Array(ab, 0, Math.min(4, ab.byteLength));
+    if (u8[0] === 0xD0 && u8[1] === 0xCF && u8[2] === 0x11 && u8[3] === 0xE0)
+      throw new Error("古いExcel（.xls）か、パスワード付きのExcel。Excelで開いてパスワードを外し、「名前を付けて保存」→「Excel ブック (*.xlsx)」で保存し直してから");
+    if (u8[0] === 0x50 && u8[1] === 0x4B) return readXlsx(ab);
+    if (/\.(xlsx|xlsm)$/i.test(file.name)) throw new Error("Excelファイルとして読めなかった（壊れているかもしれない）");
+    const sh = parseDelimited(decodeText(ab));
+    sh.name = file.name.replace(/\.[^.]+$/, "");
+    return { sheets: [sh], typed: false, d1904: false };
+  }
+
+  // ================= 列の見分け =================
+  const HEAD_KEY  = /名|氏|日|付|番号|No|ID|よみ|読|フリガナ|ふりがな|カナ|曜|生年|年月|住所|電話|備考|性別|年齢|学年|組|クラス|担当|区分|コード|メール|name|date|birth|kana/i;
+  const READ_HEAD = /フリガナ|ふりがな|カナ|かな|よみ|読み|ヨミ|kana|yomi/i;
+  const NAME_HEAD = /氏名|名前|なまえ|姓名|フルネーム|生徒|児童|園児|利用者|患者|会員|社員|職員|担当|記入者|作成者|保護者|入居者|受講者|参加者|対象者|本人|苗字|名字|^名$|^姓$|^氏$|name/i;
+  const NAME_EXCL = /ローマ|英字|会社|法人|店|学校|施設|事業所|品|商品|件名|ファイル|シート|部署|科目|病名|薬|地名|町名|名称|屋号|団体|銘柄|番号|ID|コード|数|日|区分|種別|電話|メール|住所|file|mail/i;
+  const STAFF_HEAD = /担当|記入|作成|保護者|確認|承認|入力|スタッフ/;
+  const SEI_HEAD = /^(姓|氏|苗字|名字|みょうじ)$/, MEI_HEAD = /^(名|下の名前)$/;
+  const DATE_HEAD = /日付|年月日|生年|誕生|期限|期日|日$|^日|date|birth|day/i;
+  const DATE_EXCL = /曜|日数|日額|日当|日給|時間|人数|日課|日直|担当|記入者/;
+  const BIRTH_HEAD = /生年|誕生|birth/i;
+  const START_HEAD = /開始|始|入所|入社|入院|入学|入会|入居|着手|自$|から|from|start/i;
+  const END_HEAD = /終了|終|退所|退社|退院|卒業|退会|退居|完了|至$|まで|to$|end/i;
+  const NO_HEAD = /^(no\.?|番号|連番|#|№)$/i;
+  const WD_CELL = /^[(（]?[日月火水木金土](?:曜日?)?[)）]?$/;
+  const NAMEISH = /^[\p{Script=Han}々ヶ]{1,5}[ 　][\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々]{1,8}$/u;
+  const normHead = s => String(s || "").normalize("NFKC").replace(/\s+/g, "");
+  const cellText = c => !c ? "" : c.t === "date" ? (c.dn != null ? fmtD(c.dn) : String(c.n)) : (c.v == null ? "" : String(c.v));
+
+  function findHeader(rows){
+    for (let r = 0; r < Math.min(rows.length, 30); r++) {
+      const cells = (rows[r] || []).filter(c => c && cellText(c).trim() !== "");
+      if (cells.length < 2 || cells.some(c => c.t === "date")) continue;
+      const strs = cells.filter(c => c.t === "str");
+      if (strs.length < cells.length * 0.6) continue;
+      if (strs.some(c => c.v.length <= 20 && HEAD_KEY.test(c.v))) return r;
+    }
+    return -1;
+  }
+
+  function classify(sh, opt){
+    const rows = sh.rows, ncol = sh.ncol;
+    const head = opt.head != null ? opt.head : findHeader(rows);
+    const hdr = [];
+    for (let c = 0; c < ncol; c++) hdr[c] = head >= 0 ? normHead(cellText(rows[head] && rows[head][c])) : "";
+    const start = head + 1;
+    const st = Array.from({ length: ncol }, () => ({ n: 0, dateish: 0, shortStr: 0, nameish: 0, wd: 0 }));
+    for (let r = start; r < rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      for (let c = 0; c < ncol; c++) {
+        const cell = row[c]; if (!cell) continue;
+        const tx = cellText(cell).trim(); if (!tx) continue;
+        const s = st[c]; s.n++;
+        if (cell.t === "date") s.dateish++;
+        else if (cell.t === "str") {
+          const p = parseDateText(tx); if (p && !p.bad) s.dateish++;
+          if (tx.length <= 20 && !/\d/.test(tx)) s.shortStr++;
+          if (NAMEISH.test(tx)) s.nameish++;
+          if (WD_CELL.test(tx)) s.wd++;
+        } else if (cell.t === "num" && /^\d{8}$/.test(cell.v) && parseDateText(cell.v)) s.dateish++;
+      }
+    }
+    const k = { head, start, hdr, name: [], read: [], date: [], wd: [], sei: -1, mei: -1, main: -1 };
+    for (let c = 0; c < ncol; c++) {
+      const h = hdr[c], s = st[c];
+      if (!s.n) continue;
+      if (READ_HEAD.test(h)) { k.read.push(c); continue; }
+      if ((/曜/.test(h) && s.dateish < s.n * 0.5) || (s.n >= 3 && s.wd >= s.n * 0.8)) { k.wd.push(c); continue; }
+      if ((DATE_HEAD.test(h) && !DATE_EXCL.test(h) && s.dateish >= s.n * 0.3) || (s.n >= 3 && s.dateish >= s.n * 0.6)) { k.date.push(c); continue; }
+      if (NAME_HEAD.test(h) && !NAME_EXCL.test(h) && s.shortStr >= s.n * 0.5) {
+        k.name.push(c);
+        const hh = h.replace(/\(.*?\)/g, "");
+        if (SEI_HEAD.test(hh)) k.sei = c; else if (MEI_HEAD.test(hh)) k.mei = c;
+      }
+    }
+    if (!k.name.length) for (let c = 0; c < ncol; c++) {
+      const s = st[c];
+      if (s.n >= 3 && s.nameish >= s.n * 0.7 && !k.date.includes(c) && !k.read.includes(c)) k.name.push(c);
+    }
+    if (opt.name) { k.name = opt.name; k.sei = k.mei = -1; }
+    if (opt.read) k.read = opt.read;
+    if (opt.date) k.date = opt.date;
+    if (opt.wd) k.wd = opt.wd;
+    const full = k.name.filter(c => c !== k.sei && c !== k.mei);
+    const main = full.find(c => !STAFF_HEAD.test(hdr[c]));
+    k.main = main != null ? main : (k.sei >= 0 && k.mei >= 0) ? "sei+mei" : full.length ? full[0] : -1;
+    // 「記入者」「担当」しかないシートは、利用者などの名簿とくらべても意味がない（手で指定したときは別）
+    k.mainStaff = main == null && k.main !== "sei+mei" && k.main !== -1 && !opt.name;
+    return k;
+  }
+  const txt = (rows, r, c) => cellText(rows[r] && rows[r][c]).trim();
+  function rowName(rows, r, k){
+    if (k.main === "sei+mei") { const a = txt(rows, r, k.sei), b = txt(rows, r, k.mei); return a && b ? a + "　" + b : ""; }
+    return k.main >= 0 ? txt(rows, r, k.main) : "";
+  }
+  function nearestRead(k, c){
+    if (!k.read.length) return -1;
+    return k.read.slice().sort((a, b) => (Math.abs(a - c) + (a < c ? 0.5 : 0)) - (Math.abs(b - c) + (b < c ? 0.5 : 0)))[0];
+  }
+  function rowFields(rows, r, k){
+    const f = new Map();
+    const skip = new Set([...k.name, ...k.read]);
+    k.hdr.forEach((h, c) => {
+      if (!h || skip.has(c) || NO_HEAD.test(h) || f.has(h)) return;
+      const cell = rows[r] && rows[r][c];
+      if (cell && cellText(cell).trim()) f.set(h, { cell, c });
+    });
+    return f;
+  }
+
+  // ================= しらべる =================
+  function cellDn(cell){
+    if (!cell) return null;
+    if (cell.t === "date") return cell.zero ? null : cell.dn;
+    const p = parseDateText(cellText(cell));
+    return p && p.dn != null ? p.dn : null;
+  }
+
+  function analyze(book, master, opt){
+    const F = new Map();
+    const add = (o) => {
+      const key = [o.level, o.cat, o.msg, o.value, o.tip || ""].join("\u0001");
+      let f = F.get(key);
+      if (!f) { f = { level: o.level, cat: o.cat, msg: o.msg, value: o.value, tip: o.tip || "", html: o.html, head: o.head || "", spaces: o.spaces, locs: [] }; F.set(key, f); }
+      for (const l of o.locs) f.locs.push(l);
+    };
+    const infos = [];
+    const nameCells = [];   // 字のゆれを探す用（全シートの名前のセル）
+    const rowRecs = [];     // 名簿とくらべる用（1行＝1人）
+
+    book.sheets.forEach((sh, si) => {
+      const k = classify(sh, opt);
+      infos.push({ sh, k });
+      const rows = sh.rows;
+      const L = (r, c) => ({ si, sheet: sh.name, r, c });
+      const H = c => k.hdr[c] ? `「${k.hdr[c]}」` : `${colName(c)}列`;
+
+      // ---------- 名前 ----------
+      for (const c of k.name) {
+        const vals = [];
+        for (let r = k.start; r < rows.length; r++) {
+          const cell = rows[r] && rows[r][c];
+          if (!cell || cell.t !== "str" || !cell.v.trim()) continue;
+          checkChars(cell.v, [L(r, c)], add, H(c), false);
+          vals.push({ v: cell.v, loc: L(r, c) });
+          const rc = nearestRead(k, c);
+          const rd = rc >= 0 ? txt(rows, r, rc) : cell.rd;
+          nameCells.push({ v: cell.v.trim(), loc: L(r, c), part: c === k.sei || c === k.mei, rd: c === k.main ? rd : null });
+        }
+        if (c !== k.sei && c !== k.mei) spaceStyle(vals, add, H(c));
+      }
+      for (const c of k.read) for (let r = k.start; r < rows.length; r++) {
+        const cell = rows[r] && rows[r][c];
+        if (cell && cell.t === "str" && cell.v.trim()) checkChars(cell.v, [L(r, c)], add, H(c), true);
+      }
+      if (k.main === "sei+mei") for (let r = k.start; r < rows.length; r++) {
+        const v = rowName(rows, r, k); if (!v) continue;
+        const rc = nearestRead(k, k.sei);
+        nameCells.push({ v, loc: L(r, k.sei), part: false, rd: rc >= 0 ? txt(rows, r, rc) : null });
+      }
+
+      // ---------- 日付 ----------
+      const dateVals = new Map();   // 列 → (行 → 日)
+      for (const c of k.date) dateVals.set(c, checkDateCol(book, rows, k, c, L, H, add));
+      for (const w of k.wd) {
+        const dc = k.date.slice().sort((a, b) => (Math.abs(a - w) + (a > w ? 0.5 : 0)) - (Math.abs(b - w) + (b > w ? 0.5 : 0)))[0];
+        if (dc == null) continue;
+        const dv = dateVals.get(dc);
+        for (const [r, dn] of dv) {
+          const cell = rows[r] && rows[r][w]; if (!cell) continue;
+          let want;
+          if (cell.t === "date") { if (cell.dn == null) continue; want = ymd(cell.dn).w; }
+          else { const m = cellText(cell).match(/[日月火水木金土]/); if (!m) continue; want = WD.indexOf(m[0]); }
+          const real = ymd(dn).w;
+          if (want !== real) add({ level: "ng", cat: "日付", msg: "曜日がずれている", head: H(w),
+            value: `${fmtD(dn).replace(/\(.\)$/, "")} と「${WD[want]}」`, tip: `${fmtD(dn).replace(/\(.\)$/, "")} は ${WD[real]}曜`, locs: [L(r, w)] });
+        }
+      }
+      const sc = k.date.find(c => START_HEAD.test(k.hdr[c]));
+      const ec = k.date.find(c => c !== sc && END_HEAD.test(k.hdr[c]) && !START_HEAD.test(k.hdr[c]));
+      if (sc != null && ec != null) for (const [r, e] of dateVals.get(ec)) {
+        const s = dateVals.get(sc).get(r);
+        if (s != null && e < s) add({ level: "ng", cat: "日付", msg: "終わりの日が始まりより前", head: H(ec),
+          value: fmtD(e), tip: `${H(sc)}は ${fmtD(s)}`, locs: [L(r, ec)] });
+      }
+
+      // ---------- 名簿とくらべる用 ----------
+      if (k.main !== -1 && !k.mainStaff) for (let r = k.start; r < rows.length; r++) {
+        const v = rowName(rows, r, k); if (!v) continue;
+        rowRecs.push({ v, loc: L(r, k.main === "sei+mei" ? k.sei : k.main), fields: rowFields(rows, r, k), si });
+      }
+    });
+
+    groupChecks(nameCells, add);
+    if (master && master.recs.length) masterChecks(rowRecs, master, add, book);
+
+    const ord = { ng: 0, warn: 1, info: 2 };
+    const findings = [...F.values()];
+    for (const f of findings) f.locs.sort((a, b) => a.si - b.si || a.r - b.r || a.c - b.c);
+    findings.sort((a, b) => ord[a.level] - ord[b.level] || a.locs[0].si - b.locs[0].si || a.locs[0].r - b.locs[0].r || a.locs[0].c - b.locs[0].c);
+    return { findings, infos };
+  }
+
+  // 1つのセルの中の字を見る
+  function checkChars(v, locs, add, head, isReading){
+    const cat = "名前", t = v;
+    const A = (level, msg, tip, extra) => add(Object.assign({ level, cat, msg, value: t, tip, head, locs }, extra || {}));
+    if (INVISIBLE.test(t)) A("ng", "見えない文字が入っている", "ゼロ幅スペースなど。検索や照合で一致しなくなる。セルを打ち直すと消える");
+    if (IVS.test(t)) A("warn", "異体字の印（目に見えない）が付いている", "「辻」の点の数などを指定する印。ほかのシステムでは一致しない・化けることがある");
+    if (t.normalize("NFC") !== t) {
+      const bad = [...t].filter(ch => ch.normalize("NFC") !== ch);
+      A("warn", "見た目は同じで中身がちがう字", `${bad.length ? bad.map(ch => `「${ch}」`).join("") + "は特別な番号の字。" : "Macなどから来た濁点かも。"}照合で一致しなくなる`);
+    }
+    if (/^[\s　]|[\s　]$/.test(t)) A("warn", "前かうしろに空白", "見えないので気づきにくい。照合や並べ替えがずれる");
+    if (/[ 　]{2,}/.test(t.trim())) A("warn", "空白が2つ続いている", "");
+    if (/[｡-ﾟ]/.test(t)) A("warn", "半角カナが入っている", "ほかは全角のことが多い");
+    const a = [...t];
+    a.forEach((ch, i) => {
+      const nb = [a[i - 1], a[i + 1]].filter(x => x && !/\s/.test(x));
+      if (!nb.length) return;
+      if (KATA2KAN[ch] && nb.every(isHan))
+        A("ng", ch === "ー" ? "漢字のとなりに長音「ー」" : `漢字のとなりにカタカナの「${ch}」`, `漢字の「${KATA2KAN[ch]}」のつもり？（見た目がそっくり）`);
+      else if (KAN2KATA[ch] && nb.every(x => isKata(x) || isHira(x)))
+        A("ng", `カナのとなりに漢字の「${ch}」`, `${KAN2KATA[ch] === "ー" ? "長音" : "カタカナの"}「${KAN2KATA[ch]}」のつもり？（見た目がそっくり）`);
+      else if (DASHES.test(ch) && a[i - 1] && isKata(a[i - 1]))
+        A("warn", `カタカナのあとに「${ch}」`, "長音「ー」のつもり？");
+      else if (/[へべぺ]/.test(ch) && nb.every(isKata))
+        A("warn", `カタカナの中にひらがなの「${ch}」`, `カタカナの「${String.fromCharCode(ch.charCodeAt(0) + 0x60)}」のつもり？`);
+      else if (/[ヘベペ]/.test(ch) && nb.every(isHira))
+        A("warn", `ひらがなの中にカタカナの「${ch}」`, `ひらがなの「${String.fromCharCode(ch.charCodeAt(0) - 0x60)}」のつもり？`);
+    });
+    if (isReading) {
+      if (a.some(ch => isHan(ch) && !KAN2KATA[ch])) A("warn", "よみの列に漢字", "");
+      if (a.some(isHira) && a.some(ch => isKata(ch) && ch !== "ー")) A("info", "ひらがなとカタカナがまざっている", "ほかの行と書き方をそろえると照合しやすい");
+    } else {
+      const k = [...new Set(a.filter(ch => KISHU.has(ch) && ch.normalize("NFC") === ch))];
+      if (k.length) A("info", `機種依存の字（${k.map(ch => `「${ch}」`).join("")}）`, "わざとならOK。古いシステムや別の会社に渡すと「?」や「・」に化けることがある");
+    }
+  }
+
+  // 列の中で、空白の付け方が多数派とちがうものを拾う
+  function spaceStyle(vals, add, head){
+    let full = 0, half = 0, none = 0;
+    const kind = vals.map(({ v }) => {
+      const t = v.trim();
+      if ([...t].length < 3) return null;
+      if (t.includes("　")) { full++; return "full"; }
+      if (t.includes(" ")) { half++; return "half"; }
+      none++; return "none";
+    });
+    const tot = full + half + none;
+    if (tot < 5) return;
+    vals.forEach(({ v, loc }, i) => {
+      const k = kind[i]; if (!k) return;
+      if (k === "half" && full >= tot * 0.7) add({ level: "warn", cat: "名前", msg: "空白が半角（ほかは全角）", value: v, head, locs: [loc] });
+      else if (k === "full" && half >= tot * 0.7) add({ level: "warn", cat: "名前", msg: "空白が全角（ほかは半角）", value: v, head, locs: [loc] });
+      else if (k === "none" && full + half >= tot * 0.7) add({ level: "info", cat: "名前", msg: "姓と名のあいだに空白がない（ほかはある）", value: v, head, locs: [loc] });
+    });
+  }
+
+  // 日付の列を1本しらべる。行 → 日 の表を返す
+  function checkDateCol(book, rows, k, c, L, H, add){
+    const head = H(c), isBirth = BIRTH_HEAD.test(k.hdr[c]);
+    const A = (level, msg, value, tip, r) => add({ level, cat: "日付", msg, value, tip, head, locs: [L(r, c)] });
+    let total = 0, typed = 0;
+    for (let r = k.start; r < rows.length; r++) {
+      const cell = rows[r] && rows[r][c];
+      if (!cell || !cellText(cell).trim()) continue;
+      total++; if (cell.t === "date") typed++;
+    }
+    const mostlyTyped = book.typed && typed >= total * 0.5;
+    const vals = [];
+    for (let r = k.start; r < rows.length; r++) {
+      const cell = rows[r] && rows[r][c]; if (!cell) continue;
+      if (cell.t === "date") {
+        if (cell.zero) { A("warn", "日付が「1900/1/0」（中身が0）", "1900/1/0", "参照先が空の数式かも", r); continue; }
+        if (cell.n > 2958465) {                             // 9999/12/31 より先。Excelでは「#####」になる
+          const p = /^\d{8}$/.test(String(cell.n)) ? parseDateText(String(cell.n)) : null;
+          if (p && p.dn != null) { A("ng", "8けたの数字が入っている（Excelでは ##### と出る）", String(cell.n), `${fmtD(p.dn)} のつもり？ 日付として打ち直す`, r); vals.push({ r, dn: p.dn, disp: String(cell.n) }); }
+          else A("ng", "日付にならない数字（Excelでは ##### と出る）", String(cell.n), "", r);
+          continue;
+        }
+        if (cell.n < 0 || cell.dn == null) { A("ng", "ありえない日付", String(cell.n), cell.dn == null && Math.floor(cell.n) === 60 ? "Excelだけにある 1900/2/29" : "マイナスの日付", r); continue; }
+        vals.push({ r, dn: cell.dn, disp: fmtD(cell.dn) });
+      } else if (cell.t === "num") {
+        const p = /^\d{8}$/.test(cell.v) ? parseDateText(cell.v) : null;
+        if (p && p.dn != null) { A("warn", "8けたの数字で入っている", cell.v, `= ${fmtD(p.dn)}。日付として並べ替え・計算されない`, r); vals.push({ r, dn: p.dn, disp: cell.v }); }
+        else if (p && p.invalid) A("ng", "ありえない日付", cell.v, p.invalid, r);
+        else if (mostlyTyped && Number.isInteger(cell.n) && cell.n > 0 && cell.n < 2958466) {
+          const dn = serialDn(cell.n, book.d1904);
+          if (dn != null) { A("warn", "日付の表示形式になっていない（数字のまま）", cell.v, `= ${fmtD(dn)}`, r); vals.push({ r, dn, disp: cell.v }); }
+        }
+      } else if (cell.t === "str") {
+        const tx = cell.v.trim(); if (!tx) continue;
+        const p = parseDateText(tx);
+        if (!p) continue;                                   // 「未定」「－」などはそのまま
+        if (p.bad) { A("warn", "日付として読めない", tx, "書き方をほかとそろえると確実", r); continue; }
+        if (p.invalid) { A("ng", "ありえない日付", tx, p.invalid, r); continue; }
+        if (p.eraBad) A("ng", "元号と年月日が合わない", tx, p.eraBad, r);
+        if (p.yy2) A("info", "年が2けた", tx, `${p.y}年として読んだ。19xx年か20xx年かで読みちがえのもと`, r);
+        if (mostlyTyped) A("warn", "日付が「文字」で入っている", tx, "見た目は日付でも、並べ替えや計算からもれる。打ち直すと直る", r);
+        if (p.dn != null) {
+          if (p.wd != null && p.wd !== ymd(p.dn).w) A("ng", "曜日がずれている", tx, `${p.y}/${p.mo}/${p.d} は ${WD[ymd(p.dn).w]}曜`, r);
+          vals.push({ r, dn: p.dn, disp: tx });
+        }
+      }
+    }
+    for (const x of vals) {
+      const o = ymd(x.dn);
+      if (o.y < 1900) { A("ng", "年が古すぎる", x.disp, "", x.r); x.out = true; }
+      else if (o.y > THIS_YEAR + 30) { A("ng", "年が先すぎる", x.disp, "年の打ちまちがい？", x.r); x.out = true; }
+      else if (isBirth && x.dn > TODAY) { A("ng", "生年月日が未来", x.disp, "", x.r); x.out = true; }
+      else if (isBirth && THIS_YEAR - o.y > 115) { A("ng", "115歳より上になる", x.disp, "年の打ちまちがい？", x.r); x.out = true; }
+    }
+    // ほかから飛びはなれた日付（年の打ちまちがい）と、並びの逆もどり。誕生日の列はばらばらで当然なので見ない
+    if (!isBirth && vals.length >= 8) {
+      const sorted = vals.filter(x => !x.out).map(x => x.dn).sort((a, b) => a - b);
+      const q = p => sorted[Math.round(p * (sorted.length - 1))];
+      const lo = q(0.1), hi = q(0.9), margin = Math.max(90, hi - lo);
+      vals.forEach((x, i) => {
+        if (x.out || (x.dn >= lo - margin && x.dn <= hi + margin)) return;
+        x.out = true;
+        const prev = vals.slice(0, i).reverse().find(v => !v.out), next = vals.slice(i + 1).find(v => !v.out);
+        const o = ymd(x.dn); let sug = "";
+        if (prev && next) for (let Y = ymd(Math.min(prev.dn, next.dn)).y; Y <= ymd(Math.max(prev.dn, next.dn)).y; Y++) {
+          const dn = dayNum(Y, o.m, Math.min(o.d, daysIn(Y, o.m)));
+          if (dn >= Math.min(prev.dn, next.dn) && dn <= Math.max(prev.dn, next.dn)) { sug = `。${o.y}年→${Y}年のまちがい？（前後の行は ${fmtD(prev.dn)} と ${fmtD(next.dn)}）`; break; }
+        }
+        A("warn", "ほかの日付から飛びはなれている", x.disp, `この列はだいたい ${fmtD(lo)}〜${fmtD(hi)}` + sug, x.r);
+      });
+      const seq = vals.filter(x => !x.out);
+      let up = 0, down = 0;
+      for (let i = 1; i < seq.length; i++) { if (seq[i].dn >= seq[i - 1].dn) up++; if (seq[i].dn <= seq[i - 1].dn) down++; }
+      const n = seq.length - 1, asc = up >= n * 0.9 && down < n * 0.9, desc = down >= n * 0.9 && up < n * 0.9;
+      if (n >= 7 && (asc || desc)) {
+        const wrong = (a, b) => asc ? b.dn < a.dn : b.dn > a.dn;
+        for (let i = 1; i < seq.length; i++) {
+          if (!wrong(seq[i - 1], seq[i])) continue;
+          // 前の行が飛び出しているのか、この行がもどっているのか
+          const blame = i >= 2 && !wrong(seq[i - 2], seq[i]) ? i - 1 : i;
+          const x = seq[blame], before = seq[blame - 1], after = seq[blame + 1];
+          A("warn", "ここだけ日付の並びが逆になっている", x.disp,
+            `この列は${asc ? "古い順" : "新しい順"}。前後の行は ${before ? fmtD(before.dn) : "―"} と ${after ? fmtD(after.dn) : "―"}`, x.r);
+        }
+      }
+    }
+    return new Map(vals.map(x => [x.r, x.dn]));
+  }
+
+  // シートをまたいで、同じ名前の字のゆれ・よみが同じで1字ちがいを探す
+  function groupChecks(nameCells, add){
+    const byFold = new Map();
+    for (const x of nameCells) {
+      const key = (x.part ? "p:" : "f:") + fold(x.v);
+      if (!byFold.has(key)) byFold.set(key, new Map());
+      const g = byFold.get(key);
+      if (!g.has(x.v)) g.set(x.v, []);
+      g.get(x.v).push(x.loc);
+    }
+    for (const [key, g] of byFold) {
+      if (g.size < 2) continue;
+      const forms = [...g.keys()];
+      const locs = [].concat(...g.values());
+      const spaceOnly = new Set(forms.map(noSpace)).size === 1;
+      const value = forms.map(f => `「${f}」`).join(" ／ ");
+      if (spaceOnly) add({ level: "warn", cat: "名前", msg: "同じ名前で空白の付け方がちがう", value, tip: "照合や並べ替えでは別の人あつかいになる", locs, spaces: true });
+      else add({ level: key.startsWith("p:") ? "warn" : "ng", cat: "名前", msg: "同じ名前なのに字がちがう（同じ人かも）", value, html: diffForms(forms),
+        tip: "別の人ならそのままでOK。同じ人なら、どちらかにそろえる", locs });
+    }
+    // よみが同じで、字が1字だけちがう（田中裕子／田中祐子、伊東／伊藤）
+    const byRead = new Map();
+    for (const x of nameCells) {
+      if (!x.rd || x.part) continue;
+      const rk = readKey(x.rd); if ([...rk].length < 2) continue;
+      if (!byRead.has(rk)) byRead.set(rk, new Map());
+      const g = byRead.get(rk), fk = fold(x.v);
+      if (!g.has(fk)) g.set(fk, { v: x.v, locs: [] });
+      g.get(fk).locs.push(x.loc);
+    }
+    for (const [rk, g] of byRead) {
+      const items = [...g.entries()];
+      if (items.length < 2 || items.length > 20) continue;
+      for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+        const [fa, a] = items[i], [fb, b] = items[j];
+        if ([...fa].length !== [...fb].length || lev(fa, fb, 1) !== 1) continue;
+        add({ level: "ng", cat: "名前", msg: "よみが同じで1字だけちがう", value: `「${a.v}」 ／ 「${b.v}」（${rk}）`,
+          html: diffForms([a.v, b.v]) + `（${esc(rk)}）`, tip: "同じ人なら、どちらかの字がまちがい。別の人ならOK", locs: a.locs.concat(b.locs) });
+      }
+    }
+  }
+
+  // 正しい名簿とくらべる
+  function buildMaster(text, book){
+    const recs = [];
+    const take = (sh, d1904) => {
+      const k = classify(sh, {});
+      if (k.main === -1) k.main = 0;              // 名前だけを並べた貼り付けなら、1列目が名前
+      for (let r = k.start; r < sh.rows.length; r++) {
+        const v = rowName(sh.rows, r, k); if (!v) continue;
+        recs.push({ v, fields: rowFields(sh.rows, r, k), d1904 });
+      }
+    };
+    if (book) book.sheets.forEach(sh => take(sh, book.d1904));
+    if (text.trim()) take(parseDelimited(text.replace(/\r/g, "")), false);
+    const exact = new Set(), bySpace = new Map(), byFold = new Map(), byLen = new Map();
+    for (const m of recs) {
+      exact.add(m.v);
+      const s = noSpace(m.v), f = fold(m.v);
+      if (!bySpace.has(s)) bySpace.set(s, []); bySpace.get(s).push(m);
+      if (!byFold.has(f)) { byFold.set(f, []); const L = [...f].length; if (!byLen.has(L)) byLen.set(L, []); byLen.get(L).push(f); }
+      byFold.get(f).push(m);
+    }
+    return { recs, exact, bySpace, byFold, byLen };
+  }
+  function masterChecks(rowRecs, M, add, book){
+    const byName = new Map();
+    for (const x of rowRecs) { if (!byName.has(x.v)) byName.set(x.v, []); byName.get(x.v).push(x); }
+    for (const [v, xs] of byName) {
+      const locs = xs.map(x => x.loc);
+      let hits = null;
+      if (M.exact.has(v)) hits = M.byFold.get(fold(v)).filter(m => m.v === v);
+      else if (M.bySpace.has(noSpace(v))) {
+        const m = M.bySpace.get(noSpace(v))[0];
+        add({ level: "warn", cat: "名簿", msg: "名簿と空白だけちがう", value: v, tip: `名簿は「${m.v}」`, locs, spaces: true });
+        hits = M.bySpace.get(noSpace(v));
+      } else if (M.byFold.has(fold(v))) {
+        const ms = [...new Set(M.byFold.get(fold(v)).map(m => m.v))];
+        add({ level: "ng", cat: "名簿", msg: "名簿の字とちがう", value: v, html: `「${markDiff(v, ms[0])}」`, tip: `名簿は ${ms.map(s => `「${s}」`).join("")}`, locs });
+        hits = M.byFold.get(fold(v));
+      } else {
+        const f = fold(v), L = [...f].length, max = L >= 6 ? 2 : 1;
+        const near = [];
+        for (let l = L - max; l <= L + max; l++) for (const mf of (M.byLen.get(l) || [])) {
+          const d = lev(f, mf, max); if (d <= max) near.push({ d, v: M.byFold.get(mf)[0].v });
+        }
+        near.sort((a, b) => a.d - b.d);
+        if (near.length) add({ level: "ng", cat: "名簿", msg: "名簿にない名前（似た名前が名簿にある）", value: v, html: `「${markDiff(v, near[0].v)}」`,
+          tip: "名簿は " + near.slice(0, 3).map(x => `「${x.v}」`).join(""), locs });
+        else add({ level: "info", cat: "名簿", msg: "名簿にない名前", value: v, tip: "", locs });
+      }
+      // 同じ人が名簿に1人だけいるときは、ほかの列（生年月日など）もくらべる
+      if (!hits || hits.length !== 1) continue;
+      const m = hits[0];
+      for (const x of xs) for (const [h, t] of x.fields) {
+        const mm = m.fields.get(h); if (!mm) continue;
+        const loc = Object.assign({}, x.loc, { c: t.c });
+        const a = cellDn(t.cell), b = cellDn(mm.cell);
+        if (a != null && b != null) {
+          if (a === b) continue;
+          const oa = ymd(a), ob = ymd(b);
+          const swap = oa.y === ob.y && oa.m === ob.d && oa.d === ob.m ? "（月と日が入れかわっている？）" : "";
+          add({ level: "ng", cat: "名簿", msg: `名簿と「${h}」がちがう`, value: `${v}：${fmtD(a)}`, tip: `名簿は ${fmtD(b)}${swap}`, locs: [loc] });
+        } else {
+          const na = noSpace(cellText(t.cell).normalize("NFKC")).toLowerCase(), nb = noSpace(cellText(mm.cell).normalize("NFKC")).toLowerCase();
+          if (na !== nb) add({ level: "warn", cat: "名簿", msg: `名簿と「${h}」がちがう`, value: `${v}：${cellText(t.cell)}`, tip: `名簿は「${cellText(mm.cell)}」`, locs: [loc] });
+        }
+      }
+    }
+  }
+
+  // a を b とくらべて、ちがうところに印を付ける（前と後ろの同じ部分をのぞいた残り）
+  function markDiff(a, b){
+    const A = [...a], B = [...b];
+    let p = 0; while (p < A.length && p < B.length && A[p] === B[p]) p++;
+    let s = 0; while (s < A.length - p && s < B.length - p && A[A.length - 1 - s] === B[B.length - 1 - s]) s++;
+    return A.map((ch, i) => i >= p && i < A.length - s && !/\s/.test(ch) && !INVISIBLE.test(ch) && !IVS.test(ch) ? `<mark>${esc(ch)}</mark>` : spHtml(ch)).join("");
+  }
+  const diffForms = forms => forms.map((f, i) => "「" + markDiff(f, forms[i === 0 ? 1 : 0]) + "」").join(" ／ ");
+  const spHtml = ch => ch === " " ? '<span class="sp" title="半角の空白"> </span>' : ch === "　" ? '<span class="sp" title="全角の空白">　</span>'
+    : INVISIBLE.test(ch) || IVS.test(ch) ? '<mark title="見えない文字">▯</mark>' : esc(ch);
+  const withSpaces = s => [...String(s)].map(spHtml).join("");
+
+  // ================= 画面 =================
+  let mainBook = null, mainName = "", masterBook = null, last = null, shown = 300;
+  const LVL = { ng: "要確認", warn: "念のため", info: "おしらせ" };
+
+  function parseCols(s){
+    const t = String(s || "").normalize("NFKC").toUpperCase().trim();
+    if (!t) return null;
+    const out = t.split(/[,、\s]+/).filter(Boolean).map(x => /^\d+$/.test(x) ? +x - 1 : /^[A-Z]{1,3}$/.test(x) ? colNum(x) : -1).filter(n => n >= 0);
+    return out.length ? out : null;
+  }
+  function readOpt(){
+    const h = String($("optHead").value || "").normalize("NFKC").trim();
+    return { head: /^\d+$/.test(h) ? +h - 1 : null, name: parseCols($("optName").value), read: parseCols($("optRead").value),
+             date: parseCols($("optDate").value), wd: parseCols($("optWd").value) };
+  }
+
+  function run(){
+    if (!mainBook) return;
+    $("stats").textContent = "しらべ中…";
+    setTimeout(() => {
+      try {
+        const txt = $("masterText").value;
+        const master = (txt.trim() || masterBook) ? buildMaster(txt, masterBook) : null;
+        last = analyze(mainBook, master, readOpt());
+        shown = 300;
+        render();
+      } catch (e) {
+        $("stats").innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+      }
+    }, 30);
+  }
+
+  function locText(locs){
+    const bySheet = new Map();
+    for (const l of locs) { if (!bySheet.has(l.sheet)) bySheet.set(l.sheet, []); bySheet.get(l.sheet).push(colName(l.c) + (l.r + 1)); }
+    const multi = mainBook.sheets.length > 1;
+    return [...bySheet].map(([s, cs]) => {
+      const u = [...new Set(cs)];
+      const list = u.slice(0, 12).join(", ") + (u.length > 12 ? ` ほか${u.length - 12}か所` : "");
+      return multi ? `${s}: ${list}` : list;
+    }).join(" ／ ");
+  }
+
+  function render(){
+    const { findings, infos } = last;
+    const cnt = { ng: 0, warn: 0, info: 0 };
+    findings.forEach(f => cnt[f.level]++);
+    $("stats").innerHTML = findings.length
+      ? `<span class="n-ng">要確認 ${cnt.ng}</span>　<span class="n-warn">念のため ${cnt.warn}</span>　<span class="n-info">おしらせ ${cnt.info}</span>`
+      : "見つからなかった";
+    $("detected").innerHTML = infos.map(({ sh, k }) => {
+      const H = c => `${colName(c)}${k.hdr[c] ? "「" + esc(k.hdr[c]) + "」" : ""}`;
+      const part = (label, cs) => cs.length ? `${label}: ${cs.map(H).join("、")}` : "";
+      const bits = [
+        k.head >= 0 ? `見出し ${k.head + 1}行目` : "見出しなし",
+        part("名前", k.name), part("よみ", k.read), part("日付", k.date), part("曜日", k.wd),
+      ].filter(Boolean);
+      const none = !k.name.length && !k.date.length ? "　→ しらべる列が見つからない（「列の指定」で直せる）" : "";
+      return `<div>シート「${esc(sh.name)}」${sh.hidden ? "（非表示）" : ""}：${bits.join("　｜　")}${none}</div>`;
+    }).join("");
+    $("filters").hidden = !findings.length;
+    $("outRow").hidden = $("outNote").hidden = !findings.length;
+    renderList();
+  }
+
+  function renderList(){
+    const on = {};
+    document.querySelectorAll("#filters input").forEach(i => on[i.dataset.f] = i.checked);
+    const list = last.findings.filter(f => on[f.level] && on[f.cat]);
+    const html = list.slice(0, shown).map(f => {
+      const val = f.html || (f.cat === "日付" ? esc(f.value) : withSpaces(f.value));
+      return `<div class="res"><span class="lv ${f.level}">${LVL[f.level]}</span><div class="body">` +
+        `<div class="msg">${esc(f.msg)}<span class="cat">${esc(f.cat)}${f.head ? " ・ " + esc(f.head) : ""}</span></div>` +
+        `<div class="val">${val}</div>` +
+        (f.tip ? `<div class="tip">${f.spaces ? withSpaces(f.tip) : esc(f.tip)}</div>` : "") +
+        `<div class="loc">📍 ${esc(locText(f.locs))}</div></div></div>`;
+    }).join("");
+    $("results").innerHTML = html + (list.length > shown ? `<div class="more"><button id="moreBtn">もっと見る（のこり ${list.length - shown}件）</button></div>` : "");
+    const mb = $("moreBtn"); if (mb) mb.onclick = () => { shown += 300; renderList(); };
+  }
+
+  function exportRows(){
+    const head = ["重さ", "種類", "なにが変か", "中身", "ヒント", "列", "場所"];
+    return [head].concat(last.findings.map(f => [LVL[f.level], f.cat, f.msg, f.value, f.tip, f.head, locText(f.locs)]));
+  }
+  async function copyResult(){
+    const text = exportRows().map(r => r.map(v => String(v).replace(/[\t\r\n]+/g, " ")).join("\t")).join("\n");
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    toast("コピーした（Excelに貼れる）");
+  }
+  function saveCsv(){
+    const csv = exportRows().map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "チェック結果_" + (mainName || "結果").replace(/\.[^.]+$/, "") + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function loadMain(file){
+    $("mainMsg").textContent = "読み込み中…";
+    try {
+      mainBook = await readFile(file); mainName = file.name;
+      const rows = mainBook.sheets.reduce((s, sh) => s + sh.rows.filter(Boolean).length, 0);
+      $("mainMsg").textContent = `${file.name}（シート${mainBook.sheets.length}つ・${rows}行）`;
+      $("runBtn").disabled = false;
+      run();
+    } catch (e) {
+      mainBook = null; $("runBtn").disabled = true;
+      $("mainMsg").innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+    }
+  }
+  async function loadMaster(file){
+    $("masterMsg").textContent = "読み込み中…";
+    try {
+      masterBook = await readFile(file);
+      const n = buildMaster("", masterBook).recs.length;
+      $("masterMsg").textContent = `${file.name} から ${n}人（下の文字の欄と合わせて使う）`;
+      if (mainBook) run();
+    } catch (e) {
+      masterBook = null;
+      $("masterMsg").innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+    }
+  }
+
+  $("fileMain").addEventListener("change", e => { if (e.target.files[0]) loadMain(e.target.files[0]); e.target.value = ""; });
+  $("fileMaster").addEventListener("change", e => { if (e.target.files[0]) loadMaster(e.target.files[0]); e.target.value = ""; });
+  // ドラッグ＆ドロップ。枠の外に落としても、しらべるファイルとして受ける（ブラウザがファイルを開いてしまわないように）
+  document.addEventListener("dragover", e => e.preventDefault());
+  document.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) loadMain(f); });
+  for (const [id, fn] of [["dropMain", loadMain], ["dropMaster", loadMaster]]) {
+    const el = $(id);
+    el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("over"); });
+    el.addEventListener("dragleave", () => el.classList.remove("over"));
+    el.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); el.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) fn(f); });
+  }
+  $("runBtn").addEventListener("click", run);
+  $("filters").addEventListener("change", () => { shown = 300; renderList(); });
+  $("copyBtn").addEventListener("click", copyResult);
+  $("csvBtn").addEventListener("click", saveCsv);
+  $("clearBtn").addEventListener("click", () => location.reload());
+  let masterTimer = 0;
+  $("masterText").addEventListener("input", () => { clearTimeout(masterTimer); if (mainBook) masterTimer = setTimeout(run, 600); });
+
+  // ================= 見本（架空の人たち） =================
+  $("sampleBtn").addEventListener("click", () => {
+    const S = v => v == null ? undefined : { t: "str", v };
+    const Dn = dn => ({ t: "date", n: dn - dayNum(1899, 12, 30), dn });
+    const D = (y, m, d) => Dn(dayNum(y, m, d));
+    const t1 = [
+      [S("2026年度 利用者名簿")],
+      ["No", "氏名", "フリガナ", "生年月日", "入所日", "退所日"].map(S),
+      [S("1"), S("山田　太郎"), S("ヤマダ　タロウ"), D(1948, 4, 12), D(2019, 4, 1)],
+      [S("2"), S("高橋　花子"), S("タカハシ　ハナコ"), D(1951, 2, 3), D(2019, 6, 10)],
+      [S("3"), S("田ロ　正夫"), S("タグチ　マサオ"), D(1945, 11, 20), D(2020, 1, 15)],
+      [S("4"), S("佐藤　次郎"), S("サトウ　ジロウ"), S("1952/2/30"), D(2020, 5, 1), D(2019, 3, 31)],
+      [S("5"), S("田中　裕子"), S("タナカ　ユウコ"), D(1950, 7, 7), S("平成32年6月1日")],
+      [S("6"), S("田中　祐子"), S("タナカ　ユウコ"), D(1949, 3, 3), D(2021, 4, 1)],
+      [S("7"), S("髙橋　花子"), S("タカハシ　ハナコ"), D(1951, 2, 3), D(2020, 4, 1)],
+      [S("8"), S("鈴木 一郎"), S("スズキ　イチロウ"), D(1947, 8, 15), D(2021, 9, 1)],
+      [S("9"), S("ジョ一ジ　山本"), S("ジョージ　ヤマモト"), D(1955, 1, 1), D(2022, 4, 1)],
+      [S("10"), S("伊藤　健ニ"), S("イトウ　ケンジ"), D(2031, 5, 5), D(2032, 6, 1)],
+      [S("11"), S("小林　明美 "), S("コバヤシ　アケミ"), D(1953, 9, 9), D(2023, 4, 1)],
+      [S("12"), S("加藤　正"), S("カトウ　タダシ"), D(1946, 5, 1), D(2024, 4, 1)],
+    ];
+    const t2 = [["日付", "曜日", "記入者", "内容"].map(S)];
+    const staff = ["山田　花子", "山田 花子", "佐々木　学", "佐佐木　学", "渡辺　恵", "渡邊　恵", "山田　花子", "佐々木　学", "渡辺　恵"];
+    for (let i = 0; i < 9; i++) {
+      const dn = dayNum(2026, 9, 1 + i + (i >= 5 ? 1 : 0));
+      const w = i === 6 ? (ymd(dn).w + 1) % 7 : ymd(dn).w;
+      t2.push([Dn(dn), S(WD[w]), S(staff[i]), S("見回り")]);
+    }
+    t2.push([{ t: "date", n: 0, dn: serialDn(0), zero: true }, undefined, S("山田　花子"), S("見回り")]);
+    const mk = rows => ({ rows, ncol: Math.max(...rows.map(r => r.length)) });
+    mainBook = { sheets: [Object.assign({ name: "利用者名簿" }, mk(t1)), Object.assign({ name: "9月の記録" }, mk(t2))], typed: true, d1904: false };
+    mainName = "見本.xlsx";
+    $("mainMsg").textContent = "見本データ（架空の名簿2枚）を読み込んだ";
+    if (!$("masterText").value.trim())
+      $("masterText").value = ["氏名\t生年月日", "山田　太郎\t1948/4/12", "高橋　花子\t1951/3/2", "田口　正夫\t1945/11/20", "佐藤　次郎\t1952/2/3",
+        "田中　祐子\t1949/3/3", "鈴木　一郎\t1947/8/15", "ジョージ　山本\t1955/1/1", "伊藤　健二\t1956/5/5",
+        "小林　明美\t1953/9/9", "加藤　正\t1946/5/1"].join("\n");
+    $("runBtn").disabled = false;
+    run();
+  });
+})();
+</script>
+</body>
+</html>
