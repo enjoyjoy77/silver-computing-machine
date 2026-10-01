@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>10万分の1秒タイマー</title>
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="細かタイマー">
+<style>
+:root{
+  --bg:#f2f2f7; --ink:#1d1d1f; --muted:rgba(29,29,31,.55); --card:#ffffff;
+  --line:rgba(29,29,31,.10); --accent:#155bd0; --over:#c42b23;
+  --btn:#1d1d1f; --btnink:#ffffff;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#000000; --ink:#f5f5f7; --muted:rgba(245,245,247,.55); --card:#1c1c1e;
+    --line:rgba(245,245,247,.12); --accent:#4d94ff; --over:#ff5a4f;
+    --btn:#f5f5f7; --btnink:#000000;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#000000; --ink:#f5f5f7; --muted:rgba(245,245,247,.55); --card:#1c1c1e;
+  --line:rgba(245,245,247,.12); --accent:#4d94ff; --over:#ff5a4f;
+  --btn:#f5f5f7; --btnink:#000000;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
+  -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation; -webkit-user-select:none; user-select:none;
+}
+main{
+  min-height:100%; max-width:760px; margin:0 auto;
+  display:flex; flex-direction:column;
+  padding:max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+          max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+h1{font-size:.8rem; font-weight:600; color:var(--muted); margin:0; letter-spacing:.04em}
+.face{flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:42vh}
+.label{font-size:.85rem; color:var(--muted); min-height:1.4em; letter-spacing:.06em}
+.time{
+  font-weight:200; font-variant-numeric:tabular-nums; line-height:1.05; white-space:nowrap;
+  letter-spacing:-.02em;
+  font-size:min(calc((100vw - 32px) / 4.9), 26vh, 168px);
+}
+.time.long{font-size:min(calc((100vw - 32px) / 6.1), 22vh, 136px)}
+.frac{font-size:.58em}
+.dim{opacity:.22}
+[data-phase="over"] .time, [data-phase="over"] .label,
+[data-phase="done"] .time, [data-phase="done"] .label{color:var(--over)}
+.bar{height:3px; width:100%; background:var(--line); border-radius:2px; overflow:hidden; margin:18px 0 10px}
+.bar i{display:block; height:100%; background:var(--accent); transform-origin:left center}
+.note{font-size:.72rem; color:var(--muted); text-align:center; margin:0; min-height:1.2em; line-height:1.5}
+.set{display:grid; gap:8px; margin:20px 0 14px}
+.row{display:grid; grid-template-columns:repeat(5, 1fr); gap:8px}
+.row.adj{grid-template-columns:repeat(4, 1fr)}
+button{appearance:none; -webkit-appearance:none; border:0; font:inherit; cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+button:active:not(:disabled){transform:scale(.97)}
+button:disabled{opacity:.32; cursor:default}
+.chip{border-radius:12px; background:var(--card); color:var(--ink); font-size:.9rem; padding:12px 0; box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.ctrl{display:grid; grid-template-columns:1fr 2fr; gap:10px}
+.ctrl button{border-radius:16px; font-size:1.05rem; font-weight:600; padding:18px 0}
+#sub{background:var(--card); color:var(--ink)}
+#main{background:var(--btn); color:var(--btnink)}
+[data-phase="over"] #main{background:var(--over); color:#fff}
+
+/* 横にしたスマホ: 数字を左、ボタンを右 */
+@media (orientation:landscape) and (max-height:520px){
+  main{max-width:none; display:grid; grid-template-columns:1fr 300px; grid-template-rows:auto 1fr; column-gap:20px}
+  h1{grid-column:1 / -1}
+  .face{min-height:0}
+  .time{font-size:min(calc((100vw - 380px) / 4.9), 30vh, 168px)}
+  .time.long{font-size:min(calc((100vw - 380px) / 6.1), 26vh, 136px)}
+  .panel{align-self:center}
+  .set{margin-top:0}
+}
+</style>
+</head>
+<body>
+<main id="app" data-phase="idle">
+  <h1>10万分の1秒タイマー</h1>
+  <section class="face">
+    <div class="label" id="label">セット</div>
+    <div class="time" id="time"><span id="hms">05:00</span><span class="frac">.<span id="d1">0</span><span id="d2">0</span><span id="d3">0</span><span id="d4">0</span><span id="d5">0</span></span></div>
+    <div class="bar"><i id="bar"></i></div>
+    <p class="note" id="note"></p>
+  </section>
+  <section class="panel">
+    <div class="set">
+      <div class="row">
+        <button class="chip" data-ms="60000">1分</button>
+        <button class="chip" data-ms="180000">3分</button>
+        <button class="chip" data-ms="300000">5分</button>
+        <button class="chip" data-ms="600000">10分</button>
+        <button class="chip" data-ms="1800000">30分</button>
+      </div>
+      <div class="row adj">
+        <button class="chip" data-add="60000">＋1分</button>
+        <button class="chip" data-add="10000">＋10秒</button>
+        <button class="chip" data-add="1000">＋1秒</button>
+        <button class="chip" data-ms="0">0</button>
+      </div>
+    </div>
+    <div class="ctrl">
+      <button id="sub">リセット</button>
+      <button id="main">スタート</button>
+    </div>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const KEY = 'komakai-timer';
+const MAX = (10 * 3600 - 1) * 1000;   // 9:59:59 まで
+
+// ---------- 時計 ----------
+// 中身は performance.now()（ミリ秒、小数つき）。
+// Mac などでは端末が眠っている間これが止まるので、Date.now() と比べて1秒以上ずれたら、そのぶん足して戻す。
+let skew = 0;
+const pBase = performance.now(), dBase = Date.now();
+function now() {
+  const p = performance.now();
+  const drift = (Date.now() - dBase) - (p + skew - pBase);
+  if (Math.abs(drift) > 1000) skew += drift;
+  return p + skew;
+}
+// 指が触れた瞬間の時刻。押してから処理が走るまでの遅れを含めない
+function eventTime(e) {
+  const t = now();
+  const ts = e && e.timeStamp;
+  if (typeof ts === 'number' && ts > 0 && Math.abs(ts + skew - t) < 1000) return ts + skew;
+  return t;
+}
+
+// この端末の時計が何ミリ秒きざみかを測る。
+// ブラウザは安全のため時計を丸めている: Safari 1ms、Chrome 0.1ms（隔離されたページなら 0.005ms）、Firefox 1ms（同 0.02ms）
+function measureStep() {
+  let min = Infinity, last = performance.now();
+  const end = last + 25;
+  for (let i = 0; i < 2e6; i++) {
+    const t = performance.now();
+    if (t !== last) { if (t - last < min) min = t - last; last = t; }
+    if (t > end) break;
+  }
+  return min === Infinity ? 1 : Math.round(min * 1e4) / 1e4;
+}
+const step = measureStep();
+// 測れている桁数（小数点以下）。1ms きざみなら3桁、0.1ms なら4桁、0.005ms なら5桁
+const sure = Math.max(0, Math.min(5, Math.floor(-Math.log10(step / 1000) + 1e-9)));
+{
+  const s = (step / 1000).toFixed(7).replace(/0+$/, '');
+  $('note').textContent = sure >= 5
+    ? `この端末の時計は${s}秒きざみ。5桁とも測れている`
+    : `この端末の時計は${s}秒きざみ。薄い桁は測れていない`;
+}
+
+// ---------- 状態 ----------
+// idle: セット中 / run: 動いている / pause: 一時停止 / over: ゼロを過ぎて鳴っている / done: 鳴っているのを止めた
+const st = { set: 300000, phase: 'idle', total: 300000, endAt: 0, left: 0, frozen: 0, silent: false };
+
+function save() {
+  try {
+    const o = { set: st.set, total: st.total, phase: st.phase };
+    if (st.phase === 'run' || st.phase === 'over') o.endEpoch = Date.now() + (st.endAt - now());
+    if (st.phase === 'pause') o.left = st.left;
+    if (st.phase === 'done') o.frozen = st.frozen;
+    localStorage.setItem(KEY, JSON.stringify(o));
+  } catch (_) {}
+}
+function load() {
+  try {
+    const o = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!o) return;
+    if (o.set >= 0 && o.set <= MAX) st.set = o.set;
+    st.total = o.total > 0 ? o.total : st.set;
+    if ((o.phase === 'run' || o.phase === 'over') && typeof o.endEpoch === 'number') {
+      const t = now();
+      st.endAt = t + (o.endEpoch - Date.now());
+      st.phase = st.endAt > t ? 'run' : 'over';
+      st.silent = st.phase === 'over';   // 読み直したあとは、画面に触るまで音を出せない
+    } else if (o.phase === 'pause' && o.left >= 0) {
+      st.phase = 'pause'; st.left = o.left;
+    } else if (o.phase === 'done' && o.frozen >= 0) {
+      st.phase = 'done'; st.frozen = o.frozen;
+    }
+  } catch (_) {}
+}
+
+// ---------- 操作 ----------
+function start(t) {
+  if (st.set <= 0) return;
+  st.total = st.set; st.endAt = t + st.set; st.phase = 'run'; st.silent = false;
+  changed();
+}
+function pause(t) { st.left = Math.max(0, st.endAt - t); st.phase = 'pause'; changed(); }
+function resume(t) { st.endAt = t + st.left; st.phase = 'run'; st.silent = false; changed(); }
+function stop(t) { st.frozen = Math.max(0, t - st.endAt); st.phase = 'done'; changed(); }
+function reset() { st.phase = 'idle'; changed(); }
+
+function onMain(t) {
+  unlockAudio();
+  switch (st.phase) {
+    case 'idle': case 'done': start(t); break;
+    case 'run': if (t >= st.endAt) stop(t); else pause(t); break;
+    case 'pause': resume(t); break;
+    case 'over': stop(t); break;
+  }
+}
+
+function changed() {
+  if (st.phase !== 'over') stopAlarm();
+  awake(st.phase === 'run' || st.phase === 'over');
+  schedule();
+  save();
+  controls();
+  render(now());   // 押した瞬間に表示を合わせる（次のフレームを待たない）
+  loop();
+}
+
+// 画面が止まっていてもゼロで鳴らすための保険（rAF はバックグラウンドで止まる）
+let endTimer = 0;
+function schedule() {
+  clearTimeout(endTimer);
+  if (st.phase === 'run') endTimer = setTimeout(tick, Math.max(0, st.endAt - now()) + 1);
+}
+
+// ---------- 表示 ----------
+const app = $('app'), elTime = $('time'), elHms = $('hms'), elBar = $('bar'), elLabel = $('label');
+const digits = [1, 2, 3, 4, 5].map(i => $('d' + i));
+const mainBtn = $('main'), subBtn = $('sub');
+const chips = [...document.querySelectorAll('.chip')];
+digits.forEach((d, i) => d.classList.toggle('dim', i >= sure));
+
+const LABEL = { idle: 'セット', run: 'のこり', pause: '一時停止中', over: '超過', done: '止めるまでの超過' };
+const MAIN = { idle: 'スタート', run: '一時停止', pause: '再開', over: '止める', done: 'もう一度' };
+
+function controls() {
+  app.dataset.phase = st.phase;
+  elLabel.textContent = LABEL[st.phase];
+  mainBtn.textContent = MAIN[st.phase];
+  const editable = st.phase === 'idle' || st.phase === 'done';
+  mainBtn.disabled = editable && st.set <= 0;
+  subBtn.disabled = st.phase === 'idle';
+  chips.forEach(c => { c.disabled = !editable; });
+}
+
+const p2 = n => (n < 10 ? '0' : '') + n;
+let lastHms = '', lastFrac = '', lastLong = null;
+function render(t) {
+  let v;
+  switch (st.phase) {
+    case 'idle': v = st.set; break;
+    case 'run': v = Math.max(0, st.endAt - t); break;
+    case 'pause': v = st.left; break;
+    case 'over': v = Math.max(0, t - st.endAt); break;
+    case 'done': v = st.frozen; break;
+  }
+  // 10万分の1秒（0.01ms）単位に切り捨て。浮動小数の誤差で 1 単位落ちないよう、ほんの少し足す
+  const u = Math.floor(v * 100 + 1e-6);
+  const frac = u % 100000, sec = Math.floor(u / 100000);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
+  const ref = st.phase === 'idle' ? st.set : (st.phase === 'run' || st.phase === 'pause') ? st.total : 0;
+  const long = h > 0 || ref >= 3600000;
+  const hms = long ? `${h}:${p2(m)}:${p2(s)}` : `${p2(m)}:${p2(s)}`;
+  if (hms !== lastHms) { elHms.textContent = hms; lastHms = hms; }
+  const fs = String(frac).padStart(5, '0');
+  if (fs !== lastFrac) {
+    for (let i = 0; i < 5; i++) if (fs[i] !== lastFrac[i]) digits[i].textContent = fs[i];
+    lastFrac = fs;
+  }
+  if (long !== lastLong) { elTime.classList.toggle('long', long); lastLong = long; }
+
+  const r = st.phase === 'idle' ? 1
+    : (st.phase === 'run' || st.phase === 'pause') ? Math.min(1, v / (st.total || 1)) : 0;
+  elBar.style.transform = `scaleX(${r})`;
+}
+
+function tick() {
+  const t = now();
+  if (st.phase === 'run' && t >= st.endAt) {
+    st.phase = 'over';
+    save(); controls(); ring(); loop();
+  }
+  render(t);
+}
+
+let raf = 0;
+function frame() {
+  raf = 0;
+  tick();   // ゼロを越えた瞬間は tick の中で次のフレームを予約済みなので、二重に予約しない
+  if ((st.phase === 'run' || st.phase === 'over') && !raf) raf = requestAnimationFrame(frame);
+}
+function loop() { if (!raf) raf = requestAnimationFrame(frame); }
+
+// ---------- 音・振動 ----------
+// iPhone は「指を離したとき」の操作の中で一度音を鳴らしておかないと、あとで鳴らせない
+let ac = null, alarmIv = 0;
+function unlockAudio() {
+  try {
+    if (ac && ac.state === 'running') return;
+    if (!ac) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return;
+      ac = new C();
+    }
+    if (ac.state !== 'running') ac.resume().catch(() => {});
+    const src = ac.createBufferSource();
+    src.buffer = ac.createBuffer(1, 1, 22050);
+    src.connect(ac.destination);
+    src.start(0);
+  } catch (_) {}
+}
+function beeps() {
+  if (ac && ac.state === 'running') {
+    const t0 = ac.currentTime + 0.02;
+    for (let i = 0; i < 3; i++) {
+      const t = t0 + i * 0.16;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = 1760;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.35, t + 0.008);
+      g.gain.setValueAtTime(0.35, t + 0.08);
+      g.gain.linearRampToValueAtTime(0, t + 0.1);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + 0.12);
+    }
+  }
+  try { if (navigator.vibrate) navigator.vibrate([120, 60, 120, 60, 120]); } catch (_) {}
+}
+function ring() {
+  stopAlarm();
+  if (st.silent) return;
+  if (ac && ac.state !== 'running') ac.resume().catch(() => {});
+  beeps();
+  const until = now() + 60000;   // 鳴らすのは1分まで。数字は止めるまで進む
+  alarmIv = setInterval(() => {
+    if (st.phase !== 'over' || now() > until) { stopAlarm(); return; }
+    beeps();
+  }, 1000);
+}
+function stopAlarm() {
+  clearInterval(alarmIv); alarmIv = 0;
+  try { if (navigator.vibrate) navigator.vibrate(0); } catch (_) {}
+}
+['touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true }));
+
+// ---------- 画面を消さない ----------
+let wl = null;
+async function awake(on) {
+  try {
+    if (on && !wl && 'wakeLock' in navigator && !document.hidden) {
+      wl = await navigator.wakeLock.request('screen');
+      wl.addEventListener('release', () => { wl = null; });
+    } else if (!on && wl) {
+      const w = wl; wl = null; await w.release();
+    }
+  } catch (_) { wl = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  tick(); loop(); schedule();
+  if (st.phase === 'run' || st.phase === 'over') awake(true);
+});
+
+// ---------- ボタン ----------
+// メインボタンは指が触れた瞬間に反応させ、その瞬間の時刻で止める
+mainBtn.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || mainBtn.disabled) return;
+  e.preventDefault();
+  onMain(eventTime(e));
+});
+mainBtn.addEventListener('click', e => { if (e.detail === 0) onMain(eventTime(e)); });   // キーボードから
+subBtn.addEventListener('click', reset);
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); onMain(eventTime(e)); }
+  if (e.key === 'Escape' && st.phase !== 'idle') reset();
+});
+chips.forEach(c => c.addEventListener('click', () => {
+  if (c.dataset.ms !== undefined) st.set = +c.dataset.ms;
+  else st.set = Math.min(MAX, st.set + +c.dataset.add);
+  st.phase = 'idle';
+  changed();
+}));
+
+load();
+controls();
+schedule();
+if (st.phase === 'run' || st.phase === 'over') awake(true);
+loop();
+
+// ---------- service worker ----------
+// sw.js がこのページに COOP/COEP ヘッダーを付けると「隔離されたページ」になり、Chrome の時計が 0.1ms → 0.005ms きざみになる。
+// 初回はまだ sw.js がページを握っていないので、一度だけ読み直す。
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    if (window.crossOriginIsolated || navigator.serviceWorker.controller) return;
+    try { if (sessionStorage.getItem(KEY + '-reloaded')) return; sessionStorage.setItem(KEY + '-reloaded', '1'); } catch (_) { return; }
+    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>
