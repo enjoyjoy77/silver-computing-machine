@@ -5,7 +5,7 @@
 //    隔離されると Chrome の performance.now() が 0.1ms きざみから 0.005ms きざみになり、小数点第5位まで本物になる。
 //    Safari は隔離しても 1ms きざみのまま。
 // 2. オフラインでも開けるようにする。まずキャッシュから即答し、裏でネットから取り直す（stale-while-revalidate）。
-const CACHE = 'komakai-timer-v2';
+const CACHE = 'komakai-timer-v3';
 const FILES = ['./timer.html'];
 
 self.addEventListener('install', e => {
