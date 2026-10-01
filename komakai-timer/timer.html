@@ -14,18 +14,21 @@
   --bg:#f2f2f7; --ink:#1d1d1f; --muted:rgba(29,29,31,.55); --card:#ffffff;
   --line:rgba(29,29,31,.10); --accent:#155bd0; --over:#c42b23;
   --btn:#1d1d1f; --btnink:#ffffff;
+  --face:#ffffff; --tick:rgba(29,29,31,.5); --disk:#e0261c; --knob:#f2f2f7; --flash:#fde2df;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --bg:#000000; --ink:#f5f5f7; --muted:rgba(245,245,247,.55); --card:#1c1c1e;
     --line:rgba(245,245,247,.12); --accent:#4d94ff; --over:#ff5a4f;
     --btn:#f5f5f7; --btnink:#000000;
+    --face:#1c1c1e; --tick:rgba(245,245,247,.55); --disk:#ff3b30; --knob:#3a3a3c; --flash:#4a1512;
   }
 }
 :root[data-theme="dark"]{
   --bg:#000000; --ink:#f5f5f7; --muted:rgba(245,245,247,.55); --card:#1c1c1e;
   --line:rgba(245,245,247,.12); --accent:#4d94ff; --over:#ff5a4f;
   --btn:#f5f5f7; --btnink:#000000;
+  --face:#1c1c1e; --tick:rgba(245,245,247,.55); --disk:#ff3b30; --knob:#3a3a3c; --flash:#4a1512;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -41,55 +44,114 @@ main{
   padding:max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
           max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
+header{display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px}
 h1{font-size:.8rem; font-weight:600; color:var(--muted); margin:0; letter-spacing:.04em}
-.face{flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:42vh}
+.scale{border-radius:999px; background:var(--card); color:var(--ink); font-size:.78rem; padding:6px 12px; box-shadow:0 1px 2px rgba(0,0,0,.05)}
+
+/* 円盤 */
+.dialwrap{flex:1; display:flex; align-items:center; justify-content:center; padding:8px 0}
+.dial{
+  display:block; aspect-ratio:1; height:auto; touch-action:none; outline:none;
+  width:min(calc(100vw - 32px), calc(100vh - 400px), 520px);
+  width:min(calc(100vw - 32px), calc(100dvh - 400px), 520px);
+  min-width:180px;
+}
+.dial:focus-visible .rim{stroke:var(--accent); stroke-width:3}
+.rim{fill:var(--face); stroke:var(--line); stroke-width:1}
+.tk{stroke:var(--tick); stroke-linecap:round; stroke-width:1.2}
+.tk.major{stroke-width:2.4}
+.lb{fill:var(--ink); font-size:13px; font-weight:500; font-variant-numeric:tabular-nums}
+.disk{fill:var(--disk)}
+.knob{fill:var(--knob); stroke:var(--line); stroke-width:1}
+.cd{
+  fill:var(--ink); font-size:76px; font-weight:600; font-variant-numeric:tabular-nums;
+  paint-order:stroke; stroke:var(--face); stroke-width:8px; stroke-linejoin:round;
+}
+[data-phase="idle"] .dial, [data-phase="done"] .dial{cursor:grab}
+[data-phase="pause"] .disk{opacity:.45}
+.cdbg{fill:var(--face); display:none}
+.counting .knob{display:none}
+.counting .cdbg{display:block}
+[data-phase="over"] .rim{animation:flash 1s steps(1, end) infinite}
+@keyframes flash{50%{fill:var(--flash)}}
+
+/* 数字 */
+.readout{display:flex; flex-direction:column; align-items:center; margin-top:4px}
 .label{font-size:.85rem; color:var(--muted); min-height:1.4em; letter-spacing:.06em}
 .time{
-  font-weight:200; font-variant-numeric:tabular-nums; line-height:1.05; white-space:nowrap;
-  letter-spacing:-.02em;
-  font-size:min(calc((100vw - 32px) / 4.9), 26vh, 168px);
+  font-weight:300; font-variant-numeric:tabular-nums; line-height:1.05; white-space:nowrap;
+  letter-spacing:-.01em; font-size:min(10.5vw, 52px);
 }
-.time.long{font-size:min(calc((100vw - 32px) / 6.1), 22vh, 136px)}
-.frac{font-size:.58em}
+.time.long{font-size:min(8.6vw, 44px)}
+.frac{font-size:.62em}
 .dim{opacity:.22}
 [data-phase="over"] .time, [data-phase="over"] .label,
 [data-phase="done"] .time, [data-phase="done"] .label{color:var(--over)}
-.bar{height:3px; width:100%; background:var(--line); border-radius:2px; overflow:hidden; margin:18px 0 10px}
-.bar i{display:block; height:100%; background:var(--accent); transform-origin:left center}
-.note{font-size:.72rem; color:var(--muted); text-align:center; margin:0; min-height:1.2em; line-height:1.5}
-.set{display:grid; gap:8px; margin:20px 0 14px}
-.row{display:grid; grid-template-columns:repeat(5, 1fr); gap:8px}
+.note{font-size:.72rem; color:var(--muted); text-align:center; margin:6px 0 0; min-height:1.2em; line-height:1.5}
+
+/* ボタン */
+.set{display:grid; gap:8px; margin:16px 0 12px}
+.row{display:grid; grid-template-columns:repeat(6, 1fr); gap:8px}
 .row.adj{grid-template-columns:repeat(4, 1fr)}
 button{appearance:none; -webkit-appearance:none; border:0; font:inherit; cursor:pointer}
 button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 button:active:not(:disabled){transform:scale(.97)}
 button:disabled{opacity:.32; cursor:default}
-.chip{border-radius:12px; background:var(--card); color:var(--ink); font-size:.9rem; padding:12px 0; box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.chip{border-radius:12px; background:var(--card); color:var(--ink); font-size:.88rem; padding:12px 0; box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .ctrl{display:grid; grid-template-columns:1fr 2fr; gap:10px}
 .ctrl button{border-radius:16px; font-size:1.05rem; font-weight:600; padding:18px 0}
 #sub{background:var(--card); color:var(--ink)}
 #main{background:var(--btn); color:var(--btnink)}
 [data-phase="over"] #main{background:var(--over); color:#fff}
 
-/* 横にしたスマホ: 数字を左、ボタンを右 */
-@media (orientation:landscape) and (max-height:520px){
-  main{max-width:none; display:grid; grid-template-columns:1fr 300px; grid-template-rows:auto 1fr; column-gap:20px}
-  h1{grid-column:1 / -1}
-  .face{min-height:0}
-  .time{font-size:min(calc((100vw - 380px) / 4.9), 30vh, 168px)}
-  .time.long{font-size:min(calc((100vw - 380px) / 6.1), 26vh, 136px)}
-  .panel{align-self:center}
-  .set{margin-top:0}
+/* 横画面: 円盤を左、数字とボタンを右 */
+@media (orientation:landscape) and (min-aspect-ratio:5/4){
+  main{
+    max-width:none; display:grid; column-gap:32px; row-gap:8px;
+    grid-template-columns:auto minmax(280px, 380px);
+    grid-template-rows:auto 1fr auto;
+    grid-template-areas:"head head" "dial readout" "dial panel";
+    justify-content:center;
+  }
+  header{grid-area:head}
+  .dialwrap{grid-area:dial; padding:0}
+  .readout{grid-area:readout; align-self:end; margin:0}
+  .panel{grid-area:panel; align-self:start}
+  .set{margin-top:12px}
+  .dial{
+    width:min(calc(100vh - 80px), calc(100vw - 32px - 380px - 32px), 680px);
+    width:min(calc(100dvh - 80px), calc(100vw - 32px - 380px - 32px), 680px);
+    min-width:160px;
+  }
+  .time{font-size:min(4.6vw, 52px)}
+  .time.long{font-size:min(3.8vw, 44px)}
+}
+@media (prefers-reduced-motion:reduce){
+  [data-phase="over"] .rim{animation:none; fill:var(--flash)}
 }
 </style>
 </head>
 <body>
 <main id="app" data-phase="idle">
-  <h1>10万分の1秒タイマー</h1>
-  <section class="face">
+  <header>
+    <h1>10万分の1秒タイマー</h1>
+    <button class="scale" id="scale">目盛り 60分</button>
+  </header>
+  <div class="dialwrap">
+    <svg class="dial" id="dial" viewBox="-120 -120 240 240" role="slider" tabindex="0"
+         aria-label="時間を合わせる（円盤を反時計回りに引く）" aria-valuemin="0">
+      <circle class="rim" r="118"/>
+      <g id="ticks"></g>
+      <g id="labels"></g>
+      <path class="disk" id="disk"/>
+      <circle class="knob" r="10"/>
+      <circle class="cdbg" r="46"/>
+      <text class="cd" id="cd" x="0" y="0" text-anchor="middle" dominant-baseline="central"></text>
+    </svg>
+  </div>
+  <section class="readout">
     <div class="label" id="label">セット</div>
     <div class="time" id="time"><span id="hms">05:00</span><span class="frac">.<span id="d1">0</span><span id="d2">0</span><span id="d3">0</span><span id="d4">0</span><span id="d5">0</span></span></div>
-    <div class="bar"><i id="bar"></i></div>
     <p class="note" id="note"></p>
   </section>
   <section class="panel">
@@ -100,6 +162,7 @@ button:disabled{opacity:.32; cursor:default}
         <button class="chip" data-ms="300000">5分</button>
         <button class="chip" data-ms="600000">10分</button>
         <button class="chip" data-ms="1800000">30分</button>
+        <button class="chip" data-ms="3600000">60分</button>
       </div>
       <div class="row adj">
         <button class="chip" data-add="60000">＋1分</button>
@@ -163,11 +226,21 @@ const sure = Math.max(0, Math.min(5, Math.floor(-Math.log10(step / 1000) + 1e-9)
 
 // ---------- 状態 ----------
 // idle: セット中 / run: 動いている / pause: 一時停止 / over: ゼロを過ぎて鳴っている / done: 鳴っているのを止めた
-const st = { set: 300000, phase: 'idle', total: 300000, endAt: 0, left: 0, frozen: 0, silent: false };
+const st = { set: 300000, phase: 'idle', total: 300000, endAt: 0, left: 0, frozen: 0, silent: false, scale: 5 };
+
+// 円盤の目盛り（分）。短い時間は短い目盛りにしないと、赤い部分が細すぎて見えない
+const SCALES = [5, 20, 60, 120];
+const DIAL = {           // tick: 目盛りの間隔（分） / label: 数字の間隔（分） / snap: 円盤を引いたときの刻み（ミリ秒）
+  5:   { tick: 0.25, label: 1,  snap: 10000 },
+  20:  { tick: 1,    label: 5,  snap: 30000 },
+  60:  { tick: 1,    label: 5,  snap: 60000 },
+  120: { tick: 2,    label: 10, snap: 60000 },
+};
+const fitScale = ms => SCALES.find(s => ms <= s * 60000) || 120;
 
 function save() {
   try {
-    const o = { set: st.set, total: st.total, phase: st.phase };
+    const o = { set: st.set, total: st.total, phase: st.phase, scale: st.scale };
     if (st.phase === 'run' || st.phase === 'over') o.endEpoch = Date.now() + (st.endAt - now());
     if (st.phase === 'pause') o.left = st.left;
     if (st.phase === 'done') o.frozen = st.frozen;
@@ -180,6 +253,7 @@ function load() {
     if (!o) return;
     if (o.set >= 0 && o.set <= MAX) st.set = o.set;
     st.total = o.total > 0 ? o.total : st.set;
+    st.scale = SCALES.includes(o.scale) ? o.scale : fitScale(st.set);
     if ((o.phase === 'run' || o.phase === 'over') && typeof o.endEpoch === 'number') {
       const t = now();
       st.endAt = t + (o.endEpoch - Date.now());
@@ -203,6 +277,13 @@ function pause(t) { st.left = Math.max(0, st.endAt - t); st.phase = 'pause'; cha
 function resume(t) { st.endAt = t + st.left; st.phase = 'run'; st.silent = false; changed(); }
 function stop(t) { st.frozen = Math.max(0, t - st.endAt); st.phase = 'done'; changed(); }
 function reset() { st.phase = 'idle'; changed(); }
+function setTo(ms, rescale) {
+  st.set = Math.max(0, Math.min(MAX, ms));
+  if (rescale) st.scale = fitScale(st.set);
+  st.phase = 'idle';
+  changed();
+}
+const editable = () => st.phase === 'idle' || st.phase === 'done';
 
 function onMain(t) {
   unlockAudio();
@@ -231,12 +312,119 @@ function schedule() {
   if (st.phase === 'run') endTimer = setTimeout(tick, Math.max(0, st.endAt - now()) + 1);
 }
 
+// ---------- 円盤 ----------
+const SVGNS = 'http://www.w3.org/2000/svg';
+const dial = $('dial'), elDisk = $('disk'), elCd = $('cd');
+const R_DISK = 86;
+// 12時から反時計回りに frac（0〜1）だけ進んだ点。数字は反時計回りに増える
+const at = (frac, r) => [-r * Math.sin(frac * 2 * Math.PI), -r * Math.cos(frac * 2 * Math.PI)];
+const f2 = n => Math.round(n * 100) / 100;
+
+let builtScale = 0;
+function buildDial() {
+  if (builtScale === st.scale) return;
+  builtScale = st.scale;
+  const sc = st.scale, d = DIAL[sc];
+  const ticks = $('ticks'), labels = $('labels');
+  ticks.textContent = ''; labels.textContent = '';
+  const n = Math.round(sc / d.tick);
+  for (let i = 0; i < n; i++) {
+    const m = i * d.tick, major = Math.abs(m / d.label - Math.round(m / d.label)) < 1e-9;
+    const [x1, y1] = at(m / sc, major ? 89 : 92), [x2, y2] = at(m / sc, 97);
+    const ln = document.createElementNS(SVGNS, 'line');
+    ln.setAttribute('class', major ? 'tk major' : 'tk');
+    ln.setAttribute('x1', f2(x1)); ln.setAttribute('y1', f2(y1));
+    ln.setAttribute('x2', f2(x2)); ln.setAttribute('y2', f2(y2));
+    ticks.appendChild(ln);
+    if (major) {
+      const [x, y] = at(m / sc, 108);
+      const tx = document.createElementNS(SVGNS, 'text');
+      tx.setAttribute('class', 'lb');
+      tx.setAttribute('x', f2(x)); tx.setAttribute('y', f2(y));
+      tx.setAttribute('text-anchor', 'middle'); tx.setAttribute('dominant-baseline', 'central');
+      tx.textContent = m;
+      labels.appendChild(tx);
+    }
+  }
+  $('scale').textContent = `目盛り ${sc}分`;
+  dial.setAttribute('aria-valuemax', sc * 60);
+}
+
+let lastDisk = '';
+function drawDisk(frac) {
+  frac = Math.max(0, Math.min(1, frac));
+  let d = '';
+  if (frac >= 0.99999) {
+    d = `M0,${-R_DISK}A${R_DISK},${R_DISK} 0 1 0 0,${R_DISK}A${R_DISK},${R_DISK} 0 1 0 0,${-R_DISK}Z`;
+  } else if (frac > 0) {
+    const [x, y] = at(frac, R_DISK);
+    d = `M0,0L0,${-R_DISK}A${R_DISK},${R_DISK} 0 ${frac > 0.5 ? 1 : 0} 0 ${x.toFixed(3)},${y.toFixed(3)}Z`;
+  }
+  if (d !== lastDisk) { elDisk.setAttribute('d', d); lastDisk = d; }
+}
+
+// 円盤を指で引いて合わせる。12時をまたいだら端で止める（0 から逆に回して満杯に飛ばないように）
+let dragging = false, dragFrac = 0;
+function fracAt(e) {
+  const r = dial.getBoundingClientRect();
+  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  let cw = Math.atan2(dx, -dy);           // 12時から時計回り
+  if (cw < 0) cw += 2 * Math.PI;
+  return ((2 * Math.PI - cw) % (2 * Math.PI)) / (2 * Math.PI);
+}
+function setFromFrac(f) {
+  const sc = st.scale, snap = DIAL[sc].snap;
+  setTo(Math.min(sc * 60000, Math.round(f * sc * 60000 / snap) * snap), false);
+}
+dial.addEventListener('pointerdown', e => {
+  if (!editable() || e.button !== 0) return;
+  e.preventDefault();
+  dragging = true;
+  try { dial.setPointerCapture(e.pointerId); } catch (_) {}
+  dragFrac = fracAt(e);
+  setFromFrac(dragFrac);
+});
+dial.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  let f = fracAt(e);
+  if (dragFrac < 0.25 && f > 0.75) f = 0;
+  else if (dragFrac > 0.75 && f < 0.25) f = 1;
+  dragFrac = f;
+  setFromFrac(f);
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => dial.addEventListener(ev, () => { dragging = false; }));
+dial.addEventListener('keydown', e => {
+  if (!editable()) return;
+  const snap = DIAL[st.scale].snap, top = st.scale * 60000;
+  const k = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+  if (!k) return;
+  e.preventDefault();
+  setTo(Math.max(0, Math.min(top, Math.round(st.set / snap) * snap + k * snap)), false);
+});
+
+// ---------- 残り10秒のカウントダウン ----------
+let cdN = 0;
+function countdown(rem) {
+  const n = (st.phase === 'run' || st.phase === 'pause') && rem > 0 && rem <= 10000 ? Math.ceil(rem / 1000) : 0;
+  if (n === cdN) return;
+  const prev = cdN;
+  cdN = n;
+  elCd.textContent = n ? String(n) : '';
+  app.classList.toggle('counting', n > 0);
+  if (n && st.phase === 'run' && (prev === 0 || n < prev)) {
+    try { elCd.animate([{ transform: 'scale(1.3)', opacity: 0.3 }, { transform: 'scale(1)', opacity: 1 }], { duration: 320, easing: 'ease-out' }); } catch (_) {}
+  }
+  if (n && n <= 5 && st.phase === 'run' && (prev === 0 || n < prev)) pip();
+}
+
 // ---------- 表示 ----------
-const app = $('app'), elTime = $('time'), elHms = $('hms'), elBar = $('bar'), elLabel = $('label');
+const app = $('app'), elTime = $('time'), elHms = $('hms'), elLabel = $('label');
 const digits = [1, 2, 3, 4, 5].map(i => $('d' + i));
 const mainBtn = $('main'), subBtn = $('sub');
 const chips = [...document.querySelectorAll('.chip')];
 digits.forEach((d, i) => d.classList.toggle('dim', i >= sure));
+elCd.style.transformBox = 'fill-box';
+elCd.style.transformOrigin = 'center';
 
 const LABEL = { idle: 'セット', run: 'のこり', pause: '一時停止中', over: '超過', done: '止めるまでの超過' };
 const MAIN = { idle: 'スタート', run: '一時停止', pause: '再開', over: '止める', done: 'もう一度' };
@@ -245,10 +433,12 @@ function controls() {
   app.dataset.phase = st.phase;
   elLabel.textContent = LABEL[st.phase];
   mainBtn.textContent = MAIN[st.phase];
-  const editable = st.phase === 'idle' || st.phase === 'done';
-  mainBtn.disabled = editable && st.set <= 0;
+  const ed = editable();
+  mainBtn.disabled = ed && st.set <= 0;
   subBtn.disabled = st.phase === 'idle';
-  chips.forEach(c => { c.disabled = !editable; });
+  chips.forEach(c => { c.disabled = !ed; });
+  dial.setAttribute('aria-disabled', ed ? 'false' : 'true');
+  buildDial();
 }
 
 const p2 = n => (n < 10 ? '0' : '') + n;
@@ -277,9 +467,11 @@ function render(t) {
   }
   if (long !== lastLong) { elTime.classList.toggle('long', long); lastLong = long; }
 
-  const r = st.phase === 'idle' ? 1
-    : (st.phase === 'run' || st.phase === 'pause') ? Math.min(1, v / (st.total || 1)) : 0;
-  elBar.style.transform = `scaleX(${r})`;
+  const left = st.phase === 'over' || st.phase === 'done' ? 0 : v;
+  drawDisk(left / (st.scale * 60000));
+  countdown(st.phase === 'run' || st.phase === 'pause' ? v : 0);
+  dial.setAttribute('aria-valuenow', Math.round(st.set / 1000));
+  dial.setAttribute('aria-valuetext', `${Math.floor(st.set / 60000)}分${Math.round(st.set % 60000 / 1000)}秒`);
 }
 
 function tick() {
@@ -317,20 +509,25 @@ function unlockAudio() {
     src.start(0);
   } catch (_) {}
 }
+function tone(t, freq, len, vol) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'sine'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.008);
+  g.gain.setValueAtTime(vol, t + len - 0.02);
+  g.gain.linearRampToValueAtTime(0, t + len);
+  o.connect(g); g.connect(ac.destination);
+  o.start(t); o.stop(t + len + 0.02);
+}
+// 残り5秒からの「ピッ」
+function pip() {
+  if (st.silent || !ac || ac.state !== 'running') return;
+  try { tone(ac.currentTime + 0.005, 1046.5, 0.07, 0.25); } catch (_) {}
+}
 function beeps() {
   if (ac && ac.state === 'running') {
     const t0 = ac.currentTime + 0.02;
-    for (let i = 0; i < 3; i++) {
-      const t = t0 + i * 0.16;
-      const o = ac.createOscillator(), g = ac.createGain();
-      o.type = 'sine'; o.frequency.value = 1760;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.35, t + 0.008);
-      g.gain.setValueAtTime(0.35, t + 0.08);
-      g.gain.linearRampToValueAtTime(0, t + 0.1);
-      o.connect(g); g.connect(ac.destination);
-      o.start(t); o.stop(t + 0.12);
-    }
+    for (let i = 0; i < 3; i++) tone(t0 + i * 0.16, 1760, 0.1, 0.35);
   }
   try { if (navigator.vibrate) navigator.vibrate([120, 60, 120, 60, 120]); } catch (_) {}
 }
@@ -382,12 +579,16 @@ document.addEventListener('keydown', e => {
   if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); onMain(eventTime(e)); }
   if (e.key === 'Escape' && st.phase !== 'idle') reset();
 });
+// 時間ボタンは目盛りも合わせて選び直す（1分なら5分の目盛り、10分なら20分の目盛り）
 chips.forEach(c => c.addEventListener('click', () => {
-  if (c.dataset.ms !== undefined) st.set = +c.dataset.ms;
-  else st.set = Math.min(MAX, st.set + +c.dataset.add);
-  st.phase = 'idle';
-  changed();
+  if (c.dataset.ms !== undefined) setTo(+c.dataset.ms, true);
+  else setTo(st.set + +c.dataset.add, true);
 }));
+// 目盛りボタンは 5 → 20 → 60 → 120 → 5 と順に回す
+$('scale').addEventListener('click', () => {
+  st.scale = SCALES[(SCALES.indexOf(st.scale) + 1) % SCALES.length];
+  save(); buildDial(); render(now());
+});
 
 load();
 controls();
@@ -399,7 +600,7 @@ loop();
 // sw.js がこのページに COOP/COEP ヘッダーを付けると「隔離されたページ」になり、Chrome の時計が 0.1ms → 0.005ms きざみになる。
 // 初回はまだ sw.js がページを握っていないので、一度だけ読み直す。
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').then(reg => {
+  navigator.serviceWorker.register('sw.js').then(() => {
     if (window.crossOriginIsolated || navigator.serviceWorker.controller) return;
     try { if (sessionStorage.getItem(KEY + '-reloaded')) return; sessionStorage.setItem(KEY + '-reloaded', '1'); } catch (_) { return; }
     navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
