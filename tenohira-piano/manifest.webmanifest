@@ -1,0 +1,17 @@
+{
+  "name": "てのひらピアノ",
+  "short_name": "ピアノ",
+  "description": "押した瞬間に鳴る、広告のないブラウザピアノ。録音してMIDIで書き出せる。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#222225",
+  "theme_color": "#222225",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
