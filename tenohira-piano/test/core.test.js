@@ -115,6 +115,9 @@ t('設定の検査', () => {
   assert.deepStrictEqual(s.slots, [21, 60, 72]);
   assert.strictEqual(s.volume, 1);
   assert.strictEqual(s.reverb, 'deep');
+  assert.strictEqual(s.mode, 'play');
+  const s2 = C.sanitizeSettings({ mode: 'chord', keysChordLandscape: 2, chordSet: 'x'.repeat(99), song: 's1', chordRegister: 'high' });
+  assert.deepStrictEqual([s2.mode, s2.keysChordLandscape, s2.chordSet, s2.song, s2.chordRegister], ['chord', 5, 'ex-basic', 's1', 'high']);
 });
 
 t('録音の検査', () => {

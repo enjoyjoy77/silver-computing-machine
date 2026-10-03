@@ -240,12 +240,20 @@ const DEFAULTS = {
   mix: 'solo',           // ほかのアプリの音楽 'solo'=止める（消音モードでも鳴る） 'mix'=重ねる
   start: 60,             // 一番左の白鍵（前回の配置）
   slots: [48, 60, 72],   // 登録した音域（一番左の白鍵）
+  mode: 'play',          // 画面 'play'=ふつうに弾く 'chord'=伴奏して弾く 'song'=曲を練習する
+  keysChordLandscape: 7, // 伴奏の画面（横向き）の白鍵の数。左に和音ボタンが入るぶん少なめ
+  chordPlay: 'hold',     // 和音ボタン 'hold'=押している間 'toggle'=押すたびに切り替え
+  chordBass: 'on',       // ベースの音を足す
+  chordRegister: 'mid',  // 和音の高さ 'low' | 'mid' | 'high'
+  chordSet: 'ex-basic',  // 使っている和音のセット
+  song: '',              // 練習している曲
 };
 
 const CHOICES = {
   labels: ['c', 'all', 'none'], labelStyle: ['doremi', 'cde'], dynamics: ['fixed', 'position'],
   slide: ['hold', 'glide'], pedalMode: ['momentary', 'latch'], reverb: ['off', 'light', 'deep'],
   edge: ['normal', 'wide', 'wider'], mix: ['solo', 'mix'],
+  mode: ['play', 'chord', 'song'], chordPlay: ['hold', 'toggle'], chordBass: ['on', 'off'], chordRegister: ['low', 'mid', 'high'],
 };
 
 function int(v, lo, hi, d) { v = Math.round(Number(v)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; }
@@ -257,6 +265,10 @@ function sanitizeSettings(raw) {
   for (const k of Object.keys(CHOICES)) if (CHOICES[k].includes(raw[k])) s[k] = raw[k];
   s.keysLandscape = int(raw.keysLandscape, 7, 21, DEFAULTS.keysLandscape);
   s.keysPortrait = int(raw.keysPortrait, 5, 12, DEFAULTS.keysPortrait);
+  s.keysChordLandscape = int(raw.keysChordLandscape, 5, 14, DEFAULTS.keysChordLandscape);
+  const id = (v, d) => (typeof v === 'string' && v.length <= 40 ? v : d);
+  s.chordSet = id(raw.chordSet, DEFAULTS.chordSet);
+  s.song = id(raw.song, DEFAULTS.song);
   const vol = Number(raw.volume);
   s.volume = Number.isFinite(vol) ? Math.max(0, Math.min(1, vol)) : DEFAULTS.volume;
   const white = (v, d) => { const m = int(v, LOWEST, HIGHEST, d); return isBlack(m) ? m - 1 : m; };
