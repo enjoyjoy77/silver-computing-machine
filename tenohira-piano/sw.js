@@ -1,7 +1,7 @@
 // てのひらピアノ の service worker
 // 画面（HTML・JS・アイコン）はキャッシュから即答し、裏でネットから取り直す（stale-while-revalidate）。
 // 音源（samples/）はページ側が専用のキャッシュに入れていく。ここでは同じキャッシュから先に探すだけ。
-const SHELL = 'tenohira-piano-shell-v2';
+const SHELL = 'tenohira-piano-shell-v3';
 const SAMPLES = 'tenohira-piano-samples-v1';
 const FILES = ['./', './index.html', './piano-core.js', './music-core.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 

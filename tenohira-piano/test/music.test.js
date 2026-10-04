@@ -180,4 +180,81 @@ t('版の名前を推す', () => {
   assert.strictEqual(M.guessLabel('song.mid'), 'そのほか');
 });
 
+t('鍵の横の位置', () => {
+  assert.strictEqual(M.keyPos(60) + 1, M.keyPos(62));       // ドとレは白鍵 1 つ
+  assert.strictEqual(M.keyPos(64) + 1, M.keyPos(65));       // ミとファも白鍵 1 つ
+  assert.strictEqual(M.keyPos(72) - M.keyPos(60), 7);       // 1 オクターブで白鍵 7 つ
+  assert.ok(M.keyPos(61) > M.keyPos(60) && M.keyPos(61) < M.keyPos(62));
+  // piano-core の鍵盤と同じ位置になる（ド4 から 10 鍵の幅 700px）
+  const L = P.layout(60, 10, 700, 300), x0 = M.keyPos(60) - 0.5;
+  for (const k of L.whites.concat(L.blacks)) assert.ok(Math.abs((M.keyPos(k.midi) - x0) * 70 - (k.x + k.w / 2)) < 0.01, k.midi);
+});
+
+t('右手か左手か', () => {
+  assert.strictEqual(M.guessHand({ key: '1:0', name: 'Right Hand', avg: 50 }), 'R');
+  assert.strictEqual(M.guessHand({ key: '2:1', name: 'Left Hand', avg: 70 }), 'L');
+  assert.strictEqual(M.guessHand({ key: '0:0:L', name: '左手（ド4より下）', avg: 50 }), 'L');
+  assert.strictEqual(M.guessHand({ key: '3:0', name: 'Piano', avg: 48 }), 'L');
+  assert.strictEqual(M.guessHand({ key: '3:0', name: 'Piano', avg: 70 }), 'R');
+});
+
+t('指使いを付ける', () => {
+  const mk = arr => arr.map((m, i) => ({ a: i * 300, b: i * 300 + 280, note: m }));
+  const f = (arr, h) => M.assignFingering(mk(arr), h || 'R').join('');
+  assert.strictEqual(f([60, 62, 64, 65, 67, 69, 71, 72]), '12312345');           // ハ長調・右手・上り
+  assert.strictEqual(f([72, 71, 69, 67, 65, 64, 62, 60]), '54321321');           // 下り
+  assert.strictEqual(f([48, 50, 52, 53, 55, 57, 59, 60], 'L'), '54321321');      // 左手・上り
+  assert.strictEqual(f([65, 67, 69, 70, 72, 74, 76, 77]), '12341234');           // ヘ長調（親指は B♭ の次）
+  assert.strictEqual(f([62, 64, 66, 67, 69, 71, 73, 74]), '12312345');           // ニ長調
+  assert.strictEqual(f([60, 62, 64, 65, 67, 65, 64, 62, 60]), '123454321');      // 5 本の指の位置
+  const chords = [[60, 64, 67], [60, 65, 69], [59, 62, 67], [60, 64, 67]].flatMap((c, i) => c.map(m => ({ a: i * 500, b: i * 500 + 480, note: m })));
+  assert.strictEqual(M.assignFingering(chords, 'R').join(''), '135135125135');
+  // ファイルに入っている指は変えない
+  const given = mk([60, 62, 64]); given[1].finger = 3;
+  assert.strictEqual(M.assignFingering(given, 'R')[1], 3);
+});
+
+t('MIDI の歌詞から指番号を読む', () => {
+  const ppq = 96;
+  const tr = [
+    0, ...meta(0x05, [...Buffer.from('2')]), 0, 0x90, 67, 90, 96, 0x80, 67, 0,
+    0, ...meta(0x05, [...Buffer.from('1-3-5')]), 0, 0x90, 60, 90, 0, 0x90, 64, 90, 0, 0x90, 67, 90,
+    96, 0x80, 60, 0, 0, 0x80, 64, 0, 0, 0x80, 67, 0,
+    0, ...meta(0x05, [...Buffer.from('ら')]), 0, 0x90, 69, 90, 96, 0x80, 69, 0,
+    0, ...meta(0x2f, []),
+  ];
+  const tl = M.songTimeline(M.parseMidi(Uint8Array.from([...header(0, 1, ppq), ...chunk('MTrk', tr)])));
+  assert.deepStrictEqual(tl.parts[0].notes.map(n => [n.note, n.finger || 0]), [[67, 2], [60, 1], [64, 3], [67, 5], [69, 0]]);
+});
+
+t('手の構えと動き', () => {
+  // ソ(2) ラ(3) ファ♯(1) の右手
+  const notes = [{ a: 0, b: 400, note: 79, finger: 2 }, { a: 500, b: 900, note: 81, finger: 3 }, { a: 1000, b: 1400, note: 78, finger: 1 }];
+  const track = M.handTrack(notes, 'R');
+  assert.strictEqual(track.length, 3);
+  const g = M.keyPos(79);
+  // 押さえている指は鍵の上、残りは 1 鍵ずつ外側
+  assert.deepStrictEqual(track[0].x.map(v => +(v - g).toFixed(2)), [-1, 0, 1, 2, 3]);
+  // 始まる前は最初の構え、押している間はその鍵から動かない
+  const p0 = M.handPoseAt(track, notes, -100, 0);
+  assert.strictEqual(+p0.x[1].toFixed(2), +g.toFixed(2));
+  const p1 = M.handPoseAt(track, notes, 200, 600);
+  assert.deepStrictEqual(p1.pressed, [false, true, false, false, false]);
+  assert.strictEqual(p1.x[1], g);
+  assert.deepStrictEqual(p1.next, [false, false, true, false, false]);   // 次はラを 3 で
+  // ソ(2)→ラ(3) は同じ構えのまま。ラを離した後、ファ♯(1) の少し前から親指が寄っていく
+  assert.deepStrictEqual(track[1].x, track[0].x);
+  const p2 = M.handPoseAt(track, notes, 980, 0);
+  assert.ok(p2.x[0] > track[1].x[0] && p2.x[0] < track[2].x[0]);
+  assert.strictEqual(M.handPoseAt(track, notes, 700, 0).x[0], track[1].x[0]);   // まだ動かない
+  // 押さえたまま跳ぶときは、離すまで手を動かさない（ド6 を 1 で押さえている間は、次のド7(5) へ寄らない）
+  const jump = [{ a: 0, b: 1400, note: 84, finger: 1 }, { a: 1430, b: 1700, note: 96, finger: 5 }];
+  const jt = M.handTrack(jump, 'R');
+  assert.strictEqual(M.handPoseAt(jt, jump, 1380, 0).x[4], jt[0].x[4]);
+  assert.ok(M.handPoseAt(jt, jump, 1420, 0).x[4] > jt[0].x[4]);
+  // 左手は指の並びが逆
+  const lt = M.handTrack([{ a: 0, b: 400, note: 48, finger: 5 }], 'L');
+  assert.ok(lt[0].x[0] > lt[0].x[4]);
+});
+
 console.log(`ok ${n} 件`);
