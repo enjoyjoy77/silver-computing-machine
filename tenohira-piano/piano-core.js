@@ -247,6 +247,10 @@ const DEFAULTS = {
   chordRegister: 'mid',  // 和音の高さ 'low' | 'mid' | 'high'
   chordSet: 'ex-basic',  // 使っている和音のセット
   song: '',              // 練習している曲
+  showHand: 'on',        // 曲の画面: お手本の手を鍵盤に重ねて出す
+  handShade: 'light',    // 手の濃さ 'light' | 'normal'
+  preview: 'on',         // 次に押す鍵を少し前から知らせる
+  overview: 'on',        // 鍵盤全体（88 鍵）を細く出して、いま鳴っている鍵を全部見せる
 };
 
 const CHOICES = {
@@ -254,6 +258,7 @@ const CHOICES = {
   slide: ['hold', 'glide'], pedalMode: ['momentary', 'latch'], reverb: ['off', 'light', 'deep'],
   edge: ['normal', 'wide', 'wider'], mix: ['solo', 'mix'],
   mode: ['play', 'chord', 'song'], chordPlay: ['hold', 'toggle'], chordBass: ['on', 'off'], chordRegister: ['low', 'mid', 'high'],
+  showHand: ['on', 'off'], handShade: ['light', 'normal'], preview: ['on', 'off'], overview: ['on', 'off'],
 };
 
 function int(v, lo, hi, d) { v = Math.round(Number(v)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; }

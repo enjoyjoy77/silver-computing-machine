@@ -18,7 +18,8 @@
   --kb-bg:#0d0d0f; --white:#f3f2ee; --white-top:#d9d8d2; --white-ink:#6a6a70;
   --black:#17171a; --black-low:#303036; --black-ink:#b7b7bd;
   --hit-white:#9cc0ff; --hit-black:#3b78dc; --rec:#ff4d43; --invert-ink:#18181b; --on-ink:#ffffff;
-  --guide-white:#93dbb1; --guide-black:#2e9a5f;
+  --guide-white:#93dbb1; --guide-black:#2e9a5f; --partner:#e3b25b;
+  --hand:#efe9e1; --hand-line:#1d1d22;
   --edge:8px;
   color-scheme:dark;
 }
@@ -81,7 +82,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--hit-white);outl
 
 #stage{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
 #stage.row{flex-direction:row}
-#kbwrap{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end}
+#kbwrap{position:relative;flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end}
+#overview{display:block;flex:none;width:100%;height:26px;margin-bottom:6px;border-radius:5px}
+#handLayer{position:absolute;left:0;top:0;z-index:5;pointer-events:none}
 #readout{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
   font-size:clamp(18px,6vw,30px);color:var(--muted);font-variant-numeric:tabular-nums;text-align:center;overflow:hidden}
 #kb{position:relative;flex:none;width:100%;background:var(--kb-bg);border-radius:6px;overflow:hidden;touch-action:none}
@@ -94,8 +97,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--hit-white);outl
 .lbl{position:absolute;left:0;right:0;bottom:10px;text-align:center;pointer-events:none;line-height:1.1;font-size:var(--lbl,14px);color:var(--white-ink)}
 .lbl small{display:block;font-size:10px;opacity:.8}
 .black .lbl{bottom:7px;font-size:10px;color:var(--black-ink)}
-.key.white.guide{background:var(--guide-white)}
-.key.black.guide{background:var(--guide-black)}
+.key.white.guide{background:var(--guide-white);box-shadow:inset 0 7px 7px -5px rgba(0,0,0,.35)}
+.key.black.guide{background:var(--guide-black);box-shadow:inset 0 5px 5px -3px rgba(0,0,0,.5)}
 .key.white.on,.key.white.on.guide{background:var(--hit-white)}
 .key.black.on,.key.black.on.guide{background:var(--hit-black)}
 .edge{position:absolute;top:6px;z-index:3;padding:3px 8px;border-radius:7px;background:var(--guide-black);color:var(--on-ink);font-size:12px;pointer-events:none}
@@ -240,7 +243,9 @@ input[type="range"]{width:100%;height:32px;accent-color:var(--ink);touch-action:
     <div id="pads" hidden></div>
     <div id="kbwrap">
       <div id="readout"></div>
+      <canvas id="overview" aria-hidden="true" hidden></canvas>
       <div id="kb" aria-label="鍵盤"></div>
+      <canvas id="handLayer" aria-hidden="true"></canvas>
     </div>
   </div>
 </div>
@@ -302,7 +307,7 @@ input[type="range"]{width:100%;height:32px;accent-color:var(--ink);touch-action:
 'use strict';
 const C = window.PianoCore;
 const $ = id => document.getElementById(id);
-const VERSION = '1.1';
+const VERSION = '1.2';
 const FIXED_VEL = 0.8;   // 強弱「一定」のときの強さ（MIDI では 102）
 const SAMPLE_CACHE = 'tenohira-piano-samples-v1';
 const MAX_VOICES = 40;
@@ -645,10 +650,12 @@ function onCtxState() {
 
 // ================= 鍵盤 =================
 const kb = $('kb'), stage = $('stage'), readout = $('readout'), kbwrap = $('kbwrap'), padsEl = $('pads');
+const overviewEl = $('overview'), handLayer = $('handLayer');
 let lay = null, layVer = 0;
 const keyEls = new Map();
 const pressed = new Map();   // MIDI → 押している指の数
 const guided = new Set();    // 曲の画面で、いま弾く音（光らせる鍵）
+const guideFinger = new Map(); // その音の指番号
 let edgeLo = null, edgeHi = null;
 
 function isLandscape() { return innerWidth > innerHeight; }
@@ -676,7 +683,10 @@ function buildKeyboard() {
   padsEl.hidden = !chordMode;
   stage.classList.toggle('row', chordMode && land);
   kbwrap.style.flex = ''; kbwrap.style.height = '';
-  const stageH = stage.clientHeight;
+  const showOverview = S.mode === 'song' && S.overview === 'on';
+  overviewEl.hidden = !showOverview;
+  const ovH = showOverview ? 32 : 0;
+  const stageH = stage.clientHeight - ovH;
   const W = kbwrap.clientWidth;
   if (!W || !stageH) return;
   const whiteW = W / count;
@@ -692,7 +702,7 @@ function buildKeyboard() {
   layVer++;
   kb.style.height = H + 'px';
   kb.style.setProperty('--lbl', Math.max(10, Math.min(15, whiteW * 0.3)) + 'px');
-  readout.hidden = chordMode || kbwrap.clientHeight - H < 48;
+  readout.hidden = chordMode || kbwrap.clientHeight - H - ovH < 48;
   const frag = document.createDocumentFragment();
   keyEls.clear();
   for (const k of lay.whites.concat(lay.blacks)) {
@@ -725,6 +735,7 @@ function buildKeyboard() {
   updateReadout();
   $('rangeLabel').textContent = C.noteLabel(lay.lowest, S.labelStyle) + '–' + C.noteLabel(lay.highest, S.labelStyle);
   updateSlots();
+  sizeLayers();
   if (chordMode) renderPads();
   updateModeBar();
   saveSettings();
@@ -768,7 +779,8 @@ function updateReadout() {
   const song = S.mode === 'song' && songPlay;
   const notes = [...(song ? guided : pressed.keys())].sort((a, b) => a - b);
   readout.classList.toggle('guide-text', !!song);
-  readout.textContent = notes.length ? (song ? '弾く音　' : '') + notes.map(m => C.noteLabel(m, S.labelStyle)).join('　') : '';
+  const label = m => C.noteLabel(m, S.labelStyle) + (song && guideFinger.get(m) ? '（' + guideFinger.get(m) + '）' : '');
+  readout.textContent = notes.length ? (song ? '弾く音　' : '') + notes.map(label).join('　') : '';
 }
 
 // ---- 指 ----
@@ -1154,12 +1166,7 @@ function startSong() {
   const roles = rolesFor(ver, tl);
   const r = M.barRange(tl, ver.from, ver.to);
   const audible = p => roles[p.key] === 'play' || (roles[p.key] === 'self' && song.guide);
-  const vis = [];
-  for (const p of tl.parts) {
-    if (roles[p.key] !== 'self') continue;
-    for (const n of p.notes) if (n.ms >= r.startMs - 0.5 && n.ms < r.endMs) vis.push({ a: n.ms - r.startMs, b: Math.min(n.end, r.endMs) - r.startMs, note: n.note });
-  }
-  vis.sort((x, y) => x.a - y.a);
+  const vis = practiceModel().vis;
   songPlay = {
     song, ver, tl, range: r, lenMs: r.endMs - r.startMs, speed: song.speed, loop: song.loop,
     evs: M.rangeEvents(tl, r.startMs, r.endMs, audible), vis,
@@ -1207,8 +1214,10 @@ function drawSong() {
   if (!p) return;
   const pos = songPos(p);
   const next = new Set();
-  if (pos >= 0) for (const n of p.vis) { if (n.a > pos) break; if (pos < n.b) next.add(n.note); }
+  guideFinger.clear();
+  if (pos >= 0) for (const n of p.vis) { if (n.a > pos) break; if (pos < n.b) { next.add(n.note); if (n.finger) guideFinger.set(n.note, n.finger); } }
   setGuide(next);
+  drawPractice(pos);
   // 何小節目か
   if (pos >= 0) {
     const abs = p.range.startMs + pos;
@@ -1225,12 +1234,227 @@ function stopSong(finished) {
   cancelAnimationFrame(p.raf);
   songPlay = null;
   for (const ch of p.chans) { if (finished) ch.setSustain(false, ctx.currentTime); else ch.killAll(); }
+  guideFinger.clear();
   setGuide(new Set());
+  drawPractice(-1);
   releaseWake();
   updateModeBar();
 }
 $('songPlay').addEventListener('click', () => { if (songPlay) stopSong(); else startSong(); });
 $('songBtn').addEventListener('click', () => openSheet('songs'));
+
+// ================= お手本の手・次の音・全体の鍵盤（曲の画面）=================
+// 練習する範囲の「自分で弾く」音を、指使いと手の動きまで含めて用意する。曲・範囲・役割が変わったら作り直す
+let pmKey = '', pm = null;
+function practiceModel() {
+  const song = currentSong(), ver = currentVersion(song);
+  if (!ver) return null;
+  const tl = timelineFor(ver);
+  if (tl.error) return null;
+  const roles = rolesFor(ver, tl), r = M.barRange(tl, ver.from, ver.to);
+  const key = [ver.id, JSON.stringify(ver.split), JSON.stringify(roles), r.from, r.to].join('|');
+  if (key === pmKey) return pm;
+  const inRange = n => n.ms >= r.startMs - 0.5 && n.ms < r.endMs;
+  const hands = [], acc = [];
+  for (const p of tl.parts) {
+    const role = roles[p.key];
+    if (role === 'self') {
+      const hand = M.guessHand(p);
+      // 指使いは曲全体で付けてから範囲を切り出す（範囲の頭で指が不自然にならないように）
+      const all = p.notes.map(n => ({ a: n.ms, b: n.end, note: n.note, finger: n.finger || 0 }));
+      const given = p.notes.some(n => n.finger);
+      const fingers = M.assignFingering(all, hand);
+      const notes = [];
+      p.notes.forEach((n, i) => { if (inRange(n)) notes.push({ a: n.ms - r.startMs, b: Math.min(n.end, r.endMs) - r.startMs, note: n.note, finger: fingers[i] }); });
+      hands.push({ hand, notes, track: M.handTrack(notes, hand), given, name: p.name });
+    } else if (role === 'play') {
+      for (const n of p.notes) if (inRange(n)) acc.push({ a: n.ms - r.startMs, b: Math.min(n.end, r.endMs) - r.startMs, note: n.note });
+    }
+  }
+  acc.sort((x, y) => x.a - y.a);
+  pmKey = key;
+  pm = { hands, acc, vis: hands.flatMap(h => h.notes).sort((x, y) => x.a - y.a) };
+  return pm;
+}
+
+let layerDpr = 1, keyRects = new Map(), tokens = null;
+function cssTokens() {
+  if (tokens) return tokens;
+  const cs = getComputedStyle(document.documentElement), v = k => cs.getPropertyValue(k).trim();
+  tokens = { guide: v('--guide-black'), guideLight: v('--guide-white'), partner: v('--partner'), hit: v('--hit-black'),
+    white: v('--white'), black: v('--black'), ink: v('--ink'), bg: v('--kb-bg'), hand: v('--hand'), line: v('--hand-line'), onInk: v('--on-ink') };
+  return tokens;
+}
+// 手の層を鍵盤にぴったり重ね、全体の鍵盤の大きさを合わせる
+function sizeLayers() {
+  layerDpr = Math.min(3, window.devicePixelRatio || 1);
+  const song = S.mode === 'song' && lay;
+  handLayer.hidden = !song;
+  keyRects = new Map(lay ? lay.whites.concat(lay.blacks).map(k => [k.midi, k]) : []);
+  if (song) {
+    handLayer.style.left = kb.offsetLeft + 'px'; handLayer.style.top = kb.offsetTop + 'px';
+    handLayer.style.width = lay.width + 'px'; handLayer.style.height = lay.height + 'px';
+    handLayer.width = Math.round(lay.width * layerDpr); handLayer.height = Math.round(lay.height * layerDpr);
+  }
+  if (!overviewEl.hidden) {
+    overviewEl.width = Math.round(overviewEl.clientWidth * layerDpr);
+    overviewEl.height = Math.round(overviewEl.clientHeight * layerDpr);
+  }
+  if (!songPlay) drawPractice(-1);
+}
+
+// pos は範囲の頭からのミリ秒（-1 なら止まっている＝最初の構えを見せる）
+function drawPractice(pos) {
+  if (S.mode !== 'song' || !lay) return;
+  const g = handLayer.getContext('2d');
+  g.setTransform(layerDpr, 0, 0, layerDpr, 0, 0);
+  g.clearRect(0, 0, lay.width, lay.height);
+  const model = practiceModel();
+  drawOverview(model, pos);
+  if (!model) return;
+  // 次の音の予告は、実際の時間でおよそ 0.6 秒前から
+  const lead = S.preview === 'on' ? 600 * (songPlay ? songPlay.speed : currentSong() ? currentSong().speed : 1) : 0;
+  for (const h of model.hands) {
+    const pose = M.handPoseAt(h.track, h.notes, pos, lead);
+    if (!pose) continue;
+    if (S.preview === 'on') for (const n of pose.upcoming) drawNextKey(g, n);
+    if (S.showHand === 'on') drawHand(g, pose, h.hand);
+    else drawKeyFingers(g, h.notes, pos);
+  }
+}
+// 次に押す鍵: 鍵の奥の方を緑で縁取り、指番号を出す（手に隠れない所）
+function drawNextKey(g, n) {
+  const k = keyRects.get(n.note), T = cssTokens();
+  if (!k) return;
+  // 白鍵の奥は両隣の黒鍵にはさまれて細くなっているので、見えている所だけを囲む
+  let left = k.x, right = k.x + k.w, h = k.h;
+  if (!k.black) {
+    for (const b of lay.blacks) {
+      if (b.x < left + 1 && b.x + b.w > left) left = b.x + b.w;
+      if (b.x < right && b.x + b.w > right - 1) right = b.x;
+    }
+    h = lay.blacks.length ? lay.blacks[0].h : k.h * 0.6;
+  }
+  g.save();
+  g.strokeStyle = T.guide; g.lineWidth = 3;
+  roundRect(g, left + 2.5, 2.5, right - left - 5, h - 5, 5); g.stroke();
+  if (n.finger) badge(g, (left + right) / 2, 20, n.finger, T.guide, T.onInk);
+  g.restore();
+}
+// 手を出さないときは、光っている鍵の手前に指番号を出す
+function drawKeyFingers(g, notes, pos) {
+  const T = cssTokens();
+  for (const n of notes) {
+    if (n.a > pos) break;
+    if (pos >= n.b || !n.finger) continue;
+    const k = keyRects.get(n.note);
+    if (k) badge(g, k.x + k.w / 2, k.black ? k.h - 18 : k.h - 46, n.finger, T.onInk, T.guide);
+  }
+}
+function badge(g, x, y, num, fill, ink) {
+  const r = Math.max(8, Math.min(11, lay.whiteWidth * 0.18));
+  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = fill; g.fill();
+  g.fillStyle = ink; g.font = '700 ' + Math.round(r * 1.25) + 'px system-ui, -apple-system, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(num), x, y + 0.5);
+}
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+
+// 真上から見た手。指先は鍵の上、付け根は手のひらに並び、手のひらは手前（画面の下）へ抜ける
+const FINGER_W = [0.46, 0.40, 0.42, 0.39, 0.33];
+function drawHand(g, pose, hand) {
+  const T = cssTokens(), W = lay.whiteWidth, H = lay.height, dir = hand === 'L' ? -1 : 1;
+  const x0 = M.keyPos(lay.lowest) - 0.5, toX = kp => (kp - x0) * W;
+  const alpha = S.handShade === 'normal' ? 0.82 : 0.55;
+  const tipWhite = H * 0.65, tipBlack = H * 0.40;
+  const L = Math.max(W * 0.7, Math.min(W * 1.15, H * 0.2));       // 指の見えている長さ（手のひらが少し見えるように）
+  const tips = pose.x.map((kp, i) => ({ x: toX(kp), y: tipWhite + (tipBlack - tipWhite) * pose.black[i] + (i === 0 ? H * 0.05 : 0) }));
+  const baseY = tipWhite + L;
+  // 付け根は、指先に引っぱられつつ手のひらの幅に収まる
+  const cx = (tips[1].x + tips[2].x + tips[3].x + tips[4].x) / 4, spread = W * 0.82;
+  const knuckles = [null];
+  for (let f = 2; f <= 5; f++) {
+    const natural = cx + dir * (f - 3.5) * spread;
+    knuckles[f - 1] = { x: natural * 0.6 + tips[f - 1].x * 0.4, y: baseY + (f === 5 ? -L * 0.16 : f === 3 ? -L * 0.04 : 0) };
+  }
+  const thumbBase = { x: knuckles[1].x - dir * W * 0.85, y: baseY + L * 0.6 };
+  knuckles[0] = thumbBase;
+  g.save();
+  g.globalAlpha = alpha;
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  // 手のひら
+  const k2 = knuckles[1], k5 = knuckles[4], pad = W * 0.22;
+  g.beginPath();
+  g.moveTo(k5.x + dir * pad, k5.y + W * 0.1);
+  g.quadraticCurveTo(cx, Math.min(k2.y, k5.y) - W * 0.28, k2.x - dir * pad * 0.6, k2.y - W * 0.05);
+  g.quadraticCurveTo(thumbBase.x + dir * W * 0.1, thumbBase.y - W * 0.25, thumbBase.x - dir * W * 0.05, thumbBase.y + W * 0.3);
+  g.lineTo(thumbBase.x + dir * W * 0.2, H + 40);
+  g.lineTo(k5.x + dir * pad * 1.2, H + 40);
+  g.closePath();
+  g.save(); g.globalAlpha = Math.min(1, alpha + 0.12);
+  g.fillStyle = T.hand; g.fill();
+  g.lineWidth = 1.5; g.strokeStyle = T.line; g.stroke();
+  g.restore();
+  // 指（親指を先に描いて、くぐったときは下に見せる）
+  const order = [0, 1, 2, 3, 4];
+  for (const i of order) {
+    const k = knuckles[i], t = tips[i], w = FINGER_W[i] * W;
+    const pressed = pose.pressed[i], next = pose.next[i];
+    // 指先は鍵の上で止める（丸い先の分だけ手前で線を終える）
+    const ang = Math.atan2(t.y - k.y, t.x - k.x), end = { x: t.x - Math.cos(ang) * w * 0.5, y: t.y - Math.sin(ang) * w * 0.5 };
+    if (pressed) {   // 押さえている指先の下に影
+      g.save(); g.globalAlpha = 0.35; g.fillStyle = '#000';
+      g.beginPath(); g.ellipse(t.x, t.y + w * 0.15, w * 0.55, w * 0.4, 0, 0, Math.PI * 2); g.fill(); g.restore();
+    }
+    g.beginPath(); g.moveTo(k.x, k.y); g.lineTo(end.x, end.y);
+    g.lineWidth = w + 3; g.strokeStyle = next ? T.guide : T.line; g.stroke();
+    g.lineWidth = w; g.strokeStyle = pressed ? T.guide : T.hand; g.stroke();
+    // 爪
+    g.save(); g.globalAlpha = alpha * 0.5;
+    g.beginPath(); g.ellipse(end.x - Math.cos(ang) * w * 0.15, end.y - Math.sin(ang) * w * 0.15, w * 0.26, w * 0.32, ang - Math.PI / 2, 0, Math.PI * 2);
+    g.fillStyle = pressed ? T.guideLight : '#ffffff'; g.fill(); g.restore();
+  }
+  g.restore();
+  // 指番号は濃く出す（手を薄くしても読めるように）
+  for (const i of order) {
+    const k = knuckles[i], t = tips[i], ang = Math.atan2(t.y - k.y, t.x - k.x), back = FINGER_W[i] * W * 0.9;
+    const pressed = pose.pressed[i];
+    badge(g, t.x - Math.cos(ang) * back, t.y - Math.sin(ang) * back, i + 1, pressed ? T.guide : 'rgba(29,29,34,.78)', T.onInk);
+  }
+}
+
+// 鍵盤全体（88 鍵）。いま見えている所を枠で囲み、鳴っている鍵を、自分のパートは緑、先生のパートは黄色で塗る
+function drawOverview(model, pos) {
+  if (overviewEl.hidden) return;
+  const T = cssTokens(), g = overviewEl.getContext('2d');
+  const w = overviewEl.width / layerDpr, h = overviewEl.height / layerDpr;
+  g.setTransform(layerDpr, 0, 0, layerDpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const ww = w / 52, base = M.keyPos(21) - 0.5, xOf = m => (M.keyPos(m) - base) * ww;
+  const own = new Set(), partner = new Set();
+  if (model && pos >= 0) {
+    for (const n of model.vis) { if (n.a > pos) break; if (pos < n.b) own.add(n.note); }
+    for (const n of model.acc) { if (n.a > pos) break; if (pos < n.b) partner.add(n.note); }
+  }
+  const color = m => own.has(m) ? T.guide : partner.has(m) ? T.partner : pressed.get(m) ? T.hit : null;
+  g.fillStyle = T.bg; g.fillRect(0, 0, w, h);
+  for (let m = 21; m <= 108; m++) {
+    if (C.isBlack(m)) continue;
+    const x = xOf(m) - ww / 2;
+    g.fillStyle = color(m) || T.white; g.fillRect(x + 0.5, 0, ww - 1, h);
+  }
+  for (let m = 22; m <= 107; m++) {
+    if (!C.isBlack(m)) continue;
+    const bw = ww * 0.62, x = xOf(m) - bw / 2;
+    g.fillStyle = color(m) || T.black; g.fillRect(x, 0, bw, h * 0.6);
+  }
+  if (lay) {
+    const a = xOf(lay.lowest) - ww / 2, b = xOf(lay.highest) + ww / 2;
+    g.strokeStyle = T.hit; g.lineWidth = 2; g.strokeRect(a + 1, 1, b - a - 2, h - 2);
+  }
+}
 
 // ---- 操作列の表示 ----
 function updateModeBar() {
@@ -1670,7 +1894,16 @@ function songDetail(song, ver) {
   h += '<div class="item"><div class="item-title"><span>自分で弾くパートの音</span></div><div class="seg" role="radiogroup" aria-label="自分で弾くパートの音">'
     + '<button type="button" role="radio" data-guide="1" aria-checked="' + song.guide + '">お手本として鳴らす</button><button type="button" role="radio" data-guide="0" aria-checked="' + !song.guide + '">鳴らさない</button></div>'
     + '<p class="note">どちらでも、弾く鍵は緑に光ります。慣れてきたら「鳴らさない」にして、伴奏だけを相手に弾きます。</p></div>';
+  const model = practiceModel();
+  if (model && model.hands.length) {
+    h += '<p class="note">' + model.hands.map(x => '「' + esc(x.name) + '」の指使い: ' + (x.given ? 'ファイルに入っているもの' : '自動で付けた目安（楽譜に指使いがあれば、そちらを優先してください）')).join('<br>') + '</p>';
+  }
   h += '<div class="item"><div class="item-title"><span>音域の確認</span></div>' + rangeAdvice(ver, tl) + '</div>';
+  h += '<h2>見せ方</h2>'
+    + seg('showHand', 'お手本の手', [['on', '出す'], ['off', '出さない']], '真上から見た手を鍵盤に重ねます。指先の数字が指番号（1 が親指）。押している指は緑、次に押す指は緑の縁。手の上から触っても、下の鍵がそのまま鳴ります。')
+    + seg('handShade', '手の濃さ', [['light', '薄め'], ['normal', '濃いめ']])
+    + seg('preview', '次に押す鍵', [['on', '少し前から知らせる'], ['off', '知らせない']], '次に押す鍵の奥の方を、緑の枠と指番号で先に見せます。')
+    + seg('overview', '鍵盤全体', [['on', '上に細く出す'], ['off', '出さない']], '88 鍵ぜんぶを細く出し、いま鳴っている鍵を、自分のパートは緑、先生（伴奏）のパートは黄色で塗ります。青い枠が、いま見えている鍵盤です。');
   h += '<div class="row"><button class="btn" type="button" data-act="go-practice">この曲を練習する</button></div>';
   return h;
 }
@@ -1712,11 +1945,18 @@ function songChanged(rerender) {
   if (songPlay) stopSong();
   saveSongs();
   updateModeBar();
+  drawPractice(-1);
   if (rerender !== false) renderSongs();
 }
 $('tab-songs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.key) {   // 見せ方の切り替え
+    S[b.dataset.key] = b.dataset.val; saveSettings();
+    for (const x of b.parentNode.children) x.setAttribute('aria-checked', x === b ? 'true' : 'false');
+    if (b.dataset.key === 'overview') queueRebuild(); else drawPractice(-1);
+    return;
+  }
   const song = currentSong(), ver = currentVersion(song);
   const li = b.closest('[data-song]');
   const x = li && songs.find(s => s.id === li.dataset.song);
@@ -1972,6 +2212,7 @@ function renderInfo() {
   if (failed.size) h += '<div class="row"><button class="btn" type="button" data-retry="1">読めなかった音源をもう一度読み込む</button></div>';
   h += '<h2>使い方のこつ</h2><ul class="note" style="padding-left:1.2em;margin:0">'
     + '<li>「≡」の上の段で画面を切り替えます。「伴奏して弾く」は左手で和音ボタン、右手で鍵盤。「曲を練習する」は MIDI ファイルの伴奏を鳴らしながら、自分で弾く鍵を緑に光らせます。</li>'
+    + '<li>「曲を練習する」では、真上から見たお手本の手が指番号つきで動きます。次に押す鍵は緑の枠で先に知らせます。見せ方は「≡」→「曲」の下の方で変えられます。</li>'
     + '<li>ホーム画面に追加すると、アドレスバーが消えて鍵盤が広くなります。</li>'
     + '<li>音が鳴り続けたら「全消音」。画面を離れたときも自動で止めます。</li>'
     + '<li>音域を動かしても、押さえている音はそのまま。新しい音域は次に押した指から使われます。</li>'
@@ -2098,7 +2339,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 
 // 動作確認用の窓口（画面からは使わない）
-window.__piano = { get songPlay() { return songPlay; }, chordCh, get chordSets() { return chordSets; }, get songs() { return songs; }, get ctx() { return ctx; }, get master() { return master; }, loader, get waiting() { return waiting; }, get entered() { return entered; }, voices, live, replay, buffers, failed, pointers, get lay() { return lay; }, get S() { return S; }, recs: () => recs, panic };
+window.__piano = { practiceModel, get songPlay() { return songPlay; }, chordCh, get chordSets() { return chordSets; }, get songs() { return songs; }, get ctx() { return ctx; }, get master() { return master; }, loader, get waiting() { return waiting; }, get entered() { return entered; }, voices, live, replay, buffers, failed, pointers, get lay() { return lay; }, get S() { return S; }, recs: () => recs, panic };
 })();
 </script>
 </body>
