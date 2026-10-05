@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1b1a20">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="えのなか">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<title>えのなか</title>
+<style>
+  :root {
+    --bg: #1b1a20; --panel: #26252d; --btn: #36353f; --ink: #f3f2f7; --muted: rgba(243,242,247,0.62);
+    --accent: #7cc4ff; --walk: #5fd38d; --block: #ff7a6b; --occ: #9fb2ff; --seat: #ff9ad8; --hz: #ffb347;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif;
+    overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  #app {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+  #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+  #stage canvas { position: absolute; display: block; }
+  #bg, #gl { pointer-events: none; }
+  #side { display: flex; flex-direction: column; background: var(--panel); padding-bottom: env(safe-area-inset-bottom); }
+  #panel { padding: 10px 12px 2px; display: none; max-height: 46vh; overflow-y: auto; }
+  #panel.show { display: block; }
+  #bar { display: flex; gap: 6px; padding: 8px 10px; overflow-x: auto; scrollbar-width: none; }
+  #bar::-webkit-scrollbar { display: none; }
+  #bar .grow { flex: 1; }
+  button {
+    font: inherit; color: var(--ink); background: var(--btn); border: 0; border-radius: 12px;
+    padding: 8px 12px; font-size: 0.86rem; white-space: nowrap; min-height: 44px; cursor: pointer;
+    transition: transform 0.15s;
+  }
+  button:active { transform: scale(0.96); }
+  button.on, button.primary { background: var(--accent); color: #0b1a28; font-weight: 600; }
+  button.rec { background: #e5484d; color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.4; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .tabs button { flex: 1; min-height: 38px; padding: 6px 4px; font-size: 0.78rem; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+  .row > label { font-size: 0.8rem; color: var(--muted); min-width: 6.5em; }
+  .row input[type=range] { flex: 1; min-width: 110px; accent-color: var(--accent); height: 30px; }
+  .row .val { font-size: 0.8rem; min-width: 4.2em; text-align: right; font-variant-numeric: tabular-nums; }
+  .row button { min-height: 38px; font-size: 0.8rem; }
+  .hint { font-size: 0.76rem; color: var(--muted); line-height: 1.55; margin: 2px 0 6px; }
+  .dot { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 50%; margin-right: 0.3em; vertical-align: -0.05em; }
+  #toast {
+    position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
+    background: rgba(18,18,24,0.88); color: #fff; padding: 8px 14px; border-radius: 999px;
+    font-size: 0.82rem; pointer-events: none; opacity: 0; transition: opacity 0.25s; max-width: 92%; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+  #loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 0.9rem; pointer-events: none; text-align: center; line-height: 1.7;
+  }
+  .sheet {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: flex-end; justify-content: center; z-index: 10;
+  }
+  .sheet.show { display: flex; }
+  .sheet .box {
+    width: min(520px, 100%); max-height: 86vh; overflow-y: auto; background: var(--panel); border-radius: 18px 18px 0 0;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .sheet h3 { margin: 4px 0 10px; font-size: 1rem; }
+  .sheet .list { display: flex; flex-direction: column; gap: 8px; }
+  .sheet .list button { text-align: left; }
+  .sheet p { font-size: 0.82rem; color: var(--muted); line-height: 1.7; margin: 6px 0; }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+  .cards button { padding: 0; overflow: hidden; display: flex; flex-direction: column; text-align: left; min-height: 0; }
+  .cards img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; display: block; background: #000; margin: 0; border-radius: 0; }
+  .cards span { padding: 8px 10px; font-size: 0.82rem; }
+  .cards button.cur { outline: 3px solid var(--accent); outline-offset: -3px; }
+  .cards .add { align-items: center; justify-content: center; min-height: 110px; font-size: 0.9rem; }
+  .sheet img, .sheet video { width: 100%; border-radius: 10px; background: #000; display: block; margin-bottom: 10px; }
+  @media (orientation: landscape) and (max-height: 560px) {
+    #app { flex-direction: row; padding-bottom: env(safe-area-inset-bottom); }
+    #side { width: 290px; padding-bottom: 0; overflow-y: auto; }
+    #panel { max-height: none; }
+    #bar { flex-wrap: wrap; }
+    #bar .grow { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="bg"></canvas>
+    <canvas id="gl"></canvas>
+    <canvas id="ui"></canvas>
+    <div id="loading">よみこみ中…</div>
+    <div id="toast"></div>
+  </div>
+  <div id="side">
+    <div id="panel"></div>
+    <div id="bar"></div>
+  </div>
+</div>
+
+<div class="sheet" id="menu">
+  <div class="box">
+    <h3>えのなか</h3>
+    <div class="list">
+      <button id="mScenes">🖼 場面を選ぶ</button>
+      <button id="mPickVrm">🧍 キャラ（VRM）を選ぶ</button>
+      <button id="mSampleVrm">お試しのキャラに戻す</button>
+      <button id="mReset">この場面を最初の設定に戻す</button>
+      <button id="mHelp">使い方</button>
+      <button id="mClose" class="primary">とじる</button>
+    </div>
+    <p id="credit"></p>
+  </div>
+</div>
+
+<div class="sheet" id="scenes">
+  <div class="box">
+    <h3>場面を選ぶ</h3>
+    <div class="cards" id="sceneCards"></div>
+    <div class="list"><button id="scClose">とじる</button></div>
+  </div>
+</div>
+
+<div class="sheet" id="help">
+  <div class="box">
+    <h3>使い方</h3>
+    <p><b>あそぶ</b>　床をタップするとキャラがそこまで歩く。段差は階段を探して上り下りする。キャラをタップすると手をふる。ピンクの印（すわる場所）の近くをタップすると座りに行く。「ぶらぶら」をオンにすると勝手に歩きまわる。</p>
+    <p><b>場面</b>　≡ →「場面を選ぶ」。ひまわりの道・杉並木の神社・木造校舎の廊下は、床や段差を決めてある。直した設定は場面ごとに残る（「この場面を最初の設定に戻す」で元どおり）。</p>
+    <p><b>自分の絵で</b>　「場面を選ぶ」→「＋ 自分の絵を選ぶ」。そのあと「つくる」で 4 つを決める。</p>
+    <p>① <b>地平線</b>　目の高さの線。道や床の線を奥へ伸ばして交わる高さ。補助線を 2 本、平行な線（道の両端など）に重ねると求まる。<br>
+    ② <b>床</b>　歩ける所を点で囲む。台や階段は別の床にして高さ（m）を入れる。高さの差が 0.35m までなら上り下りできる。ベンチの足元など、通れない所も囲める。<br>
+    ③ <b>前に出す</b>　柱やベンチなど、キャラの手前に来るものを囲む。いちばん下の点が床に接する所になるように。そこより奥にいるキャラは隠れる。<br>
+    ④ <b>すわる</b>　座ったときに足を置く床の点と、向き。</p>
+    <p><b>見え方</b>　キャラが大きすぎる・小さすぎるときは「キャラの大きさ」。奥へ行ったときの縮み方は地平線で決まる。</p>
+    <p>写真と録画は、絵とキャラを重ねたものを保存する。設定は端末の中に残る（絵 1 枚ぶん）。</p>
+    <div class="list"><button id="hClose" class="primary">とじる</button></div>
+  </div>
+</div>
+
+<div class="sheet" id="saveSheet">
+  <div class="box">
+    <h3 id="saveTitle">できた</h3>
+    <div id="savePreview"></div>
+    <div class="list">
+      <button id="saveBtn" class="primary">保存する・送る</button>
+      <button id="saveClose">とじる</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileBg" accept="image/*" hidden>
+<input type="file" id="fileVrm" hidden>
+
+<script src="stage-core.js"></script>
+<script src="sample-scene.js"></script>
+<script src="presets.js"></script>
+<script type="module">
+import * as T from './lib/three-vrm-bundle.min.js';
+const C = window.EnonakaCore;
+const $ = id => document.getElementById(id);
+const clamp = C.clamp;
+const TAU = Math.PI * 2;
+const MAX_DEPTH = 60;
+const SPEED = 1.05;          // 歩く速さ m/秒
+const TURN = 5.5;            // 向きを変える速さ rad/秒
+const SAMPLE_CREDIT = 'お試しのキャラ: VRM1_Constraint_Twist_Sample（© 2022 pixiv Inc.、VRM Public License 1.0。再配布・改変・商用可）';
+
+// ---------- 状態 ----------
+const st = {
+  src: null, W: 1600, H: 900, sceneId: 'sample',
+  scene: null, cam: null, nav: null, seatsW: [], occ: [],
+  mode: 'play', tool: 'horizon', sel: null, drawing: null, drag: null,
+  guides: null, wander: true, rect: { x: 0, y: 0, w: 1, h: 1 }, dpr: 1,
+  ripples: [], rec: null
+};
+
+// ---------- 保存（IndexedDB）。使えなくても動く ----------
+const idb = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const r = indexedDB.open('enonaka', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const run = (mode, fn) => open().then(db => new Promise((res, rej) => {
+    const t = db.transaction('kv', mode), q = fn(t.objectStore('kv'));
+    t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error);
+  }));
+  return {
+    get: k => run('readonly', s => s.get(k)).catch(() => undefined),
+    set: (k, v) => run('readwrite', s => s.put(v, k)).catch(() => {}),
+    del: k => run('readwrite', s => s.delete(k)).catch(() => {})
+  };
+})();
+let saveTimer = 0;
+// お試しの絵を直した分と、自分の絵の設定は別に持つ
+const sceneKey = () => st.sceneId === 'custom' ? 'scene' : 'scene:' + st.sceneId;
+const saveScene = () => { clearTimeout(saveTimer); const k = sceneKey(), v = st.scene; saveTimer = setTimeout(() => idb.set(k, v), 400); };
+
+// ---------- 3D ----------
+const glCanvas = $('gl');
+const renderer = new T.WebGLRenderer({ canvas: glCanvas, alpha: true, antialias: true });
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = T.SRGBColorSpace;
+const scene3 = new T.Scene();
+const camera = new T.PerspectiveCamera();
+const sun = new T.DirectionalLight(0xffffff, Math.PI);
+sun.position.set(0.6, 1.6, 1.2);
+const amb = new T.AmbientLight(0xffffff, 0.5);
+scene3.add(sun, amb);
+const depthMat = new T.MeshBasicMaterial({ colorWrite: false, side: T.DoubleSide });
+const occGroup = new T.Group();
+scene3.add(occGroup);
+const charRoot = new T.Group();
+scene3.add(charRoot);
+const shadow = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(30,25,50,0.55)'); gr.addColorStop(0.55, 'rgba(30,25,50,0.3)'); gr.addColorStop(1, 'rgba(30,25,50,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+  const m = new T.Mesh(new T.CircleGeometry(0.5, 32), new T.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.renderOrder = 1;
+  scene3.add(m);
+  return m;
+})();
+
+function setProjection() {
+  const c = st.cam, n = 0.05, f = 400;
+  camera.projectionMatrix.makePerspective(-c.cx / c.f * n, (c.W - c.cx) / c.f * n, c.cy / c.f * n, -(c.H - c.cy) / c.f * n, n, f);
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  camera.position.set(0, c.eye, 0);
+  camera.rotation.set(0, 0, 0);
+  camera.updateMatrixWorld();
+  const L = st.scene.light, w = st.scene.warmth || 0;
+  sun.intensity = Math.PI * L; amb.intensity = 0.5 * L;
+  // 色味：暖かい側は夕日のだいだい、寒い側は日陰の青みへ寄せる
+  const tint = w >= 0 ? [1, 1 - 0.16 * w, 1 - 0.36 * w] : [1 + 0.22 * w, 1 + 0.1 * w, 1];
+  sun.color.setRGB(tint[0], tint[1], tint[2]);
+  amb.color.setRGB(0.5 + 0.5 * tint[0], 0.5 + 0.5 * tint[1], 0.5 + 0.5 * tint[2]);
+}
+
+// 床（水平な面）と前に出すもの（絵と平行な板）を、奥行きだけ書く透明な板にする
+function buildDepthMeshes() {
+  for (const m of occGroup.children.slice()) { m.geometry.dispose(); occGroup.remove(m); }
+  st.occ = [];
+  const cam = st.cam, sc = st.scene;
+  for (const a of sc.areas) {
+    if (a.kind === 'block') continue;
+    const poly = C.areaWorldPoly(cam, a, MAX_DEPTH);
+    if (!poly) continue;
+    const m = new T.Mesh(new T.ShapeGeometry(new T.Shape(poly.map(p => new T.Vector2(p.x, -p.z)))), depthMat);
+    m.rotation.x = -Math.PI / 2; m.position.y = (a.h || 0) - 0.03; m.renderOrder = -10;
+    occGroup.add(m);
+  }
+  for (const o of sc.occluders) {
+    const d = C.occluderDepth(cam, o, sc.areas, MAX_DEPTH);
+    if (!d) continue;
+    const pts = o.pts.map(p => new T.Vector2((p[0] * cam.W - cam.cx) * d / cam.f, cam.eye - (p[1] * cam.H - cam.cy) * d / cam.f));
+    const m = new T.Mesh(new T.ShapeGeometry(new T.Shape(pts)), depthMat);
+    m.position.z = -d; m.renderOrder = -10;
+    occGroup.add(m);
+    st.occ.push({ mesh: m, o });
+  }
+}
+
+// 設定が変わったら組み直す。キャラは絵の上の同じ場所に残す
+let navTimer = 0;
+function rebuild(opt) {
+  const old = st.cam;
+  let anchor = null;
+  if (old && av.vrm && !(opt && opt.place)) {
+    const p = C.worldToImage(old, av.x, av.floorY, av.z);
+    if (p) anchor = [p.u / old.W, p.v / old.H];
+  }
+  st.cam = C.makeCamera(st.W, st.H, st.scene);
+  setProjection();
+  buildDepthMeshes();
+  st.seatsW = st.scene.seats.map(s => C.seatWorld(st.cam, s, st.scene.areas, MAX_DEPTH));
+  if (opt && opt.place) placeAtImage(opt.place[0], opt.place[1]);
+  else if (anchor) placeAtImage(anchor[0], anchor[1]);
+  clearTimeout(navTimer);
+  if (opt && opt.navNow) buildNav();
+  else navTimer = setTimeout(buildNav, 180);
+}
+function buildNav() {
+  st.nav = C.buildNav(st.cam, st.scene.areas, { maxStep: 0.35, maxDepth: MAX_DEPTH });
+  if (st.nav && av.vrm && isNaN(C.heightAt(st.nav, av.x, av.z)) && !av.sitW) {
+    const k = C.nearestWalkable(st.nav, av.x, av.z, 200);
+    if (k >= 0) { const c = C.cellCenter(st.nav, k); setPos(c.x, c.z); }
+  }
+}
+function placeAtImage(nu, nv) {
+  const h = C.floorHeightAtImage(st.scene.areas, nu, nv);
+  const w = C.imageToWorld(st.cam, nu * st.W, C.clampV(st.cam, nv * st.H, h, MAX_DEPTH), h);
+  if (w) { av.x = w.x; av.z = w.z; av.y = av.floorY = h; resetSprings(); }
+}
+function setPos(x, z) {
+  av.x = x; av.z = z;
+  const h = st.nav ? C.heightAt(st.nav, x, z) : NaN;
+  if (!isNaN(h)) av.y = av.floorY = h;
+  resetSprings();
+}
+function resetSprings() { if (av.vrm && av.vrm.springBoneManager) { charRoot.position.set(av.x, av.y, av.z); charRoot.updateMatrixWorld(true); av.vrm.springBoneManager.reset(); } }
+
+// ---------- キャラ ----------
+const av = {
+  vrm: null, vrm0: false, B: {}, restHips: null, dim: null,
+  x: 0, y: 0, z: -6, floorY: 0, heading: 0,
+  state: 'idle', path: null, pi: 0, after: null, turnTo: 0,
+  walkW: 0, sitW: 0, sitTarget: 0, phase: 0, moveSpeed: 0, seat: null, sitUntil: 0,
+  waveT: -1, idleT: 0, nextWander: 1.5, blinkT: 2, blinkV: 0, t: 0, lookW: 0, happy: 0
+};
+const BONES = ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftShoulder', 'rightShoulder',
+  'leftUpperArm', 'leftLowerArm', 'leftHand', 'rightUpperArm', 'rightLowerArm', 'rightHand',
+  'leftUpperLeg', 'leftLowerLeg', 'leftFoot', 'rightUpperLeg', 'rightLowerLeg', 'rightFoot'];
+
+async function loadVrm(buf, credit) {
+  const loader = new T.GLTFLoader();
+  loader.register(p => new T.VRMLoaderPlugin(p));
+  const gltf = await new Promise((res, rej) => loader.parse(buf, '', res, rej));
+  const vrm = gltf.userData.vrm;
+  if (!vrm || !vrm.humanoid) throw new Error('VRM ではない');
+  T.VRMUtils.removeUnnecessaryVertices(gltf.scene);
+  if (T.VRMUtils.combineSkeletons) T.VRMUtils.combineSkeletons(gltf.scene);
+  T.VRMUtils.rotateVRM0(vrm);
+  vrm.scene.traverse(o => { o.frustumCulled = false; });
+  if (av.vrm) { charRoot.remove(av.vrm.scene); T.VRMUtils.deepDispose(av.vrm.scene); }
+  av.vrm = vrm;
+  av.vrm0 = vrm.meta && vrm.meta.metaVersion === '0';
+  charRoot.add(vrm.scene);
+  av.B = {};
+  for (const n of BONES) av.B[n] = vrm.humanoid.getNormalizedBoneNode(n);
+  av.restHips = av.B.hips.position.clone();
+  // 背丈と脚の長さ（座るときに使う）
+  charRoot.position.set(0, 0, 0); charRoot.rotation.set(0, 0, 0);
+  vrm.update(0);
+  vrm.scene.updateMatrixWorld(true);
+  const wp = n => av.B[n] ? av.B[n].getWorldPosition(new T.Vector3()) : null;
+  const box = new T.Box3().setFromObject(vrm.scene);
+  const hip = wp('leftUpperLeg'), knee = wp('leftLowerLeg'), foot = wp('leftFoot');
+  av.dim = {
+    height: box.max.y - box.min.y,
+    hipY: hip.y, thigh: hip.distanceTo(knee), shin: knee.distanceTo(foot), ankle: Math.max(0.03, foot.y - box.min.y)
+  };
+  av.dim.cycle = Math.max(0.6, av.dim.hipY * 1.55);
+  shadow.scale.setScalar(Math.max(0.5, av.dim.height * 0.36));
+  if (vrm.lookAt) vrm.lookAt.target = camera;
+  const meta = vrm.meta || {};
+  $('credit').textContent = credit || ('キャラ: ' + (meta.name || meta.title || '名前なし') + (meta.authors ? '（' + meta.authors.join('、') + '）' : meta.author ? '（' + meta.author + '）' : ''));
+  resetSprings();
+}
+
+// 角度の差（-π〜π）
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
+const smooth = t => t * t * (3 - 2 * t);
+
+function goTo(target, after) {
+  if (!st.nav) return false;
+  if (av.sitW > 0.01 || av.state === 'sit') { standUp(() => goTo(target, after)); return true; }
+  const path = C.findPath(st.nav, { x: av.x, z: av.z }, target);
+  if (!path) return false;
+  av.path = path; av.pi = 1; av.after = after || null; av.state = 'walk'; av.idleT = 0;
+  return true;
+}
+const faceCamera = () => turnTo(Math.atan2(-av.x, -av.z));
+function turnTo(heading, after) { av.state = 'turn'; av.turnTo = heading; av.after = after || null; av.path = null; }
+function sitDown(seat) { av.seat = seat; av.state = 'sit'; av.sitTarget = 1; av.sitUntil = av.t + 5 + Math.random() * 5; }
+function standUp(after) { av.state = 'stand'; av.sitTarget = 0; av.after = after || null; }
+function goSit(seat) {
+  return goTo({ x: seat.x, z: seat.z }, () => turnTo(seat.dir * Math.PI / 180, () => sitDown(seat)));
+}
+function wave() {
+  const start = () => { av.waveT = 0; };
+  if (av.state === 'sit' || av.sitW > 0.5) { start(); return; }
+  av.path = null;
+  turnTo(Math.atan2(-av.x, -av.z), () => { av.state = 'idle'; start(); });
+}
+
+function stepAvatar(dt) {
+  av.t += dt;
+  // 歩く
+  let walking = false;
+  if (av.state === 'walk' && av.path) {
+    const tg = av.path[av.pi];
+    const dx = tg.x - av.x, dz = tg.z - av.z, d = Math.hypot(dx, dz);
+    if (d < 0.02) {
+      av.pi++;
+      if (av.pi >= av.path.length) { av.path = null; av.state = 'idle'; const f = av.after; av.after = null; if (f) f(); }
+    } else {
+      const want = Math.atan2(dx, dz), diff = angDiff(want, av.heading);
+      av.heading += clamp(diff, -TURN * dt, TURN * dt);
+      const sp = SPEED * clamp(Math.cos(diff), 0.12, 1);
+      const s = Math.min(d, sp * dt);
+      av.x += dx / d * s; av.z += dz / d * s;
+      av.moveSpeed = sp; walking = true;
+    }
+  } else if (av.state === 'turn') {
+    const diff = angDiff(av.turnTo, av.heading);
+    av.heading += clamp(diff, -TURN * 0.6 * dt, TURN * 0.6 * dt);
+    av.moveSpeed = 0.35;
+    if (Math.abs(diff) < 0.04) { av.state = 'idle'; const f = av.after; av.after = null; if (f) f(); }
+  } else if (av.state === 'stand' && av.sitW < 0.02) {
+    av.sitW = 0; av.state = 'idle'; av.seat = null;
+    const f = av.after; av.after = null; if (f) f();
+  }
+  // 床の高さに合わせる（段差は少し時間をかけて）
+  const fh = st.nav ? C.heightAt(st.nav, av.x, av.z) : NaN;
+  if (!isNaN(fh)) av.floorY = fh;
+  av.y += clamp(av.floorY - av.y, -2.4 * dt, 2.4 * dt);
+
+  const turning = av.state === 'turn';
+  av.walkW += clamp((walking ? 1 : turning ? 0.35 : 0) - av.walkW, -5 * dt, 5 * dt);
+  if (walking || turning) av.phase = (av.phase + dt * TAU * av.moveSpeed / av.dim.cycle) % TAU;
+  else if (av.walkW < 0.02) av.phase = 0;
+  av.sitW += clamp(av.sitTarget - av.sitW, -dt / 0.75, dt / 0.9);
+  if (av.waveT >= 0) { av.waveT += dt; if (av.waveT > 2.2) av.waveT = -1; }
+
+  // ぶらぶら
+  if (st.wander && st.mode === 'play') {
+    if (av.state === 'idle' && av.waveT < 0) {
+      av.idleT += dt;
+      if (av.idleT > av.nextWander) { av.idleT = 0; av.nextWander = 1.2 + Math.random() * 3.5; wanderOnce(); }
+    } else if (av.state === 'sit' && av.sitW > 0.99 && av.t > av.sitUntil && av.waveT < 0) {
+      standUp();
+    }
+  }
+
+  // まばたき
+  av.blinkT -= dt;
+  if (av.blinkT < 0) { av.blinkV = 1; av.blinkT = 2 + Math.random() * 4; }
+  av.blinkV = Math.max(0, av.blinkV - dt * 7);
+  const em = av.vrm.expressionManager;
+  av.happy += clamp((av.waveT >= 0 ? 0.85 : 0) - av.happy, -3 * dt, 4 * dt);
+  if (em) {
+    em.setValue('blink', av.happy > 0.3 ? 0 : Math.sin(av.blinkV * Math.PI));
+    em.setValue('happy', av.happy);
+  }
+  pose();
+  charRoot.position.set(av.x, av.y, av.z);
+  charRoot.rotation.y = av.heading;
+  shadow.position.set(av.x, av.floorY + 0.012, av.z);
+
+  // 座っている間は、座った腰が入っている「前に出すもの」を外す（ベンチに隠れない）
+  let hip = null;
+  if (av.sitW > 0.3) {
+    const back = av.dim.thigh * 0.9, hx = av.x - Math.sin(av.heading) * back, hz = av.z - Math.cos(av.heading) * back;
+    const p = C.worldToImage(st.cam, hx, av.y + av.dim.shin + av.dim.ankle, hz);
+    if (p) hip = [p.u / st.W, p.v / st.H];
+  }
+  for (const o of st.occ) o.mesh.visible = !(hip && C.pointInPoly(hip[0], hip[1], o.o.pts));
+}
+
+function wanderOnce() {
+  const nav = st.nav;
+  if (!nav || !nav.cells.length) return;
+  const seats = st.seatsW.filter(Boolean);
+  if (seats.length && Math.random() < 0.25) {
+    const s = seats[Math.floor(Math.random() * seats.length)];
+    if (Math.hypot(s.x - av.x, s.z - av.z) > 0.5 && goSit(s)) return;
+  }
+  for (let k = 0; k < 40; k++) {
+    const c = C.cellCenter(nav, nav.cells[Math.floor(Math.random() * nav.cells.length)]);
+    const d = Math.hypot(c.x - av.x, c.z - av.z);
+    if (d < 1.5 || d > 9 || -c.z > 30) continue;
+    const h = C.heightAt(nav, c.x, c.z);
+    const foot = C.worldToImage(st.cam, c.x, h, c.z), head = C.worldToImage(st.cam, c.x, h + av.dim.height, c.z);
+    if (!foot || !head || foot.u < st.W * 0.05 || foot.u > st.W * 0.95 || foot.v > st.H * 0.98 || head.v < 0) continue;
+    if (goTo(c, Math.random() < 0.4 ? faceCamera : null)) return;
+  }
+}
+
+// ---- 体の動き（正規化した骨に、毎回ゼロから角度を入れる）----
+function pose() {
+  const B = av.B, t = av.t, ph = av.phase, w = av.walkW, k = smooth(clamp(av.sitW, 0, 1));
+  const sP = Math.sin(ph), cP = Math.cos(ph), br = Math.sin(t * 1.7) * 0.025;
+  const P = {};
+  const put = (n, x, y, z) => { P[n] = [x, y, z]; };
+  const mix = (n, x, y, z, a) => { const p = P[n] || [0, 0, 0]; P[n] = [p[0] + (x - p[0]) * a, p[1] + (y - p[1]) * a, p[2] + (z - p[2]) * a]; };
+  // 立っている
+  put('hips', 0, Math.sin(t * 0.6) * 0.02, Math.sin(t * 0.45) * 0.015);
+  put('spine', 0.02 + br, 0, 0); put('chest', br * 0.6, 0, 0);
+  put('leftUpperArm', 0.05, 0, -1.28 + br * 0.5); put('rightUpperArm', 0.05, 0, 1.28 - br * 0.5);
+  put('leftLowerArm', 0, -0.2, 0); put('rightLowerArm', 0, 0.2, 0);
+  put('leftUpperLeg', 0, 0, 0.03); put('rightUpperLeg', 0, 0, -0.03);
+  let hipOff = [0, 0, 0];
+  // 歩く
+  if (w > 0.001) {
+    const knL = 0.1 + 0.95 * Math.pow(Math.max(0, cP), 1.6), knR = 0.1 + 0.95 * Math.pow(Math.max(0, -cP), 1.6);
+    const thL = -0.5 * sP - 0.04, thR = 0.5 * sP - 0.04;
+    mix('hips', 0, -0.13 * sP, 0.03 * cP, w);
+    mix('spine', 0.07, 0.15 * sP, 0, w); mix('chest', 0.02, 0.05 * sP, 0, w);
+    mix('neck', -0.03, -0.12 * sP, 0, w);
+    mix('leftUpperLeg', thL, 0, 0.02, w); mix('rightUpperLeg', thR, 0, -0.02, w);
+    mix('leftLowerLeg', knL, 0, 0, w); mix('rightLowerLeg', knR, 0, 0, w);
+    mix('leftFoot', -(thL + knL) * 0.6, 0, 0, w); mix('rightFoot', -(thR + knR) * 0.6, 0, 0, w);
+    mix('leftUpperArm', 0.4 * sP, 0, -1.25, w); mix('rightUpperArm', -0.4 * sP, 0, 1.25, w);
+    mix('leftLowerArm', 0, -0.25 - 0.3 * Math.max(0, -sP), 0, w); mix('rightLowerArm', 0, 0.25 + 0.3 * Math.max(0, sP), 0, w);
+    hipOff[1] = -0.028 * sP * sP * w;
+  }
+  // 座る
+  if (k > 0.001) {
+    const d = av.dim, drop = (d.shin + d.ankle) - d.hipY;
+    mix('hips', 0, 0, 0, k); mix('neck', 0, 0, 0, k);
+    mix('spine', -0.04 + br, 0, 0, k); mix('chest', 0.03, 0, 0, k);
+    mix('leftUpperLeg', -1.5, 0, 0.08, k); mix('rightUpperLeg', -1.5, 0, -0.08, k);
+    mix('leftLowerLeg', 1.5, 0, 0, k); mix('rightLowerLeg', 1.5, 0, 0, k);
+    mix('leftFoot', 0, 0, 0, k); mix('rightFoot', 0, 0, 0, k);
+    // 手は太ももの上に置く（上腕はほぼ真下、ひじから前へ）
+    mix('leftUpperArm', -0.15, 0, -1.36, k); mix('rightUpperArm', -0.15, 0, 1.36, k);
+    mix('leftLowerArm', 0, -0.9, 0, k); mix('rightLowerArm', 0, 0.9, 0, k);
+    mix('leftHand', 0, 0, -0.25, k); mix('rightHand', 0, 0, 0.25, k);
+    hipOff = [hipOff[0] * (1 - k), hipOff[1] * (1 - k) + drop * k, -d.thigh * 0.9 * k];
+  }
+  // 手をふる
+  if (av.waveT >= 0) {
+    const a = smooth(clamp(Math.min(av.waveT / 0.35, (2.2 - av.waveT) / 0.4), 0, 1));
+    mix('rightUpperArm', -0.15, -0.25, -0.35, a);
+    mix('rightLowerArm', 0, 0, -1.3 + 0.32 * Math.sin(av.waveT * 13), a);
+    mix('rightHand', 0, 0, 0, a);
+  }
+  // 止まっているときはこちらを見る
+  av.lookW += clamp((w < 0.3 && av.state !== 'turn' ? 1 : 0) - av.lookW, -3 * 0.016, 2 * 0.016);
+  if (av.lookW > 0.01) {
+    const toCam = angDiff(Math.atan2(-av.x, -av.z), av.heading);
+    const yaw = clamp(toCam, -0.9, 0.9) * av.lookW;
+    const n = P.neck || [0, 0, 0], h = P.head || [0, 0, 0];
+    P.neck = [n[0], n[1] + yaw * 0.4, n[2]]; P.head = [h[0] + 0.04 * av.lookW, h[1] + yaw * 0.5, h[2]];
+  }
+  // 書き込む（VRM0 は前後が逆なので x と z の回りを反転）
+  const sx = av.vrm0 ? -1 : 1;
+  for (const n of BONES) {
+    const b = B[n];
+    if (!b) continue;
+    const p = P[n];
+    if (p) b.rotation.set(p[0] * sx, p[1], p[2] * sx); else b.rotation.set(0, 0, 0);
+  }
+  B.hips.position.set(av.restHips.x + hipOff[0] * sx, av.restHips.y + hipOff[1], av.restHips.z + hipOff[2] * sx);
+}
+
+// ---------- 画面の大きさ ----------
+const bgCanvas = $('bg'), uiCanvas = $('ui'), stage = $('stage');
+const bgCtx = bgCanvas.getContext('2d'), uiCtx = uiCanvas.getContext('2d');
+function layout() {
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  if (!sw || !sh || !st.src) return;
+  const s = Math.min(sw / st.W, sh / st.H);
+  const w = Math.round(st.W * s), h = Math.round(st.H * s), x = Math.round((sw - w) / 2), y = Math.round((sh - h) / 2);
+  st.rect = { x, y, w, h };
+  st.dpr = Math.min(window.devicePixelRatio || 1, 3);
+  for (const c of [bgCanvas, glCanvas, uiCanvas]) Object.assign(c.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  const bw = Math.min(Math.round(w * st.dpr), st.W), bh = Math.round(bw * st.H / st.W);
+  bgCanvas.width = bw; bgCanvas.height = bh;
+  bgCtx.imageSmoothingQuality = 'high';
+  bgCtx.drawImage(st.src, 0, 0, bw, bh);
+  renderer.setPixelRatio(Math.min(st.dpr, 2));
+  renderer.setSize(w, h, false);
+  uiCanvas.width = Math.round(w * st.dpr); uiCanvas.height = Math.round(h * st.dpr);
+}
+new ResizeObserver(() => layout()).observe(stage);
+
+// ---------- 背景 ----------
+function defaultScene() {
+  const hz = 0.45;
+  return C.sanitizeScene({ horizon: hz, eye: 1.5, fov: 60, light: 1,
+    areas: [{ pts: [[0.03, hz + 0.1], [0.97, hz + 0.1], [0.97, 0.97], [0.03, 0.97]], h: 0, kind: 'walk' }] });
+}
+async function imageToCanvas(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image(); img.src = url; await img.decode();
+    const s = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// ---------- 描きこみ（編集の線・タップの波紋） ----------
+const N2S = p => [p[0] * st.rect.w, p[1] * st.rect.h];
+const W2S = (x, y, z) => { const p = C.worldToImage(st.cam, x, y, z); return p ? [p.u / st.W * st.rect.w, p.v / st.H * st.rect.h] : null; };
+function drawUI() {
+  const g = uiCtx, r = st.rect, d = st.dpr;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+  g.setTransform(d, 0, 0, d, 0, 0);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  if (st.mode === 'edit') drawEdit(g, r);
+  else {
+    for (const s of st.scene.seats) {
+      const [x, y] = N2S(s.p);
+      g.beginPath(); g.ellipse(x, y, 9, 4.5, 0, 0, TAU);
+      g.fillStyle = 'rgba(255,154,216,0.35)'; g.fill();
+      g.strokeStyle = 'rgba(255,154,216,0.9)'; g.lineWidth = 1.5; g.stroke();
+    }
+  }
+  const now = performance.now();
+  st.ripples = st.ripples.filter(p => now - p.t < 700);
+  for (const p of st.ripples) {
+    const a = (now - p.t) / 700, [x, y] = N2S(p.p);
+    g.globalAlpha = 1 - a;
+    g.strokeStyle = p.ok ? '#ffffff' : '#ff6b6b'; g.lineWidth = 2.5;
+    if (p.ok) { g.beginPath(); g.ellipse(x, y, 8 + a * 22, (8 + a * 22) * 0.45, 0, 0, TAU); g.stroke(); }
+    else { const s = 9; g.beginPath(); g.moveTo(x - s, y - s); g.lineTo(x + s, y + s); g.moveTo(x + s, y - s); g.lineTo(x - s, y + s); g.stroke(); }
+    g.globalAlpha = 1;
+  }
+}
+function polyPath(g, pts, close) {
+  g.beginPath();
+  pts.forEach((p, i) => { const [x, y] = N2S(p); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+  if (close) g.closePath();
+}
+function handle(g, p, r, fill, ring) {
+  const [x, y] = N2S(p);
+  g.beginPath(); g.arc(x, y, r, 0, TAU);
+  g.fillStyle = fill; g.fill();
+  g.lineWidth = 2; g.strokeStyle = ring || 'rgba(0,0,0,0.6)'; g.stroke();
+}
+function drawEdit(g, r) {
+  const sc = st.scene, tool = st.tool;
+  const dim = on => on ? 1 : 0.35;
+  // 床
+  sc.areas.forEach((a, i) => {
+    const sel = st.sel && st.sel.list === 'areas' && st.sel.i === i;
+    g.globalAlpha = dim(tool === 'floor');
+    polyPath(g, a.pts, true);
+    g.fillStyle = a.kind === 'block' ? 'rgba(255,122,107,0.25)' : 'rgba(95,211,141,' + (0.12 + Math.min(0.2, (a.h || 0) * 0.2)) + ')';
+    g.fill();
+    g.strokeStyle = a.kind === 'block' ? '#ff7a6b' : '#5fd38d'; g.lineWidth = sel ? 3 : 1.6; g.stroke();
+    if (tool === 'floor' && sel && a.kind !== 'block') {
+      const c = centroid(a.pts), [x, y] = N2S(c);
+      label(g, x, y, '高さ ' + (a.h || 0).toFixed(2) + 'm');
+    }
+  });
+  // 前に出すもの
+  sc.occluders.forEach((o, i) => {
+    const sel = st.sel && st.sel.list === 'occluders' && st.sel.i === i;
+    g.globalAlpha = dim(tool === 'occ');
+    polyPath(g, o.pts, true);
+    g.fillStyle = 'rgba(159,178,255,0.25)'; g.fill();
+    g.strokeStyle = '#9fb2ff'; g.lineWidth = sel ? 3 : 1.6; g.stroke();
+    if (tool === 'occ') {
+      let base = o.pts[0]; for (const p of o.pts) if (p[1] > base[1]) base = p;
+      const [x, y] = N2S(base);
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.setLineDash([4, 4]);
+      g.beginPath(); g.moveTo(x - 26, y); g.lineTo(x + 26, y); g.stroke(); g.setLineDash([]);
+    }
+  });
+  // すわる場所
+  st.scene.seats.forEach((s, i) => {
+    const sel = st.sel && st.sel.list === 'seats' && st.sel.i === i, w = st.seatsW[i];
+    g.globalAlpha = dim(tool === 'seat');
+    if (w) {
+      const a = w.dir * Math.PI / 180, tip = W2S(w.x + Math.sin(a) * 0.6, w.y, w.z + Math.cos(a) * 0.6), base = W2S(w.x, w.y, w.z);
+      if (tip && base) { g.strokeStyle = '#ff9ad8'; g.lineWidth = 3; g.beginPath(); g.moveTo(base[0], base[1]); g.lineTo(tip[0], tip[1]); g.stroke(); }
+    }
+    handle(g, s.p, sel ? 10 : 8, '#ff9ad8', sel ? '#fff' : undefined);
+  });
+  g.globalAlpha = 1;
+  // 地平線
+  const hy = sc.horizon * r.h;
+  g.strokeStyle = '#ffb347'; g.lineWidth = tool === 'horizon' ? 2.5 : 1.5; g.setLineDash([10, 7]);
+  g.globalAlpha = dim(tool === 'horizon' || tool === 'view');
+  g.beginPath(); g.moveTo(0, hy); g.lineTo(r.w, hy); g.stroke(); g.setLineDash([]);
+  if (tool === 'horizon') label(g, 64, hy - 14, '地平線（目の高さ）');
+  g.globalAlpha = 1;
+  if (tool === 'horizon' && st.guides) {
+    for (const ln of st.guides) {
+      const a = N2S(ln[0]), b = N2S(ln[1]);
+      // 線を地平線の方へ伸ばして見せる
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      g.strokeStyle = 'rgba(255,179,71,0.45)'; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(a[0] - dx * 3, a[1] - dy * 3); g.lineTo(b[0] + dx * 3, b[1] + dy * 3); g.stroke();
+      g.strokeStyle = '#ffb347'; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+      handle(g, ln[0], 8, '#ffb347'); handle(g, ln[1], 8, '#ffb347');
+    }
+  }
+  // 選んだ形の点
+  const sp = selPts();
+  if (sp && !st.drawing) {
+    sp.forEach((p, i) => handle(g, p, st.sel.v === i ? 10 : 7, '#ffffff', st.sel.v === i ? '#7cc4ff' : undefined));
+    for (let i = 0; i < sp.length; i++) {
+      const a = sp[i], b = sp[(i + 1) % sp.length];
+      const [x, y] = N2S([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+      g.beginPath(); g.arc(x, y, 5, 0, TAU); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke();
+    }
+  }
+  // 描いている途中
+  if (st.drawing) {
+    const d = st.drawing, col = d.list === 'occluders' ? '#9fb2ff' : d.kind === 'block' ? '#ff7a6b' : '#5fd38d';
+    polyPath(g, d.pts, false);
+    g.strokeStyle = col; g.lineWidth = 2.5; g.stroke();
+    d.pts.forEach((p, i) => handle(g, p, i === 0 && d.pts.length >= 3 ? 11 : 7, i === 0 ? col : '#fff'));
+  }
+}
+function label(g, x, y, s) {
+  g.font = '600 12px system-ui, sans-serif';
+  const w = g.measureText(s).width + 12;
+  g.fillStyle = 'rgba(20,20,26,0.8)';
+  roundRect(g, x - w / 2, y - 10, w, 20, 10); g.fill();
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, x, y + 0.5);
+}
+function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function centroid(pts) { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; }
+function selPts() {
+  const s = st.sel;
+  if (!s || s.list === 'seats') return null;
+  const it = st.scene[s.list][s.i];
+  return it ? it.pts : null;
+}
+
+// ---------- タップと指の操作 ----------
+const toN = e => { const b = uiCanvas.getBoundingClientRect(); return [(e.clientX - b.left) / b.width, (e.clientY - b.top) / b.height]; };
+const distPx = (a, b) => Math.hypot((a[0] - b[0]) * st.rect.w, (a[1] - b[1]) * st.rect.h);
+const HIT = 24;
+let down = null;
+uiCanvas.addEventListener('pointerdown', e => {
+  if (down) return;
+  uiCanvas.setPointerCapture(e.pointerId);
+  const p = toN(e);
+  down = { id: e.pointerId, p, last: p, moved: false };
+  if (st.mode === 'edit') editDown(p);
+});
+uiCanvas.addEventListener('pointermove', e => {
+  if (!down || e.pointerId !== down.id) return;
+  const p = toN(e);
+  if (distPx(p, down.p) > 6) down.moved = true;
+  if (st.mode === 'edit') editMove(p, down.last);
+  down.last = p;
+});
+const endPointer = e => {
+  if (!down || e.pointerId !== down.id) return;
+  const d = down; down = null;
+  if (st.mode === 'edit') editUp();
+  else if (!d.moved) playTap(d.p);
+};
+uiCanvas.addEventListener('pointerup', endPointer);
+uiCanvas.addEventListener('pointercancel', e => { if (down && e.pointerId === down.id) { down = null; if (st.mode === 'edit') editUp(); } });
+
+function playTap(p) {
+  if (!av.vrm || !st.cam) return;
+  // すわる場所
+  for (let i = 0; i < st.scene.seats.length; i++) {
+    const s = st.scene.seats[i], w = st.seatsW[i];
+    if (!w) continue;
+    const a = w.dir * Math.PI / 180, back = av.dim.thigh * 0.9;
+    const hip = C.worldToImage(st.cam, w.x - Math.sin(a) * back, w.y + av.dim.shin + av.dim.ankle, w.z - Math.cos(a) * back);
+    if (distPx(p, s.p) < 30 || (hip && distPx(p, [hip.u / st.W, hip.v / st.H]) < 40)) {
+      const ok = goSit(w); st.ripples.push({ p: s.p, ok, t: performance.now() }); return;
+    }
+  }
+  // キャラ
+  const foot = C.worldToImage(st.cam, av.x, av.y, av.z), head = C.worldToImage(st.cam, av.x, av.y + av.dim.height * (1 - 0.3 * av.sitW), av.z);
+  if (foot && head) {
+    const hgt = (foot.v - head.v) / st.H, cx = foot.u / st.W, top = head.v / st.H, half = Math.max(hgt * 0.13 * st.H / st.W, 18 / st.rect.w);
+    if (p[0] > cx - half && p[0] < cx + half && p[1] > top && p[1] < foot.v / st.H + 0.01) { wave(); return; }
+  }
+  const tg = C.pickTarget(st.cam, st.scene.areas, p[0], p[1], MAX_DEPTH);
+  const ok = !!tg && goTo(tg, faceCamera);
+  st.ripples.push({ p, ok, t: performance.now() });
+}
+
+function editDown(p) {
+  const sc = st.scene, tool = st.tool;
+  st.drag = null;
+  if (tool === 'horizon') {
+    if (st.guides) {
+      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+        if (distPx(p, st.guides[i][j]) < HIT) { st.drag = { type: 'guide', i, j }; return; }
+      }
+    }
+    st.drag = { type: 'horizon' };
+    sc.horizon = clamp(p[1], -0.4, 1.4);
+    rebuild();
+    renderPanel();
+    return;
+  }
+  if (tool === 'view') return;
+  if (tool === 'seat') {
+    for (let i = sc.seats.length - 1; i >= 0; i--) {
+      if (distPx(p, sc.seats[i].p) < HIT) { st.sel = { list: 'seats', i }; st.drag = { type: 'seat', i }; renderPanel(); return; }
+    }
+    sc.seats.push({ p: p.slice(), dir: 0 });
+    st.sel = { list: 'seats', i: sc.seats.length - 1 };
+    st.drag = { type: 'seat', i: st.sel.i };
+    changed(); renderPanel();
+    return;
+  }
+  const list = tool === 'occ' ? 'occluders' : 'areas';
+  if (st.drawing) {
+    const d = st.drawing;
+    if (d.pts.length >= 3 && distPx(p, d.pts[0]) < HIT) { finishDrawing(); return; }
+    d.pts.push(p.slice());
+    st.drag = { type: 'newpt' };
+    renderPanel();
+    return;
+  }
+  const sp = selPts();
+  if (sp && st.sel.list === list) {
+    for (let i = 0; i < sp.length; i++) {
+      if (distPx(p, sp[i]) < HIT) { st.sel.v = i; st.drag = { type: 'vertex' }; renderPanel(); return; }
+    }
+    for (let i = 0; i < sp.length; i++) {
+      const a = sp[i], b = sp[(i + 1) % sp.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (distPx(p, m) < HIT * 0.8) { sp.splice(i + 1, 0, m); st.sel.v = i + 1; st.drag = { type: 'vertex' }; changed(); renderPanel(); return; }
+    }
+  }
+  const items = sc[list];
+  // 選んでいる形の中なら形ごと動かす。違えば、その点を含む形を選ぶ（手前＝あとのもの）
+  if (sp && st.sel.list === list && C.pointInPoly(p[0], p[1], sp)) { st.drag = { type: 'move' }; return; }
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (C.pointInPoly(p[0], p[1], items[i].pts)) { st.sel = { list, i, v: -1 }; st.drag = { type: 'move' }; renderPanel(); return; }
+  }
+  st.sel = null; renderPanel();
+}
+function editMove(p, last) {
+  const dr = st.drag;
+  if (!dr) return;
+  const sc = st.scene;
+  if (dr.type === 'horizon') { sc.horizon = clamp(p[1], -0.4, 1.4); rebuild(); return; }
+  if (dr.type === 'guide') { st.guides[dr.i][dr.j] = p.slice(); return; }
+  if (dr.type === 'seat') { sc.seats[dr.i].p = p.slice(); changed(); return; }
+  if (dr.type === 'newpt') { const d = st.drawing; d.pts[d.pts.length - 1] = p.slice(); return; }
+  const sp = selPts();
+  if (!sp) return;
+  if (dr.type === 'vertex' && st.sel.v >= 0) { sp[st.sel.v] = p.slice(); changed(); return; }
+  if (dr.type === 'move' && down && down.moved) {
+    const dx = p[0] - last[0], dy = p[1] - last[1];
+    for (const q of sp) { q[0] += dx; q[1] += dy; }
+    changed();
+  }
+}
+function editUp() {
+  if (st.drag && st.drag.type !== 'guide' && st.drag.type !== 'newpt') { rebuild({ navNow: true }); saveScene(); }
+  st.drag = null;
+}
+function changed() { rebuild(); saveScene(); }
+function finishDrawing() {
+  const d = st.drawing;
+  st.drawing = null;
+  if (d.pts.length >= 3) {
+    const item = d.list === 'occluders' ? { pts: d.pts } : { pts: d.pts, h: d.kind === 'block' ? 0 : (d.h || 0), kind: d.kind };
+    st.scene[d.list].push(item);
+    st.sel = { list: d.list, i: st.scene[d.list].length - 1, v: -1 };
+    rebuild({ navNow: true }); saveScene();
+  }
+  renderPanel();
+}
+
+// ---------- 下の列とパネル ----------
+const bar = $('bar'), panel = $('panel');
+function btn(text, on, cls) { const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = on; return b; }
+function renderBar() {
+  bar.innerHTML = '';
+  if (st.mode === 'play') {
+    bar.append(
+      btn(st.wander ? '🚶 ぶらぶら：入' : '🚶 ぶらぶら：切', () => { st.wander = !st.wander; idb.set('prefs', { wander: st.wander }); renderBar(); }, st.wander ? 'on' : ''),
+      btn('📷 写真', takePhoto),
+      st.rec ? btn('■ 止める', stopRec, 'rec') : btn('● 録画', startRec),
+      btn('✏️ つくる', () => setMode('edit')),
+      spacer(),
+      btn('≡', () => $('menu').classList.add('show'))
+    );
+  } else {
+    bar.append(btn('できた', () => setMode('play'), 'primary'), spacer(), btn('≡', () => $('menu').classList.add('show')));
+  }
+}
+function spacer() { const s = document.createElement('div'); s.className = 'grow'; return s; }
+function setMode(m) {
+  st.mode = m;
+  st.drawing = null; st.drag = null;
+  if (m === 'edit') {
+    av.path = null; av.after = null; av.state = 'idle'; av.sitW = av.sitTarget = 0; av.seat = null; av.waveT = -1;
+  } else {
+    st.sel = null;
+    if (st.nav && isNaN(C.heightAt(st.nav, av.x, av.z))) buildNav();
+  }
+  panel.classList.toggle('show', m === 'edit');
+  renderBar(); renderPanel();
+  requestAnimationFrame(layout);
+}
+const TOOLS = [['horizon', '地平線'], ['floor', '床'], ['occ', '前に出す'], ['seat', 'すわる'], ['view', '見え方']];
+function renderPanel() {
+  if (st.mode !== 'edit') { panel.innerHTML = ''; return; }
+  panel.innerHTML = '';
+  const tabs = document.createElement('div'); tabs.className = 'tabs';
+  for (const [k, name] of TOOLS) tabs.append(btn(name, () => { st.tool = k; st.sel = null; st.drawing = null; renderPanel(); }, st.tool === k ? 'on' : ''));
+  panel.append(tabs);
+  const hint = s => { const p = document.createElement('div'); p.className = 'hint'; p.innerHTML = s; panel.append(p); };
+  const row = (...els) => { const r = document.createElement('div'); r.className = 'row'; r.append(...els); panel.append(r); return r; };
+  const sc = st.scene, tool = st.tool;
+  if (tool === 'horizon') {
+    hint('<span class="dot" style="background:var(--hz)"></span>上下に指を動かして、地平線（目の高さ）を合わせる。道や床の線を奥へ伸ばして交わる高さ。');
+    row(
+      btn(st.guides ? '補助線をしまう' : '補助線を出す', () => {
+        st.guides = st.guides ? null : [[[0.25, 0.95], [0.4, 0.7]], [[0.75, 0.95], [0.6, 0.7]]];
+        renderPanel();
+      }),
+      ...(st.guides ? [btn('線の交わる高さにする', () => {
+        const y = C.horizonFromLines(st.guides[0], st.guides[1]);
+        if (y === null) { toast('2 本の線が平行か、交わる所が遠すぎる'); return; }
+        sc.horizon = y; rebuild({ navNow: true }); saveScene(); renderPanel();
+      }, 'primary')] : [])
+    );
+    if (st.guides) hint('補助線の端をドラッグして、絵の中で実際には平行な線（道の両端、床の目地など）に重ねる。');
+  } else if (tool === 'floor' || tool === 'occ') {
+    const list = tool === 'occ' ? 'occluders' : 'areas';
+    if (st.drawing) {
+      hint('点をタップして囲む。最初の点をもう一度タップで閉じる。');
+      row(btn('できた', finishDrawing, 'primary'), btn('やめる', () => { st.drawing = null; renderPanel(); }));
+    } else {
+      if (tool === 'floor') {
+        hint('<span class="dot" style="background:var(--walk)"></span>歩ける床　<span class="dot" style="background:var(--block)"></span>通れない所。台や階段は別の床にして高さを入れる（上り下りできる段差は 0.35m まで）。');
+        row(
+          btn('＋ 歩ける床', () => { st.drawing = { list, kind: 'walk', pts: [] }; st.sel = null; renderPanel(); }),
+          btn('＋ 通れない所', () => { st.drawing = { list, kind: 'block', pts: [] }; st.sel = null; renderPanel(); })
+        );
+      } else {
+        hint('<span class="dot" style="background:var(--occ)"></span>キャラの手前に来るもの（柱、ベンチ、手すり）を囲む。いちばん下の点（白い点線）が床に接する所。そこより奥にいるキャラが隠れる。');
+        row(btn('＋ 前に出すもの', () => { st.drawing = { list, pts: [] }; st.sel = null; renderPanel(); }));
+      }
+      const s = st.sel && st.sel.list === list ? st.sel : null, it = s && sc[list][s.i];
+      if (it) {
+        if (tool === 'floor') {
+          row(
+            btn('歩ける', () => { it.kind = 'walk'; changed(); renderPanel(); }, it.kind !== 'block' ? 'on' : ''),
+            btn('通れない', () => { it.kind = 'block'; changed(); renderPanel(); }, it.kind === 'block' ? 'on' : '')
+          );
+          slider('高さ', -1, 3, 0.05, it.h || 0, v => v.toFixed(2) + ' m', v => {
+            it.h = v;
+            const c = centroid(it.pts);
+            rebuild(it.kind === 'block' ? undefined : { place: c });
+            saveScene();
+          });
+        }
+        row(
+          btn('点を消す', () => { if (s.v >= 0 && it.pts.length > 3) { it.pts.splice(s.v, 1); s.v = -1; changed(); renderPanel(); } else toast('消す点をタップして選ぶ（3 点は残る）'); }),
+          btn('この形を消す', () => { sc[list].splice(s.i, 1); st.sel = null; changed(); renderPanel(); })
+        );
+        hint('点をドラッグで動かす。辺のまんなかの小さい丸を引くと点が増える。形の中をドラッグで全体を動かす。');
+      } else {
+        hint('形をタップで選ぶ。');
+      }
+    }
+  } else if (tool === 'seat') {
+    hint('<span class="dot" style="background:var(--seat)"></span>タップした所に、座るときに足を置く床の点を置く。線の向きがキャラの向き。あそぶ画面で印の近くをタップすると座りに行く。');
+    const s = st.sel && st.sel.list === 'seats' ? st.sel : null, it = s && sc.seats[s.i];
+    if (it) {
+      slider('向き', -180, 180, 5, it.dir, v => (v === 0 ? '手前' : v > 0 ? '右へ ' + v + '°' : '左へ ' + (-v) + '°'), v => { it.dir = v; changed(); });
+      row(btn('この場所を消す', () => { sc.seats.splice(s.i, 1); st.sel = null; changed(); renderPanel(); }));
+    }
+  } else if (tool === 'view') {
+    slider('キャラの大きさ', 0, 100, 1, eyeToSize(sc.eye), v => '目線 ' + sizeToEye(v).toFixed(2) + ' m', v => { sc.eye = sizeToEye(v); rebuild(); saveScene(); });
+    slider('遠近感', 25, 110, 1, sc.fov, v => '画角 ' + v + '°', v => { sc.fov = v; rebuild(); saveScene(); });
+    slider('キャラの明るさ', 0.3, 2, 0.05, sc.light, v => Math.round(v * 100) + '%', v => { sc.light = v; setProjection(); saveScene(); });
+    slider('光の色味', -1, 1, 0.05, sc.warmth || 0, v => (Math.abs(v) < 0.03 ? 'ふつう' : v > 0 ? '暖かい ' + Math.round(v * 100) : '寒い ' + Math.round(-v * 100)), v => { sc.warmth = v; setProjection(); saveScene(); });
+    hint('大きさは、カメラ（目線）の高さで決まる。目線を下げるとキャラが大きくなる。遠近感は、奥へ歩いたときの動きの速さと、キャラ自身の見え方に効く。');
+  }
+}
+const sizeToEye = v => 1.5 * Math.pow(2, (50 - v) / 25);
+const eyeToSize = e => clamp(50 - 25 * Math.log2(e / 1.5), 0, 100);
+function slider(name, min, max, step, value, fmt, on) {
+  const r = document.createElement('div'); r.className = 'row';
+  const l = document.createElement('label'); l.textContent = name;
+  const i = document.createElement('input'); i.type = 'range'; i.min = min; i.max = max; i.step = step; i.value = value;
+  const v = document.createElement('span'); v.className = 'val'; v.textContent = fmt(+value);
+  i.oninput = () => { v.textContent = fmt(+i.value); on(+i.value); };
+  i.onchange = () => { rebuild({ navNow: true }); };
+  r.append(l, i, v); panel.append(r);
+}
+
+let toastTimer = 0;
+function toast(s, ms) { const t = $('toast'); t.textContent = s; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2600); }
+
+// ---------- 写真と録画 ----------
+function compositeSize() {
+  const pr = renderer.getPixelRatio();
+  let w = Math.round(st.rect.w * pr), h = Math.round(st.rect.h * pr);
+  const s = Math.min(1, 1920 / Math.max(w, h));
+  return [Math.round(w * s / 2) * 2, Math.round(h * s / 2) * 2];
+}
+function drawComposite(g, w, h) {
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(st.src, 0, 0, w, h);
+  g.drawImage(glCanvas, 0, 0, w, h);
+}
+let photoPending = false;
+function takePhoto() { photoPending = true; }
+function finishPhoto() {
+  const [w, h] = compositeSize(), c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  drawComposite(c.getContext('2d'), w, h);
+  c.toBlob(b => { if (b) offerSave(b, 'enonaka-' + stamp() + '.png', '写真'); }, 'image/png');
+}
+function startRec() {
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) { toast('このブラウザは録画に対応していない'); return; }
+  const [w, h] = compositeSize(), c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  drawComposite(g, w, h);
+  const stream = c.captureStream(30);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const mt = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+  let rec;
+  try { rec = new MediaRecorder(stream, mt ? { mimeType: mt, videoBitsPerSecond: 8e6 } : undefined); }
+  catch (e) { toast('録画を始められなかった'); return; }
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    const type = (rec.mimeType || mt || 'video/webm').split(';')[0];
+    const blob = new Blob(chunks, { type });
+    offerSave(blob, 'enonaka-' + stamp() + (type.includes('mp4') ? '.mp4' : '.webm'), '動画');
+  };
+  rec.start(500);
+  st.rec = { rec, g, w, h, t0: performance.now() };
+  renderBar();
+}
+function stopRec() {
+  if (!st.rec) return;
+  const r = st.rec; st.rec = null;
+  try { r.rec.stop(); } catch (e) {}
+  renderBar();
+}
+const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); };
+let saveBlob = null, saveName = '';
+function offerSave(blob, name, kind) {
+  saveBlob = blob; saveName = name;
+  const pv = $('savePreview'); pv.innerHTML = '';
+  const url = URL.createObjectURL(blob);
+  const el = kind === '動画' ? Object.assign(document.createElement('video'), { src: url, controls: true, playsInline: true, loop: true, muted: true, autoplay: true }) : Object.assign(document.createElement('img'), { src: url });
+  pv.append(el);
+  $('saveTitle').textContent = kind + 'ができた';
+  $('saveSheet').classList.add('show');
+}
+$('saveBtn').onclick = async () => {
+  if (!saveBlob) return;
+  const f = new File([saveBlob], saveName, { type: saveBlob.type });
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(saveBlob); a.download = saveName;
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+};
+$('saveClose').onclick = () => { $('saveSheet').classList.remove('show'); const v = $('savePreview').querySelector('video,img'); if (v) URL.revokeObjectURL(v.src); $('savePreview').innerHTML = ''; };
+
+// ---------- メニュー ----------
+$('mClose').onclick = () => $('menu').classList.remove('show');
+$('menu').onclick = e => { if (e.target === $('menu')) $('menu').classList.remove('show'); };
+$('help').onclick = e => { if (e.target === $('help')) $('help').classList.remove('show'); };
+$('mHelp').onclick = () => { $('menu').classList.remove('show'); $('help').classList.add('show'); };
+$('hClose').onclick = () => $('help').classList.remove('show');
+$('mScenes').onclick = showScenes;
+$('scClose').onclick = () => $('scenes').classList.remove('show');
+$('scenes').onclick = e => { if (e.target === $('scenes')) $('scenes').classList.remove('show'); };
+$('mPickVrm').onclick = () => { $('menu').classList.remove('show'); $('fileVrm').click(); };
+$('mReset').onclick = async () => {
+  $('menu').classList.remove('show');
+  if (st.sceneId === 'custom') {
+    if (!confirm('自分の絵の設定を消して、最初から決めなおす？')) return;
+    st.scene = defaultScene(); await idb.set('scene', st.scene);
+    rebuild({ navNow: true, place: [0.5, st.scene.horizon + 0.15] });
+    setMode('edit'); st.tool = 'horizon'; renderPanel();
+    return;
+  }
+  await idb.del('scene:' + st.sceneId);
+  if (st.sceneId === 'sample') await idb.del('sampleScene');
+  await openScene(st.sceneId, true);
+  setMode('play'); toast('最初の設定に戻した');
+};
+$('mSampleVrm').onclick = async () => {
+  $('menu').classList.remove('show');
+  try { await loadSampleVrm(); await idb.del('vrm'); } catch (e) { toast('キャラを読めなかった'); }
+};
+$('fileBg').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const c = await imageToCanvas(f);
+    st.src = c; st.W = c.width; st.H = c.height; st.sceneId = 'custom'; st.cam = null;
+    st.scene = defaultScene();
+    layout();
+    rebuild({ navNow: true, place: [0.5, st.scene.horizon + 0.15] });
+    setMode('edit'); st.tool = 'horizon'; renderPanel();
+    toast('まず地平線を合わせて、次に「床」で歩ける所を囲む', 5000);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+    if (blob) { await idb.set('bg', blob); await idb.set('scene', st.scene); await idb.set('current', 'custom'); }
+  } catch (err) { toast('この絵は読めなかった'); }
+};
+$('fileVrm').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const buf = await f.arrayBuffer();
+    if (new TextDecoder().decode(new Uint8Array(buf, 0, 4)) !== 'glTF') throw new Error('not glb');
+    $('loading').textContent = 'キャラを読みこみ中…'; $('loading').style.display = 'flex';
+    await loadVrm(buf);
+    await idb.set('vrm', new Blob([buf]));
+    toast('キャラを入れかえた');
+  } catch (err) { toast('VRM として読めなかった'); }
+  $('loading').style.display = 'none';
+};
+// ---------- 場面 ----------
+async function loadImage(url) { const img = new Image(); img.src = url; await img.decode(); return img; }
+// id は 'sample'（お試しの広場）、用意した場面の id、'custom'（自分の絵）
+async function openScene(id, fresh) {
+  let sc, src, place = null, startW = null;
+  if (id === 'sample') {
+    const s = EnonakaSample.make(); src = s.canvas; sc = s.scene; startW = s.scene.start;
+  } else if (id === 'custom') {
+    const bg = await idb.get('bg');
+    if (!bg) throw new Error('自分の絵がない');
+    src = await imageToCanvas(bg);
+    sc = C.sanitizeScene(await idb.get('scene'));
+    if (!sc.areas.length) sc = defaultScene();
+  } else {
+    const pr = EnonakaPresets.get(id);
+    if (!pr) throw new Error('場面がない');
+    src = await loadImage(pr.src);
+    sc = JSON.parse(JSON.stringify(pr.scene)); place = pr.start;
+  }
+  if (id !== 'custom' && !fresh) {
+    const saved = (await idb.get('scene:' + id)) || (id === 'sample' ? await idb.get('sampleScene') : null);
+    if (saved) { const s2 = C.sanitizeScene(saved); if (s2.areas.length) sc = s2; }
+  }
+  st.src = src; st.W = src.naturalWidth || src.width; st.H = src.naturalHeight || src.height;
+  st.sceneId = id; st.scene = sc; st.cam = null; st.sel = null; st.drawing = null;
+  av.path = null; av.after = null; av.state = 'idle'; av.sitW = av.sitTarget = 0; av.seat = null; av.waveT = -1; av.heading = 0;
+  layout();
+  rebuild({ navNow: true, place: place || undefined });
+  if (startW) setPos(startW.x, startW.z);
+  else if (!place) { const c = centerOfFirstFloor(); if (c) setPos(c.x, c.z); }
+  idb.set('current', id);
+}
+let customThumb = null, sampleThumb = null;
+async function showScenes() {
+  $('menu').classList.remove('show');
+  const box = $('sceneCards');
+  box.innerHTML = '';
+  const card = (img, name, id) => {
+    const b = document.createElement('button');
+    if (id === st.sceneId) b.className = 'cur';
+    const i = document.createElement('img'); i.src = img; i.alt = '';
+    const t = document.createElement('span'); t.textContent = name;
+    b.append(i, t); b.onclick = () => pickScene(id);
+    box.append(b);
+  };
+  if (!sampleThumb) {
+    const c = EnonakaSample.make().canvas, t = document.createElement('canvas');
+    t.width = 360; t.height = Math.round(360 * c.height / c.width);
+    t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+    sampleThumb = t.toDataURL('image/jpeg', 0.8);
+  }
+  card(sampleThumb, 'お試しの広場', 'sample');
+  for (const p of EnonakaPresets.list) card(p.thumb, p.name, p.id);
+  const bg = await idb.get('bg');
+  if (customThumb) { URL.revokeObjectURL(customThumb); customThumb = null; }
+  if (bg) { customThumb = URL.createObjectURL(bg); card(customThumb, '自分の絵', 'custom'); }
+  const add = document.createElement('button');
+  add.className = 'add'; add.textContent = '＋ 自分の絵を選ぶ';
+  add.onclick = () => { $('scenes').classList.remove('show'); $('fileBg').click(); };
+  box.append(add);
+  $('scenes').classList.add('show');
+}
+async function pickScene(id) {
+  $('scenes').classList.remove('show');
+  if (id === st.sceneId) return;
+  $('loading').textContent = '絵を読みこみ中…'; $('loading').style.display = 'flex';
+  try { await openScene(id); setMode('play'); } catch (e) { toast('場面を開けなかった'); }
+  $('loading').style.display = 'none';
+}
+
+async function loadSampleVrm() {
+  const r = await fetch('models/sample.vrm');
+  if (!r.ok) throw new Error('fetch');
+  await loadVrm(await r.arrayBuffer(), SAMPLE_CREDIT);
+}
+
+// ---------- まわす ----------
+let lastT = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  if (!av.vrm || !st.cam) return;
+  stepAvatar(dt);
+  av.vrm.update(dt);
+  renderer.render(scene3, camera);
+  if (photoPending) { photoPending = false; finishPhoto(); }
+  if (st.rec) {
+    drawComposite(st.rec.g, st.rec.w, st.rec.h);
+    const sec = Math.floor((now - st.rec.t0) / 1000);
+    const b = bar.querySelector('.rec');
+    if (b) b.textContent = '■ 止める ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+    if (sec >= 60) stopRec();
+  }
+  drawUI();
+}
+
+async function start() {
+  try {
+    const prefs = await idb.get('prefs');
+    if (prefs && typeof prefs.wander === 'boolean') st.wander = prefs.wander;
+    let id = await idb.get('current');
+    if (!id) id = (await idb.get('bg')) ? 'custom' : 'sample';
+    try { await openScene(id); } catch (e) { await openScene('sample'); }
+    const vb = await idb.get('vrm');
+    let ok = false;
+    if (vb) { try { await loadVrm(await vb.arrayBuffer()); ok = true; } catch (e) { ok = false; } }
+    if (!ok) await loadSampleVrm();
+    $('loading').style.display = 'none';
+    renderBar(); renderPanel();
+    requestAnimationFrame(frame);
+  } catch (e) {
+    console.error(e);
+    $('loading').textContent = '読みこめなかった：' + (e && e.message ? e.message : e);
+  }
+}
+function centerOfFirstFloor() {
+  const a = st.scene.areas.find(a => a.kind !== 'block');
+  if (!a) return null;
+  const c = centroid(a.pts), h = a.h || 0;
+  const w = C.imageToWorld(st.cam, c[0] * st.W, C.clampV(st.cam, c[1] * st.H, h, MAX_DEPTH), h);
+  return w ? { x: w.x, z: w.z } : null;
+}
+start();
+window.enonaka = { st, av, C };  // 調べる用
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
