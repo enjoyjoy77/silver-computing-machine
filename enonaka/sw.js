@@ -1,9 +1,9 @@
 // えのなか の service worker
 // 画面（HTML・JS・アイコン）はキャッシュから即答し、裏でネットから取り直す（stale-while-revalidate）。
-// お試しのキャラ（models/、6.7MB）は別のキャッシュに入れ、一度取ったら取り直さない。
-const SHELL = 'enonaka-shell-v1';
-const MODELS = 'enonaka-models-v1';
-const FILES = ['./', './index.html', './stage-core.js', './sample-scene.js', './lib/three-vrm-bundle.min.js',
+// お試しのキャラ（models/、6.7MB）と場面の絵（bg/）は別のキャッシュに入れ、一度取ったら取り直さない。
+const SHELL = 'enonaka-shell-v2';
+const MEDIA = 'enonaka-media-v1';
+const FILES = ['./', './index.html', './stage-core.js', './sample-scene.js', './presets.js', './lib/three-vrm-bundle.min.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -23,9 +23,9 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
 
-  if (url.pathname.includes('/models/')) {
+  if (url.pathname.includes('/models/') || url.pathname.includes('/bg/')) {
     e.respondWith(
-      caches.open(MODELS).then(async c => {
+      caches.open(MEDIA).then(async c => {
         const hit = await c.match(e.request, { ignoreSearch: true });
         if (hit) return hit;
         const res = await fetch(e.request);

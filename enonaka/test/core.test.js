@@ -141,6 +141,7 @@ t('保存データの検査', () => {
     seats: [{ p: [0.5, 0.8], dir: 20 }, { p: ['a'] }]
   });
   assert.strictEqual(s.horizon, 0.3); assert.strictEqual(s.eye, 1.5); assert.strictEqual(s.fov, 140);
+  assert.strictEqual(s.warmth, 0); assert.strictEqual(C.sanitizeScene({ warmth: 3 }).warmth, 1);
   assert.strictEqual(s.areas.length, 2);
   assert.strictEqual(s.areas[0].kind, 'walk'); assert.strictEqual(s.areas[0].h, 0.4);
   assert.strictEqual(s.areas[1].kind, 'block'); assert.strictEqual(s.areas[1].pts.length, 3);

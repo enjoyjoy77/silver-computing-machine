@@ -274,7 +274,7 @@
 
   // 保存していた場面を読むときの検査。壊れた所は捨てて、使える形にそろえる
   function sanitizeScene(s) {
-    const out = { horizon: 0.45, eye: 1.5, fov: 60, light: 1, areas: [], occluders: [], seats: [] };
+    const out = { horizon: 0.45, eye: 1.5, fov: 60, light: 1, warmth: 0, areas: [], occluders: [], seats: [] };
     if (!s || typeof s !== 'object') return out;
     const num = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : d);
     const pt = p => Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1]) ? [clamp(+p[0], -0.5, 1.5), clamp(+p[1], -0.5, 1.5)] : null;
@@ -283,6 +283,7 @@
     out.eye = num(s.eye, 0.2, 50, out.eye);
     out.fov = num(s.fov, 10, 140, out.fov);
     out.light = num(s.light, 0.2, 2.5, out.light);
+    out.warmth = num(s.warmth, -1, 1, out.warmth);
     for (const a of Array.isArray(s.areas) ? s.areas : []) {
       const pts = poly(a && a.pts);
       if (pts.length >= 3) out.areas.push({ pts, h: num(a.h, -5, 20, 0), kind: a.kind === 'block' ? 'block' : 'walk' });

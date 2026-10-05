@@ -77,6 +77,12 @@
   .sheet .list { display: flex; flex-direction: column; gap: 8px; }
   .sheet .list button { text-align: left; }
   .sheet p { font-size: 0.82rem; color: var(--muted); line-height: 1.7; margin: 6px 0; }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+  .cards button { padding: 0; overflow: hidden; display: flex; flex-direction: column; text-align: left; min-height: 0; }
+  .cards img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; display: block; background: #000; margin: 0; border-radius: 0; }
+  .cards span { padding: 8px 10px; font-size: 0.82rem; }
+  .cards button.cur { outline: 3px solid var(--accent); outline-offset: -3px; }
+  .cards .add { align-items: center; justify-content: center; min-height: 110px; font-size: 0.9rem; }
   .sheet img, .sheet video { width: 100%; border-radius: 10px; background: #000; display: block; margin-bottom: 10px; }
   @media (orientation: landscape) and (max-height: 560px) {
     #app { flex-direction: row; padding-bottom: env(safe-area-inset-bottom); }
@@ -106,10 +112,10 @@
   <div class="box">
     <h3>えのなか</h3>
     <div class="list">
-      <button id="mPickBg">🖼 絵を選ぶ</button>
+      <button id="mScenes">🖼 場面を選ぶ</button>
       <button id="mPickVrm">🧍 キャラ（VRM）を選ぶ</button>
-      <button id="mSampleBg">お試しの絵に戻す</button>
       <button id="mSampleVrm">お試しのキャラに戻す</button>
+      <button id="mReset">この場面を最初の設定に戻す</button>
       <button id="mHelp">使い方</button>
       <button id="mClose" class="primary">とじる</button>
     </div>
@@ -117,11 +123,20 @@
   </div>
 </div>
 
+<div class="sheet" id="scenes">
+  <div class="box">
+    <h3>場面を選ぶ</h3>
+    <div class="cards" id="sceneCards"></div>
+    <div class="list"><button id="scClose">とじる</button></div>
+  </div>
+</div>
+
 <div class="sheet" id="help">
   <div class="box">
     <h3>使い方</h3>
     <p><b>あそぶ</b>　床をタップするとキャラがそこまで歩く。段差は階段を探して上り下りする。キャラをタップすると手をふる。ピンクの印（すわる場所）の近くをタップすると座りに行く。「ぶらぶら」をオンにすると勝手に歩きまわる。</p>
-    <p><b>自分の絵で</b>　≡ →「絵を選ぶ」。そのあと「つくる」で 4 つを決める。</p>
+    <p><b>場面</b>　≡ →「場面を選ぶ」。ひまわりの道・杉並木の神社・木造校舎の廊下は、床や段差を決めてある。直した設定は場面ごとに残る（「この場面を最初の設定に戻す」で元どおり）。</p>
+    <p><b>自分の絵で</b>　「場面を選ぶ」→「＋ 自分の絵を選ぶ」。そのあと「つくる」で 4 つを決める。</p>
     <p>① <b>地平線</b>　目の高さの線。道や床の線を奥へ伸ばして交わる高さ。補助線を 2 本、平行な線（道の両端など）に重ねると求まる。<br>
     ② <b>床</b>　歩ける所を点で囲む。台や階段は別の床にして高さ（m）を入れる。高さの差が 0.35m までなら上り下りできる。ベンチの足元など、通れない所も囲める。<br>
     ③ <b>前に出す</b>　柱やベンチなど、キャラの手前に来るものを囲む。いちばん下の点が床に接する所になるように。そこより奥にいるキャラは隠れる。<br>
@@ -148,6 +163,7 @@
 
 <script src="stage-core.js"></script>
 <script src="sample-scene.js"></script>
+<script src="presets.js"></script>
 <script type="module">
 import * as T from './lib/three-vrm-bundle.min.js';
 const C = window.EnonakaCore;
@@ -161,7 +177,7 @@ const SAMPLE_CREDIT = 'お試しのキャラ: VRM1_Constraint_Twist_Sample（© 
 
 // ---------- 状態 ----------
 const st = {
-  src: null, W: 1600, H: 900, bgSample: true,
+  src: null, W: 1600, H: 900, sceneId: 'sample',
   scene: null, cam: null, nav: null, seatsW: [], occ: [],
   mode: 'play', tool: 'horizon', sel: null, drawing: null, drag: null,
   guides: null, wander: true, rect: { x: 0, y: 0, w: 1, h: 1 }, dpr: 1,
@@ -188,7 +204,7 @@ const idb = (() => {
 })();
 let saveTimer = 0;
 // お試しの絵を直した分と、自分の絵の設定は別に持つ
-const sceneKey = () => st.bgSample ? 'sampleScene' : 'scene';
+const sceneKey = () => st.sceneId === 'custom' ? 'scene' : 'scene:' + st.sceneId;
 const saveScene = () => { clearTimeout(saveTimer); const k = sceneKey(), v = st.scene; saveTimer = setTimeout(() => idb.set(k, v), 400); };
 
 // ---------- 3D ----------
@@ -226,8 +242,12 @@ function setProjection() {
   camera.position.set(0, c.eye, 0);
   camera.rotation.set(0, 0, 0);
   camera.updateMatrixWorld();
-  const L = st.scene.light;
+  const L = st.scene.light, w = st.scene.warmth || 0;
   sun.intensity = Math.PI * L; amb.intensity = 0.5 * L;
+  // 色味：暖かい側は夕日のだいだい、寒い側は日陰の青みへ寄せる
+  const tint = w >= 0 ? [1, 1 - 0.16 * w, 1 - 0.36 * w] : [1 + 0.22 * w, 1 + 0.1 * w, 1];
+  sun.color.setRGB(tint[0], tint[1], tint[2]);
+  amb.color.setRGB(0.5 + 0.5 * tint[0], 0.5 + 0.5 * tint[1], 0.5 + 0.5 * tint[2]);
 }
 
 // 床（水平な面）と前に出すもの（絵と平行な板）を、奥行きだけ書く透明な板にする
@@ -550,11 +570,6 @@ function layout() {
 new ResizeObserver(() => layout()).observe(stage);
 
 // ---------- 背景 ----------
-function useSample() {
-  const s = EnonakaSample.make();
-  st.src = s.canvas; st.W = s.canvas.width; st.H = s.canvas.height; st.bgSample = true;
-  return s.scene;
-}
 function defaultScene() {
   const hz = 0.45;
   return C.sanitizeScene({ horizon: hz, eye: 1.5, fov: 60, light: 1,
@@ -750,7 +765,7 @@ function playTap(p) {
   // キャラ
   const foot = C.worldToImage(st.cam, av.x, av.y, av.z), head = C.worldToImage(st.cam, av.x, av.y + av.dim.height * (1 - 0.3 * av.sitW), av.z);
   if (foot && head) {
-    const hgt = (foot.v - head.v) / st.H, cx = foot.u / st.W, top = head.v / st.H, half = Math.max(hgt * 0.22 * st.H / st.W, 18 / st.rect.w);
+    const hgt = (foot.v - head.v) / st.H, cx = foot.u / st.W, top = head.v / st.H, half = Math.max(hgt * 0.13 * st.H / st.W, 18 / st.rect.w);
     if (p[0] > cx - half && p[0] < cx + half && p[1] > top && p[1] < foot.v / st.H + 0.01) { wave(); return; }
   }
   const tg = C.pickTarget(st.cam, st.scene.areas, p[0], p[1], MAX_DEPTH);
@@ -951,6 +966,7 @@ function renderPanel() {
     slider('キャラの大きさ', 0, 100, 1, eyeToSize(sc.eye), v => '目線 ' + sizeToEye(v).toFixed(2) + ' m', v => { sc.eye = sizeToEye(v); rebuild(); saveScene(); });
     slider('遠近感', 25, 110, 1, sc.fov, v => '画角 ' + v + '°', v => { sc.fov = v; rebuild(); saveScene(); });
     slider('キャラの明るさ', 0.3, 2, 0.05, sc.light, v => Math.round(v * 100) + '%', v => { sc.light = v; setProjection(); saveScene(); });
+    slider('光の色味', -1, 1, 0.05, sc.warmth || 0, v => (Math.abs(v) < 0.03 ? 'ふつう' : v > 0 ? '暖かい ' + Math.round(v * 100) : '寒い ' + Math.round(-v * 100)), v => { sc.warmth = v; setProjection(); saveScene(); });
     hint('大きさは、カメラ（目線）の高さで決まる。目線を下げるとキャラが大きくなる。遠近感は、奥へ歩いたときの動きの速さと、キャラ自身の見え方に効く。');
   }
 }
@@ -1046,14 +1062,23 @@ $('menu').onclick = e => { if (e.target === $('menu')) $('menu').classList.remov
 $('help').onclick = e => { if (e.target === $('help')) $('help').classList.remove('show'); };
 $('mHelp').onclick = () => { $('menu').classList.remove('show'); $('help').classList.add('show'); };
 $('hClose').onclick = () => $('help').classList.remove('show');
-$('mPickBg').onclick = () => { $('menu').classList.remove('show'); $('fileBg').click(); };
+$('mScenes').onclick = showScenes;
+$('scClose').onclick = () => $('scenes').classList.remove('show');
+$('scenes').onclick = e => { if (e.target === $('scenes')) $('scenes').classList.remove('show'); };
 $('mPickVrm').onclick = () => { $('menu').classList.remove('show'); $('fileVrm').click(); };
-$('mSampleBg').onclick = async () => {
+$('mReset').onclick = async () => {
   $('menu').classList.remove('show');
-  const sc = useSample();
-  st.scene = sc; await idb.del('bg'); await idb.del('sampleScene');
-  layout(); rebuild({ navNow: true }); setPos(sc.start.x, sc.start.z); buildNav();
-  setMode('play');
+  if (st.sceneId === 'custom') {
+    if (!confirm('自分の絵の設定を消して、最初から決めなおす？')) return;
+    st.scene = defaultScene(); await idb.set('scene', st.scene);
+    rebuild({ navNow: true, place: [0.5, st.scene.horizon + 0.15] });
+    setMode('edit'); st.tool = 'horizon'; renderPanel();
+    return;
+  }
+  await idb.del('scene:' + st.sceneId);
+  if (st.sceneId === 'sample') await idb.del('sampleScene');
+  await openScene(st.sceneId, true);
+  setMode('play'); toast('最初の設定に戻した');
 };
 $('mSampleVrm').onclick = async () => {
   $('menu').classList.remove('show');
@@ -1064,14 +1089,14 @@ $('fileBg').onchange = async e => {
   if (!f) return;
   try {
     const c = await imageToCanvas(f);
-    st.src = c; st.W = c.width; st.H = c.height; st.bgSample = false;
+    st.src = c; st.W = c.width; st.H = c.height; st.sceneId = 'custom'; st.cam = null;
     st.scene = defaultScene();
     layout();
     rebuild({ navNow: true, place: [0.5, st.scene.horizon + 0.15] });
     setMode('edit'); st.tool = 'horizon'; renderPanel();
     toast('まず地平線を合わせて、次に「床」で歩ける所を囲む', 5000);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
-    if (blob) { await idb.set('bg', blob); await idb.set('scene', st.scene); }
+    if (blob) { await idb.set('bg', blob); await idb.set('scene', st.scene); await idb.set('current', 'custom'); }
   } catch (err) { toast('この絵は読めなかった'); }
 };
 $('fileVrm').onchange = async e => {
@@ -1087,6 +1112,76 @@ $('fileVrm').onchange = async e => {
   } catch (err) { toast('VRM として読めなかった'); }
   $('loading').style.display = 'none';
 };
+// ---------- 場面 ----------
+async function loadImage(url) { const img = new Image(); img.src = url; await img.decode(); return img; }
+// id は 'sample'（お試しの広場）、用意した場面の id、'custom'（自分の絵）
+async function openScene(id, fresh) {
+  let sc, src, place = null, startW = null;
+  if (id === 'sample') {
+    const s = EnonakaSample.make(); src = s.canvas; sc = s.scene; startW = s.scene.start;
+  } else if (id === 'custom') {
+    const bg = await idb.get('bg');
+    if (!bg) throw new Error('自分の絵がない');
+    src = await imageToCanvas(bg);
+    sc = C.sanitizeScene(await idb.get('scene'));
+    if (!sc.areas.length) sc = defaultScene();
+  } else {
+    const pr = EnonakaPresets.get(id);
+    if (!pr) throw new Error('場面がない');
+    src = await loadImage(pr.src);
+    sc = JSON.parse(JSON.stringify(pr.scene)); place = pr.start;
+  }
+  if (id !== 'custom' && !fresh) {
+    const saved = (await idb.get('scene:' + id)) || (id === 'sample' ? await idb.get('sampleScene') : null);
+    if (saved) { const s2 = C.sanitizeScene(saved); if (s2.areas.length) sc = s2; }
+  }
+  st.src = src; st.W = src.naturalWidth || src.width; st.H = src.naturalHeight || src.height;
+  st.sceneId = id; st.scene = sc; st.cam = null; st.sel = null; st.drawing = null;
+  av.path = null; av.after = null; av.state = 'idle'; av.sitW = av.sitTarget = 0; av.seat = null; av.waveT = -1; av.heading = 0;
+  layout();
+  rebuild({ navNow: true, place: place || undefined });
+  if (startW) setPos(startW.x, startW.z);
+  else if (!place) { const c = centerOfFirstFloor(); if (c) setPos(c.x, c.z); }
+  idb.set('current', id);
+}
+let customThumb = null, sampleThumb = null;
+async function showScenes() {
+  $('menu').classList.remove('show');
+  const box = $('sceneCards');
+  box.innerHTML = '';
+  const card = (img, name, id) => {
+    const b = document.createElement('button');
+    if (id === st.sceneId) b.className = 'cur';
+    const i = document.createElement('img'); i.src = img; i.alt = '';
+    const t = document.createElement('span'); t.textContent = name;
+    b.append(i, t); b.onclick = () => pickScene(id);
+    box.append(b);
+  };
+  if (!sampleThumb) {
+    const c = EnonakaSample.make().canvas, t = document.createElement('canvas');
+    t.width = 360; t.height = Math.round(360 * c.height / c.width);
+    t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+    sampleThumb = t.toDataURL('image/jpeg', 0.8);
+  }
+  card(sampleThumb, 'お試しの広場', 'sample');
+  for (const p of EnonakaPresets.list) card(p.thumb, p.name, p.id);
+  const bg = await idb.get('bg');
+  if (customThumb) { URL.revokeObjectURL(customThumb); customThumb = null; }
+  if (bg) { customThumb = URL.createObjectURL(bg); card(customThumb, '自分の絵', 'custom'); }
+  const add = document.createElement('button');
+  add.className = 'add'; add.textContent = '＋ 自分の絵を選ぶ';
+  add.onclick = () => { $('scenes').classList.remove('show'); $('fileBg').click(); };
+  box.append(add);
+  $('scenes').classList.add('show');
+}
+async function pickScene(id) {
+  $('scenes').classList.remove('show');
+  if (id === st.sceneId) return;
+  $('loading').textContent = '絵を読みこみ中…'; $('loading').style.display = 'flex';
+  try { await openScene(id); setMode('play'); } catch (e) { toast('場面を開けなかった'); }
+  $('loading').style.display = 'none';
+}
+
 async function loadSampleVrm() {
   const r = await fetch('models/sample.vrm');
   if (!r.ok) throw new Error('fetch');
@@ -1117,31 +1212,13 @@ async function start() {
   try {
     const prefs = await idb.get('prefs');
     if (prefs && typeof prefs.wander === 'boolean') st.wander = prefs.wander;
-    let sc = null;
-    const bg = await idb.get('bg');
-    if (bg) {
-      try {
-        const c = await imageToCanvas(bg);
-        st.src = c; st.W = c.width; st.H = c.height; st.bgSample = false;
-        sc = C.sanitizeScene(await idb.get('scene'));
-        if (!sc.areas.length) sc = defaultScene();
-      } catch (e) { sc = null; }
-    }
-    if (!sc) {
-      sc = useSample();
-      const saved = await idb.get('sampleScene');
-      if (saved) sc = Object.assign(C.sanitizeScene(saved), { start: sc.start });
-    }
-    st.scene = sc;
-    layout();
-    rebuild({ navNow: true });
+    let id = await idb.get('current');
+    if (!id) id = (await idb.get('bg')) ? 'custom' : 'sample';
+    try { await openScene(id); } catch (e) { await openScene('sample'); }
     const vb = await idb.get('vrm');
     let ok = false;
     if (vb) { try { await loadVrm(await vb.arrayBuffer()); ok = true; } catch (e) { ok = false; } }
     if (!ok) await loadSampleVrm();
-    const s0 = sc.start || centerOfFirstFloor();
-    if (s0) setPos(s0.x, s0.z);
-    buildNav();
     $('loading').style.display = 'none';
     renderBar(); renderPanel();
     requestAnimationFrame(frame);
