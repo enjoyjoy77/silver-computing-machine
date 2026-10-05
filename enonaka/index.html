@@ -77,6 +77,12 @@
   .sheet .list { display: flex; flex-direction: column; gap: 8px; }
   .sheet .list button { text-align: left; }
   .sheet p { font-size: 0.82rem; color: var(--muted); line-height: 1.7; margin: 6px 0; }
+  .moves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .moves .mv { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; min-height: 70px; }
+  .moves .mv .em { font-size: 1.5rem; line-height: 1.2; }
+  .moves .mv .nm { font-size: 0.74rem; white-space: normal; text-align: center; line-height: 1.3; }
+  .moves .mv .x { position: absolute; top: 2px; right: 4px; font-size: 0.8rem; opacity: 0.6; padding: 4px; }
+  .sheet h4 { margin: 10px 0 6px; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
   .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
   .cards button { padding: 0; overflow: hidden; display: flex; flex-direction: column; text-align: left; min-height: 0; }
   .cards img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; display: block; background: #000; margin: 0; border-radius: 0; }
@@ -120,6 +126,21 @@
       <button id="mClose" class="primary">とじる</button>
     </div>
     <p id="credit"></p>
+    <p>モーション：Text-To-VRMA（© Kiratchi、https://github.com/Kirakun0328/text-to-vrma）の LLM キーフレーム方式で作成</p>
+  </div>
+</div>
+
+<div class="sheet" id="moves">
+  <div class="box">
+    <h3>うごき</h3>
+    <div class="moves" id="moveList"></div>
+    <h4>追加したうごき</h4>
+    <div class="moves" id="userMoveList"></div>
+    <div class="list">
+      <button id="mvAdd">＋ VRMA ファイルを追加</button>
+      <button id="mvClose" class="primary">とじる</button>
+    </div>
+    <p>Text-To-VRMA などで作った .vrma を追加できる。追加したうごきは端末の中に残り、ぶらぶら中にもときどきやる。</p>
   </div>
 </div>
 
@@ -135,6 +156,7 @@
   <div class="box">
     <h3>使い方</h3>
     <p><b>あそぶ</b>　床をタップするとキャラがそこまで歩く。段差は階段を探して上り下りする。キャラをタップすると手をふる。ピンクの印（すわる場所）の近くをタップすると座りに行く。「ぶらぶら」をオンにすると勝手に歩きまわる。</p>
+    <p><b>うごき</b>　「🎬 うごき」から選ぶと、こちらを向いてからその動きをする。おじぎ・ジャンプ・のび・ダンスなど。とちゅうで床をタップすると、やめて歩きだす。Text-To-VRMA で作った .vrma ファイルも追加できる。</p>
     <p><b>場面</b>　≡ →「場面を選ぶ」。ひまわりの道・杉並木の神社・木造校舎の廊下は、床や段差を決めてある。直した設定は場面ごとに残る（「この場面を最初の設定に戻す」で元どおり）。</p>
     <p><b>自分の絵で</b>　「場面を選ぶ」→「＋ 自分の絵を選ぶ」。そのあと「つくる」で 4 つを決める。</p>
     <p>① <b>地平線</b>　目の高さの線。道や床の線を奥へ伸ばして交わる高さ。補助線を 2 本、平行な線（道の両端など）に重ねると求まる。<br>
@@ -160,6 +182,7 @@
 
 <input type="file" id="fileBg" accept="image/*" hidden>
 <input type="file" id="fileVrm" hidden>
+<input type="file" id="fileVrma" multiple hidden>
 
 <script src="stage-core.js"></script>
 <script src="sample-scene.js"></script>
@@ -336,6 +359,7 @@ const av = {
   x: 0, y: 0, z: -6, floorY: 0, heading: 0,
   state: 'idle', path: null, pi: 0, after: null, turnTo: 0,
   walkW: 0, sitW: 0, sitTarget: 0, phase: 0, strideK: 1, seat: null, sitUntil: 0, G: null,
+  act: null, extraBones: [], allBones: [],
   waveT: -1, idleT: 0, nextWander: 1.5, blinkT: 2, blinkV: 0, t: 0, lookW: 0, happy: 0
 };
 const BONES = ['hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftShoulder', 'rightShoulder',
@@ -358,6 +382,11 @@ async function loadVrm(buf, credit) {
   charRoot.add(vrm.scene);
   av.B = {};
   for (const n of BONES) av.B[n] = vrm.humanoid.getNormalizedBoneNode(n);
+  // 手続きで動かさない骨（指・つま先・肩の上など）。毎回まっすぐに戻してから、モーションを重ねる
+  av.allBones = Object.keys(vrm.humanoid.humanBones).map(n => vrm.humanoid.getNormalizedBoneNode(n)).filter(Boolean);
+  av.extraBones = av.allBones.filter(b => !BONES.some(n => av.B[n] === b));
+  av.act = null;
+  motionClips.clear();
   av.restHips = av.B.hips.position.clone();
   // 背丈と脚の長さ（座るときに使う）
   charRoot.position.set(0, 0, 0); charRoot.rotation.set(0, 0, 0);
@@ -388,6 +417,7 @@ const smooth = t => t * t * (3 - 2 * t);
 
 function goTo(target, after) {
   if (!st.nav) return false;
+  endAct();
   if (av.sitW > 0.01 || av.state === 'sit') { standUp(() => goTo(target, after)); return true; }
   const path = C.findPath(st.nav, { x: av.x, z: av.z }, target);
   if (!path) return false;
@@ -402,6 +432,7 @@ function goSit(seat) {
   return goTo({ x: seat.x, z: seat.z }, () => turnTo(seat.dir * Math.PI / 180, () => sitDown(seat)));
 }
 function wave() {
+  endAct();
   const start = () => { av.waveT = 0; };
   if (av.state === 'sit' || av.sitW > 0.5) { start(); return; }
   av.path = null;
@@ -522,6 +553,8 @@ function stepFeet(dt) {
 function wanderOnce() {
   const nav = st.nav;
   if (!nav || !nav.cells.length) return;
+  const mv = motionList().filter(m => m.wander !== false);
+  if (mv.length && Math.random() < 0.3) { playMotion(mv[Math.floor(Math.random() * mv.length)]); return; }
   const seats = st.seatsW.filter(Boolean);
   if (seats.length && Math.random() < 0.25) {
     const s = seats[Math.floor(Math.random() * seats.length)];
@@ -597,6 +630,7 @@ function pose() {
   }
   // 書き込む（VRM0 は前後が逆なので x と z の回りを反転）
   const sx = av.vrm0 ? -1 : 1;
+  for (const b of av.extraBones) b.quaternion.identity();
   for (const n of BONES) {
     const b = B[n];
     if (!b) continue;
@@ -926,6 +960,7 @@ function renderBar() {
   if (st.mode === 'play') {
     bar.append(
       btn(st.wander ? '🚶 ぶらぶら：入' : '🚶 ぶらぶら：切', () => { st.wander = !st.wander; idb.set('prefs', { wander: st.wander }); renderBar(); }, st.wander ? 'on' : ''),
+      btn('🎬 うごき', () => { renderMoves(); $('moves').classList.add('show'); }),
       btn('📷 写真', takePhoto),
       st.rec ? btn('■ 止める', stopRec, 'rec') : btn('● 録画', startRec),
       btn('✏️ つくる', () => setMode('edit')),
@@ -941,6 +976,7 @@ function setMode(m) {
   st.mode = m;
   st.drawing = null; st.drag = null;
   if (m === 'edit') {
+    av.act = null;
     av.path = null; av.after = null; av.state = 'idle'; av.sitW = av.sitTarget = 0; av.seat = null; av.waveT = -1;
   } else {
     st.sel = null;
@@ -1246,14 +1282,194 @@ async function loadSampleVrm() {
   await loadVrm(await r.arrayBuffer(), SAMPLE_CREDIT);
 }
 
+// ---------- うごき（VRMA） ----------
+// 内蔵のうごき（motions/index.json）と、追加したうごき（IndexedDB の userMotions）。
+// 再生中も手続きの姿勢（立つ・歩く・座る）は毎回作り、それとモーションを重みで混ぜる。だから途中からでもなめらかにつながる
+const builtinMotions = [], userMotions = [];
+const motionAnims = new Map();   // id → VRMAnimation（キャラによらない）
+const motionClips = new Map();   // id → AnimationClip（いまのキャラ用）
+const motionList = () => builtinMotions.concat(userMotions);
+async function loadMotions() {
+  try {
+    const r = await fetch('motions/index.json');
+    if (r.ok) for (const m of await r.json()) builtinMotions.push(Object.assign({ src: 'builtin' }, m));
+  } catch (e) {}
+  const saved = await idb.get('userMotions');
+  if (Array.isArray(saved)) for (const m of saved) if (m && m.id && m.blob) userMotions.push(Object.assign({ src: 'user' }, m));
+}
+async function parseVrma(buf) {
+  const loader = new T.GLTFLoader();
+  loader.register(p => new T.VRMAnimationLoaderPlugin(p));
+  const gltf = await new Promise((res, rej) => loader.parse(buf, '', res, rej));
+  const a = gltf.userData.vrmAnimations && gltf.userData.vrmAnimations[0];
+  if (!a) throw new Error('VRMA ではない');
+  return a;
+}
+async function getClip(m) {
+  if (motionClips.has(m.id)) return motionClips.get(m.id);
+  let anim = motionAnims.get(m.id);
+  if (!anim) {
+    let buf;
+    if (m.src === 'user') buf = await m.blob.arrayBuffer();
+    else { const r = await fetch('motions/' + m.file); if (!r.ok) throw new Error('fetch'); buf = await r.arrayBuffer(); }
+    anim = await parseVrma(buf);
+    motionAnims.set(m.id, anim);
+  }
+  const clip = T.createVRMAnimationClip(anim, av.vrm);
+  clip.userData = { expr: [...anim.expressionTracks.preset.keys()] };
+  motionClips.set(m.id, clip);
+  return clip;
+}
+let motionReq = 0;
+async function playMotion(m) {
+  if (!av.vrm) return;
+  const req = ++motionReq;
+  av.path = null; av.after = null;
+  if (av.state === 'walk') av.state = 'idle';
+  av.state = av.sitW > 0.01 || av.state === 'sit' ? av.state : 'prep';
+  let clip;
+  try { clip = await getClip(m); } catch (e) { toast('うごきを読めなかった'); if (av.state === 'prep') av.state = 'idle'; return; }
+  if (req !== motionReq) return;
+  const go = () => startAct(m, clip);
+  const face = () => {
+    const h = Math.atan2(-av.x, -av.z);
+    if (Math.abs(angDiff(h, av.heading)) > 0.35) turnTo(h, go); else go();
+  };
+  if (av.sitW > 0.01 || av.state === 'sit') standUp(face); else face();
+}
+// クリップの各トラックを、時刻を指定して読めるようにする（骨・腰の位置・表情）
+function samplerOf(clip) {
+  const byName = new Map();
+  av.vrm.scene.traverse(o => { if (o.name && !byName.has(o.name)) byName.set(o.name, o); });
+  const em = av.vrm.expressionManager, list = [];
+  for (const tr of clip.tracks) {
+    const i = tr.name.lastIndexOf('.'), node = tr.name.slice(0, i), prop = tr.name.slice(i + 1);
+    const interp = tr.createInterpolant();
+    if (prop === 'quaternion' && byName.get(node)) list.push({ key: tr.name, kind: 'q', obj: byName.get(node), interp });
+    else if (prop === 'position' && byName.get(node)) list.push({ key: tr.name, kind: 'p', obj: byName.get(node), interp });
+    else if (prop === 'weight' && em) {
+      const ex = byName.get(node), name = ex && ex.expressionName ? ex.expressionName : node;
+      list.push({ key: tr.name, kind: 'e', name, interp });
+    }
+  }
+  return list;
+}
+function startAct(m, clip) {
+  av.waveT = -1;
+  const S = samplerOf(clip);
+  // 別のうごきの途中なら、0.3 秒かけて入れかえる
+  const prev = av.act && av.act.w > 0.01 ? av.act : null;
+  if (prev) prev.prev = null;
+  // くり返すうごき（ダンスなど）は 2 回、短いものは 8 秒ぶん続ける
+  const hold = m.loop ? Math.max(clip.duration * 2, 8) : clip.duration + 0.15;
+  av.act = { m, clip, S, dur: clip.duration, loop: !!m.loop, t: 0, hold, w: prev ? prev.w : 0, out: false, prev };
+  av.state = 'act'; av.idleT = 0;
+}
+function endAct() { if (av.act) av.act.out = true; motionReq++; if (av.state === 'act' || av.state === 'prep') av.state = 'idle'; }
+const qA = new T.Quaternion(), qB = new T.Quaternion(), vA = new T.Vector3(), vB = new T.Vector3();
+function sampleAt(x) {
+  const tc = x.loop ? x.t % x.dur : Math.min(x.t, x.dur);
+  for (const e of x.S) e.v = e.interp.evaluate(tc);
+}
+function applyAct(dt) {
+  const a = av.act;
+  if (!a) return;
+  a.t += dt;
+  if (!a.out && a.t >= a.hold) a.out = true;
+  a.w = clamp(a.w + (a.out ? -dt / 0.45 : dt / 0.3), 0, 1);
+  if (a.out && a.w <= 0) { av.act = null; if (av.state === 'act') av.state = 'idle'; return; }
+  const p = a.prev;
+  let f = 1;
+  if (p) { p.t += dt; f = smooth(clamp(a.t / 0.3, 0, 1)); if (f >= 1) a.prev = null; }
+  sampleAt(a);
+  const pm = new Map();
+  if (p && f < 1) { sampleAt(p); for (const e of p.S) pm.set(e.key, e); }
+  const w = smooth(a.w), em = av.vrm.expressionManager;
+  // 手続きの姿勢（いま骨に入っている値）から、モーションの姿勢へ w だけ寄せる
+  const put = (e, v, wt) => {
+    if (e.kind === 'q') { qB.fromArray(v); e.obj.quaternion.slerp(qB, wt); }
+    else if (e.kind === 'p') { vB.fromArray(v); e.obj.position.lerp(vB, wt); }
+    else { const c = em.getValue(e.name) || 0; em.setValue(e.name, c + (v[0] - c) * wt); }
+  };
+  for (const e of a.S) {
+    const q = pm.get(e.key);
+    if (q) {
+      pm.delete(e.key);
+      if (e.kind === 'q') { qA.fromArray(q.v).slerp(qB.fromArray(e.v), f); put(e, qA.toArray(), w); }
+      else if (e.kind === 'p') { vA.fromArray(q.v).lerp(vB.fromArray(e.v), f); put(e, vA.toArray(), w); }
+      else put(e, [q.v[0] + (e.v[0] - q.v[0]) * f], w);
+    } else put(e, e.v, w * f);
+  }
+  for (const q of pm.values()) put(q, q.v, w * (1 - f));
+}
+function tick(dt) {
+  stepAvatar(dt);
+  applyAct(dt);
+  av.vrm.update(dt);
+}
+
+function renderMoves() {
+  const list = $('moveList'), ulist = $('userMoveList');
+  list.innerHTML = ''; ulist.innerHTML = '';
+  const card = (m, box) => {
+    const b = document.createElement('button');
+    b.className = 'mv';
+    const e = document.createElement('span'); e.className = 'em'; e.textContent = m.emoji || '🎬';
+    const n = document.createElement('span'); n.className = 'nm'; n.textContent = m.name;
+    b.append(e, n);
+    b.onclick = ev => {
+      if (ev.target.classList.contains('x')) return;
+      $('moves').classList.remove('show');
+      if (st.mode !== 'play') setMode('play');
+      playMotion(m);
+    };
+    if (m.src === 'user') {
+      const x = document.createElement('span'); x.className = 'x'; x.textContent = '✕';
+      x.onclick = async ev => {
+        ev.stopPropagation();
+        if (!confirm('「' + m.name + '」を消す？')) return;
+        userMotions.splice(userMotions.indexOf(m), 1);
+        motionAnims.delete(m.id); motionClips.delete(m.id);
+        await saveUserMotions(); renderMoves();
+      };
+      b.append(x);
+    }
+    box.append(b);
+  };
+  for (const m of builtinMotions) card(m, list);
+  for (const m of userMotions) card(m, ulist);
+  if (!userMotions.length) { const p = document.createElement('p'); p.style.gridColumn = '1 / -1'; p.textContent = 'まだない'; ulist.append(p); }
+  if (!builtinMotions.length) { const p = document.createElement('p'); p.style.gridColumn = '1 / -1'; p.textContent = '内蔵のうごきを読めなかった'; list.append(p); }
+}
+const saveUserMotions = () => idb.set('userMotions', userMotions.map(m => ({ id: m.id, name: m.name, emoji: m.emoji, loop: m.loop, blob: m.blob })));
+$('mvClose').onclick = () => $('moves').classList.remove('show');
+$('moves').onclick = e => { if (e.target === $('moves')) $('moves').classList.remove('show'); };
+$('mvAdd').onclick = () => $('fileVrma').click();
+$('fileVrma').onchange = async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  let ok = 0, ng = 0;
+  for (const f of files) {
+    try {
+      const buf = await f.arrayBuffer();
+      const anim = await parseVrma(buf);
+      const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const name = f.name.replace(/\.vrma$/i, '').slice(0, 24) || 'うごき';
+      const m = { id, name, emoji: '🎬', src: 'user', blob: new Blob([buf]), loop: false };
+      motionAnims.set(id, anim);
+      userMotions.push(m); ok++;
+    } catch (err) { ng++; }
+  }
+  if (ok) { await saveUserMotions(); renderMoves(); }
+  toast(ok ? ok + ' 個追加した' + (ng ? '（' + ng + ' 個は VRMA として読めなかった）' : '') : 'VRMA として読めなかった');
+};
+
 // ---------- まわす ----------
 let lastT = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!av.vrm || !st.cam || st.paused) return;
-  stepAvatar(dt);
-  av.vrm.update(dt);
+  tick(dt);
   renderer.render(scene3, camera);
   if (photoPending) { photoPending = false; finishPhoto(); }
   if (st.rec) {
@@ -1277,6 +1493,7 @@ async function start() {
     let ok = false;
     if (vb) { try { await loadVrm(await vb.arrayBuffer()); ok = true; } catch (e) { ok = false; } }
     if (!ok) await loadSampleVrm();
+    await loadMotions();
     $('loading').style.display = 'none';
     renderBar(); renderPanel();
     requestAnimationFrame(frame);
@@ -1294,7 +1511,7 @@ function centerOfFirstFloor() {
 }
 start();
 // 調べる用（テストから止めて 1 コマずつ進める）
-window.enonaka = { st, av, C, step(dt) { stepAvatar(dt); av.vrm.update(dt); }, render() { renderer.render(scene3, camera); drawUI(); } };
+window.enonaka = { st, av, C, step: tick, render() { renderer.render(scene3, camera); drawUI(); }, playMotion, motionList, loadMotions };
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>

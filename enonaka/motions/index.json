@@ -1,0 +1,132 @@
+[
+ {
+  "id": "bow",
+  "name": "おじぎ",
+  "emoji": "🙇",
+  "file": "bow.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 3,
+  "prompt": "ていねいにおじぎする"
+ },
+ {
+  "id": "joyJump",
+  "name": "喜んでジャンプ",
+  "emoji": "🙌",
+  "file": "joyJump.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 2.6,
+  "prompt": "喜んでジャンプして、ばんざいで2回はずむ"
+ },
+ {
+  "id": "waveBoth",
+  "name": "両手で手をふる",
+  "emoji": "👋",
+  "file": "waveBoth.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 3.4,
+  "prompt": "両手を上げて大きく手を振る"
+ },
+ {
+  "id": "stretch",
+  "name": "のび",
+  "emoji": "🙆",
+  "file": "stretch.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 4.6,
+  "prompt": "両手を上げて背のびをして、左右に体をたおす"
+ },
+ {
+  "id": "think",
+  "name": "考えごと",
+  "emoji": "🤔",
+  "file": "think.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 5.2,
+  "prompt": "あごに手を当てて首をかしげて考え、ひらめいて顔を上げる"
+ },
+ {
+  "id": "lookFar",
+  "name": "遠くを見る",
+  "emoji": "👀",
+  "file": "lookFar.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 4.8,
+  "prompt": "右手をひさしにして遠くを見る。左、右と見回して、つま先立ちでのぞきこむ"
+ },
+ {
+  "id": "clap",
+  "name": "拍手",
+  "emoji": "👏",
+  "file": "clap.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 3.4,
+  "prompt": "笑顔で胸の前で拍手する。ひざでリズムをとる"
+ },
+ {
+  "id": "guts",
+  "name": "ガッツポーズ",
+  "emoji": "✊",
+  "file": "guts.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 2.4,
+  "prompt": "右のこぶしを顔の横から腰までぐっと引いて「よしっ」とガッツポーズ"
+ },
+ {
+  "id": "sad",
+  "name": "しょんぼり",
+  "emoji": "😢",
+  "file": "sad.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 4.6,
+  "prompt": "ため息をついて、しょんぼりうつむく。つま先で地面をいじる"
+ },
+ {
+  "id": "surprise",
+  "name": "びっくり",
+  "emoji": "😲",
+  "file": "surprise.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 2.6,
+  "prompt": "びっくりして両手を胸の前に引き、のけぞる。ほっとして胸に手を当てる"
+ },
+ {
+  "id": "crouch",
+  "name": "しゃがむ",
+  "emoji": "🐜",
+  "file": "crouch.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 5,
+  "prompt": "しゃがんで地面をじっと見て、指でつつく。立ち上がる"
+ },
+ {
+  "id": "talk",
+  "name": "おしゃべり",
+  "emoji": "💬",
+  "file": "talk.vrma",
+  "loop": false,
+  "wander": true,
+  "duration": 5.4,
+  "prompt": "身ぶり手ぶりをまじえて楽しそうに話す"
+ },
+ {
+  "id": "dance",
+  "name": "ダンス",
+  "emoji": "💃",
+  "file": "dance.vrma",
+  "loop": true,
+  "wander": false,
+  "duration": 8,
+  "prompt": "120拍のリズムでゆれて、ステップタッチ、腕を斜め上へ、こぶしを突き上げる。くり返せるダンス"
+ }
+]
