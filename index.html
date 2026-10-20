@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -41,7 +41,7 @@
   }
   .wrap > h2:first-of-type { margin-top: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
-  a.tool {
+  .tool {
     display: flex; flex-direction: column; gap: 4px;
     min-height: 80px; padding: 20px;
     background: var(--card); border-radius: 14px;
@@ -52,7 +52,7 @@
   a.tool:active { transform: scale(0.965); }
   a.tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .tool .name { font-size: 0.95rem; font-weight: 600; }
-  .tool .name::after { content: " ›"; color: var(--accent); font-weight: 600; }
+  a.tool .name::after { content: " ›"; color: var(--accent); font-weight: 600; }
   .tool .desc { font-size: 0.76rem; color: var(--muted); line-height: 1.45; }
   .tool .badge {
     align-self: flex-start; margin-top: 4px;
@@ -76,10 +76,6 @@
 
   <h2>ゲーム</h2>
   <div class="grid">
-    <a class="tool" href="ロボ読み/ロボ読み.html">
-      <span class="name">🤖 ロボ読み</span>
-      <span class="desc">ひらがなを打つと、1980年代のコンピュータの声で読み上げてくれる（声8種・速さ3段）</span>
-    </a>
     <a class="tool" href="emoji-engine/emoji-engine.html">
       <span class="name">🎮 絵文字ゲーム集</span>
       <span class="desc">絵文字だけで作った小さなゲーム集（大戦車バトル・スラもりはこび 等）。ブラウザですぐ遊べる</span>
@@ -92,9 +88,10 @@
       <span class="name">🟢 ぷよぷよ完全再現</span>
       <span class="desc">「ぷよぷよ通」ルール準拠のとことんモード。れんしゅうモードつき</span>
     </a>
-    <a class="tool" href="kaiju-city/kaiju.html">
+    <a class="tool" href="boardgames/kaiju.html">
       <span class="name">🦖 かいじゅう新宿</span>
       <span class="desc">本物の新宿(国の3D都市データ)をブロックの街にして、怪獣になってビルを壊しまくる</span>
+      <span class="badge">合言葉が必要</span>
     </a>
     <a class="tool" href="boardgames/index.html">
       <span class="name">🎲 ボードゲーム（合言葉つき）</span>
@@ -297,15 +294,6 @@
       <span class="desc">日本語の文章を文節ごとに画面の真ん中へ流す速読の練習。分かち書きがなくても自動で文節に切る。止まる、1文戻る、気になる語に印。速さは字/分で指定</span>
       <span class="badge">スマホ・PC両方</span>
     </a>
-    <a class="tool" href="音読プロファイラ/音読プロファイラ.html">
-      <span class="name">📊 音読プロファイラ</span>
-      <span class="desc">文章のリズムを見える化。文の長さ・読点の間隔(モーラ換算)と、漢字かなカタカナの色分け帯</span>
-    </a>
-    <a class="tool" href="http://localhost:3000">
-      <span class="name">🧠 メモる</span>
-      <span class="desc">保存するだけの自分専用保管庫。AIが自動タグ付けし、曖昧な言葉で検索できる。データは全部自宅PCの中</span>
-      <span class="badge">自宅PC専用</span>
-    </a>
   </div>
 
   <h2>音楽</h2>
@@ -319,10 +307,6 @@
 
   <h2>業務効率化</h2>
   <div class="grid">
-    <a class="tool" href="../tejun-maker/tejun.html">
-      <span class="name">📋 手順メーカー</span>
-      <span class="desc">手洗い・歯磨きなどの手順カードを画像＋短い説明＋読み仮名で作ってA4に印刷（完成版／生徒が番号を書く空欄版。ネット不要）</span>
-    </a>
     <a class="tool" href="業務効率化/やることリスト/todo.html">
       <span class="name">✅ やることリスト</span>
       <span class="desc">PCとスマホで同期するToDo。Googleカレンダーの予定からシフトを判定して、その日のやることを自動で出す。大きなやることはAIが小さな手順に分ける</span>
@@ -394,6 +378,36 @@
       <span class="desc">のこり時間が赤い扇形で減っていく。円盤を指で反時計回りに引いて合わせる。残り10秒は真ん中に大きく数字。小数点第5位（10万分の1秒）までの表示と、パチンコ風の演出が乱れ打ちになる「ドパガキ」モードはボタンで切り替え(動作テスト版)</span>
       <span class="badge">スマホ・PC両方</span>
     </a>
+  </div>
+
+  <h2>自宅PC専用</h2>
+  <p class="sub">メモるを起動した自宅PCのブラウザーで開いてください。スマホや別のPCからは利用できません。</p>
+  <div class="grid">
+    <a class="tool" href="http://localhost:3000">
+      <span class="name">🧠 メモる</span>
+      <span class="desc">保存するだけの自分専用保管庫。AIが自動タグ付けし、曖昧な言葉で検索できる。データは全部自宅PCの中</span>
+      <span class="badge">自宅PCでサーバー起動が必要</span>
+    </a>
+  </div>
+
+  <h2>復旧待ち</h2>
+  <p class="sub">以下の3件は本体ファイルが公開リポジトリにないため、現在は開けません。元のファイルを確認でき次第、復旧します。</p>
+  <div class="grid">
+    <div class="tool">
+      <span class="name">🤖 ロボ読み</span>
+      <span class="desc">ひらがなを打つと、1980年代のコンピュータの声で読み上げてくれる（声8種・速さ3段）</span>
+      <span class="badge">復旧待ち・本体ファイル未掲載</span>
+    </div>
+    <div class="tool">
+      <span class="name">📊 音読プロファイラ</span>
+      <span class="desc">文章のリズムを見える化。文の長さ・読点の間隔(モーラ換算)と、漢字かなカタカナの色分け帯</span>
+      <span class="badge">復旧待ち・本体ファイル未掲載</span>
+    </div>
+    <div class="tool">
+      <span class="name">📋 手順メーカー</span>
+      <span class="desc">手洗い・歯磨きなどの手順カードを画像＋短い説明＋読み仮名で作ってA4に印刷（完成版／生徒が番号を書く空欄版。ネット不要）</span>
+      <span class="badge">復旧待ち・本体ファイル未掲載</span>
+    </div>
   </div>
 
   <p class="foot">
