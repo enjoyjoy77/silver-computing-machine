@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音読プロファイラ</title>
+<style>
+  :root {
+    --bg: #f7f5f0; --card: #ffffff; --text: #3d3832; --muted: #8c857b;
+    --border: #d2cdc3; --accent: #155bd0;
+    --c-kanji: #3d3832;   /* 漢字: 墨 */
+    --c-hira:  #e8ddc8;   /* ひらがな: 薄いベージュ */
+    --c-kata:  #4d94ff;   /* カタカナ: 青 */
+    --c-latin: #2a6b4a;   /* 英数: 緑 */
+    --c-sym:   #d05515;   /* 記号・句読点: 橙 */
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; gap: 12px; }
+  h1 { font-size: 20px; margin: 8px 0; }
+  .rev { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 12px; padding: 12px; }
+  textarea { width: 100%; height: 140px; border: 1px solid var(--border);
+             border-radius: 8px; padding: 8px; font-size: 13px; resize: vertical;
+             font-family: inherit; background: #fdfcfa; color: var(--text); }
+  .label { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .btnrow { display: flex; gap: 10px; align-items: center; margin: 14px 0; flex-wrap: wrap; }
+  button { font-size: 14px; padding: 8px 18px; border-radius: 8px;
+           border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+  button.main { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .unit label { font-size: 13px; margin-right: 10px; cursor: pointer; }
+  h3 { font-size: 14px; margin: 14px 0 4px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+  canvas { max-width: 100%; display: block; }
+  .legend { font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
+  .legend span::before { content: "■ "; }
+  .lg-kanji::before { color: var(--c-kanji); } .lg-hira::before { color: var(--c-hira); }
+  .lg-kata::before { color: var(--c-kata); } .lg-latin::before { color: var(--c-latin); }
+  .lg-sym::before { color: var(--c-sym); }
+  table.sum { border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  table.sum td { border: 1px solid var(--border); padding: 3px 10px; }
+  table.sum td:first-child { color: var(--muted); }
+  .copybtn { font-size: 12px; padding: 4px 10px; margin-top: 6px; }
+  .msg { color: #b03030; font-size: 13px; }
+  .copied { color: var(--c-latin); font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>音読プロファイラ</h1>
+    <span class="rev">rev 1 (2026-08-28)</span>
+  </header>
+  <p class="sub">文章のリズムを2つの層で見る道具。「声の層」= 文の長さ・読点の間隔(モーラ換算あり)。「字面の層」= 漢字・ひらがな・カタカナの白黒の帯。左右に2つ貼れば比べられます(右は空でもOK)。</p>
+
+  <div class="cols">
+    <div class="card">
+      <div class="label">文章A(たとえば自分のnote記事)</div>
+      <textarea id="txtA" placeholder="ここに文章を貼り付ける"></textarea>
+    </div>
+    <div class="card">
+      <div class="label">文章B(たとえばAIの生下書き。空でもよい)</div>
+      <textarea id="txtB" placeholder="比べたい文章があればここに"></textarea>
+    </div>
+  </div>
+
+  <div class="btnrow">
+    <button class="main" id="run">はかる</button>
+    <span class="unit">
+      長さの単位:
+      <label><input type="radio" name="unit" value="mora" checked> モーラ(声の長さ。漢字1字≒2と数える雑な換算)</label>
+      <label><input type="radio" name="unit" value="char"> 字数(目の長さ)</label>
+    </span>
+    <span id="err" class="msg"></span>
+  </div>
+
+  <div class="cols" id="results" style="display:none">
+    <div class="card" id="resA"></div>
+    <div class="card" id="resB"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// ---- 文字種の判定 ----
+function charType(ch) {
+  const c = ch.codePointAt(0);
+  if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || ch === "々" || ch === "〆") return "kanji";
+  if (c >= 0x3041 && c <= 0x3096) return "hira";
+  if ((c >= 0x30A1 && c <= 0x30FA) || ch === "ー") return "kata";
+  if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) ||
+      (c >= 0xFF10 && c <= 0xFF19) || (c >= 0xFF21 && c <= 0xFF3A) || (c >= 0xFF41 && c <= 0xFF5A)) return "latin";
+  if (ch === " " || ch === "　" || ch === "\t") return "space";
+  return "sym"; // 句読点・記号・その他
+}
+// ---- モーラ数(雑な換算。傾向を見る用) ----
+const SMALL_KANA = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ";
+function moraOf(ch, type) {
+  if (type === "kanji") return 2;          // 漢字≒2モーラの決め打ち
+  if (type === "hira" || type === "kata") return SMALL_KANA.includes(ch) ? 0 : 1;
+  if (type === "latin") return 1;
+  return 0;                                 // 記号・空白は数えない
+}
+// ---- 文に割る(。！？!? と改行で切る) ----
+function splitSentences(text) {
+  const out = [];
+  let buf = "";
+  for (const ch of text) {
+    if (ch === "\n") { if (buf.trim()) out.push(buf); buf = ""; continue; }
+    buf += ch;
+    if ("。！？!?".includes(ch)) { if (buf.trim()) out.push(buf); buf = ""; }
+  }
+  if (buf.trim()) out.push(buf);
+  return out;
+}
+// ---- 1文の長さ ----
+function lenOf(sentence, unit) {
+  let n = 0;
+  for (const ch of sentence) {
+    const t = charType(ch);
+    if (unit === "mora") n += moraOf(ch, t);
+    else if (t !== "space") n += 1;
+  }
+  return n;
+}
+// ---- 読点・句点の間隔(息継ぎの間隔) ----
+function pauseIntervals(text, unit) {
+  const out = [];
+  let n = 0;
+  for (const ch of text) {
+    if ("、。！？!?，\n".includes(ch)) {
+      if (n > 0) out.push(n);
+      n = 0;
+    } else {
+      const t = charType(ch);
+      n += (unit === "mora") ? moraOf(ch, t) : (t !== "space" ? 1 : 0);
+    }
+  }
+  if (n > 0) out.push(n);
+  return out;
+}
+// ---- 棒グラフを描く ----
+function drawBars(canvas, values, color) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.parentElement.clientWidth || 500;
+  const H = 90;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.height = H + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  if (!values.length) return;
+  const max = Math.max(...values);
+  const bw = Math.max(2, Math.min(14, Math.floor(W / values.length) - 2));
+  const gap = 2;
+  values.forEach((v, i) => {
+    const h = max ? Math.max(2, (v / max) * (H - 14)) : 2;
+    ctx.fillStyle = color;
+    ctx.fillRect(i * (bw + gap), H - h, bw, h);
+  });
+  ctx.fillStyle = "#8c857b";
+  ctx.font = "10px sans-serif";
+  ctx.fillText("最大 " + max, 2, 10);
+}
+// ---- 文字種の帯を描く ----
+function drawBand(canvas, text) {
+  const colors = { kanji:"#3d3832", hira:"#e8ddc8", kata:"#4d94ff", latin:"#2a6b4a", sym:"#d05515" };
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.parentElement.clientWidth || 500;
+  const cell = 7, ch = 10, rowGap = 3, paraGap = 8;
+  const perRow = Math.floor(W / cell);
+  // 先に行数を数える
+  const paras = text.split("\n").filter(p => p.trim().length > 0);
+  let rows = 0;
+  const paraRows = paras.map(p => {
+    const chars = [...p].filter(c => charType(c) !== "space");
+    const r = Math.max(1, Math.ceil(chars.length / perRow));
+    rows += r;
+    return chars;
+  });
+  const H = rows * (ch + rowGap) + paras.length * paraGap + 4;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.height = H + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  let y = 2;
+  for (const chars of paraRows) {
+    let x = 0;
+    for (const c of chars) {
+      ctx.fillStyle = colors[charType(c)] || colors.sym;
+      ctx.fillRect(x, y, cell - 1, ch);
+      x += cell;
+      if (x + cell > W) { x = 0; y += ch + rowGap; }
+    }
+    y += ch + rowGap + paraGap; // 段落の切れ目は空ける
+  }
+}
+// ---- ばらつき(変動係数) ----
+function cv(values) {
+  if (values.length < 2) return 0;
+  const m = values.reduce((a,b)=>a+b,0) / values.length;
+  if (!m) return 0;
+  const sd = Math.sqrt(values.reduce((a,b)=>a+(b-m)*(b-m),0) / values.length);
+  return sd / m;
+}
+// ---- 1つの文章を解析して表示 ----
+function render(container, name, text, unit) {
+  container.innerHTML = "";
+  if (!text.trim()) {
+    container.innerHTML = '<div class="hint">' + name + ' は空なので飛ばしました。</div>';
+    return;
+  }
+  const sentences = splitSentences(text);
+  const lens = sentences.map(s => lenOf(s, unit));
+  const pauses = pauseIntervals(text, unit);
+  const chars = [...text].filter(c => !"\n".includes(c) && charType(c) !== "space");
+  const counts = { kanji:0, hira:0, kata:0, latin:0, sym:0 };
+  chars.forEach(c => { counts[charType(c)] = (counts[charType(c)] || 0) + 1; });
+  const total = chars.length || 1;
+  const pct = k => (100 * counts[k] / total).toFixed(1) + "%";
+  const unitName = unit === "mora" ? "モーラ" : "字";
+
+  const h = document.createElement("div");
+  h.innerHTML =
+    '<div class="label">' + name + '</div>' +
+    '<h3>字面の帯(1マス=1字。段落ごとに区切り)</h3>' +
+    '<div class="legend"><span class="lg-kanji">漢字</span><span class="lg-hira">ひらがな</span><span class="lg-kata">カタカナ</span><span class="lg-latin">英数</span><span class="lg-sym">記号・句読点</span></div>' +
+    '<canvas class="band"></canvas>' +
+    '<h3>文の長さの並び(' + unitName + '。棒1本=1文、左から順)</h3>' +
+    '<canvas class="lens"></canvas>' +
+    '<h3>息継ぎの間隔(読点・句点から次の読点・句点まで。' + unitName + ')</h3>' +
+    '<canvas class="pauses"></canvas>' +
+    '<table class="sum">' +
+    '<tr><td>文の数</td><td>' + sentences.length + '</td></tr>' +
+    '<tr><td>平均の文の長さ</td><td>' + (lens.reduce((a,b)=>a+b,0) / (lens.length||1)).toFixed(1) + ' ' + unitName + '</td></tr>' +
+    '<tr><td>文の長さのばらつき(変動係数)</td><td>' + cv(lens).toFixed(2) + '(大きいほど緩急がある)</td></tr>' +
+    '<tr><td>息継ぎ間隔のばらつき</td><td>' + cv(pauses).toFixed(2) + '</td></tr>' +
+    '<tr><td>漢字率 / ひらがな率 / カタカナ率</td><td>' + pct("kanji") + ' / ' + pct("hira") + ' / ' + pct("kata") + '</td></tr>' +
+    '</table>' +
+    '<button class="copybtn">数列をコピー(AIに貼って相談できます)</button><span class="copied"></span>';
+  container.appendChild(h);
+
+  drawBand(h.querySelector(".band"), text);
+  drawBars(h.querySelector(".lens"), lens, "#155bd0");
+  drawBars(h.querySelector(".pauses"), pauses, "#d05515");
+
+  h.querySelector(".copybtn").addEventListener("click", () => {
+    const out =
+      "【" + name + " の測定結果】単位: " + unitName + "\n" +
+      "文の長さの並び: " + lens.join(", ") + "\n" +
+      "息継ぎ間隔の並び: " + pauses.join(", ") + "\n" +
+      "漢字率 " + pct("kanji") + " / ひらがな率 " + pct("hira") + " / カタカナ率 " + pct("kata") + "\n" +
+      "文の長さのばらつき(変動係数) " + cv(lens).toFixed(2) + " / 息継ぎのばらつき " + cv(pauses).toFixed(2);
+    navigator.clipboard.writeText(out).then(() => {
+      h.querySelector(".copied").textContent = "コピーしました";
+      setTimeout(() => { h.querySelector(".copied").textContent = ""; }, 2000);
+    }).catch(() => {
+      h.querySelector(".copied").textContent = "コピーできませんでした。手で選択してコピーしてください";
+    });
+  });
+}
+document.getElementById("run").addEventListener("click", () => {
+  const err = document.getElementById("err");
+  err.textContent = "";
+  const a = document.getElementById("txtA").value;
+  const b = document.getElementById("txtB").value;
+  if (!a.trim() && !b.trim()) {
+    err.textContent = "文章が空です。左の枠に文章を貼ってから「はかる」を押してください。";
+    return;
+  }
+  const unit = document.querySelector('input[name="unit"]:checked').value;
+  document.getElementById("results").style.display = "grid";
+  try {
+    render(document.getElementById("resA"), "文章A", a, unit);
+    render(document.getElementById("resB"), "文章B", b, unit);
+  } catch (e) {
+    err.textContent = "測定中にエラーが起きました: " + e.message + "。文章を短くして試すか、この画面を撮ってAIに見せてください。";
+  }
+});
+</script>
+</body>
+</html>

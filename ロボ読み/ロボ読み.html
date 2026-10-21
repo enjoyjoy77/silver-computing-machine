@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ロボ読み</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3;
+    --muted:#8b949e; --accent:#3fb950; --accent2:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:"Yu Gothic UI","Meiryo",system-ui,sans-serif;line-height:1.7}
+  .wrap{max-width:820px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  .rev{float:right;font-size:.72rem;color:var(--muted);font-weight:400}
+  .sub{color:var(--muted);font-size:.86rem;margin:0 0 20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+         padding:16px;margin-bottom:16px}
+  label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:6px}
+  textarea{width:100%;min-height:110px;background:#0d1117;color:var(--text);
+           border:1px solid var(--line);border-radius:8px;padding:12px;
+           font-size:1.05rem;font-family:inherit;resize:vertical}
+  textarea:focus{outline:2px solid var(--accent2);outline-offset:-1px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  button{background:#21262d;color:var(--text);border:1px solid var(--line);
+         border-radius:8px;padding:9px 16px;font-size:.9rem;cursor:pointer;
+         font-family:inherit}
+  button:hover{border-color:var(--muted)}
+  button.primary{background:var(--accent);color:#06240f;border-color:var(--accent);
+                 font-weight:700}
+  button.on{border-color:var(--accent2);color:var(--accent2)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chips button{padding:6px 12px;font-size:.84rem}
+  pre{background:#0d1117;border:1px solid var(--line);border-radius:8px;
+      padding:12px;overflow-x:auto;font-size:.8rem;color:var(--muted);
+      white-space:pre-wrap;word-break:break-all;margin:0}
+  .warn{color:#f0883e;font-size:.84rem;margin-top:10px;display:none}
+  .warn.show{display:block}
+  .hint{color:var(--muted);font-size:.78rem;margin-top:8px}
+  h2{font-size:.95rem;margin:0 0 10px;color:var(--accent2)}
+  .ex{color:var(--muted);font-size:.8rem}
+  .ex b{color:var(--text);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ロボ読み<span class="rev">rev3</span></h1>
+  <p class="sub">日本語を打つと、レトロ音声合成シンセ klattsch が読み上げます。音声合成そのものを同梱しているので、ネットにつながっていなくても鳴ります。</p>
+
+  <div class="panel">
+    <label for="src">よみがなで書いてください（ひらがな・カタカナ）</label>
+    <textarea id="src" placeholder="こんにちわ。わたしわ ろぼっと です。">こんにちわ。わたしわ ろぼっと です。</textarea>
+    <div class="warn" id="warn"></div>
+    <div class="hint">句読点は「間」になります。「ー」はのばす音、「っ」は詰まる音として扱います。<br>
+      <b>助詞は聞こえたとおりに書いてください。</b>「わたし<b>は</b>」→「わたし<b>わ</b>」、「がっこう<b>へ</b>」→「がっこう<b>え</b>」。
+      書いた文字をそのまま読むので、「は」と書くと「ha」と読みます。</div>
+  </div>
+
+  <div class="panel">
+    <h2>声</h2>
+    <div class="chips" id="voices"></div>
+    <h2 style="margin-top:16px">速さ</h2>
+    <div class="chips" id="speeds"></div>
+  </div>
+
+  <div class="panel">
+    <h2>定型メッセージ（ツールやゲームに組み込む用）</h2>
+    <div id="presets"></div>
+    <div class="hint">押すと下の発音記号が差し替わります。短い一言はこの声の得意分野です。<br>
+      文章を打ち直すと、定型は解除されて通常の変換に戻ります。</div>
+  </div>
+
+  <div class="panel">
+    <h2>できた発音記号</h2>
+    <pre id="out"></pre>
+    <div class="row">
+      <button class="primary" id="play">▶ ここで喋る</button>
+      <button id="stop">■ 止める</button>
+      <button id="wav">wav に保存</button>
+      <button id="go">klattsch のサイトで開く</button>
+      <button id="copy">発音記号をコピー</button>
+    </div>
+    <div class="hint"><b>「ここで喋る」はこの画面だけで鳴ります。</b>ネットにつながっていなくても動きます。<br>
+      「wav に保存」で音声ファイルにすれば、ゲームやツールに置いて鳴らせます。</div>
+  </div>
+
+  <div class="panel">
+    <h2>遊び方のヒント</h2>
+    <p class="ex">
+      <b>ばけつ</b> のように詰まる音を入れると機械っぽさが出ます。<br>
+      <b>あーーーー</b> と伸ばすと、ずっと同じ音で鳴り続けます。<br>
+      「震え声」と「演歌」は同じビブラートの強さ違いです。強くすると笑えます。<br>
+      漢字は読めないので、ひらがなで書いてください。
+    </p>
+  </div>
+</div>
+
+<script src="../libs/klattsch/klattsch.js"></script>
+<script src="../libs/klattsch/robo.js"></script>
+<script>
+// ---- かな → 発音記号（klattsch の日本語バンク ja-hecko-2026 用） -------------
+// 母音 A I U E O とら行の DX だけが日本語用。子音は英語バンクのものを使う。
+const KANA = {
+  "あ":"A","い":"I","う":"U","え":"E","お":"O",
+  "か":"K A","き":"K I","く":"K U","け":"K E","こ":"K O",
+  "さ":"S A","し":"SH I","す":"S U","せ":"S E","そ":"S O",
+  "た":"T A","ち":"CH I","つ":"T S U","て":"T E","と":"T O",
+  "な":"N A","に":"N I","ぬ":"N U","ね":"N E","の":"N O",
+  "は":"HH A","ひ":"HH I","ふ":"F U","へ":"HH E","ほ":"HH O",
+  "ま":"M A","み":"M I","む":"M U","め":"M E","も":"M O",
+  "や":"Y A","ゆ":"Y U","よ":"Y O",
+  "ら":"DX A","り":"DX I","る":"DX U","れ":"DX E","ろ":"DX O",
+  "わ":"W A","ゐ":"I","ゑ":"E","を":"O","ん":"N",
+  "が":"G A","ぎ":"G I","ぐ":"G U","げ":"G E","ご":"G O",
+  "ざ":"Z A","じ":"JH I","ず":"Z U","ぜ":"Z E","ぞ":"Z O",
+  "だ":"D A","ぢ":"JH I","づ":"Z U","で":"D E","ど":"D O",
+  "ば":"B A","び":"B I","ぶ":"B U","べ":"B E","ぼ":"B O",
+  "ぱ":"P A","ぴ":"P I","ぷ":"P U","ぺ":"P E","ぽ":"P O",
+  "ゔ":"V U"
+};
+const SMALL_V = {"ゃ":"A","ゅ":"U","ょ":"O","ぁ":"A","ぃ":"I","ぅ":"U","ぇ":"E","ぉ":"O"};
+const PAUSE   = {"、":",","，":",","。":".","．":".","！":".","？":".","!":".","?":".","・":",","…":".",
+                 " ":",","　":","};
+
+function kataToHira(s){
+  return s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+// 1文字ずつ見て発音記号の並びに変える。戻り値は {tokens, unknown}
+function toPhonemes(text){
+  const src = kataToHira(text);
+  const out = [];
+  const unknown = new Set();
+  let lastVowel = null;
+  for (let i = 0; i < src.length; i++){
+    const c = src[i];
+    const nx = src[i+1];
+    if (c === "\n"){ out.push("."); lastVowel = null; continue; }
+    if (PAUSE[c] !== undefined){ out.push(PAUSE[c]); lastVowel = null; continue; }
+    if (c === "ー"){                       // のばす音は直前の母音をもう一度
+      if (lastVowel) out.push(lastVowel);
+      continue;
+    }
+    if (c === "っ"){ out.push("p120"); continue; }   // 詰まる音は短い無音
+    if (SMALL_V[c] !== undefined){          // 単独で出てきた小文字は母音扱い
+      out.push(SMALL_V[c]); lastVowel = SMALL_V[c]; continue;
+    }
+    let seq = KANA[c];
+    if (seq === undefined){ unknown.add(c); continue; }
+    if (nx && SMALL_V[nx] !== undefined && seq.indexOf(" ") > 0){
+      // 拗音（きゃ・しゅ など）: 子音 + Y + 母音
+      const cons = seq.split(" ")[0];
+      const v = SMALL_V[nx];
+      seq = (cons === "Y") ? ("Y " + v) : (cons + " Y " + v);
+      i++;
+    }
+    out.push(seq);
+    const parts = seq.split(" ");
+    lastVowel = parts[parts.length - 1];
+  }
+  return { tokens: out, unknown: Array.from(unknown) };
+}
+
+// ---- 声と速さ ----------------------------------------------------------------
+const VOICES = [
+  { name:"標準ロボ", d:"b120 s1.00 v0 h0.00 g0.50 t0.00" },
+  { name:"女性",     d:"b210 s1.17 v3 h0.10 g0.45 t0.10" },
+  { name:"子供",     d:"b260 s1.30 v2 h0.08 g0.40 t0.15" },
+  { name:"低い声",   d:"b85 s0.92 v0 h0.00 g0.65 t-0.35" },
+  { name:"震え声",   d:"b120 s1.00 v6 w6 h0.25 g0.35 t0.00" },
+  { name:"演歌",     d:"b130 s1.00 v14 w5.5 h0.10 g0.60 t0.05" },
+  { name:"ささやき", d:"b110 s1.02 v1 h0.60 g0.15 t-0.10" },
+  { name:"こわれた", d:"b95 s0.95 v9 w9 m0.35 n7 h0.40 g0.25 t-0.20" }
+];
+const SPEEDS = [
+  { name:"ゆっくり", r:170 }, { name:"ふつう", r:110 }, { name:"はやい", r:75 }
+];
+
+// ---- 定型メッセージ ----------------------------------------------------------
+// 声も込みで完成した文字列。押すとそのまま差し替わる（かな変換は通さない）。
+const VP = {
+  sys:  "b95 s0.95 v0 h0.02 g0.62 t-0.12 r105",   // 冷たい機械
+  warn: "b105 s0.95 v0 h0.00 g0.80 t0.10 r95",    // 警告（硬く速い）
+  deep: "b70 s0.90 v0 h0.05 g0.70 t-0.35 r120",   // 低く重い
+  fail: "b85 s0.95 v0 h0.10 g0.45 t-0.25 r125",   // 力なく落ちる
+  win:  "b115 s1.00 v2 h0.02 g0.60 t0.15 r100"    // 明るい
+};
+const JP = "[bank=ja-hecko-2026] ";
+const PRESETS = [
+  ["起動", [
+    ["SYSTEM ONLINE",       VP.sys + " S IH S T AH M , AA N L AY N-15"],
+    ["INITIALIZING",        VP.sys + " IH N IH SH AH L AY Z IH NG"],
+    ["ALL SYSTEMS NOMINAL", VP.sys + " AO L , S IH S T AH M Z , N AA M AH N AH L-12"]
+  ]],
+  ["成功", [
+    ["TASK COMPLETE", VP.sys + " T AE S K , K AH M P L IY T"],
+    ["CONFIRMED",     VP.sys + " K AH N F ER M D"],
+    ["STAGE CLEAR",   VP.win + " S T EY JH , K L IH R+15"],
+    ["NEW RECORD",    VP.win + " N UW , R EH K ER D+15"]
+  ]],
+  ["失敗・警告", [
+    ["ACCESS DENIED", VP.warn + " AE K S EH S , D IH N AY D-20"],
+    ["ERROR",         VP.warn + " EH R ER-18"],
+    ["INVALID INPUT", VP.warn + " IH N V AE L IH D , IH N P UH T"],
+    ["WARNING",       VP.warn + " W AO R+12 N IH NG"],
+    ["CRITICAL",      VP.warn + " K R IH T IH K AH L"],
+    ["DANGER",        VP.deep + " D EY+10 N JH ER-20"],
+    ["SELF DESTRUCT IN TEN SECONDS",
+                      VP.deep + " S EH L F , D IH S T R AH K T , IH N , T EH N , S EH K AH N D Z-15"]
+  ]],
+  ["ゲーム", [
+    ["READY",         VP.win + " R EH D IY+15"],
+    ["GO",            VP.win + " G OW+20"],
+    ["THREE TWO ONE", VP.sys + " TH R IY , T UW , W AH N"],
+    ["PLAYER ONE",    VP.sys + " P L EY ER , W AH N"],
+    ["GAME OVER",     VP.fail + " G EY M , OW-10 V ER-20"],
+    ["SHUTTING DOWN", VP.fail + " SH AH T IH NG , D AW N-25"]
+  ]],
+  ["日本語", [
+    ["きどう かんりょう", JP + VP.sys + " K I D O O , K A N DX Y O O"],
+    ["せいこう",         JP + VP.win + " S E E K O O"],
+    ["しっぱい",         JP + VP.fail + " SH I p120 P A I-15"],
+    ["けいこく",         JP + VP.warn + " K E E K O K U"],
+    ["えらー",           JP + VP.warn + " E DX A A-15"],
+    ["げーむ おーばー",   JP + VP.fail + " G E E M U , O O B A A-20"]
+  ]]
+];
+
+let vi = 0, si = 1;
+let direct = null;          // 定型を選んでいる間だけ文字列が入る
+
+function build(){
+  if (direct){
+    document.getElementById("out").textContent = direct;
+    document.getElementById("warn").classList.remove("show");
+    return direct;
+  }
+  const res = toPhonemes(document.getElementById("src").value);
+  const head = "[bank=ja-hecko-2026] r" + SPEEDS[si].r + " " + VOICES[vi].d;
+  const body = res.tokens.join(" ").replace(/\s+/g, " ").trim();
+  const warnEl = document.getElementById("warn");
+  if (res.unknown.length){
+    warnEl.textContent = "読めない文字があります（とばしました）: " + res.unknown.join(" ")
+      + " ／ 漢字はひらがなに直してください";
+    warnEl.classList.add("show");
+  } else {
+    warnEl.classList.remove("show");
+  }
+  const full = body ? (head + " " + body) : head;
+  document.getElementById("out").textContent = full;
+  return full;
+}
+
+function chips(id, list, getIdx, setIdx){
+  const box = document.getElementById(id);
+  box.innerHTML = "";
+  list.forEach((item, k) => {
+    const b = document.createElement("button");
+    b.textContent = item.name;
+    if (k === getIdx()) b.classList.add("on");
+    b.addEventListener("click", () => { setIdx(k); draw(); });
+    box.appendChild(b);
+  });
+}
+function drawPresets(){
+  const box = document.getElementById("presets");
+  box.innerHTML = "";
+  PRESETS.forEach(([cat, items]) => {
+    const h = document.createElement("div");
+    h.style.cssText = "font-size:.78rem;color:#8b949e;margin:10px 0 4px";
+    h.textContent = cat;
+    box.appendChild(h);
+    const row = document.createElement("div");
+    row.className = "chips";
+    items.forEach(([label, seq]) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      if (direct === seq) b.classList.add("on");
+      b.addEventListener("click", () => { direct = seq; drawPresets(); build(); });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  });
+}
+
+function draw(){
+  chips("voices", VOICES, () => vi, k => vi = k);
+  chips("speeds", SPEEDS, () => si, k => si = k);
+  drawPresets();
+  build();
+}
+
+document.getElementById("src").addEventListener("input", () => {
+  direct = null;            // 打ち直したら定型を解除して通常の変換に戻す
+  drawPresets();
+  build();
+});
+// ---- この画面で鳴らす（同梱した klattsch エンジンを使う。ネット不要） --------
+function noEngine(){
+  const b = document.getElementById("play");
+  b.textContent = "音を出せません（libs\\klattsch が見つかりません）";
+  b.disabled = true;
+}
+document.getElementById("play").addEventListener("click", () => {
+  if (!window.robo){ noEngine(); return; }
+  const ms = window.robo.speak(build());
+  if (!ms){
+    const b = document.getElementById("play");
+    b.textContent = "鳴らせませんでした（発音記号を確認）";
+    setTimeout(() => { b.textContent = "▶ ここで喋る"; }, 2200);
+  }
+});
+document.getElementById("stop").addEventListener("click", () => {
+  if (window.robo) window.robo.stop();
+});
+document.getElementById("wav").addEventListener("click", () => {
+  const b = document.getElementById("wav");
+  if (!window.robo){ noEngine(); return; }
+  try{
+    const w = window.robo.wav(build());
+    const blob = new Blob([w.bytes], { type: "audio/wav" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "robo.wav";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    b.textContent = "保存しました";
+  }catch(e){
+    b.textContent = "保存できませんでした: " + e.message;
+  }
+  setTimeout(() => { b.textContent = "wav に保存"; }, 2500);
+});
+
+document.getElementById("go").addEventListener("click", () => {
+  const s = build();
+  window.open("https://klatts.ch/play/?seq=" + encodeURIComponent(s), "_blank", "noopener");
+});
+document.getElementById("copy").addEventListener("click", async () => {
+  const s = build();
+  const btn = document.getElementById("copy");
+  try {
+    await navigator.clipboard.writeText(s);
+    btn.textContent = "コピーしました";
+  } catch (e) {
+    // クリップボードが使えない環境（file:// の一部ブラウザ）でも手で選べるようにする
+    const r = document.createRange();
+    r.selectNodeContents(document.getElementById("out"));
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    btn.textContent = "選択しました。Ctrl+C を押してください";
+  }
+  setTimeout(() => { btn.textContent = "発音記号をコピー"; }, 2200);
+});
+
+draw();
+</script>
+</body>
+</html>
