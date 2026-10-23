@@ -1,0 +1,182 @@
+[
+  {
+    "id": "kaguya_v4",
+    "name": "かぐや",
+    "category": "キャラクター",
+    "url": "models/kaguya_v4.glb"
+  },
+  {
+    "id": "andromeda",
+    "name": "アンドロメダ",
+    "category": "宇宙の艦",
+    "url": "models/andromeda.glb"
+  },
+  {
+    "id": "g2_guntank2",
+    "name": "ガンタンクII",
+    "category": "ロボット",
+    "url": "models/g2_guntank2.glb"
+  },
+  {
+    "id": "gq_guntank",
+    "name": "ジークアクス ガンタンク",
+    "category": "ロボット",
+    "url": "models/gq_guntank.glb"
+  },
+  {
+    "id": "kw_guntank",
+    "name": "青いガンタンク",
+    "category": "ロボット",
+    "url": "models/kw_guntank.glb"
+  },
+  {
+    "id": "r44_guntank",
+    "name": "ガンタンク R-44",
+    "category": "ロボット",
+    "url": "models/r44_guntank.glb"
+  },
+  {
+    "id": "rtx440_guntank",
+    "name": "陸戦強襲型ガンタンク",
+    "category": "ロボット",
+    "url": "models/rtx440_guntank.glb"
+  },
+  {
+    "id": "rtx65_guntank",
+    "name": "ガンタンク初期型",
+    "category": "ロボット",
+    "url": "models/rtx65_guntank.glb"
+  },
+  {
+    "id": "rx75_guntank",
+    "name": "ガンタンク RX-75",
+    "category": "ロボット",
+    "url": "models/rx75_guntank.glb"
+  },
+  {
+    "id": "kirishima",
+    "name": "キリシマ",
+    "category": "宇宙の艦",
+    "url": "models/kirishima.glb"
+  },
+  {
+    "id": "goruba",
+    "name": "ゴルバ",
+    "category": "宇宙の艦",
+    "url": "models/goruba.glb"
+  },
+  {
+    "id": "suzuka",
+    "name": "サイレンススズカ",
+    "category": "キャラクター",
+    "url": "models/suzuka.glb"
+  },
+  {
+    "id": "gm_rgm79",
+    "name": "ジム",
+    "category": "ロボット",
+    "url": "models/gm_rgm79.glb"
+  },
+  {
+    "id": "timetrain",
+    "name": "タイムトレイン",
+    "category": "のりもの",
+    "url": "models/timetrain.glb"
+  },
+  {
+    "id": "destria",
+    "name": "デストリア",
+    "category": "宇宙の艦",
+    "url": "models/destria.glb"
+  },
+  {
+    "id": "travelion_robot",
+    "name": "トラベリオン",
+    "category": "ロボット",
+    "url": "models/travelion_robot.glb"
+  },
+  {
+    "id": "av98_ingram",
+    "name": "イングラム",
+    "category": "ロボット",
+    "url": "models/av98_ingram.glb"
+  },
+  {
+    "id": "feiyen_hd",
+    "name": "フェイイェンHD",
+    "category": "ロボット",
+    "url": "models/feiyen_hd.glb"
+  },
+  {
+    "id": "pg_rx781",
+    "name": "プロトタイプガンダム",
+    "category": "ロボット",
+    "url": "models/pg_rx781.glb"
+  },
+  {
+    "id": "du_voxel",
+    "name": "ドゥー",
+    "category": "キャラクター",
+    "url": "models/du_voxel.glb"
+  },
+  {
+    "id": "machu_voxel",
+    "name": "マチュ",
+    "category": "キャラクター",
+    "url": "models/machu_voxel.glb"
+  },
+  {
+    "id": "nyaan_voxel",
+    "name": "ニャアン",
+    "category": "キャラクター",
+    "url": "models/nyaan_voxel.glb"
+  },
+  {
+    "id": "mogera",
+    "name": "モゲラ",
+    "category": "ロボット",
+    "url": "models/mogera.glb"
+  },
+  {
+    "id": "yamato2199",
+    "name": "ヤマト2199",
+    "category": "宇宙の艦",
+    "url": "models/yamato2199.glb"
+  },
+  {
+    "id": "rescue_saver",
+    "name": "レスキューセイバー",
+    "category": "のりもの",
+    "url": "models/rescue_saver.glb"
+  },
+  {
+    "id": "rescue_striker",
+    "name": "レスキューストライカー",
+    "category": "のりもの",
+    "url": "models/rescue_striker.glb"
+  },
+  {
+    "id": "shirona",
+    "name": "シロナ",
+    "category": "キャラクター",
+    "url": "models/shirona.glb"
+  },
+  {
+    "id": "orange_side_ponytail_fix1",
+    "name": "アンドロイド・オレンジ髪",
+    "category": "キャラクター",
+    "url": "models/orange_side_ponytail_fix1.glb"
+  },
+  {
+    "id": "shiina_reference_android_fix1",
+    "name": "アンドロイド・ピンク髪",
+    "category": "キャラクター",
+    "url": "models/shiina_reference_android_fix1.glb"
+  },
+  {
+    "id": "third_reference_android_fix1",
+    "name": "アンドロイド・緑の衣装",
+    "category": "キャラクター",
+    "url": "models/third_reference_android_fix1.glb"
+  }
+]
