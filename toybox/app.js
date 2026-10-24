@@ -1,9 +1,11 @@
+import {setupPanels} from './panels.js';
 import {keyboardCommand} from './keyboard.js';
 import * as T from './lib/three.module.min.js';
 import {GLTFLoader} from './lib/GLTFLoader.js';
 import {optimize} from './optimize.js';
 import {setupHands} from './lib/hands.js';
 const $=id=>document.getElementById(id),status=s=>$('status').textContent=s;
+const panelUI=setupPanels();
 window.addEventListener('error',e=>status('エラー：'+e.message+'。ページを開き直してください。'));
 window.addEventListener('unhandledrejection',e=>status('読み込み失敗：'+e.reason+'。起動し直してください。'));
 const scene=new T.Scene();scene.background=new T.Color('#e7efe8');scene.fog=new T.Fog('#e7efe8',9,24);
@@ -77,7 +79,7 @@ $('view').addEventListener('keydown',async e=>{
  if(cmd.action==='exit'){endDrag();$('keyboardStart').focus();return}
  if(cmd.action==='camera'){setMode('orbit');return}
  if(cmd.action==='model'){setMode('move');return}
- if(cmd.action==='help'){$('keyboardHelp').open=!$('keyboardHelp').open;return}
+ if(cmd.action==='help'){panelUI.help();return}
  if(['previous','next','category'].includes(cmd.action)){
   if(keyboardSelectionPending||loading.size)return;keyboardSelectionPending=true;
   try{if(cmd.action==='category')activeCat=cats[cmd.value];const entries=catalog.filter(x=>x.category===activeCat);let i=entries.findIndex(x=>x.id===selected?.userData.entry.id);if(cmd.action==='category')i=0;else i=i<0?0:(i+(cmd.action==='next'?1:-1)+entries.length)%entries.length;renderList();await take(entries[i])}finally{keyboardSelectionPending=false}return;
