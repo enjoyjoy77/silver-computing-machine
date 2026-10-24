@@ -1,3 +1,4 @@
+import {keyboardCommand} from './keyboard.js';
 import * as T from './lib/three.module.min.js';
 import {GLTFLoader} from './lib/GLTFLoader.js';
 import {optimize} from './optimize.js';
@@ -36,7 +37,7 @@ async function takeNow(entry){
  catch(e){status(entry.name+'を読み込めません。モデルファイルと起動場所を確認してください。');console.error(e)}finally{loading.delete(entry.id)}
 }
 const cursors={};async function showNext(cat){const entries=catalog.filter(e=>e.category===cat),n=cursors[cat]||0;cursors[cat]=(n+1)%entries.length;return take(entries[n])}
-function renderList(){$('categories').replaceChildren(...cats.map(c=>{const b=document.createElement('button');b.textContent=c;b.className=c===activeCat?'active':'';b.onclick=()=>{activeCat=c;renderList()};return b}));$('list').replaceChildren(...catalog.filter(e=>e.category===activeCat).map(e=>{const b=document.createElement('button');b.textContent=e.name;b.className=selected?.userData.entry.id===e.id?'active':'';b.onclick=()=>take(e);return b}))}
+function renderList(){const f=document.activeElement,owner=f?.parentElement?.id,label=f?.textContent;$('categories').replaceChildren(...cats.map(c=>{const b=document.createElement('button');b.textContent=c;b.className=c===activeCat?'active':'';b.onclick=()=>{activeCat=c;renderList()};return b}));$('list').replaceChildren(...catalog.filter(e=>e.category===activeCat).map(e=>{const b=document.createElement('button');b.textContent=e.name;b.className=selected?.userData.entry.id===e.id?'active':'';b.onclick=()=>take(e);return b}));if(['categories','list'].includes(owner)){const next=[...$(owner).children].find(b=>b.textContent===label);next?.focus({preventScroll:true})}}
 function rescale(obj,factor){if(!obj)return;obj.scale.setScalar(T.MathUtils.clamp(obj.scale.x*factor,obj.userData.baseScale*.2,obj.userData.baseScale*5))}
 $('smaller').onclick=()=>rescale(selected,.85);$('larger').onclick=()=>rescale(selected,1.18);$('rotate').onclick=()=>{if(selected)selected.rotation.y+=Math.PI/8};
 function home(o){if(!o)return;releaseAll();o.position.copy(o.userData.home);o.quaternion.identity();o.scale.setScalar(o.userData.baseScale)}$('home').onclick=()=>home(selected);$('reset').onclick=()=>{const shown=new Set();for(const o of [...loaded.values()].reverse()){home(o);o.visible=!shown.has(o.userData.entry.category);shown.add(o.userData.entry.category)}if(selected)present(selected);status('全部の箱に戻しました。')};
@@ -46,7 +47,7 @@ let drag=null,mouseMode='move';const touches=new Map();let gesture=null;
 const modes={move:'moveMode',rotate:'rotateMode',orbit:'cameraOrbit',pan:'cameraPan',zoom:'cameraZoom'};
 const cameraMode=()=>['orbit','pan','zoom'].includes(mouseMode);
 function endDrag(){drag=null;touches.clear();gesture=null}
-function setMode(mode){endDrag();mouseMode=mode;for(const [m,id] of Object.entries(modes))$(id).setAttribute('aria-pressed',String(m===mode));$('help').textContent=cameraMode()?'視点操作中：模型には触れません。ホイールでズーム。スマホは2本指でズーム・パン。':'模型操作中：ドラッグで移動／回転。ホイールは模型の大きさ。空白ドラッグは見回す。'}
+function setMode(mode){endDrag();mouseMode=mode;$('keyboardMode').textContent=cameraMode()?'キーボード：視点':'キーボード：模型';for(const [m,id] of Object.entries(modes))$(id).setAttribute('aria-pressed',String(m===mode));$('help').textContent=cameraMode()?'視点操作中：模型には触れません。ホイールでズーム。スマホは2本指でズーム・パン。':'模型操作中：ドラッグで移動／回転。ホイールは模型の大きさ。空白ドラッグは見回す。'}
 for(const [m,id]of Object.entries(modes))$(id).onclick=()=>setMode(m);
 $('cameraReset').onclick=()=>{endDrag();resetView()};$('cameraNear').onclick=()=>zoomView(.85);$('cameraFar').onclick=()=>zoomView(1/ .85);
 $('view').oncontextmenu=e=>e.preventDefault();
@@ -65,6 +66,37 @@ $('view').onpointermove=e=>{if(renderer.xr.isPresenting)return;
  drag.x=e.clientX;drag.y=e.clientY};
 $('view').onpointerup=$('view').onpointercancel=$('view').onlostpointercapture=endDrag;window.addEventListener('blur',endDrag);
 $('view').addEventListener('wheel',e=>{e.preventDefault();if(renderer.xr.isPresenting)return;if(cameraMode())zoomView(Math.exp(T.MathUtils.clamp(e.deltaY,-200,200)*.001));else rescale(selected,e.deltaY<0?1.08:1/1.08)},{passive:false});
+// Keyboard commands only belong to the explicitly focused play area.
+let keyboardSelectionPending=false;
+$('keyboardStart').onclick=()=>$('view').focus({preventScroll:true});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)endDrag()});
+$('view').addEventListener('blur',endDrag);
+$('view').addEventListener('keydown',async e=>{
+ const cmd=keyboardCommand(e,{focused:document.activeElement===$('view'),xr:renderer.xr.isPresenting,hidden:document.hidden,dragging:!!drag});
+ if(!cmd)return;e.preventDefault();
+ if(cmd.action==='exit'){endDrag();$('keyboardStart').focus();return}
+ if(cmd.action==='camera'){setMode('orbit');return}
+ if(cmd.action==='model'){setMode('move');return}
+ if(cmd.action==='help'){$('keyboardHelp').open=!$('keyboardHelp').open;return}
+ if(['previous','next','category'].includes(cmd.action)){
+  if(keyboardSelectionPending||loading.size)return;keyboardSelectionPending=true;
+  try{if(cmd.action==='category')activeCat=cats[cmd.value];const entries=catalog.filter(x=>x.category===activeCat);let i=entries.findIndex(x=>x.id===selected?.userData.entry.id);if(cmd.action==='category')i=0;else i=i<0?0:(i+(cmd.action==='next'?1:-1)+entries.length)%entries.length;renderList();await take(entries[i])}finally{keyboardSelectionPending=false}return;
+ }
+ if(cmd.action==='home'){if(cameraMode())resetView();else home(selected);return}
+ if(cmd.action==='scale'){const f=Math.exp(cmd.direction*.08*cmd.fine);if(cameraMode())zoomView(1/f);else rescale(selected,f);return}
+ if(cmd.action==='rotate'){
+  const h=cmd.key==='arrowleft'?-1:cmd.key==='arrowright'?1:0,v=cmd.key==='arrowup'?-1:cmd.key==='arrowdown'?1:0,r=cmd.key==='z'?-1:cmd.key==='x'?1:0,step=.06*cmd.fine;
+  if(cameraMode()){azimuth+=h*step;elevation=T.MathUtils.clamp(elevation+v*step,.12,Math.PI-.12);view()}
+  else if(selected){selected.rotation.y+=h*step;selected.rotation.x+=v*step;selected.rotation.z+=r*step}return;
+ }
+ if(cmd.action==='translate'){
+  const dx=cmd.key==='a'?-1:cmd.key==='d'?1:0,dz=cmd.key==='w'?1:cmd.key==='s'?-1:0,dy=cmd.key==='q'?-1:cmd.key==='e'?1:0;
+  const right=new T.Vector3(Math.cos(azimuth),0,-Math.sin(azimuth)),forward=new T.Vector3(-Math.sin(azimuth),0,-Math.cos(azimuth));const delta=right.multiplyScalar(dx).addScaledVector(forward,dz);delta.y=dy;delta.multiplyScalar(.08*cmd.fine);
+  if(cameraMode()){focus.add(delta).clamp(new T.Vector3(-10,-2,-10),new T.Vector3(10,8,10));view()}
+  else if(selected){selected.position.add(delta).clamp(new T.Vector3(-10,.05,-10),new T.Vector3(10,8,10))}
+ }
+});
+
 const inputs=[0,1].map(i=>{const c=renderer.xr.getController(i);rig.add(c);const line=new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(),new T.Vector3(0,0,-3)]),new T.LineBasicMaterial({color:0x44795d}));c.add(line);const state={c,line,source:null,obj:null,offset:new T.Matrix4()};c.addEventListener('connected',e=>{state.source=e.data;line.visible=!e.data.hand});c.addEventListener('disconnected',()=>{release(state);state.source=null});c.addEventListener('selectstart',()=>grab(state));c.addEventListener('selectend',()=>release(state));return state});
 let two=null;function release(s){s.obj=null;two=null;for(const other of inputs)if(other.obj){other.c.updateWorldMatrix(true,false);other.obj.updateWorldMatrix(true,false);other.offset.copy(other.c.matrixWorld).invert().multiply(other.obj.matrixWorld)}}function releaseAll(){for(const s of inputs)s.obj=null;two=null}
 function grab(s){s.c.updateWorldMatrix(true,false);ray.ray.origin.setFromMatrixPosition(s.c.matrixWorld);ray.ray.direction.set(0,0,-1).transformDirection(s.c.matrixWorld);let h=hit();if(s.source?.hand){const p=s.c.getWorldPosition(new T.Vector3());let nearest=null,d=.32;for(const o of loaded.values()){const dist=p.distanceTo(o.position);if(o.visible&&dist<d){nearest=o;d=dist}}if(nearest)h={o:nearest}}if(!h)return;if(h.o.userData.action){h.o.userData.action();return}s.obj=h.o;choose(s.obj);s.obj.updateWorldMatrix(true,false);s.offset.copy(s.c.matrixWorld).invert().multiply(s.obj.matrixWorld);const other=inputs.find(x=>x!==s);if(other.obj===s.obj){const a=inputs[0].c.getWorldPosition(new T.Vector3()),b=inputs[1].c.getWorldPosition(new T.Vector3());two={obj:s.obj,vec:b.clone().sub(a),mid:a.clone().add(b).multiplyScalar(.5),pos:s.obj.position.clone(),q:s.obj.quaternion.clone(),scale:s.obj.scale.x};if(two.vec.length()<.04)two=null}}

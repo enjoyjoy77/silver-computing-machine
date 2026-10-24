@@ -4,3 +4,5 @@
 
 #cameraPanel{position:absolute;right:24px;top:125px;width:240px;background:#fffffff0;padding:14px;border-radius:16px}#cameraPanel .controls{margin-bottom:0}#cameraPanel button{padding:9px 10px}body:has(#vr:not(:disabled)) #cameraPanel{opacity:1}
 @media(max-width:650px){#cameraPanel{top:100px;right:12px;width:155px;padding:10px}#cameraPanel button{font-size:11px;padding:7px}aside{width:170px;max-height:calc(100vh - 390px)}footer{max-height:230px;overflow:auto}header small{font-size:9px}h1 span{margin-left:5px}}
+
+#view:focus-visible{outline:4px solid #3a795e;outline-offset:-4px}#cameraPanel{max-height:calc(100vh - 150px);overflow:auto}#keyboardStart{margin-top:10px;font-size:12px}#keyboardMode{display:block;font-size:12px}#keyboardHelp{margin-top:10px;font-size:12px}summary{cursor:pointer}summary:focus-visible{outline:3px solid #527a65}
