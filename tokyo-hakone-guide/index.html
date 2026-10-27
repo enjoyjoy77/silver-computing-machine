@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-v+J0byuG464TQ4sT6jwJfCEvuWXUFYNW7YF62WYMRJ8=&#x27; &#x27;sha256-BYaE+QUg31lCA2WQ6uLASIyx+ZCTZmCYJLyuS0CS0jg=&#x27;; style-src &#x27;sha256-yE2SNIe9oVtW4xJiyUI8lTgiCvth67O4g0dba7djz9I=&#x27; &#x27;sha256-L8Zyd78i+h3kIS5TVN9NoBFjzCJGI+aoK3hdsagEcVs=&#x27;; connect-src &#x27;self&#x27;; img-src blob: data:; media-src blob:; frame-src &#x27;self&#x27; about:; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;; object-src &#x27;none&#x27;">
+<title>東京・箱根｜合言葉で開く</title>
+<style>:root{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif;color:#193535;background:#f4f3eb;line-height:1.8;color-scheme:light}*{box-sizing:border-box}body{margin:0}a{color:#174b42;text-underline-offset:4px}button,input{font:inherit}button{cursor:pointer;min-height:48px;border:0;border-radius:12px;background:#174b42;color:#fff;padding:10px 18px}button:disabled{opacity:.6;cursor:wait}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #c57732;outline-offset:4px}[hidden]{display:none!important}.lock-screen{max-width:530px;padding:25px 20px 50px;margin:auto}.back{font-size:.86rem}.lock-card{margin-top:36px;border:1px solid #d5ddd4;background:#fffef9;border-radius:24px;padding:32px 25px;box-shadow:0 10px 35px #19353508}.mark{font-size:2.2rem}.eyebrow{font-size:.7rem;letter-spacing:.15em;color:#647266;margin-top:18px}h1{font-size:2rem;letter-spacing:.07em;line-height:1.4;margin:10px 0 20px}p{font-size:.93rem}label{display:block;font-size:.9rem;font-weight:700;margin-bottom:6px}form{margin:25px 0 14px}input{width:100%;border:1px solid #a8bdb0;border-radius:12px;padding:13px;margin-bottom:14px;background:#fff;font-size:18px;min-height:52px}form button{width:100%}.small{font-size:.78rem;color:#566962}summary{cursor:pointer;font-size:.82rem;min-height:44px;padding:8px 0}details{border-top:1px solid #d5ddd4;margin-top:20px;padding-top:10px}#status{font-size:.86rem;color:#774517;min-height:1.5em}.lock-bar{height:58px;padding:6px 16px;background:#fffef9;border-bottom:1px solid #d5ddd4;display:flex;align-items:center;justify-content:space-between;font-size:.8rem}.lock-bar button{min-height:40px;padding:6px 15px;font-size:.83rem}iframe{display:block;width:100%;height:calc(100dvh - 58px);height:calc(100vh - 58px);border:0;background:#f4f3eb}@supports(height:100dvh){iframe{height:calc(100dvh - 58px)}}
+</style>
+</head>
+<body>
+<main class="lock-screen" id="lock-screen">
+  <a class="back" href="../">← ツールボックス</a>
+  <div class="lock-card">
+    <span class="mark" aria-hidden="true">🔒</span>
+    <p class="eyebrow">PRIVATE TRAVEL GUIDE</p>
+    <h1>東京・箱根のしおり</h1>
+    <p>行程・地図・音声を、ひとつに。<br>合言葉を入力すると開きます。</p>
+    <form id="unlock-form">
+      <label for="passphrase">合言葉</label>
+      <input id="passphrase" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="privacy-note">
+      <button id="unlock" type="submit">しおりを開く</button>
+    </form>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p id="privacy-note" class="small">合言葉をこのサイトの保存領域には記憶しません。本文・地図・音声・PDFは暗号化され、開いている間だけ端末のメモリで復号します。</p>
+    <details><summary>保存と通信について</summary><p class="small">暗号化されたファイルは公開サーバーにあります。合言葉はサーバーへ送信しません。復号した内容をlocalStorage・sessionStorage・IndexedDBへ保存せず、サービスワーカーも使いません。「ロック」で表示を閉じ、再生を止め、復号用の参照と一時URLを破棄します。</p><p class="small">ブラウザ自身のパスワード保存・画面撮影・OSのメモリ管理はこのページでは制御できません。完全な消去や完全オフライン動作は保証しません。弱い合言葉は、公開された暗号文から推測される危険があります。地図リンクは押したときだけ外部の地図サービスを開きます。PDFを保存した場合、そのファイルは端末に平文で残り、このページのロックでは消せません。</p></details>
+  </div>
+</main>
+<div id="open-screen" hidden>
+  <div class="lock-bar"><span>しおりを開いています</span><button id="lock" type="button">🔒 ロック</button></div>
+  <iframe id="guide" title="旅のしおり本文" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads" referrerpolicy="no-referrer"></iframe>
+</div>
+<script>'use strict';
+(() => {
+  const config = {"salt": "RIgzCxZkSlEAqeospt8Mvw==", "iterations": 600000};
+  const form = document.getElementById('unlock-form');
+  const field = document.getElementById('passphrase');
+  const status = document.getElementById('status');
+  const button = document.getElementById('unlock');
+  const frame = document.getElementById('guide');
+  const lockScreen = document.getElementById('lock-screen');
+  const openScreen = document.getElementById('open-screen');
+  const decoder = new TextDecoder();
+  let session = null;
+  let generation = 0;
+  let controller = null;
+  let frameCleanup = null;
+
+  const bytes = value => Uint8Array.from(atob(value), char => char.charCodeAt(0));
+  async function fetchCipher(file, signal) {
+    if (!/^(?:guide|asset-[0-9]{4})\.bin$/.test(file)) throw new Error('Invalid asset');
+    const response = await fetch('assets/' + file, { cache: 'no-store', credentials: 'omit', signal });
+    if (!response.ok) throw new Error('Unavailable');
+    return new Uint8Array(await response.arrayBuffer());
+  }
+  async function decrypt(cipher, key, aad) {
+    if (cipher.length < 33 || decoder.decode(cipher.slice(0, 4)) !== 'TRP1') throw new Error('Invalid envelope');
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: cipher.slice(4, 16), additionalData: new TextEncoder().encode(aad), tagLength: 128 }, key, cipher.slice(16));
+  }
+  function closeGuide(message = 'ロックしました。もう一度開くには合言葉が必要です。') {
+    generation += 1;
+    const token = generation;
+    if (controller) controller.abort();
+    controller = null;
+    clearTimeout(frameCleanup);
+    if (frame.hasAttribute('srcdoc')) {
+      frame.contentWindow.postMessage({kind:'trip-lock',token},'*');
+      frameCleanup=setTimeout(()=>clearFrame(token),250);
+    } else clearFrame(token);
+    if (session) {
+      session = null;
+    }
+    field.value = '';
+    openScreen.hidden = true;
+    lockScreen.hidden = false;
+    button.disabled = false;
+    status.textContent = message;
+  }
+  function clearFrame(token) {
+    if (token !== generation || session) return;
+    frame.removeAttribute('srcdoc');
+    frame.src = 'about:blank';
+    clearTimeout(frameCleanup);
+    frameCleanup = null;
+  }
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!field.value || button.disabled) return;
+    const passBytes = new TextEncoder().encode(field.value);
+    closeGuide('合言葉を確認しています…');
+    button.disabled = true;
+    const attempt = generation;
+    controller = new AbortController();
+    const signal = controller.signal;
+    try {
+      if (!crypto.subtle) throw new Error('WebCrypto unavailable');
+      const material = await crypto.subtle.importKey('raw', passBytes, 'PBKDF2', false, ['deriveKey']);
+      passBytes.fill(0);
+      const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: bytes(config.salt), iterations: config.iterations, hash: 'SHA-256' }, material, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      const cipher = await fetchCipher('guide.bin', signal);
+      const plain = await decrypt(cipher, key, 'guide.bin');
+      let guide;
+      try { guide = JSON.parse(decoder.decode(plain)); }
+      finally { new Uint8Array(plain).fill(0); }
+      if (attempt !== generation) return;
+      if (guide.version !== 1 || typeof guide.html !== 'string' || !guide.assets || typeof guide.assets !== 'object') throw new Error('Invalid guide');
+      session = { key, assets: guide.assets, generation: attempt };
+      frame.removeAttribute('src');
+      frame.srcdoc = guide.html;
+      guide.html = '';
+      lockScreen.hidden = true;
+      openScreen.hidden = false;
+      status.textContent = '';
+    } catch {
+      if (attempt === generation) {
+        closeGuide('開けませんでした。合言葉と通信状態を確認してください。');
+        field.focus();
+      }
+    } finally {
+      passBytes.fill(0);
+      if (attempt === generation) button.disabled = false;
+    }
+  });
+
+  async function assetBytes(path, current) {
+    if (!Object.hasOwn(current.assets, path)) throw new Error('Unknown asset');
+    const item = current.assets[path];
+    if (!['audio/mpeg', 'audio/wav', 'image/webp', 'image/png', 'image/jpeg', 'application/pdf'].includes(item.type)) throw new Error('Invalid media type');
+    const files = Array.isArray(item.files) ? item.files : [item.file];
+    if (!files.length || files.length > 10000 || files.some(file => typeof file !== 'string') || new Set(files).size !== files.length) throw new Error('Invalid asset parts');
+    const signal = controller && controller.signal;
+    const ensureCurrent = () => {
+      if (!signal || signal.aborted || session !== current || current.generation !== generation) throw new Error('Locked');
+    };
+    const parts = [];
+    let length = 0, joined = null;
+    try {
+      for (const file of files) {
+        ensureCurrent();
+        const cipher = await fetchCipher(file, signal);
+        ensureCurrent();
+        const plain = new Uint8Array(await decrypt(cipher, current.key, file));
+        parts.push(plain);
+        ensureCurrent();
+        length += plain.byteLength;
+        if (!Number.isSafeInteger(length)) throw new Error('Invalid asset length');
+      }
+      ensureCurrent();
+      joined = new Uint8Array(length);
+      let offset = 0;
+      for (const part of parts) { joined.set(part, offset); offset += part.byteLength; }
+      ensureCurrent();
+      return {bytes:joined.buffer,type:item.type};
+    } catch (error) {
+      if (joined) joined.fill(0);
+      throw error;
+    } finally {
+      parts.forEach(part => part.fill(0));
+    }
+  }
+  window.addEventListener('message', async event => {
+    if (event.source !== frame.contentWindow || !event.data) return;
+    if (event.data.kind === 'trip-locked') { clearFrame(event.data.token); return; }
+    if (event.data.kind === 'trip-exit' && session) { closeGuide(); location.assign('../'); return; }
+    if (!session || event.data.kind !== 'trip-asset') return;
+    const { id, path } = event.data;
+    if (!Number.isSafeInteger(id) || typeof path !== 'string' || path.length > 200) return;
+    const current = session;
+    try {
+      const media = await assetBytes(path, current);
+      if (session === current) frame.contentWindow.postMessage({ kind: 'trip-asset-result', id, bytes:media.bytes,type:media.type }, '*', [media.bytes]);
+      else new Uint8Array(media.bytes).fill(0);
+    } catch {
+      if (session === current) frame.contentWindow.postMessage({ kind: 'trip-asset-result', id, error: 'unavailable' }, '*');
+    }
+  });
+  document.getElementById('lock').addEventListener('click', () => {
+    closeGuide();
+    field.focus();
+  });
+  // Lock when leaving; a restored back/forward-cache page also starts locked.
+  window.addEventListener('pagehide', () => {
+    closeGuide('');
+    frame.removeAttribute('srcdoc');
+    frame.src = 'about:blank';
+    clearTimeout(frameCleanup);
+    frameCleanup = null;
+  });
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) closeGuide();
+  });
+})();
+</script>
+</body>
+</html>
