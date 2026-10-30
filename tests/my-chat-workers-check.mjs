@@ -17,6 +17,7 @@ export default { async fetch(request, env) {
     // Exercise workerd's actual Request validation, not Node's fetch implementation.
     const upstream = new Request(url, options);
     if (upstream.redirect !== 'manual') throw new Error('redirect policy');
+    if (url.endsWith('/speech')) return new Response(new Uint8Array([73,68,51,0]),{headers:{'Content-Type':'audio/mpeg'}});
     if (url.includes('/images/')) return Response.json({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII='}]});
     return Response.json(url.endsWith('/transcriptions') ? {text:'音声テスト'} : {output:[{type:'message',content:[{type:'output_text',text:'文字テスト'}]}]});
   });
@@ -44,5 +45,7 @@ try {
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'describe'}],attachment:{kind:'image',data:image},consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'limited'}]}))).status,429);
-  console.log('Local workerd: redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
+  await db.prepare("DELETE FROM my_chat_api_control WHERE id LIKE 'minute:%'").run();
+  const speech=await call('speech',JSON.stringify({text:'hello',consent:true}));assert.equal(speech.status,200);assert.equal(speech.headers.get('Content-Type'),'audio/mpeg');assert.equal((await speech.arrayBuffer()).byteLength,4);
+  console.log('Local workerd: speech binary response, redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
 } finally { await mf.dispose(); }

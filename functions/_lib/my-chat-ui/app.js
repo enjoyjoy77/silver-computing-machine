@@ -5,6 +5,7 @@
   let apiKey = '', recorder = null, stream = null, recordingTimer, authTimer;
   let generation = 0, pending = false, lastAnswer = '', stopped = false, locked = false;
   let attachment = null, attachmentGeneration = 0, attachmentLoading = false;
+  let attachmentController=null, speechAudio=null, speechURL=null;
   const mode = () => $('#mode').value || 'chat';
   const synth = window.speechSynthesis;
   const validKey = key => /^sk-[A-Za-z0-9_-]{20,240}$/.test(key);
@@ -69,15 +70,18 @@
   }
   function stop() {
     stopped = true; controller?.abort(); stopRecording(); synth?.cancel();
+    clearSpeech();
     if (attachmentLoading) clearAttachment();
     status('停止しました。送信済みの処理には料金が発生する場合があります。');
   }
-  function clearAttachment() { attachment=null;attachmentLoading=false;attachmentGeneration++;$('#file').value='';$('#attachment-preview').replaceChildren();$('#send-consent').checked=false;update(); }
+  function clearAttachment() { attachmentController?.abort();attachmentController=null;attachment=null;attachmentLoading=false;attachmentGeneration++;$('#file').value='';$('#attachment-preview').replaceChildren();$('#send-consent').checked=false;update(); }
+  function clearSpeech(){speechAudio?.pause();if(speechAudio)speechAudio.src='';speechAudio=null;if(speechURL)URL.revokeObjectURL(speechURL);speechURL=null;}
   function cleanup() { stop(); clearKeys(); clearAttachment(); chats = []; lastAnswer = ''; $('#prompt').value = ''; render(); }
   async function api(path, body, key, type, signal) {
     const response = await fetch('/api/my-chat/' + path, { method: 'POST', credentials: 'same-origin', cache: 'no-store', signal,
       headers: { 'Content-Type': type, 'X-My-Chat-Key': key }, body });
     if (response.status === 401) { lockScreen(); throw Error('ログインし直してください。'); }
+    if(path==='speech' && response.ok) {if(!response.headers.get('content-type')?.startsWith('audio/mpeg'))throw Error('音声を読み取れませんでした。');return response.blob();}
     const data = await response.json();
     if (!response.ok) throw Error(data.error || '送信できませんでした。');
     return data;
@@ -92,6 +96,7 @@
     return messages;
   }
   function speak() {
+    clearSpeech();
     if (!lastAnswer) return;
     if (!synth || !window.SpeechSynthesisUtterance) { toast('このブラウザーは読み上げに対応していません。回答は画面で読めます。'); return; }
     synth.cancel(); const utterance = new SpeechSynthesisUtterance(lastAnswer); utterance.lang = 'ja-JP';
@@ -116,11 +121,11 @@
     const data = await api(imageRequest?'image':'chat', JSON.stringify(payload), apiKey, 'application/json', controller.signal);
     if (stopped) return;
     chat.messages.push({ role: 'user', content: text+(attachment?'\n[添付: '+attachment.name+']':'') }, { role: 'assistant', content: data.text, citations:data.citations, image:data.image });
-    clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text; render();
+    clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text;$('#speech-consent').checked=false; render();
     status(data.truncated ? '回答が長いため上限で終了しました。' : '回答しました。'); if (readAloud) speak();
   }
   async function operation(run) {
-    if (busy) return; busy = true; stopped = false; controller = new AbortController(); render();
+    if (busy) return; clearSpeech(); busy = true; stopped = false; controller = new AbortController(); render();
     const timeout = setTimeout(() => controller?.abort(), 200000);
     try { await run(); }
     catch (e) { if (!stopped) status(e.name === 'AbortError' ? '時間切れになりました。自動再送はしていません。' : e.message); }
@@ -182,7 +187,7 @@
   $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = async () => {
     const file=$('#file').files[0]; if (!file || busy) return;
-    clearAttachment();const ticket=attachmentGeneration;attachmentLoading=true;update();
+    clearAttachment();const ticket=attachmentGeneration;attachmentController=new AbortController();const fileSignal=attachmentController.signal;attachmentLoading=true;update();
     try {
       let next;
       if (['image/png','image/jpeg','image/webp'].includes(file.type)) {
@@ -194,8 +199,12 @@
         });
         if (data.length>2800000) throw Error('変換後の画像が2MBを超えます。小さな画像を選んでください。');
         next={kind:'image',name:file.name.slice(0,100),data};
+      } else if (/\.(pdf|docx|xlsx|pptx)$/i.test(file.name)) {
+        const docs=window.MyChatDocuments || await import('./documents.mjs');
+        const text=await docs.extract(file,fileSignal);
+        next={kind:'text',name:file.name.slice(0,100)+'（文字抽出のみ）',text};
       } else {
-        if (!/\.(txt|md|csv|json)$/i.test(file.name)||file.size>24000) throw Error('添付は画像、または24KB以内のTXT・MD・CSV・JSONです。PDFはまだ未対応です。');
+        if (!/\.(txt|md|csv|json)$/i.test(file.name)||file.size>24000) throw Error('添付は画像、または24KB以内のTXT・MD・CSV・JSONです。PDF/DOCX/XLSX/PPTXは2MB以内です。旧Office形式は未対応です。');
         const text=await file.text();if (!text.trim()||text.length>8000||text.includes('\0')) throw Error('テキストはUTF-8・8000文字以内にしてください。');
         if (/\bsk-[A-Za-z0-9_-]{12,}/.test(text)) throw Error('APIキーを含むファイルは送信しないでください。');
         next={kind:'text',name:file.name.slice(0,100),text};
@@ -209,12 +218,25 @@
   $('#theme').onchange = e => document.body.classList.toggle('dark', e.target.value === 'dark');
   $('#voice').onclick = () => $('#voice-dialog').showModal();
   $('#record').onclick = record; $('#finish-record').onclick = () => stopRecording(false);
+  $('#api-read').onclick=()=>{
+    if(busy||recorder||pending)return;
+    operation(async()=>{
+      if(!apiKey)throw Error('設定に共通APIキーを入力してください。');
+      if(!lastAnswer||lastAnswer.length>1000)throw Error('API読み上げは1000文字以内の直前の回答が対象です。');
+      if(!$('#speech-consent').checked)throw Error('回答の送信と音声合成の追加料金を確認してください。');
+      clearSpeech();synth?.cancel();status('AI音声を作っています…');
+      const blob=await api('speech',JSON.stringify({text:lastAnswer,consent:true}),apiKey,'application/json',controller.signal);
+      if(stopped)return;$('#speech-consent').checked=false;
+      speechURL=URL.createObjectURL(blob);speechAudio=new Audio(speechURL);speechAudio.onended=clearSpeech;speechAudio.onerror=()=>{clearSpeech();status('音声を再生できませんでした。自動で再送していません。');};
+      try {await speechAudio.play();status('AIが生成した音声を再生しています。');}catch {clearSpeech();throw Error('ブラウザーで音声を再生できませんでした。端末の「もう一度読む」を利用できます。');}
+    });
+  };
   $('#stop').onclick = stop; $('#voice-stop').onclick = stop; $('#read-again').onclick = speak;
   document.querySelectorAll('.close').forEach(b => b.onclick = () => b.closest('dialog').close());
-  $('#voice-dialog').addEventListener('close', () => { if (recorder || pending || busy) stop(); synth?.cancel(); });
+  $('#voice-dialog').addEventListener('close', () => { if (recorder || pending || busy) stop(); synth?.cancel();clearSpeech(); });
   $('#logout').addEventListener('submit', cleanup);
   window.addEventListener('pagehide', cleanup);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { stopRecording(); synth?.cancel(); } else checkSession(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { stopRecording(); synth?.cancel(); clearSpeech(); } else checkSession(); });
   function lockScreen() { if (locked) return; cleanup(); locked = true; document.body.replaceChildren(); location.replace('/my-chat/'); }
   async function checkSession() {
     try {

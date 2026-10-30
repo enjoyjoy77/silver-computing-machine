@@ -55,11 +55,23 @@ test('form referrer policy preserves same-origin POST Origin without allowing nu
 
 test('direct HTML, assets and API require authentication',async()=>{
   const f=fixture();
-  for(const path of ['/my-chat/','/my-chat/index.html','/my-chat/app.js','/my-chat/style.css','/my-chat/session','/api/my-chat/','/api/my-chat/chat']) {
+  for(const path of ['/my-chat/','/my-chat/index.html','/my-chat/app.js','/my-chat/documents.mjs','/my-chat/pdf.mjs','/my-chat/pdf.worker.mjs','/my-chat/style.css','/my-chat/session','/api/my-chat/','/api/my-chat/chat','/api/my-chat/speech']) {
     const r=await f.request(path); assert.equal(r.status,401,path);
     assert.match(r.headers.get('cache-control'),/no-store/);
     assert.doesNotMatch(await r.text(),/今日は、何を話そう|const \$=|chats=/);
   }
+});
+
+test('PDF modules use authenticated same-origin paths with matching CSP and script MIME',async()=>{
+  const f=fixture();const headers={Cookie:cookieFrom(await f.login())};
+  for(const asset of ['documents.mjs','pdf.mjs','pdf.worker.mjs']) {
+    const response=await f.request('/my-chat/'+asset,{headers});assert.equal(response.status,200);
+    assert.match(response.headers.get('content-type'),/^text\/javascript/);
+    const csp=response.headers.get('content-security-policy');assert.match(csp,/script-src 'self';/);assert.match(csp,/worker-src 'self';/);assert.doesNotMatch(csp,/unsafe-eval|script-src[^;]*https?:/);
+    const source=await response.text();assert.ok(source.length>100);
+    if(asset==='documents.mjs'){assert.match(source,/new Worker\('\/my-chat\/pdf.worker.mjs'/);assert.match(source,/import\('\.\/pdf.mjs'\)/);assert.doesNotMatch(source,/eval\(|new Function|innerHTML/);}
+  }
+  assert.equal((await f.request('/my-chat/arbitrary.mjs',{headers})).status,404);
 });
 test('API POSTs retain authentication and exact Origin checks before any upstream call', async () => {
   const f=fixture();
@@ -78,7 +90,7 @@ test('login, cookie attributes, protected assets, API method guard, logout revoc
   assert.ok(!cookie.includes('Domain='));
   const headers={Cookie:cookieFrom(r)};
   const page=await f.request('/my-chat/',{headers});assert.equal(page.status,200);assert.match(await page.text(),/ログアウト/);
-  for(const asset of ['app.js','style.css']) assert.equal((await f.request('/my-chat/'+asset,{headers})).status,200);
+  for(const asset of ['app.js','style.css','documents.mjs','pdf.mjs','pdf.worker.mjs']) assert.equal((await f.request('/my-chat/'+asset,{headers})).status,200);
   assert.equal((await f.request('/api/my-chat/chat',{headers})).status,405);
   const state=await (await f.request('/my-chat/session',{headers})).json();
   assert.ok(state.expires> Date.now()/1000+28795 && state.expires<=Date.now()/1000+28800);

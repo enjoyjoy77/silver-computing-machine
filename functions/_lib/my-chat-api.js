@@ -68,7 +68,7 @@ async function allowance(db, sid, now, feature = '') {
 
 export async function handleMyChatApi(request, db, current, upstreamFetch = fetch) {
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
-  if (!['/api/my-chat/chat', '/api/my-chat/transcribe', '/api/my-chat/image'].includes(path)) return result(404, { error: 'このAPIはありません。' });
+  if (!['/api/my-chat/chat', '/api/my-chat/transcribe', '/api/my-chat/image', '/api/my-chat/speech'].includes(path)) return result(404, { error: 'このAPIはありません。' });
   if (request.method !== 'POST') return result(405, { error: 'POSTで送信してください。' });
   const key = request.headers.get('X-My-Chat-Key') || '';
   if (!/^sk-[A-Za-z0-9_-]{20,240}$/.test(key)) return result(400, { error: '設定でOpenAIのAPIキーを入力してください。' });
@@ -113,6 +113,13 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
       endpoint='images/generations';
       if (data.image !== undefined) { payload.images=[{image_url:imageData(data.image)}];endpoint='images/edits'; }
       body=JSON.stringify(payload);headers['Content-Type']='application/json';feature='image';
+    } else if (path.endsWith('/speech')) {
+      if (Date.now() >= Date.UTC(2027,0,6)) return result(410,{error:'この音声合成APIの提供期間は終了しました。端末の読み上げをご利用ください。'});
+      if (!request.headers.get('content-type')?.startsWith('application/json')) return result(415,{error:'JSONで送信してください。'});
+      const data=JSON.parse(new TextDecoder().decode(await readBounded(request,10000)));
+      if(data.consent!==true||typeof data.text!=='string'||!data.text.trim()||data.text.length>1000||/\bsk-[A-Za-z0-9_-]{12,}/.test(data.text)) return result(400,{error:'1000文字以内の読み上げと追加料金の確認が必要です。APIキーは含めないでください。'});
+      body=JSON.stringify({model:'gpt-4o-mini-tts',voice:'coral',input:data.text,response_format:'mp3'});
+      headers['Content-Type']='application/json';endpoint='audio/speech';feature='speech';
     } else {
       const mime = (request.headers.get('content-type') || '').split(';')[0];
       const extensions = { 'audio/webm': 'webm', 'audio/mp4': 'mp4', 'audio/wav': 'wav' };
@@ -135,7 +142,7 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
     if (request.signal.aborted) return result(499, { error: '送信を停止しました。' });
     token = await acquire(db, current.id, now, feature === 'image' ? 195 : 75);
     if (token === null) return result(409, { error: '前の送信を処理中です。少し待ってから送信してください。' });
-    if (!await allowance(db, current.id, now, feature)) return result(429, { error: '利用上限です。1分6回・全体で1日100回、うち画像10回・Web検索30回までです。' });
+    if (!await allowance(db, current.id, now, feature)) return result(429, { error: '利用上限です。1分6回・全体で1日100回、うち画像10回・Web検索30回・API読み上げ30回までです。' });
     // Recheck revocation immediately before spending any API credits.
     const live = await db.prepare('SELECT id FROM my_chat_sessions WHERE id = ? AND expires > ?').bind(current.id, Math.floor(Date.now() / 1000)).first();
     if (!live || controller.signal.aborted) return result(401, { error: 'ログインし直してください。' });
@@ -152,6 +159,12 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
       return result(response.status === 429 ? 429 : 502, { error });
     }
     stage = 'response';
+    if (feature==='speech') {
+      if (!response.headers.get('content-type')?.startsWith('audio/mpeg')) throw Error('audio type');
+      const bytes=await readBounded(response,4*1024*1024);
+      if(bytes.length<3||!((bytes[0]===73&&bytes[1]===68&&bytes[2]===51)||(bytes[0]===255&&(bytes[1]&224)===224)))throw Error('audio data');
+      return new Response(bytes,{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff'}});
+    }
     const data = JSON.parse(new TextDecoder().decode(await readBounded(response, feature === 'image' ? 16000000 : 1000000)));
     if (feature === 'image') {
       const b64=data.data?.[0]?.b64_json;

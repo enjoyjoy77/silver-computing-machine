@@ -9,6 +9,23 @@ const key = 'sk-' + 'testOnlyNotARealCredential'.repeat(2);
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
 const image='data:image/png;base64,'+png;
 
+test('speech is opt-in, fixed upstream/model/voice, bounded binary and no-store',async()=>{
+  const f=setup();const body=JSON.stringify({text:'hello',consent:true,model:'other',url:'https://evil.example'});
+  const r=await f.run({path:'speech',body},async(url,o)=>{
+    assert.equal(url,'https://api.openai.com/v1/audio/speech');assert.equal(o.redirect,'manual');assert.deepEqual(JSON.parse(o.body),{model:'gpt-4o-mini-tts',voice:'coral',input:'hello',response_format:'mp3'});
+    return new Response(new Uint8Array([73,68,51,0]),{headers:{'Content-Type':'audio/mpeg'}});
+  });assert.equal(r.status,200);assert.equal(r.headers.get('cache-control'),'no-store, private');assert.equal((await r.arrayBuffer()).byteLength,4);
+  for(const b of [{text:'x'},{text:'x'.repeat(1001),consent:true},{text:key,consent:true}])assert.equal((await f.run({path:'speech',body:JSON.stringify(b)})).status,400);
+  for(const upstream of [()=>Response.json({error:key}),()=>new Response('invalid',{headers:{'Content-Type':'audio/mpeg'}}),()=>new Response(new Uint8Array(4*1024*1024+1),{headers:{'Content-Type':'audio/mpeg'}})]) {
+    const bad=await f.run({path:'speech',body},upstream);assert.equal(bad.status,502);assert.ok(!(await bad.text()).includes(key));
+  }
+});
+test('speech has a daily sublimit and fails closed at the published retirement date',async()=>{
+  const f=setup();f.sql.prepare('INSERT INTO my_chat_api_control VALUES (?,?,?)').run('feature:speech',Math.floor(Date.now()/86400000),30);
+  const opts={path:'speech',body:JSON.stringify({text:'hello',consent:true})};assert.equal((await f.run(opts)).status,429);assert.equal(f.calls.length,0);
+  const original=Date.now;try{Date.now=()=>Date.UTC(2027,0,6);assert.equal((await f.run(opts)).status,410);}finally{Date.now=original;}
+});
+
 test('credential-like text never reaches a model or image prompt',async()=>{
   const f=setup();
   for(const opts of [

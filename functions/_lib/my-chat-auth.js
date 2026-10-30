@@ -18,7 +18,7 @@ function response(body, status = 200, type = 'text/html; charset=utf-8', extra =
     // no-referrer makes HTML form POSTs send Origin: null, failing our CSRF guard.
     'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'X-Robots-Tag': 'noindex, noarchive, nofollow',
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
     ...extra,
   }});

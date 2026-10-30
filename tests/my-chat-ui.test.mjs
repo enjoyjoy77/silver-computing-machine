@@ -8,6 +8,20 @@ const html=readFileSync(new URL('../functions/_lib/my-chat-ui/index.html',import
 const key='sk-'+'notARealKeyForUnitTestsOnly'.repeat(2);
 const tick=()=>new Promise(r=>setImmediate(r));
 
+test('API speech requires separate consent, never auto-sends and stops on logout',async()=>{
+  const f=fixture(url=>url.endsWith('/speech')?new Response('ID3synthetic',{headers:{'Content-Type':'audio/mpeg'}}):Response.json({text:'Short answer'}));f.keys();f.el('prompt').value='hello';f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,1);
+  f.el('api-read').click();await tick();assert.equal(f.calls.length,1);
+  f.el('speech-consent').checked=true;f.el('api-read').click();f.el('api-read').click();await tick();await tick();
+  assert.equal(f.calls.length,2);assert.deepEqual(JSON.parse(f.calls[1].opts.body),{text:'Short answer',consent:true});assert.equal(f.el('speech-consent').checked,false);assert.equal(f.audios[0].played,true);
+  f.el('logout').events.submit();assert.equal(f.audios[0].paused,true);assert.equal(f.audios[0].src,'');assert.deepEqual(f.revoked,['blob:synthetic-audio']);
+});
+test('Office/PDF selection sends extracted text only after consent, not binary file data',async()=>{
+  const f=fixture();f.keys();f.window.MyChatDocuments={extract:async(file,signal)=>{assert.equal(signal.aborted,false);return 'Extracted local text';}};
+  f.el('file').files=[{name:'local.pdf',size:123,type:'application/pdf'}];await f.el('file').onchange();assert.equal(f.calls.length,0);
+  f.el('prompt').value='summarize';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();
+  const a=JSON.parse(f.calls[0].opts.body).attachment;assert.equal(a.kind,'text');assert.equal(a.text,'Extracted local text');assert.equal(a.data,undefined);
+});
+
 test('untrusted image URLs and citation schemes are never linked',async()=>{
   const f=fixture(()=>Response.json({text:'unsafe',image:'javascript:alert(1)',citations:[{start:0,end:6,url:'javascript:alert(1)'},{start:0,end:6,url:'https://user:password@example.com'}]}));f.keys();
   f.el('prompt').value='test';f.el('composer').requestSubmit();await tick();
@@ -35,7 +49,9 @@ function fixture(fetcher,mediaRequest) {
   }
   const elements=new Map([...html.matchAll(/id="([^"]+)"/g)].map(m=>['#'+m[1],new Element()]));
   elements.set('.brand',new Element());
-  const windowEvents={},documentEvents={},timers=[],calls=[],spoken=[];
+  const windowEvents={},documentEvents={},timers=[],calls=[],spoken=[],audios=[],revoked=[];
+  class TestURL extends URL {static createObjectURL(){return "blob:synthetic-audio";}static revokeObjectURL(url){revoked.push(url);}}
+  class TestAudio {constructor(src){this.src=src;audios.push(this);}async play(){this.played=true;}pause(){this.paused=true;}}
   const document={body:new Element(),hidden:false,querySelector(s){assert.ok(elements.has(s),'missing selector '+s);return elements.get(s);},querySelectorAll(){return [];},createElement(){return new Element();},createTextNode(text){const e=new Element();e.textContent=text;return e;},addEventListener(k,f){documentEvents[k]=f;}};
   let stoppedTracks=0;
   const stream={getTracks:()=>[{stop(){stoppedTracks++;}}]};
@@ -46,11 +62,11 @@ function fixture(fetcher,mediaRequest) {
     start(){this.state='recording';} stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['fake'],{type:'audio/mp4'})});this.onstop?.();});}
   }
   const window={MediaRecorder:Recorder,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},speechSynthesis:{cancel(){},speak(u){spoken.push(u.text);}},addEventListener(k,f){windowEvents[k]=f;}};
-  const context={window,document,URL,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(){}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
+  const context={window,document,URL:TestURL,Audio:TestAudio,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(){}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
   vm.runInNewContext(src,context);
   const el=id=>elements.get('#'+id);
   const keys=()=>{el('api-key').value=key;el('apply-keys').click();};
-  return {el,keys,calls,windowEvents,documentEvents,recorders,spoken,timers,stream,get stoppedTracks(){return stoppedTracks;}};
+  return {el,keys,calls,window,windowEvents,documentEvents,recorders,spoken,timers,stream,audios,revoked,get stoppedTracks(){return stoppedTracks;}};
 }
 test('key setup never sends or persists keys; submit is single-flight and renders text safely',async()=>{
   let resolve;const f=fixture(()=>new Promise(r=>resolve=r));f.keys();
@@ -98,5 +114,5 @@ test('text file selection is local, gated by consent, included once and cleared 
 test('image generation needs consent and uses dedicated endpoint; unsupported files never send',async()=>{
   const f=fixture();f.keys();f.el('mode').value='image';f.el('mode').onchange();f.el('prompt').value='猫の絵';f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,0);
   f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(f.calls[0].url,'/api/my-chat/image');assert.equal(JSON.parse(f.calls[0].opts.body).prompt,'猫の絵');
-  f.el('file').files=[{name:'document.pdf',type:'application/pdf',size:10}];await f.el('file').onchange();assert.equal(f.calls.length,1);assert.match(f.el('status').textContent,/PDF/);
+  f.el('file').files=[{name:'document.doc',type:'application/msword',size:10}];await f.el('file').onchange();assert.equal(f.calls.length,1);assert.match(f.el('status').textContent,/PDF/);
 });
