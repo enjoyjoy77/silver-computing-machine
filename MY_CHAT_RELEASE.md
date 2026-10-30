@@ -1,5 +1,15 @@
 # My Chat: text and turn-based voice (not yet published)
 
+## Follow-up: Workers redirect compatibility fix
+
+The initial release and shared-key UI were published. A reported generic connection error exposed a runtime incompatibility: Workers throws TypeError for `redirect: 'error'`. The API now uses `manual` and explicitly rejects all 3xx responses without following Location. Fixed upstream destinations, authentication and quotas are unchanged. No DB or secret changes are required for this fix.
+
+Errors now return safe stage codes (`DB_CONTROL`, `UPSTREAM_CONNECT`, `UPSTREAM_RESPONSE`, `UPSTREAM_REDIRECT`) without exception text, credentials or message contents. Production database metadata and actual provider calls have not been inspected.
+
+24 Node tests pass. `tests/my-chat-workers-check.mjs <installed miniflare package directory>` additionally runs against local workerd/Miniflare 5: the old TypeError was reproduced, and the fixed text/audio request construction, D1 `withSession` queries, lock and rate quota passed using a mocked upstream. No paid API call was used.
+
+Runtime reference: https://developers.cloudflare.com/workers/runtime-apis/request/
+
 Prepared locally on 2026-10-30. The previous live commit is c7dd96d5d2c563b8ed622656b348554a45fa9011.
 
 ## Before publication

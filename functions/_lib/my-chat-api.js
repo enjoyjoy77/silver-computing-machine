@@ -71,6 +71,7 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
   } catch (e) { return result(e.message === 'size' ? 413 : 400, { error: '送信内容が大きすぎるか、形式が正しくありません。' }); }
 
   let token = null;
+  let stage = 'database';
   const now = Math.floor(Date.now() / 1000);
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -84,18 +85,32 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
     // Recheck revocation immediately before spending any API credits.
     const live = await db.prepare('SELECT id FROM my_chat_sessions WHERE id = ? AND expires > ?').bind(current.id, Math.floor(Date.now() / 1000)).first();
     if (!live || controller.signal.aborted) return result(401, { error: 'ログインし直してください。' });
-    const response = await upstreamFetch(ROOT + endpoint, { method: 'POST', headers, body, redirect: 'error', signal: controller.signal });
+    stage = 'upstream';
+    // Workers supports manual/follow, not error. Never forward keys to redirects.
+    const response = await upstreamFetch(ROOT + endpoint, { method: 'POST', headers, body, redirect: 'manual', signal: controller.signal });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return result(502, { error: '接続先から転送を要求されたため停止しました。自動再送はしていません。', code: 'UPSTREAM_REDIRECT' });
+    }
     if (!response.ok) {
       await response.body?.cancel();
       const error = response.status === 401 || response.status === 403 ? 'APIキー・利用権限を確認してください。' : response.status === 429 ? 'OpenAIの利用枠または混雑による制限です。残高や上限を確認してください。' : 'OpenAIへの接続に失敗しました。自動再送はしていません。';
       return result(response.status === 429 ? 429 : 502, { error });
     }
+    stage = 'response';
     const data = await response.json();
     const text = endpoint === 'responses' ? (data.output || []).flatMap(x => x.type === 'message' ? x.content || [] : []).filter(x => x.type === 'output_text').map(x => x.text).join('\n') : data.text;
     if (typeof text !== 'string' || !text.trim()) return result(502, { error: '回答を取得できませんでした。自動再送はしていません。' });
     return result(200, { text: text.slice(0, endpoint === 'responses' ? 8000 : LIMITS.text), truncated: data.status === 'incomplete' });
   } catch {
-    return result(controller.signal.aborted ? 504 : 503, { error: controller.signal.aborted ? '送信を停止したか、応答が時間切れになりました。処理済み分の料金が発生する場合があります。' : '接続または利用制限の設定を確認できません。自動再送はしていません。' });
+    if (controller.signal.aborted) return result(504, { error: '送信を停止したか、応答が時間切れになりました。処理済み分の料金が発生する場合があります。', code: 'REQUEST_ABORTED' });
+    const errors = {
+      database: ['利用制限データベースを確認できません。送信していません。（DB_CONTROL）', 'DB_CONTROL'],
+      upstream: ['OpenAIへの接続処理に失敗しました。自動再送はしていません。（UPSTREAM_CONNECT）', 'UPSTREAM_CONNECT'],
+      response: ['OpenAIからの応答を読み取れませんでした。自動再送はしていません。（UPSTREAM_RESPONSE）', 'UPSTREAM_RESPONSE'],
+    };
+    const [error, code] = errors[stage];
+    return result(stage === 'response' ? 502 : 503, { error, code });
   } finally {
     clearTimeout(timer); request.signal.removeEventListener('abort', abort);
     if (token !== null) { try { await db.prepare('DELETE FROM my_chat_api_control WHERE id = ? AND count = ?').bind('lock:' + current.id, token).run(); } catch { /* expires automatically */ } }

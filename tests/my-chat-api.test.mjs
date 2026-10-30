@@ -14,7 +14,7 @@ function setup() {
     let args=[]; return { bind(...v) { args=v; return this; }, async first() { return sql.prepare(query).get(...args)||null; }, async run() { return sql.prepare(query).run(...args); }, execute() { const s=sql.prepare(query); return { results:s.columns().length?s.all(...args):(s.run(...args),[]) }; } };
   }, async batch(statements) { sql.exec('BEGIN'); try { const out=statements.map(s=>s.execute());sql.exec('COMMIT');return out; } catch(e) { sql.exec('ROLLBACK');throw e; } } };
   const calls=[];
-  const mock = async (url, options) => { calls.push({url,options}); return Response.json(url.endsWith('transcriptions')?{text:'こんにちは'}:{output:[{type:'reasoning'},{type:'message',content:[{type:'output_text',text:'テストの返答'}]}]}); };
+  const mock = async (url, options) => { if (options.redirect === 'error') throw new TypeError('Unsupported Workers redirect mode'); calls.push({url,options}); return Response.json(url.endsWith('transcriptions')?{text:'こんにちは'}:{output:[{type:'reasoning'},{type:'message',content:[{type:'output_text',text:'テストの返答'}]}]}); };
   function request({path='chat', body=JSON.stringify({messages:[{role:'user',content:'こんにちは'}]}), type='application/json', apiKey=key, method='POST', signal}={}) {
     return new Request(origin+'/api/my-chat/'+path,{method,headers:{'X-My-Chat-Key':apiKey,'Content-Type':type,Origin:origin},body:method==='GET'?undefined:body,signal});
   }
@@ -24,7 +24,7 @@ function setup() {
 test('text uses fixed Responses model, store:false and output cap; ignores arbitrary destination',async()=>{
   const f=setup(); const r=await f.run({body:JSON.stringify({url:'https://evil.example',model:'other',messages:[{role:'user',content:'hello'}]})});
   assert.equal(r.status,200);assert.equal((await r.json()).text,'テストの返答');
-  const call=f.calls[0];assert.equal(call.url,'https://api.openai.com/v1/responses');assert.equal(call.options.redirect,'error');
+  const call=f.calls[0];assert.equal(call.url,'https://api.openai.com/v1/responses');assert.equal(call.options.redirect,'manual');
   const body=JSON.parse(call.options.body);assert.equal(body.model,'gpt-5.4-mini');assert.equal(body.store,false);assert.equal(body.max_output_tokens,1200);
   assert.equal(body.input.length,1);assert.equal(f.sql.prepare('SELECT count(*) AS n FROM my_chat_api_control WHERE id LIKE ?').get('lock:%').n,0);
 });
@@ -63,4 +63,16 @@ test('upstream failures are sanitized and never retried; cancellation propagates
   const pending=f.run({signal:c.signal},async(url,opts)=>{entered();return new Promise((resolve,reject)=>opts.signal.addEventListener('abort',()=>reject(Error('abort'))));});
   await started;c.abort();assert.equal((await pending).status,504);
   assert.equal((await f.run()).status,200);
+});
+test('redirects never forward credentials or follow Location, for text and audio',async()=>{
+  for (const opts of [{}, {path:'transcribe',type:'audio/mp4',body:'fake-audio'}]) {
+    const f=setup();let count=0;
+    const r=await f.run(opts,async(url,init)=>{count++;assert.equal(init.redirect,'manual');assert.ok(url.startsWith('https://api.openai.com/v1/'));return new Response(null,{status:307,headers:{Location:'https://example.invalid/steal'}});});
+    assert.equal(r.status,502);assert.equal((await r.json()).code,'UPSTREAM_REDIRECT');assert.equal(count,1);
+  }
+});
+test('safe error codes distinguish DB, connection and response failures without exposing details',async()=>{
+  let f=setup();f.sql.exec('DROP TABLE my_chat_api_control');assert.equal((await (await f.run()).json()).code,'DB_CONTROL');assert.equal(f.calls.length,0);
+  f=setup();let r=await f.run({},async()=>{throw Error(key);});assert.equal((await r.json()).code,'UPSTREAM_CONNECT');
+  r=await f.run({},async()=>new Response('not-json '+key));const body=await r.json();assert.equal(body.code,'UPSTREAM_RESPONSE');assert.ok(!JSON.stringify(body).includes(key));
 });
