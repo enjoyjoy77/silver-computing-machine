@@ -14,7 +14,8 @@ const validHex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(val
 function response(body, status = 200, type = 'text/html; charset=utf-8', extra = {}) {
   return new Response(body, { status, headers: {
     'Content-Type': type, 'Cache-Control': 'no-store, private',
-    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+    // no-referrer makes HTML form POSTs send Origin: null, failing our CSRF guard.
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'X-Robots-Tag': 'noindex, noarchive, nofollow',
     'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',

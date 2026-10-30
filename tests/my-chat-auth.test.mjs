@@ -34,6 +34,25 @@ function fixture() {
 }
 const cookieFrom = r => r.headers.get('set-cookie').split(';')[0];
 
+test('form referrer policy preserves same-origin POST Origin without allowing null origins', async () => {
+  const f = fixture();
+  // A no-referrer HTML form POST has Origin: null. Reproduce the old failure
+  // with synthetic credentials; a forged Referer must not bypass the guard.
+  const rejected = await f.login(f.pass, '192.0.2.1', { Origin: 'null', Referer: origin + '/my-chat/' });
+  assert.equal(rejected.status, 403);
+  assert.equal(f.sql.prepare('SELECT count(*) AS n FROM my_chat_attempts').get().n, 0);
+  const page = await f.request();
+  assert.equal(page.headers.get('referrer-policy'), 'same-origin');
+  assert.doesNotMatch(page.headers.get('content-security-policy'), /(?:^|;)\s*sandbox\b/);
+  assert.match(await page.text(), /<form method="post" action="\/my-chat\/login">/);
+  const loggedIn = await f.login();
+  assert.equal(loggedIn.status, 303);
+  const headers = { Cookie: cookieFrom(loggedIn) };
+  assert.equal((await f.request('/my-chat/', { headers })).headers.get('referrer-policy'), 'same-origin');
+  assert.equal((await f.request('/my-chat/logout', { method: 'POST', headers })).status, 403);
+  assert.equal((await f.request('/my-chat/logout', { method: 'POST', headers: { ...headers, Origin: origin } })).status, 303);
+});
+
 test('direct HTML, assets and API require authentication',async()=>{
   const f=fixture();
   for(const path of ['/my-chat/','/my-chat/index.html','/my-chat/app.js','/my-chat/style.css','/my-chat/session','/api/my-chat/','/api/my-chat/chat']) {
