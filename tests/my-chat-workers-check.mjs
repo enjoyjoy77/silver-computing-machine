@@ -17,6 +17,7 @@ export default { async fetch(request, env) {
     // Exercise workerd's actual Request validation, not Node's fetch implementation.
     const upstream = new Request(url, options);
     if (upstream.redirect !== 'manual') throw new Error('redirect policy');
+    if (url.includes('/images/')) return Response.json({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII='}]});
     return Response.json(url.endsWith('/transcriptions') ? {text:'音声テスト'} : {output:[{type:'message',content:[{type:'output_text',text:'文字テスト'}]}]});
   });
 }};`;
@@ -37,7 +38,11 @@ try {
   const text=await call('chat',JSON.stringify({messages:[{role:'user',content:'hello'}]}));
   assert.equal(text.status,200);assert.equal((await text.json()).text,'文字テスト');
   const audio=await call('transcribe','fake-audio','audio/mp4');assert.equal(audio.status,200);assert.equal((await audio.json()).text,'音声テスト');
-  for(let i=0;i<4;i++) assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'test'}]}))).status,200);
+  const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
+  assert.equal((await call('image',JSON.stringify({prompt:'cat',consent:true}))).status,200);
+  assert.equal((await call('image',JSON.stringify({prompt:'blue cat',image,consent:true}))).status,200);
+  assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'describe'}],attachment:{kind:'image',data:image},consent:true}))).status,200);
+  assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'limited'}]}))).status,429);
-  console.log('Local workerd: legacy TypeError reproduced; fixed text/audio, D1 session SQL and quota passed. No upstream API used.');
+  console.log('Local workerd: redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
 } finally { await mf.dispose(); }
