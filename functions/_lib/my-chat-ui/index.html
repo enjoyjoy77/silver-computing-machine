@@ -5,9 +5,8 @@
 <div class="composer-wrap"><div id="attachment-preview"></div><form id="composer"><textarea id="prompt" placeholder="なんでも聞いてみよう" aria-label="メッセージ" rows="1" maxlength="4000"></textarea><div class="composer-tools"><div><span class="attach-hint">文字・音声に対応</span></div><div><span class="input-hint">Shift + Enter で改行</span><button type="button" id="voice" class="icon-button" aria-label="音声モードを開く"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button><button type="button" id="stop" class="small-button">停止</button><button type="submit" id="send" aria-label="送信" disabled>↑</button></div></div></form><p id="status" role="status">設定からAPIキーを入力してください。</p><p class="footnote">送信するとOpenAI APIの料金が発生します。回答は誤ることがあります。<br>直近20件・計16000文字まで送信。履歴はこのタブのみ。</p></div></main>
 <dialog id="settings-dialog"><div class="dialog-head"><h2>設定</h2><button class="icon-button close" aria-label="設定を閉じる">×</button></div><div class="dialog-body">
 <div class="notice"><b>キーはこのタブでのみ使用します</b><p>再読み込み・ログアウトで消えます。ブラウザーの保存領域やサーバーDBには保存しません。送信時にはこのサイトのサーバーを経由してOpenAIに渡します。入力したキーを使える拡張機能や端末の共有には注意してください。</p></div>
-<h3>OpenAI APIキー</h3><p class="muted">文字回答と音声入力に用途別のキーを指定できます。同じキーを両方に入れても使えます。キーをこの会話欄に貼らないでください。</p>
-<label class="field">文字チャット<input id="text-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="243" placeholder="OpenAI APIキー"></label>
-<label class="field">音声入力<input id="voice-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="243" placeholder="音声入力用のOpenAI APIキー"></label>
+<h3>OpenAI APIキー</h3><p class="muted">All権限のキーも、1本をここに入力すれば文字チャットと音声入力に使えます。画像生成は未対応です。キーは会話欄には貼らないでください。</p>
+<label class="field">共通APIキー（文字・音声）<input id="api-key" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="243" placeholder="OpenAI APIキー"></label>
 <p id="key-status" role="status">キー未入力</p><button id="apply-keys" class="primary">このタブで使う</button> <button id="forget-keys" class="small-button">キーを消去</button>
 <h3>音声と利用上限</h3><p class="muted">録音は最大60秒・2MB。音声はgpt-transcribeで文字にし、GPT-5.4 miniが回答します。読み上げは端末・ブラウザーの合成音声です。音声によってはブラウザー提供元で処理されます。リアルタイムの割り込み会話ではありません。</p>
 <p class="muted">1ログインにつき1分6回、サイト全体でUTCの1日100回のAPI送信まで。音声1往復は通常2回です。金額の上限ではありません。停止しても処理済み分には料金が発生する場合があります。</p>

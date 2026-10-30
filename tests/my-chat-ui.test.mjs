@@ -32,12 +32,12 @@ function fixture(fetcher,mediaRequest) {
   const context={window,document,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(){}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
   vm.runInNewContext(src,context);
   const el=id=>elements.get('#'+id);
-  const keys=()=>{el('text-key').value=key;el('voice-key').value=key;el('apply-keys').click();};
+  const keys=()=>{el('api-key').value=key;el('apply-keys').click();};
   return {el,keys,calls,windowEvents,documentEvents,recorders,spoken,timers,stream,get stoppedTracks(){return stoppedTracks;}};
 }
 test('key setup never sends or persists keys; submit is single-flight and renders text safely',async()=>{
   let resolve;const f=fixture(()=>new Promise(r=>resolve=r));f.keys();
-  assert.equal(f.calls.length,0);assert.equal(f.el('text-key').value,'');assert.equal(f.el('voice-key').value,'');
+  assert.equal(f.calls.length,0);assert.equal(f.el('api-key').value,'');
   f.el('prompt').value='質問';f.el('composer').requestSubmit();f.el('composer').requestSubmit();
   assert.equal(f.calls.length,1);assert.equal(f.calls[0].opts.headers['X-My-Chat-Key'],key);
   resolve(Response.json({text:'<script>not HTML</script>'}));await tick();
@@ -57,11 +57,11 @@ test('late microphone permission after stop closes tracks without recording',asy
 });
 test('voice uses supported MIME, transcribes then chats and reads; close/logout discard recording',async()=>{
   const f=fixture();f.keys();f.el('record').click();await tick();assert.equal(f.recorders[0].mimeType,'audio/mp4');
-  f.el('finish-record').click();await tick();await tick();assert.equal(f.calls.length,2);assert.match(f.calls[0].url,/transcribe$/);assert.match(f.calls[1].url,/chat$/);assert.equal(f.spoken[0],'返答');
+  f.el('finish-record').click();await tick();await tick();assert.equal(f.calls.length,2);assert.match(f.calls[0].url,/transcribe$/);assert.match(f.calls[1].url,/chat$/);assert.equal(f.spoken[0],'返答');assert.equal(f.calls[0].opts.headers['X-My-Chat-Key'],key);assert.equal(f.calls[1].opts.headers['X-My-Chat-Key'],key);
   f.el('record').click();await tick();f.el('voice-dialog').close();await tick();assert.equal(f.calls.length,2);assert.equal(f.recorders[1].state,'inactive');
   f.el('record').click();await tick();f.el('logout').events.submit();await tick();assert.equal(f.calls.length,2);assert.equal(f.recorders[2].state,'inactive');
 });
 test('authentication expiry clears keys and stops microphone',async()=>{
   const f=fixture(()=>new Response('{}',{status:401}));f.keys();f.el('record').click();await tick();await f.windowEvents.pageshow();await tick();
-  assert.equal(f.recorders[0].state,'inactive');assert.equal(f.el('text-key').value,'');
+  assert.equal(f.recorders[0].state,'inactive');assert.equal(f.el('api-key').value,'');
 });

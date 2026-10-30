@@ -2,7 +2,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   let chats = [], active = null, sequence = 0, busy = false, controller = null;
-  let textKey = '', voiceKey = '', recorder = null, stream = null, recordingTimer, authTimer;
+  let apiKey = '', recorder = null, stream = null, recordingTimer, authTimer;
   let generation = 0, pending = false, lastAnswer = '', stopped = false, locked = false;
   const synth = window.speechSynthesis;
   const validKey = key => /^sk-[A-Za-z0-9_-]{20,240}$/.test(key);
@@ -15,8 +15,8 @@
     $('#new').disabled = busy || pending || !!recorder;
     $('#record').disabled = busy || pending || !!recorder;
     $('#finish-record').disabled = !recorder;
-    $('#key-status').textContent = textKey ? '文字キー入力済み（未検証）' + (voiceKey ? '・音声キー入力済み' : '') : 'キー未入力';
-    $('#connection').textContent = textKey ? 'キー入力済み' : 'キー未入力';
+    $('#key-status').textContent = apiKey ? '共通キー入力済み・文字と音声に使用（未検証）' : 'キー未入力';
+    $('#connection').textContent = apiKey ? 'キー入力済み' : 'キー未入力';
   }
   function render() {
     if (locked) return;
@@ -33,7 +33,7 @@
     }
     $('#conversation').scrollTop = $('#conversation').scrollHeight; update();
   }
-  function clearKeys() { textKey = ''; voiceKey = ''; $('#text-key').value = ''; $('#voice-key').value = ''; update(); }
+  function clearKeys() { apiKey = ''; $('#api-key').value = ''; update(); }
   function stopRecording(discard = true) {
     if (discard) generation++;
     pending = false; clearTimeout(recordingTimer);
@@ -69,13 +69,13 @@
     utterance.onerror = () => status('読み上げを開始できませんでした。「もう一度読む」を押してください。'); synth.speak(utterance);
   }
   async function send(text, readAloud = false) {
-    if (!textKey) { $('#settings-dialog').showModal(); throw Error('設定で文字チャットのキーを入力してください。'); }
+    if (!apiKey) { $('#settings-dialog').showModal(); throw Error('設定で共通APIキーを入力してください。'); }
     if (!text.trim() || text.length > 4000) throw Error('文章は1〜4000文字にしてください。');
     if (/\bsk-[A-Za-z0-9_-]{12,}/.test(text)) throw Error('APIキーは会話に送らず、設定欄に入力してください。');
     let chat = chats.find(c => c.id === active);
     if (!chat) { chat = { id: ++sequence, title: text.slice(0, 25), messages: [] }; chats.unshift(chat); active = chat.id; }
     const messages = conversationInput(chat, text); status('回答を待っています…');
-    const data = await api('chat', JSON.stringify({ messages }), textKey, 'application/json', controller.signal);
+    const data = await api('chat', JSON.stringify({ messages }), apiKey, 'application/json', controller.signal);
     if (stopped) return;
     chat.messages.push({ role: 'user', content: text }, { role: 'assistant', content: data.text });
     $('#prompt').value = ''; lastAnswer = data.text; render();
@@ -90,7 +90,7 @@
   }
   async function record() {
     if (busy || recorder || pending) return;
-    if (!textKey || !voiceKey) { $('#voice-dialog').close(); $('#settings-dialog').showModal(); status('文字と音声入力のキーを設定してください。同じキーも使えます。'); return; }
+    if (!apiKey) { $('#voice-dialog').close(); $('#settings-dialog').showModal(); status('設定で共通APIキーを1回入力すると、文字と音声に使えます。'); return; }
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { status('このブラウザーでは録音できません。HTTPSのChrome・Edge・Safariで開いてください。'); return; }
     const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find(t => MediaRecorder.isTypeSupported(t));
     if (!mime) { status('対応する録音形式がありません。文字入力をご利用ください。'); return; }
@@ -113,7 +113,7 @@
         if (!blob.size) { status('音声がありません。もう一度録音してください。'); return; }
         operation(async () => {
           status('音声を文字にしています…');
-          const data = await api('transcribe', blob, voiceKey, blob.type, controller.signal);
+          const data = await api('transcribe', blob, apiKey, blob.type, controller.signal);
           if (stopped) return; $('#prompt').value = data.text; await send(data.text, true);
         });
       };
@@ -132,10 +132,10 @@
   $('#settings').onclick = () => { closeMenu(); $('#settings-dialog').showModal(); };
   $('#apply-keys').onclick = () => {
     if (busy || recorder || pending) { toast('先に送信・録音を停止してください。'); return; }
-    const t = $('#text-key').value.trim(), v = $('#voice-key').value.trim();
-    if ((t && !validKey(t)) || (v && !validKey(v))) { toast('キーの形式を確認してください。'); return; }
-    if (t) textKey = t; if (v) voiceKey = v;
-    $('#text-key').value = ''; $('#voice-key').value = ''; update(); toast('このタブで使用します。まだAPIには送信していません。');
+    const key = $('#api-key').value.trim();
+    if (!validKey(key)) { toast('キーの形式を確認してください。'); return; }
+    apiKey = key;
+    $('#api-key').value = ''; update(); toast('このタブで使用します。まだAPIには送信していません。');
   };
   $('#forget-keys').onclick = () => { stop(); clearKeys(); toast('キーを消去しました。'); };
   $('#clear').onclick = () => { stop(); chats = []; active = null; lastAnswer = ''; $('#prompt').value = ''; render(); };
