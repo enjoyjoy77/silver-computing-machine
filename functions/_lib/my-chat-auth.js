@@ -1,5 +1,6 @@
-// Dedicated My Chat authentication. No provider API calls or API keys.
+// Dedicated My Chat authentication. Provider calls run only after this session guard.
 import { assets } from './my-chat-assets.js';
+import { handleMyChatApi } from './my-chat-api.js';
 
 const ORIGIN = 'https://silver-computing-machine-7ql.pages.dev';
 const COOKIE = '__Host-my_chat';
@@ -18,14 +19,14 @@ function response(body, status = 200, type = 'text/html; charset=utf-8', extra =
     'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
     'X-Robots-Tag': 'noindex, noarchive, nofollow',
     'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
     ...extra,
   }});
 }
 const json = (status, error) => response(JSON.stringify({ error }), status, 'application/json; charset=utf-8');
 const cookie = (value, age) => `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
 function loginPage(message = '') {
-  return `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>マイチャットに入る</title><style>body{font-family:system-ui,sans-serif;background:#f6f5f1;color:#292929;margin:0;padding:24px}main{max-width:420px;margin:12vh auto;background:white;padding:32px;border-radius:20px}h1{font-size:24px}label,input,button{display:block;box-sizing:border-box;width:100%}input,button{font:inherit;padding:14px;margin:16px 0;border:1px solid #ccc;border-radius:10px}button{background:#245c49;color:white;cursor:pointer}p{line-height:1.7}a{color:#245c49}</style><main><h1>マイチャット</h1><p>専用の合言葉で入ってください。<br>ログインは8時間で切れます。</p><p role="status">${message}</p><form method="post" action="/my-chat/login"><label for="passphrase">合言葉</label><input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required maxlength="256"><button type="submit">入る</button></form><p>外観デモ・API未接続</p><a href="/">ツールボックスに戻る</a></main></html>`;
+  return `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>マイチャットに入る</title><style>body{font-family:system-ui,sans-serif;background:#f6f5f1;color:#292929;margin:0;padding:24px}main{max-width:420px;margin:12vh auto;background:white;padding:32px;border-radius:20px}h1{font-size:24px}label,input,button{display:block;box-sizing:border-box;width:100%}input,button{font:inherit;padding:14px;margin:16px 0;border:1px solid #ccc;border-radius:10px}button{background:#245c49;color:white;cursor:pointer}p{line-height:1.7}a{color:#245c49}</style><main><h1>マイチャット</h1><p>専用の合言葉で入ってください。<br>ログインは8時間で切れます。</p><p role="status">${message}</p><form method="post" action="/my-chat/login"><label for="passphrase">合言葉</label><input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required maxlength="256"><button type="submit">入る</button></form><p>個人用チャット・APIキーはログイン後の設定から入力</p><a href="/">ツールボックスに戻る</a></main></html>`;
 }
 async function keyFor(env) {
   return crypto.subtle.importKey('raw', encoder.encode(env.MY_CHAT_SESSION_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
@@ -119,7 +120,7 @@ export async function handleMyChat({ request, env }) {
       if (!api && (path === '/my-chat' || path === '/my-chat/login') && (method === 'GET' || method === 'HEAD')) return response(method === 'HEAD' ? null : loginPage(), 401);
       return json(401, 'ログインしてください');
     }
-    if (api) return json(404, 'APIは接続されていません');
+    if (api) return handleMyChatApi(request, db, current);
     if (method !== 'GET' && method !== 'HEAD') return json(405, 'Method not allowed');
     if (path === '/my-chat/session') return response(JSON.stringify({ expires: current.expires }), 200, 'application/json');
     if (path === '/my-chat' && url.pathname !== '/my-chat/') return response(null, 308, undefined, { Location: '/my-chat/' });

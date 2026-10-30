@@ -61,7 +61,17 @@ test('direct HTML, assets and API require authentication',async()=>{
     assert.doesNotMatch(await r.text(),/今日は、何を話そう|const \$=|chats=/);
   }
 });
-test('login, cookie attributes, protected assets, API disabled, logout revocation',async()=>{
+test('API POSTs retain authentication and exact Origin checks before any upstream call', async () => {
+  const f=fixture();
+  const opts={method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'};
+  assert.equal((await f.request('/api/my-chat/chat',opts)).status,401);
+  const login=await f.login();const headers={...opts.headers,Cookie:cookieFrom(login)};
+  for(const badOrigin of ['null','https://evil.example','']) {
+    assert.equal((await f.request('/api/my-chat/chat',{...opts,headers:{...headers,Origin:badOrigin}})).status,403);
+  }
+  assert.equal((await f.request('/api/my-chat/chat',{...opts,headers})).status,400);
+});
+test('login, cookie attributes, protected assets, API method guard, logout revocation',async()=>{
   const f=fixture(), r=await f.login(); assert.equal(r.status,303);
   const cookie=r.headers.get('set-cookie');
   for(const attr of ['__Host-my_chat=','Path=/','HttpOnly','Secure','SameSite=Strict','Max-Age=28800']) assert.ok(cookie.includes(attr));
@@ -69,7 +79,7 @@ test('login, cookie attributes, protected assets, API disabled, logout revocatio
   const headers={Cookie:cookieFrom(r)};
   const page=await f.request('/my-chat/',{headers});assert.equal(page.status,200);assert.match(await page.text(),/ログアウト/);
   for(const asset of ['app.js','style.css']) assert.equal((await f.request('/my-chat/'+asset,{headers})).status,200);
-  assert.equal((await f.request('/api/my-chat/chat',{headers})).status,404);
+  assert.equal((await f.request('/api/my-chat/chat',{headers})).status,405);
   const state=await (await f.request('/my-chat/session',{headers})).json();
   assert.ok(state.expires> Date.now()/1000+28795 && state.expires<=Date.now()/1000+28800);
   const logout=await f.request('/my-chat/logout',{method:'POST',headers:{...headers,Origin:origin}});
