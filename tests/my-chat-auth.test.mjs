@@ -81,7 +81,7 @@ test('API POSTs retain authentication and exact Origin checks before any upstrea
   for(const badOrigin of ['null','https://evil.example','']) {
     assert.equal((await f.request('/api/my-chat/chat',{...opts,headers:{...headers,Origin:badOrigin}})).status,403);
   }
-  assert.equal((await f.request('/api/my-chat/chat',{...opts,headers})).status,400);
+  assert.equal((await f.request('/api/my-chat/chat',{...opts,headers})).status,503);
 });
 test('login, cookie attributes, protected assets, API method guard, logout revocation',async()=>{
   const f=fixture(), r=await f.login(); assert.equal(r.status,303);
@@ -140,4 +140,26 @@ test('session rows alone cannot be forged and duplicate cookies rejected',async(
   assert.equal((await f.request('/my-chat/',{headers:{Cookie:cookie+'; '+cookie}})).status,401);
   f.env.MY_CHAT_SESSION_KEY=randomBytes(32).toString('hex');
   assert.equal((await f.request('/my-chat/',{headers:{Cookie:cookie}})).status,401);
+});
+
+test('30 day retention is opt-in, signed, revocable and never extends existing 8 hour sessions',async()=>{
+ const f=fixture();const normal=await f.login();assert.match(normal.headers.get('set-cookie'),/Max-Age=28800/);
+ const old=cookieFrom(normal),oldExpiry=(await (await f.request('/my-chat/session',{headers:{Cookie:old}})).json()).expires;
+ const remembered=await f.request('/my-chat/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/x-www-form-urlencoded','CF-Connecting-IP':'192.0.2.5'},body:new URLSearchParams({passphrase:f.pass,remember:'30d',username:'my-chat'})});
+ assert.equal(remembered.status,303);assert.match(remembered.headers.get('set-cookie'),/Max-Age=2592000/);
+ for(const attr of ['HttpOnly','Secure','SameSite=Strict','Path=/'])assert.ok(remembered.headers.get('set-cookie').includes(attr));
+ const cookie=cookieFrom(remembered),data=await (await f.request('/my-chat/session',{headers:{Cookie:cookie}})).json();assert.ok(data.expires-Math.floor(Date.now()/1000)>2591990);
+ assert.equal((await (await f.request('/my-chat/session',{headers:{Cookie:old}})).json()).expires,oldExpiry);
+ assert.equal((await f.request('/my-chat/logout',{method:'POST',headers:{Origin:origin,Cookie:cookie}})).status,303);
+ assert.equal((await f.request('/my-chat/session',{headers:{Cookie:cookie}})).status,401);
+ assert.equal((await f.request('/my-chat/session',{headers:{Cookie:old}})).status,200);
+ const markup=await (await f.request()).text();assert.match(markup,/name="username" value="my-chat" autocomplete="username"/);assert.match(markup,/autocomplete="current-password"/);assert.doesNotMatch(markup,/value="30d"[^>]*checked/);
+ for(const remember of ['yes','999'])assert.equal((await f.request('/my-chat/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/x-www-form-urlencoded','CF-Connecting-IP':'192.0.2.5'},body:new URLSearchParams({passphrase:f.pass,remember})})).status,400);
+});
+test('server credential status is boolean, authenticated, non-cacheable and never exposes the value',async()=>{
+ const f=fixture();const secret='sk-'+'SyntheticServerOnlyForUnitTest'.repeat(2);f.env.MY_CHAT_OPENAI_API_KEY=secret;
+ assert.equal((await f.request('/my-chat/session')).status,401);
+ const headers={Cookie:cookieFrom(await f.login())};let r=await f.request('/my-chat/session',{headers});assert.match(r.headers.get('cache-control'),/no-store/);
+ let data=await r.json();assert.equal(data.serverKeyConfigured,true);assert.deepEqual(Object.keys(data).sort(),['expires','serverKeyConfigured']);assert.ok(!JSON.stringify(data).includes(secret));
+ delete f.env.MY_CHAT_OPENAI_API_KEY;data=await (await f.request('/my-chat/session',{headers})).json();assert.equal(data.serverKeyConfigured,false);
 });

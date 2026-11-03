@@ -1,9 +1,17 @@
-// Keys live only in the incoming request and the fixed upstream request.
+// Keys come from the encrypted runtime Secret or an optional temporary request header.
 // Never log request bodies, Authorization headers, or upstream error bodies.
 const ROOT = 'https://api.openai.com/v1/';
+export const serverKeyConfigured = key => typeof key==='string' && /^sk-[A-Za-z0-9_-]{20,240}$/.test(key);
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, private', 'X-Content-Type-Options': 'nosniff' };
 const result = (status, body) => new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 export const LIMITS = { text: 4000, context: 16000, messages: 20, audio: 2 * 1024 * 1024, output: 1200 };
+// Explicit Responses-compatible models; client-supplied parameters never pass through.
+const TEXT_MODELS = Object.freeze({
+  'gpt-5.4-mini': 'none',
+  'gpt-5.4': 'none',
+  'gpt-6-luna': 'none',
+  'gpt-6.1-sol': 'low',
+});
 
 function imageData(value, maxBytes = 2 * 1024 * 1024) {
   if (typeof value !== 'string' || value.length > Math.ceil(maxBytes / 3) * 4 + 22 || !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) throw Error('image');
@@ -66,11 +74,14 @@ async function allowance(db, sid, now, feature = '') {
   return rows[0].results[0].count <= 6 && rows[1].results[0].count <= 100 && (!feature || rows[3].results[0].count <= (feature === 'image' ? 10 : 30));
 }
 
-export async function handleMyChatApi(request, db, current, upstreamFetch = fetch) {
+export async function handleMyChatApi(request, db, current, upstreamFetch = fetch, serverKey) {
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
   if (!['/api/my-chat/chat', '/api/my-chat/transcribe', '/api/my-chat/image', '/api/my-chat/speech'].includes(path)) return result(404, { error: 'このAPIはありません。' });
   if (request.method !== 'POST') return result(405, { error: 'POSTで送信してください。' });
-  const key = request.headers.get('X-My-Chat-Key') || '';
+  const hasServerKey=serverKey!==undefined && serverKey!==null && serverKey!=='';
+  if(hasServerKey && !serverKeyConfigured(serverKey)) return result(503,{error:'サーバーAPIキーの設定を確認してください。送信していません。',code:'SERVER_KEY_CONFIG'});
+  if(!hasServerKey && !request.headers.has('X-My-Chat-Key')) return result(503,{error:'サーバーAPIキーが未設定です。CloudflareのSecret設定、または一時キーの入力が必要です。',code:'SERVER_KEY_MISSING'});
+  const key = hasServerKey ? serverKey : request.headers.get('X-My-Chat-Key') || '';
   if (!/^sk-[A-Za-z0-9_-]{20,240}$/.test(key)) return result(400, { error: '設定でOpenAIのAPIキーを入力してください。' });
   let body, endpoint, feature = '', headers = { Authorization: 'Bearer ' + key };
   try {
@@ -78,6 +89,8 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
       if (!request.headers.get('content-type')?.startsWith('application/json')) return result(415, { error: 'JSONで送信してください。' });
       const bytes = await readBounded(request, 3000000);
       const data = JSON.parse(new TextDecoder().decode(bytes));
+      const model = data.model === undefined ? 'gpt-5.4-mini' : data.model;
+      if (typeof model !== 'string' || !Object.hasOwn(TEXT_MODELS,model)) return result(400,{error:'対応する会話モデルを選択してください。'});
       if (bytes.length > 80000 && data.attachment?.kind !== 'image') return result(413,{error:'送信内容が大きすぎます。'});
       const messages = data.messages;
       if (!Array.isArray(messages) || !messages.length || messages.length > LIMITS.messages || messages.at(-1)?.role !== 'user' ||
@@ -95,8 +108,8 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
         else return result(400,{error:'添付はPNG画像1枚または8000文字以内のテキストです。'});
         input.at(-1).content=content;
       }
-      const payload = { model: 'gpt-5.4-mini', input, store: false,
-        reasoning: { effort: 'none' }, max_output_tokens: LIMITS.output,
+      const payload = { model, input, store: false,
+        reasoning: { effort: TEXT_MODELS[model] }, max_output_tokens: LIMITS.output,
         instructions: 'ユーザーの言語で、役立つ回答を簡潔に返してください。' };
       if (data.web) {
         if (data.consent !== true) return result(400,{error:'検索の追加料金と送信を確認してください。'});

@@ -46,3 +46,68 @@ Actual browser UI rendering and physical microphone/speaker tests remain pending
 - https://developers.openai.com/api/docs/guides/text-to-speech (legacy Speech API models scheduled for retirement; no new integration with those models)
 - https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder
 - https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis
+
+
+## Model, session and local history update (2026-11-03)
+
+Causes: the selector had one option, chat requests omitted the model, and the
+server fixed gpt-5.4-mini. Session checks treated network errors like revocation,
+clearing the temporary key. Keys and conversations were deliberately memory-only.
+
+This update adds a validated native selector (default unchanged), a retryable
+fail-closed session state, opt-in fixed 30-day sessions, encrypted runtime Secret
+support, and browser-local history. Existing eight-hour sessions are not extended.
+No new D1 tables are needed. Other toolbox applications are unchanged.
+
+Text model allowlist, verified against official model pages on 2026-11-03:
+- https://developers.openai.com/api/docs/models/gpt-5.4-mini
+- https://developers.openai.com/api/docs/models/gpt-5.4
+- https://developers.openai.com/api/docs/models/gpt-6-luna
+- https://developers.openai.com/api/docs/models/gpt-6.1-sol
+
+All use Responses, text/image input and web search; Sol uses reasoning low,
+others none. The existing 1200 output-token limit and quotas remain; reasoning
+consumes this budget. Model availability and price depend on the OpenAI project.
+No live paid model calls have been made to verify account access.
+
+The approved MY_CHAT_OPENAI_API_KEY must be entered directly into Cloudflare:
+Workers & Pages > silver-computing-machine > Settings > Variables and Secrets >
+Production > Add. Set that name, paste the existing key, select Encrypt, Save.
+Do this before deploying the new code. Never put the value in Git, chat, local
+configuration, CLI arguments, screenshots, or browser persistent storage.
+https://developers.cloudflare.com/pages/functions/bindings/#secrets
+
+The authenticated session endpoint exposes only a boolean configured flag. The
+server prefers the Secret, while an absent Secret permits the existing optional
+memory-only key. Malformed configured Secrets fail closed. Removing/replacing
+this Secret and redeploying disables/changes the shared server key; clearing the
+temporary key in the UI does not remove it. Logout revokes the browser session,
+not the server key. Anyone authenticated can incur charges under existing limits.
+
+The unchecked 30-day option creates a signed HttpOnly Secure SameSite=Strict
+cookie backed by the same revocable D1 row. Expiry does not slide. The login
+username my-chat helps password managers distinguish records, but does not
+provide authentication or guaranteed same-host autofill isolation.
+
+History uses localStorage my-chat.history.v1, read only after successful session
+verification, with strict shape validation and safe rendering. Only titles,
+message text, safe citations and generated PNG outputs are saved. Credentials,
+original uploads, microphone recordings and speech audio are excluded. Key-like
+text is redacted. History is unencrypted browser-local data, not a security
+boundary against same-origin scripts or people accessing the browser profile.
+No cloud synchronization or separate history upload. Subsequent conversation
+requests may include restored recent messages under the existing context limit.
+
+Caps: 4 MiB (UTF-16 estimate), 100 conversations, 2000 messages; no automatic
+expiry or trimming. Quota/corruption/disabled storage produces visible warnings
+and preserves prior data. Explicit delete is separate from logout. Browser-data
+clearing removes history. Cross-tab changes stop saving until reload to avoid
+blindly overwriting another tab's changes.
+
+Publication approved by the user after local review. Public GitHub checks for fa2a033 showed
+Cloudflare Pages in_progress, while other checks succeeded. The production
+unauthenticated page returns 401 but does not show the phase-2 worker-src CSP.
+The prior rollout could not be certified complete. A single normal push of this
+revision starts a distinct deployment; verify its own status and production output.
+Do not cancel or repeatedly retry old deployments to poll their status. Authenticated Cloudflare/Platform browser inspection and real device
+UI/microphone tests are unavailable in the currently supported workflow.

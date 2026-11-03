@@ -9,6 +9,22 @@ const key = 'sk-' + 'testOnlyNotARealCredential'.repeat(2);
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
 const image='data:image/png;base64,'+png;
 
+test('allowlisted models propagate for ordinary, web, text and image attachments with fixed budgets',async()=>{
+  for(const [model,effort] of [['gpt-5.4-mini','none'],['gpt-5.4','none'],['gpt-6-luna','none'],['gpt-6.1-sol','low']]) {
+    const f=setup();
+    for(const variant of [{},{web:true,consent:true},{attachment:{kind:'text',text:'document'},consent:true},{attachment:{kind:'image',data:image},consent:true}]) {
+      const r=await f.run({body:JSON.stringify({model,messages:[{role:'user',content:'hello'}],reasoning:{effort:'max'},max_output_tokens:99999,...variant})});assert.equal(r.status,200);
+      const p=JSON.parse(f.calls.at(-1).options.body);assert.equal(p.model,model);assert.equal(p.reasoning.effort,effort);assert.equal(p.max_output_tokens,1200);assert.equal(p.store,false);assert.equal(f.calls.at(-1).url,'https://api.openai.com/v1/responses');
+    }
+  }
+});
+test('unknown models and non-string model values fail before quota or provider calls',async()=>{
+  const f=setup();for(const model of ['other','__proto__','constructor','https://evil.example','',null,123,['gpt-5.4'],{}]) {
+    assert.equal((await f.run({body:JSON.stringify({model,messages:[{role:'user',content:'hello'}]})})).status,400);
+  }
+  assert.equal(f.calls.length,0);assert.equal(f.sql.prepare('SELECT count(*) AS n FROM my_chat_api_control').get().n,0);
+});
+
 test('speech is opt-in, fixed upstream/model/voice, bounded binary and no-store',async()=>{
   const f=setup();const body=JSON.stringify({text:'hello',consent:true,model:'other',url:'https://evil.example'});
   const r=await f.run({path:'speech',body},async(url,o)=>{
@@ -53,11 +69,11 @@ function setup() {
   function request({path='chat', body=JSON.stringify({messages:[{role:'user',content:'こんにちは'}]}), type='application/json', apiKey=key, method='POST', signal}={}) {
     return new Request(origin+'/api/my-chat/'+path,{method,headers:{'X-My-Chat-Key':apiKey,'Content-Type':type,Origin:origin},body:method==='GET'?undefined:body,signal});
   }
-  const run = (opts={},fetcher=mock) => handleMyChatApi(request(opts),db,{id:'session'},fetcher);
+  const run = (opts={},fetcher=mock,serverKey) => handleMyChatApi(request(opts),db,{id:'session'},fetcher,serverKey);
   return {sql,db,calls,run};
 }
 test('text uses fixed Responses model, store:false and output cap; ignores arbitrary destination',async()=>{
-  const f=setup(); const r=await f.run({body:JSON.stringify({url:'https://evil.example',model:'other',messages:[{role:'user',content:'hello'}]})});
+  const f=setup(); const r=await f.run({body:JSON.stringify({url:'https://evil.example',messages:[{role:'user',content:'hello'}]})});
   assert.equal(r.status,200);assert.equal((await r.json()).text,'テストの返答');
   const call=f.calls[0];assert.equal(call.url,'https://api.openai.com/v1/responses');assert.equal(call.options.redirect,'manual');
   const body=JSON.parse(call.options.body);assert.equal(body.model,'gpt-5.4-mini');assert.equal(body.store,false);assert.equal(body.max_output_tokens,1200);
@@ -147,4 +163,13 @@ test('feature quotas enforce daily image/search sublimits without new schema',as
     assert.equal((await f.run(opts)).status,429);
   }
   assert.equal(f.calls.length,0);
+});
+
+test('server secret is preferred, fixed upstream only, missing/invalid configuration fails closed',async()=>{
+ const f=setup(),secret='sk-'+'SyntheticServerOnlyForTests'.repeat(2);
+ const r=await f.run({apiKey:''},undefined,secret);assert.equal(r.status,200);assert.equal(f.calls[0].options.headers.Authorization,'Bearer '+secret);assert.ok(!f.calls[0].options.body.includes(secret));assert.ok(!(await r.text()).includes(secret));
+ const before=f.calls.length;assert.equal((await f.run({},undefined,'bad-value')).status,503);assert.equal(f.calls.length,before);
+ const req=new Request(origin+'/api/my-chat/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ const missing=await handleMyChatApi(req,f.db,{id:'session'},()=>{throw Error('must not send');});assert.equal((await missing.json()).code,'SERVER_KEY_MISSING');
+ f.sql.exec('DELETE FROM my_chat_sessions');assert.equal((await f.run({},undefined,secret)).status,401);assert.equal(f.calls.length,before);
 });

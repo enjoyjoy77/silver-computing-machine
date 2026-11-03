@@ -1,10 +1,11 @@
 // Dedicated My Chat authentication. Provider calls run only after this session guard.
 import { assets } from './my-chat-assets.js';
-import { handleMyChatApi } from './my-chat-api.js';
+import { handleMyChatApi, serverKeyConfigured } from './my-chat-api.js';
 
 const ORIGIN = 'https://silver-computing-machine-7ql.pages.dev';
 const COOKIE = '__Host-my_chat';
 const TTL = 8 * 60 * 60;
+const REMEMBER_TTL = 30 * 24 * 60 * 60;
 const WINDOW = 15 * 60;
 const encoder = new TextEncoder();
 const hex = bytes => Array.from(new Uint8Array(bytes), n => n.toString(16).padStart(2, '0')).join('');
@@ -26,7 +27,7 @@ function response(body, status = 200, type = 'text/html; charset=utf-8', extra =
 const json = (status, error) => response(JSON.stringify({ error }), status, 'application/json; charset=utf-8');
 const cookie = (value, age) => `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
 function loginPage(message = '') {
-  return `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>マイチャットに入る</title><style>body{font-family:system-ui,sans-serif;background:#f6f5f1;color:#292929;margin:0;padding:24px}main{max-width:420px;margin:12vh auto;background:white;padding:32px;border-radius:20px}h1{font-size:24px}label,input,button{display:block;box-sizing:border-box;width:100%}input,button{font:inherit;padding:14px;margin:16px 0;border:1px solid #ccc;border-radius:10px}button{background:#245c49;color:white;cursor:pointer}p{line-height:1.7}a{color:#245c49}</style><main><h1>マイチャット</h1><p>専用の合言葉で入ってください。<br>ログインは8時間で切れます。</p><p role="status">${message}</p><form method="post" action="/my-chat/login"><label for="passphrase">合言葉</label><input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required maxlength="256"><button type="submit">入る</button></form><p>個人用チャット・APIキーはログイン後の設定から入力</p><a href="/">ツールボックスに戻る</a></main></html>`;
+  return `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>マイチャットに入る</title><style>body{font-family:system-ui,sans-serif;background:#f6f5f1;color:#292929;margin:0;padding:24px}main{max-width:420px;margin:12vh auto;background:white;padding:32px;border-radius:20px}h1{font-size:24px}label,input,button{display:block;box-sizing:border-box;width:100%}input,button{font:inherit;padding:14px;margin:16px 0;border:1px solid #ccc;border-radius:10px}button{background:#245c49;color:white;cursor:pointer}p{line-height:1.7}a{color:#245c49}</style><main><h1>マイチャット</h1><p>専用の合言葉で入ってください。<br>通常は8時間で切れます。自分の端末だけ、下の選択で30日間保持できます。</p><p role="status">${message}</p><form method="post" action="/my-chat/login"><label for="login-account">アカウント名（保存用）</label><input id="login-account" name="username" value="my-chat" autocomplete="username" readonly><p>パスワード管理アプリでは「my-chat」のログインとして保存してください。同じサイトの旅のしおりと候補が混ざる場合は、アカウント名で選び直してください。</p><label for="passphrase">合言葉</label><input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required maxlength="256"><label><input type="checkbox" name="remember" value="30d" style="display:inline-block;width:auto"> この端末で30日間ログインを保持する</label><p>共有端末では選ばないでください。保持中は端末を使える人が入れます。ログアウトでこの端末のセッションを失効します。合言葉自体は保存しません。</p><button type="submit">入る</button></form><p>個人用チャット・APIキーはログイン後の設定から入力</p><a href="/">ツールボックスに戻る</a></main></html>`;
 }
 async function keyFor(env) {
   return crypto.subtle.importKey('raw', encoder.encode(env.MY_CHAT_SESSION_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
@@ -42,7 +43,7 @@ async function session(request, db, key, now) {
   const parts = token.split('.');
   if (parts.length !== 3 || !validHex(parts[0]) || !/^\d{10}$/.test(parts[1]) || !validHex(parts[2])) return null;
   const [id, exp, sig] = parts;
-  if (Number(exp) <= now || Number(exp) > now + TTL) return null;
+  if (Number(exp) <= now || Number(exp) > now + REMEMBER_TTL) return null;
   if (!await crypto.subtle.verify('HMAC', key, unhex(sig), encoder.encode(`${ORIGIN}|${id}.${exp}`))) return null;
   return await db.prepare('SELECT id, expires FROM my_chat_sessions WHERE id = ? AND expires = ? AND expires > ?').bind(id, Number(exp), now).first();
 }
@@ -106,10 +107,13 @@ export async function handleMyChat({ request, env }) {
       const expected = await crypto.subtle.sign('HMAC', key, encoder.encode(env.MY_CHAT_AUTH_VERIFIER));
       const matched = await crypto.subtle.verify('HMAC', key, expected, encoder.encode(candidate));
       if (fields.getAll('passphrase').length !== 1 || pass.length < 32 || pass.length > 256 || !matched) return response(loginPage('合言葉を確認してください。'), 401);
-      const id = random(); const expires = now + TTL;
+      const remember=fields.getAll('remember');
+      if(remember.length>1 || (remember.length===1 && remember[0]!=='30d'))return json(400,'ログイン保持の指定を確認してください。');
+      const ttl=remember[0]==='30d'?REMEMBER_TTL:TTL;
+      const id = random(); const expires = now + ttl;
       await db.prepare('INSERT INTO my_chat_sessions (id, expires) VALUES (?, ?)').bind(id, expires).run();
       const token = `${id}.${expires}.${await mac(key, `${ORIGIN}|${id}.${expires}`)}`;
-      return response(null, 303, undefined, { Location: '/my-chat/', 'Set-Cookie': cookie(token, TTL) });
+      return response(null, 303, undefined, { Location: '/my-chat/', 'Set-Cookie': cookie(token, ttl) });
     }
     const current = await session(request, db, key, now);
     if (!api && path === '/my-chat/logout' && method === 'POST') {
@@ -120,9 +124,9 @@ export async function handleMyChat({ request, env }) {
       if (!api && (path === '/my-chat' || path === '/my-chat/login') && (method === 'GET' || method === 'HEAD')) return response(method === 'HEAD' ? null : loginPage(), 401);
       return json(401, 'ログインしてください');
     }
-    if (api) return handleMyChatApi(request, db, current);
+    if (api) return handleMyChatApi(request, db, current, fetch, env.MY_CHAT_OPENAI_API_KEY);
     if (method !== 'GET' && method !== 'HEAD') return json(405, 'Method not allowed');
-    if (path === '/my-chat/session') return response(JSON.stringify({ expires: current.expires }), 200, 'application/json');
+    if (path === '/my-chat/session') return response(JSON.stringify({ expires: current.expires, serverKeyConfigured: serverKeyConfigured(env.MY_CHAT_OPENAI_API_KEY) }), 200, 'application/json');
     if (path === '/my-chat' && url.pathname !== '/my-chat/') return response(null, 308, undefined, { Location: '/my-chat/' });
     const name = path === '/my-chat' ? 'index.html' : path.slice('/my-chat/'.length);
     const asset = assets[name];
