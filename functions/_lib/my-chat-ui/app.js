@@ -17,6 +17,8 @@
   const sessionReady=()=>!locked && authState==='verified' && knownExpires>Date.now();
   function requireSession(){
     if(knownExpires && knownExpires<=Date.now())lockScreen();
+    if(historyLoading)throw Error('履歴を読み込んでいます。完了してから送信してください。');
+    if(historyClearing)throw Error('履歴を削除しています。完了してから送信してください。');
     if(!sessionReady())throw Error('ログイン状態を確認できるまで送信を停止しています。「接続を再確認」を押してください。');
   }
   const acknowledgements=new Set();let disclosedScope='',detailsOpen=false,noticeDismissed=false;
@@ -30,14 +32,15 @@
   function closeMenu() { document.body.classList.remove('menu-open'); $('#menu').setAttribute('aria-expanded', 'false'); }
   function update() {
     if (locked) return;
-    $('#send').disabled = !sessionReady() || busy || pending || !!recorder || attachmentLoading || !$('#prompt').value.trim();
-    $('#new').disabled = busy || pending || !!recorder;
-    $('#record').disabled = !sessionReady() || busy || pending || !!recorder;
+    $('#send').disabled = (historyClearing||historyLoading) || !sessionReady() || busy || pending || !!recorder || attachmentLoading || !$('#prompt').value.trim();
+    $('#new').disabled = historyClearing || historyLoading || busy || pending || !!recorder;
+    $('#record').disabled = (historyClearing||historyLoading) || !sessionReady() || busy || pending || !!recorder;
     $('#api-read').disabled = !sessionReady() || busy || pending || !!recorder;
     $('#api-key').disabled=serverKeyReady;
     $('#apply-keys').disabled = serverKeyReady || !sessionReady() || busy || pending || !!recorder;
     $('#auth-retry').disabled = authState==='checking';
-    $('#history-retry').disabled=!sessionReady()||!historyDirty||historyBlocked;
+    $('#history-retry').disabled=historyClearing||historyLoading||!sessionReady()||!historyDirty||historyBlocked;
+    $('#clear').disabled=historyClearing;
     $('#history-retry').hidden=!historyDirty;
     $('#auth-status').textContent = authState==='verified' ? '' : authState==='checking' ? 'ログイン状態を確認中です。送信は一時停止しています。' : '接続を確認できません。送信を停止しています。接続を再確認してください。';
     $('#auth-retry').hidden = authState==='verified';
@@ -55,47 +58,54 @@
     $('#consent-row').hidden=!special||noticeDismissed||(acknowledgements.has(scope)&&!detailsOpen);
     $('#consent-details').setAttribute('aria-expanded',String(!$('#consent-row').hidden));
     $('#send-details').textContent = mode() === 'image' || mode() === 'edit'
-      ? 'OpenAIの画像APIに指示' + (mode()==='edit' ? 'と選択した参照画像（最大4枚）' : '') + 'を送信します。別途画像料金。1024px・下書き品質・1枚。全体でUTCの1日10回まで。'
+      ? 'OpenAIの画像APIに指示' + (mode()==='edit' ? 'と選択した参照画像（最大4枚）' : '') + 'を送信します。別途画像料金。1024px・下書き品質・1枚。全体でUTCの1日30回まで。'
       : mode() === 'web' ? 'この会話をOpenAIへ送り、公開Webを検索します。検索1回あたり$0.01＋文章料金。全体で1日30回まで。'
       : attachment ? '添付「' + attachment.name + '」を今回だけOpenAIへ送信します。内容に応じた入力料金が追加されます。アプリには保存しません。' : '';
   }
-  const historyKey='my-chat.history.v1', historyLimit=4*1024*1024;
-  let historyLoaded=false, historyBlocked=false, historyDirty=false;
+  const historyKey='my-chat.history.v1';
+  let historyLoaded=false,historyBlocked=false,historyDirty=false,historyClearing=false,historyLoading=false,historyBlockReason='';
+  let historyBaseline,historyStore,historyGeneration=0,historyVersion=0,historyQueue=Promise.resolve();
+  const historyRequests=new Set();
   const historyStatus=text=>{$('#history-status').textContent=text;$('#history-status').className=historyDirty||historyBlocked?'save-warning':'save-ok';};
-  function historySnapshot(raw){
-    if(!raw || raw.version!==1 || !Array.isArray(raw.chats) || raw.chats.length>100)throw Error('history');
-    let count=0;const ids=new Set();
-    const text=(v,max)=>{if(typeof v!=='string'||v.length>max)throw Error('history');return v.replace(/\bsk-[A-Za-z0-9_-]{12,}/g,'[API key removed]');};
-    return {version:1,chats:raw.chats.map(c=>{
-      if(!Number.isSafeInteger(c.id)||c.id<1||ids.has(c.id)||!Array.isArray(c.messages))throw Error('history');ids.add(c.id);
-      return {id:c.id,title:text(c.title,100),messages:c.messages.map(m=>{
-        if(++count>2000||!['user','assistant'].includes(m.role))throw Error('history');
-        const out={role:m.role,content:text(m.content,100000)};
-        if(m.image!==undefined){if(typeof m.image!=='string'||m.image.length>15000022||!/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(m.image))throw Error('history');out.image=m.image;}
-        if(m.citations!==undefined){if(!Array.isArray(m.citations)||m.citations.length>100)throw Error('history');out.citations=m.citations.map(c=>{
-          const url=new URL(c.url);if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.href.length>2000||/sk-[A-Za-z0-9_-]{12,}/.test(url.href))throw Error('history');
-          if(!Number.isInteger(c.start)||!Number.isInteger(c.end)||c.start<0||c.end>out.content.length||c.start>=c.end)throw Error('history');
-          return {start:c.start,end:c.end,url:url.href,title:text(c.title||'',500)};
-        });}return out;
-      })};
-    })};
+  const getHistoryStore=()=>historyStore||(historyStore=window.MyChatHistory.createStore());
+  const historyCurrent=(epoch,revision)=>epoch===sessionEpoch&&revision===historyGeneration&&sessionReady();
+  function historyError(error){
+    if(error.code==='LEGACY_CHANGED'){historyBlocked=true;historyBlockReason='LEGACY_CHANGED';return '旧版の履歴に別の変更があります。両方のデータを保持し、自動統合・上書きはしていません。旧版タブを閉じ、未保存の内容をコピー／画像をダウンロードしてください。再読み込みだけでは旧版との差分は解消しません。';}
+    if(error.code==='CONFLICT'){historyBlocked=true;historyBlockReason='CONFLICT';return '別タブで履歴が変更されました。上書きせず、このタブの未保存の会話を保持しています。必要な内容をコピー／画像をダウンロードしてから再読み込みしてください。';}
+    if(error.code==='LIMIT')return '履歴がアプリ上限100MiB・100会話・2000メッセージを超えました。以前の保存分は残っています。未保存の内容はコピー／画像をダウンロードしてください。';
+    return '履歴を保存・変更できませんでした（IndexedDBの利用可否・空き容量・保存設定を確認）。以前の保存分と移行前データは残っています。未保存の内容は閉じると失われます。画像はダウンロードできます。';
   }
-  function restoreHistory(){
-    if(historyLoaded||!sessionReady())return;historyLoaded=true;
-    try{const raw=window.localStorage.getItem(historyKey);if(raw){if(raw.length*2>historyLimit)throw Error('size');chats=historySnapshot(JSON.parse(raw)).chats;sequence=Math.max(sequence,...chats.map(c=>c.id));active=chats[0]?.id||null;}
-      historyStatus(chats.length?'保存済み':'');render();
-    }catch{historyBlocked=true;historyStatus('履歴を読み込めません。保存済みデータは変更していません。ブラウザー設定を確認するか、履歴を削除してください。');}
+  function cancelHistoryRequests(){historyGeneration++;for(const request of historyRequests)request.abort();historyRequests.clear();}
+  async function restoreHistory(){
+    if(historyLoaded||historyLoading||!sessionReady())return;const epoch=sessionEpoch,revision=historyGeneration,aborter=new AbortController();historyRequests.add(aborter);historyLoading=true;update();
+    try{
+      const data=await getHistoryStore().load({guard:()=>historyCurrent(epoch,revision),signal:aborter.signal});
+      if(!historyCurrent(epoch,revision))return;chats=data.chats;sequence=Math.max(sequence,...chats.map(c=>c.id));active=chats[0]?.id||null;historyBaseline={revision:data.revision,legacyFingerprint:data.legacyFingerprint};historyLoaded=true;historyBlocked=data.conflict;
+      render();historyStatus(data.conflict?historyError({code:'LEGACY_CHANGED'}):chats.length?'保存済み':'');
+    }catch(error){
+      if(!historyCurrent(epoch,revision))return;historyBlocked=true;historyBlockReason=error.code||'UNAVAILABLE';historyLoaded=true;
+      try{chats=getHistoryStore().readLegacy();sequence=Math.max(sequence,...chats.map(c=>c.id));active=chats[0]?.id||null;render();}catch{}
+      historyStatus(historyError(error)+' 移行前の履歴を読み取れた場合は表示のみ行います。');
+    }finally{historyRequests.delete(aborter);if(epoch===sessionEpoch&&revision===historyGeneration){historyLoading=false;update();}}
   }
   function saveHistory(){
-    if(!historyDirty)return;
+    if(!historyDirty||historyClearing)return;
     if(!sessionReady()){historyStatus('未保存の変更があります。認証の再確認後に保存を再試行します。閉じる前に保存済み表示を確認してください。');update();return;}
-    if(!historyLoaded||historyBlocked){historyStatus('未保存の変更があります。履歴の読込み・別タブの変更を確認できないため保存を停止しています。以前の保存分は残っています。必要な画像は画面からダウンロードしてください。');update();return;}
-    try{const data=JSON.stringify(historySnapshot({version:1,chats}));if(data.length*2>historyLimit)throw Error('size');window.localStorage.setItem(historyKey,data);historyDirty=false;historyStatus('保存済み');}
-    catch{historyStatus('履歴を保存できませんでした（容量・保存設定・内容を確認）。以前の保存分は残っています。未保存の変更はタブを閉じると失われます。画像は画面からダウンロードできます。');}
-    update();
+    if(!historyLoaded||historyBlocked||!historyBaseline){historyStatus(historyError({code:historyBlockReason||'UNAVAILABLE'}));update();return;}
+    const epoch=sessionEpoch,revision=historyGeneration;historyStatus('未保存の変更を保存待ちです。閉じる前に保存済み表示を確認してください。');
+    const run=async()=>{
+      if(!historyCurrent(epoch,revision)||!historyDirty||historyBlocked)return;
+      const aborter=new AbortController(),version=historyVersion;historyRequests.add(aborter);
+      try{
+        const next=await getHistoryStore().save(chats,historyBaseline,{guard:()=>historyCurrent(epoch,revision),signal:aborter.signal});
+        if(!historyCurrent(epoch,revision))return;historyBaseline=next;if(version===historyVersion)historyDirty=false;historyStatus(historyDirty?'未保存の変更を保存待ちです。':'保存済み');
+      }catch(error){if(historyCurrent(epoch,revision))historyStatus(historyError(error));}
+      finally{historyRequests.delete(aborter);if(epoch===sessionEpoch&&revision===historyGeneration)update();}
+    };
+    historyQueue=historyQueue.then(run,run);return historyQueue;
   }
   $('#history-retry').onclick=saveHistory;
-  window.addEventListener('storage',e=>{if(e.key===historyKey||e.key===null){historyBlocked=true;historyStatus('別のタブで履歴が変更されました。上書きを防ぐため保存を停止しました。再読み込みしてください。');}});
+  window.addEventListener('storage',e=>{if(e.key===historyKey||e.key===null){historyBlocked=true;historyStatus(historyError({code:'LEGACY_CHANGED'}));update();}});
   function appendAnswer(el, m) {
     const citations=[...(m.citations||[])].sort((a,b)=>a.start-b.start);let offset=0;
     for (const c of citations) {
@@ -143,7 +153,7 @@
   }
   function clearAttachment() { attachmentController?.abort();attachmentController=null;attachment=null;attachmentLoading=false;attachmentGeneration++;$('#file').value='';$('#attachment-preview').replaceChildren();$('#send-consent').checked=false;update(); }
   function clearSpeech(){speechAudio?.pause();if(speechAudio)speechAudio.src='';speechAudio=null;if(speechURL)URL.revokeObjectURL(speechURL);speechURL=null;}
-  function cleanup() { acknowledgements.clear();disclosedScope='';detailsOpen=false;noticeDismissed=false;sessionEpoch++;sessionController?.abort();sessionController=null;sessionRequest=null;authState='unknown';knownExpires=0;serverKeyReady=false;historyLoaded=false;historyBlocked=false;historyDirty=false;historyStatus('');clearTimeout(authTimer);stop(); clearKeys(); clearAttachment(); chats = []; lastAnswer = ''; $('#prompt').value = ''; render(); }
+  function cleanup() { acknowledgements.clear();disclosedScope='';detailsOpen=false;noticeDismissed=false;sessionEpoch++;sessionController?.abort();sessionController=null;sessionRequest=null;authState='unknown';knownExpires=0;serverKeyReady=false;cancelHistoryRequests();historyBaseline=undefined;historyLoaded=false;historyBlocked=false;historyDirty=false;historyClearing=false;historyLoading=false;historyBlockReason='';historyQueue=Promise.resolve();historyStatus('');clearTimeout(authTimer);stop(); clearKeys(); clearAttachment(); chats = []; lastAnswer = ''; $('#prompt').value = ''; render(); }
   async function api(path, body, key, type, signal) {
     requireSession();
     const response = await fetch('/api/my-chat/' + path, { method: 'POST', credentials: 'same-origin', cache: 'no-store', signal,
@@ -192,7 +202,7 @@
     const data = await api(imageRequest?'image':'chat', JSON.stringify(payload), apiKey, 'application/json', controller.signal);
     if (stopped) return;
     chat.messages.push({ role: 'user', content: text }, { role: 'assistant', content: data.text, citations:data.citations, image:data.image });
-    detailsOpen=false;noticeDismissed=true;clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text;$('#speech-consent').checked=false; historyDirty=true;render();saveHistory();update();
+    detailsOpen=false;noticeDismissed=true;clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text;$('#speech-consent').checked=false; historyVersion++;historyDirty=true;render();saveHistory();update();
     status(data.truncated ? '回答が長いため上限で終了しました。' : '回答しました。'); if (readAloud) speak();
   }
   async function operation(run) {
@@ -255,7 +265,17 @@
     $('#api-key').value = ''; update(); $('#settings-dialog').close(); $('#prompt').focus(); status('このタブにAPIキーを設定しました。'); toast('このタブにAPIキーを設定しました（API側は未検証）。');
   };
   $('#forget-keys').onclick = () => { if(!window.confirm('このタブの一時APIキーを消去しますか？CloudflareのサーバーSecretと保存済み履歴は変更しません。'))return;stop(); clearKeys(); toast('このタブの一時キーを消去しました。サーバーSecretは変更していません。'); };
-  $('#clear').onclick = () => { if(!sessionReady())return;stop();try{window.localStorage.removeItem(historyKey);}catch{historyStatus('履歴を削除できませんでした。ブラウザーの保存設定を確認してください。');return;}clearAttachment();chats=[];active=null;lastAnswer='';historyLoaded=true;historyBlocked=false;historyDirty=false;$('#prompt').value='';render();historyStatus('このブラウザーの履歴を削除しました。'); };
+  $('#clear').onclick = async () => {
+    if(!sessionReady()||historyClearing||historyLoading)return;
+    if(!historyBaseline){historyStatus('IndexedDBの履歴を確認できないため削除していません。保存設定を確認し、再読み込みしてください。');return;}
+    stop();cancelHistoryRequests();const epoch=sessionEpoch,revision=historyGeneration,aborter=new AbortController();historyRequests.add(aborter);historyClearing=true;update();
+    try{
+      const next=await getHistoryStore().clear(historyBaseline,{guard:()=>historyCurrent(epoch,revision),signal:aborter.signal});
+      if(!historyCurrent(epoch,revision))return;historyBaseline={revision:next.revision,legacyFingerprint:next.legacyFingerprint};clearAttachment();chats=[];active=null;lastAnswer='';historyVersion++;historyDirty=false;historyLoaded=true;historyBlocked=!next.legacyRemoved;$('#prompt').value='';render();
+      historyStatus(next.legacyRemoved?'このブラウザーの履歴を削除しました。':'新しい保存先の履歴は削除しましたが、移行前バックアップを消去できませんでした。再読み込みしても自動復元しません。ブラウザーの保存設定を確認してください。');
+    }catch(error){if(historyCurrent(epoch,revision))historyStatus(historyError(error));}
+    finally{historyRequests.delete(aborter);if(epoch===sessionEpoch&&revision===historyGeneration){historyClearing=false;update();}}
+  };
   $('#consent-details').onclick=()=>{detailsOpen=!detailsOpen;update();};
   $('#send-consent').onchange=()=>{const scope=consentScope();if(!scope)return;if($('#send-consent').checked){acknowledgements.add(scope);detailsOpen=false;}else acknowledgements.delete(scope);update();};
   $('#mode').onchange = () => {noticeDismissed=false;$('#send-consent').checked=false;update();};
@@ -366,7 +386,7 @@
         if(deadline<=Date.now()){lockScreen();return;}
         knownExpires=knownExpires?Math.min(knownExpires,deadline):deadline;
         if(knownExpires<=Date.now()){lockScreen();return;}
-        serverKeyReady=serverKeyConfigured===true;authState='verified';armExpiry();update();restoreHistory();saveHistory();update();
+        serverKeyReady=serverKeyConfigured===true;authState='verified';armExpiry();update();await restoreHistory();saveHistory();update();
       } catch {
         if(epoch!==sessionEpoch||locked)return;
         if(knownExpires && knownExpires<=Date.now()){lockScreen();return;}

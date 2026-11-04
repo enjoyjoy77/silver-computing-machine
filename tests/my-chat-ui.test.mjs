@@ -2,8 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
+const { IDBFactory }=createRequire(new URL('./my-chat-storage-deps/package.json',import.meta.url))('fake-indexeddb');
 import { readFileSync } from 'node:fs';
 const src=readFileSync(new URL('../functions/_lib/my-chat-ui/app.js',import.meta.url),'utf8');
+const historySource=readFileSync(new URL('../functions/_lib/my-chat-ui/history.js',import.meta.url),'utf8');
+const mockRevisions=new WeakMap();
 const html=readFileSync(new URL('../functions/_lib/my-chat-ui/index.html',import.meta.url),'utf8');
 const key='sk-'+'notARealKeyForUnitTestsOnly'.repeat(2);
 const tick=()=>new Promise(r=>setImmediate(r));
@@ -106,9 +110,18 @@ function fixture(fetcher,mediaRequest,storage=new Map(),options={}) {
     constructor(s,o){this.state='inactive';this.mimeType=o.mimeType;recorders.push(this);}
     start(){this.state='recording';} stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['fake'],{type:'audio/mp4'})});this.onstop?.();});}
   }
-  const window={confirm:()=>true,localStorage:{getItem:k=>storage.get(k),setItem(k,v){storageWrites.push([k,v]);storage.set(k,v);},removeItem(k){storage.delete(k);}},MediaRecorder:Recorder,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},speechSynthesis:{cancel(){},speak(u){spoken.push(u.text);}},addEventListener(k,f){windowEvents[k]=f;}};
+  const window={indexedDB:options.indexedDB,confirm:()=>true,localStorage:{getItem:k=>storage.get(k),setItem(k,v){storageWrites.push([k,v]);storage.set(k,v);},removeItem(k){storage.delete(k);}},MediaRecorder:Recorder,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},speechSynthesis:{cancel(){},speak(u){spoken.push(u.text);}},addEventListener(k,f){windowEvents[k]=f;}};
   const pendingImages=[];class MockImage {naturalWidth=1;naturalHeight=1;set src(v){pendingImages.push(this);if(!options.deferImages)queueMicrotask(()=>this.onload?.());}}
-  const context={DOMException,atob,Image:MockImage,Date:TestDate,window,document,URL:TestURL,Audio:TestAudio,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(path){redirects.push(path);}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{if(url==='/my-chat/session')return sessionFetcher(url,opts);calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
+  const context={crypto,TextEncoder,DOMException,atob,Image:MockImage,Date:TestDate,window,document,URL:TestURL,Audio:TestAudio,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(path){redirects.push(path);}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{if(url==='/my-chat/session')return sessionFetcher(url,opts);calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
+  vm.runInNewContext(historySource,context);
+  const validate=window.MyChatHistory.validate;
+  // UI-only persistence adapter. Real IndexedDB transaction/migration coverage is in my-chat-history.test.mjs.
+  if(!options.realHistory)window.MyChatHistory.createStore=()=>({
+    async load({guard}){if(!guard())throw Error('stale');const raw=storage.get('my-chat.history.v1');const chats=raw?validate(JSON.parse(raw)).chats:[];return {chats,revision:mockRevisions.get(storage)||0,legacyFingerprint:'mock',conflict:false};},
+    readLegacy(){const raw=storage.get('my-chat.history.v1');return raw?validate(JSON.parse(raw)).chats:[];},
+    async save(chats,base,{guard}){await Promise.resolve();if(!guard())throw Error('stale');if(base.revision!==(mockRevisions.get(storage)||0))throw Object.assign(Error('conflict'),{code:'CONFLICT'});const data=JSON.stringify(validate({version:1,chats}));if(data.length>100*1024*1024)throw Object.assign(Error('limit'),{code:'LIMIT'});storage.set('my-chat.history.v1',data);const revision=base.revision+1;mockRevisions.set(storage,revision);return {revision,legacyFingerprint:'mock'};},
+    async clear(base,{guard}){await Promise.resolve();if(!guard())throw Error('stale');if(base.revision!==(mockRevisions.get(storage)||0))throw Object.assign(Error('conflict'),{code:'CONFLICT'});storage.delete('my-chat.history.v1');const revision=base.revision+1;mockRevisions.set(storage,revision);return {revision,legacyFingerprint:'mock',legacyRemoved:true};}
+  });
   vm.runInNewContext(src,context);
   const el=id=>elements.get('#'+id);
   const keys=async()=>{await windowEvents.pageshow();el('api-key').value=key;el('apply-keys').click();};
@@ -175,7 +188,7 @@ test('history restores only after authentication, survives logout, deletes indep
  const saved=store.get('my-chat.history.v1');assert.ok(saved);assert.ok(!saved.includes(key));assert.ok(!saved.includes('ORIGINAL_FILE_PRIVATE_BYTES'));assert.ok(!saved.includes('expires'));assert.ok(!saved.includes('apiKey'));
  f.el('logout').events.submit();assert.equal(store.get('my-chat.history.v1'),saved);assert.equal(f.el('messages').children.length,0);
  const restored=fixture(undefined,undefined,store);assert.equal(restored.el('messages').children.length,0);await restored.windowEvents.pageshow();assert.equal(restored.el('messages').children.length,2);assert.match(restored.el('messages').children[1].textContent,/<b>safe text<\/b>/);
- restored.el('clear').click();assert.equal(store.has('my-chat.history.v1'),false);assert.equal(restored.el('messages').children.length,0);assert.equal(restored.redirects.length,0);
+ await restored.el('clear').onclick();assert.equal(store.has('my-chat.history.v1'),false);assert.equal(restored.el('messages').children.length,0);assert.equal(restored.redirects.length,0);
 });
 test('history corruption, unavailable storage and quota errors stay visible without deleting older records',async()=>{
  for(const raw of ['{bad',JSON.stringify({version:1,chats:[{id:1,title:'x',messages:[{role:'system',content:'bad'}]}]}),JSON.stringify({version:1,chats:[{id:1,title:'x',messages:[{role:'assistant',content:'x',image:'javascript:evil'}]}]})]){
@@ -184,11 +197,11 @@ test('history corruption, unavailable storage and quota errors stay visible with
  const store=new Map(),f=fixture(undefined,undefined,store);await f.keys();f.el('prompt').value='old';f.el('composer').requestSubmit();await tick();const old=store.get('my-chat.history.v1');store.set=()=>{throw Error('quota');};f.el('prompt').value='new';f.el('composer').requestSubmit();await tick();assert.equal(store.get('my-chat.history.v1'),old);assert.ok(f.el('history-status').textContent);
 });
 
-test('generated images and citations restore safely, storage caps preserve previous history',async()=>{
+test('generated images and citations restore safely, unavailable storage remains visible',async()=>{
  const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
  const store=new Map(),f=fixture(()=>Response.json({text:'source',image,citations:[{start:0,end:6,url:'https://example.com/',title:'Source'}]}),undefined,store);await f.keys();f.el('prompt').value='image';f.el('composer').requestSubmit();await tick();
  const r=fixture(undefined,undefined,store);await r.windowEvents.pageshow();assert.ok(r.el('messages').children[1].children.some(e=>e.src===image));assert.ok(r.el('messages').children[1].children.some(e=>e.href==='https://example.com/'));
- const old=store.get('my-chat.history.v1');const big=fixture(()=>Response.json({text:'large image',image:'data:image/png;base64,iVBORw0KGgo'+'A'.repeat(2200000)}),undefined,store);await big.keys();big.el('prompt').value='large';big.el('composer').requestSubmit();await tick();assert.equal(store.get('my-chat.history.v1'),old);
+ const old=store.get('my-chat.history.v1');const big=fixture(()=>Response.json({text:'large image',image:'data:image/png;base64,iVBORw0KGgo'+'A'.repeat(2200000)}),undefined,store);await big.keys();big.el('prompt').value='large';big.el('composer').requestSubmit();await tick();assert.notEqual(store.get('my-chat.history.v1'),old);
  const unavailable=fixture(undefined,undefined,{get(){throw Error('blocked');},set(){throw Error('blocked');},delete(){throw Error('blocked');}});await unavailable.windowEvents.pageshow();assert.ok(unavailable.el('history-status').textContent);unavailable.el('clear').click();assert.ok(unavailable.el('history-status').textContent);
 });
 
@@ -198,7 +211,7 @@ test('answer during background verification stays visibly unsaved then persists 
  const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
  answer(Response.json({text:'new answer',image}));await tick();assert.equal(store.has('my-chat.history.v1'),false);assert.match(f.el('history-status').textContent,/未保存/);assert.equal(f.el('history-retry').disabled,true);
  verify(new Response('{}',{status:503}));await check;assert.match(f.el('history-status').textContent,/未保存/);assert.equal(store.has('my-chat.history.v1'),false);
- f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800}));await f.el('auth-retry').onclick();assert.ok(store.get('my-chat.history.v1').includes('new answer'));assert.equal(f.el('history-retry').disabled,true);assert.match(f.el('history-status').textContent,/保存済み/);
+ f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800}));await f.el('auth-retry').onclick();await tick();assert.ok(store.get('my-chat.history.v1').includes('new answer'));assert.equal(f.el('history-retry').disabled,true);assert.match(f.el('history-status').textContent,/保存済み/);
  f.windowEvents.pagehide();const restored=fixture(undefined,undefined,store);await restored.windowEvents.pageshow();assert.equal(restored.el('messages').children.length,2);assert.ok(restored.el('messages').children[1].children.some(e=>e.src===image));
  assert.ok(html.indexOf('id="history-status"')<html.indexOf('<dialog'));assert.doesNotMatch(html,/このタブのみ/);
 });
@@ -214,7 +227,7 @@ test('quota failure preserves saved history and image download; explicit retry s
  const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
  const f=fixture(()=>Response.json({text:'answer',image}),undefined,store);await f.keys();f.el('prompt').value='old';f.el('composer').requestSubmit();await tick();const old=store.get('my-chat.history.v1');fail=true;f.el('prompt').value='new';f.el('composer').requestSubmit();await tick();
  assert.equal(store.get('my-chat.history.v1'),old);assert.match(f.el('history-status').textContent,/未保存/);assert.equal(f.el('history-retry').disabled,false);assert.ok(f.el('messages').children.at(-1).children.some(e=>e.href===image&&e.download));
- fail=false;f.el('history-retry').click();assert.notEqual(store.get('my-chat.history.v1'),old);assert.match(f.el('history-status').textContent,/保存済み/);assert.equal(f.el('history-retry').disabled,true);
+ fail=false;await f.el('history-retry').onclick();assert.notEqual(store.get('my-chat.history.v1'),old);assert.match(f.el('history-status').textContent,/保存済み/);assert.equal(f.el('history-retry').disabled,true);
 });
 
 test('same-scope acknowledgment collapses without autosend, feature change prompts and page lifecycle resets',async()=>{
@@ -284,4 +297,14 @@ test('browser validates every converted PNG and enforces decoded per-image and a
  for(const [png,count] of [['data:image/png;base64,aW52YWxpZA==',1],[large(2*1024*1024+1),1],[large(1536*1024),3]]){
   const f=fixture(undefined,undefined,new Map(),{png});await f.keys();f.el('file').files=Array.from({length:count},()=>({name:'reference.png',size:100,type:'image/png'}));await f.el('file').onchange();assert.equal(f.el('attachment-preview').children.length,0);assert.equal(f.calls.length,0);assert.ok(f.el('status').textContent);
  }
+});
+
+test('real history module integration restores A/B and persists C in IndexedDB without altering legacy',async()=>{
+ const legacy=JSON.stringify({version:1,chats:[{id:1,title:'A',messages:[{role:'user',content:'A'},{role:'assistant',content:'a'}]},{id:2,title:'B',messages:[{role:'user',content:'B'},{role:'assistant',content:'b'}]}]});
+ const storage=new Map([['my-chat.history.v1',legacy]]),indexedDB=new IDBFactory();const f=fixture(undefined,undefined,storage,{realHistory:true,indexedDB});await f.keys();assert.equal(f.el('history').children.length,2);
+ for(const button of f.el('history').children){button.click();assert.equal(f.el('messages').children[0].textContent,button.textContent);}
+ f.el('new').click();f.el('prompt').value='C';f.el('composer').requestSubmit();
+ for(let i=0;i<100&&(f.el('history').children.length<3||f.el('history-status').textContent!=='保存済み');i++)await new Promise(r=>setTimeout(r,2));
+ assert.equal(f.el('history-status').textContent,'保存済み');assert.equal(storage.get('my-chat.history.v1'),legacy);f.windowEvents.pagehide();
+ const restored=fixture(undefined,undefined,storage,{realHistory:true,indexedDB});await restored.windowEvents.pageshow();assert.equal(restored.el('history').children.length,3);assert.equal(restored.el('history').children[0].textContent,'C');assert.equal(storage.get('my-chat.history.v1'),legacy);
 });

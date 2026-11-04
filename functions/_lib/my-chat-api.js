@@ -78,7 +78,7 @@ async function allowance(db, sid, now, feature = '') {
   ];
   if (feature) statements.push(db.prepare(bump).bind('feature:'+feature,Math.floor(now/86400)));
   const rows = await db.batch(statements);
-  return rows[0].results[0].count <= 6 && rows[1].results[0].count <= 100 && (!feature || rows[3].results[0].count <= (feature === 'image' ? 10 : 30));
+  return rows[0].results[0].count <= 6 && rows[1].results[0].count <= 100 && (!feature || rows[3].results[0].count <= 30);
 }
 
 export async function handleMyChatApi(request, db, current, upstreamFetch = fetch, serverKey) {
@@ -163,7 +163,7 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
     if (request.signal.aborted) return result(499, { error: '送信を停止しました。' });
     token = await acquire(db, current.id, now, feature === 'image' ? 195 : 75);
     if (token === null) return result(409, { error: '前の送信を処理中です。少し待ってから送信してください。' });
-    if (!await allowance(db, current.id, now, feature)) return result(429, { error: '利用上限です。1分6回・全体で1日100回、うち画像10回・Web検索30回・API読み上げ30回までです。' });
+    if (!await allowance(db, current.id, now, feature)) return result(429, { error: '利用上限です。1分6回・全体で1日100回、うち画像30回・Web検索30回・API読み上げ30回までです。' });
     // Recheck revocation immediately before spending any API credits.
     const live = await db.prepare('SELECT id FROM my_chat_sessions WHERE id = ? AND expires > ?').bind(current.id, Math.floor(Date.now() / 1000)).first();
     if (!live || controller.signal.aborted) return result(401, { error: 'ログインし直してください。' });

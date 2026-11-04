@@ -158,7 +158,7 @@ test('image generation/edit requests fix cost controls and require explicit cons
 });
 test('feature quotas enforce daily image/search sublimits without new schema',async()=>{
   const f=setup();const bucket=Math.floor(Date.now()/86400000);
-  for (const [feature,count,opts] of [['image',10,{path:'image',body:JSON.stringify({prompt:'cat',consent:true})}],['web',30,{body:JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true})}]]) {
+  for (const [feature,count,opts] of [['image',30,{path:'image',body:JSON.stringify({prompt:'cat',consent:true})}],['web',30,{body:JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true})}]]) {
     f.sql.prepare('INSERT INTO my_chat_api_control VALUES (?,?,?)').run('feature:'+feature,bucket,count);
     assert.equal((await f.run(opts)).status,429);
   }
@@ -197,4 +197,22 @@ test('multi-image consent, mixed image fields and search combinations fail close
  {body:JSON.stringify({messages:[{role:'user',content:'x'}],attachment:{kind:'images',images:[image]}})},
  {body:JSON.stringify({messages:[{role:'user',content:'x'}],attachment:{kind:'images',images:[image]},web:true,consent:true})}
  ])assert.equal((await f.run(opts)).status,400);assert.equal(f.calls.length,0);
+});
+
+
+test('generation and edits share 30 daily attempts; 31st is blocked and UTC midnight resets',async()=>{
+ const original=Date.now;let now=Date.UTC(2026,10,4,23,0);Date.now=()=>now;
+ try {
+  const f=setup();f.sql.prepare('UPDATE my_chat_sessions SET expires=?').run(Math.floor(now/1000)+172800);
+  const opts=i=>({path:'image',body:JSON.stringify({prompt:'synthetic image',consent:true,...(i%2?{images:[image]}:{})})});
+  for(let i=0;i<30;i++) {
+   assert.equal((await f.run(opts(i))).status,200,`attempt ${i+1}`);now+=61000;
+  }
+  assert.equal(f.calls.length,30);
+  assert.equal(f.calls.filter(c=>c.url.endsWith('/edits')).length,15);
+  assert.equal((await f.run(opts(30))).status,429);assert.equal(f.calls.length,30);
+  now=Date.UTC(2026,10,5);
+  assert.equal((await f.run(opts(31))).status,200);assert.equal(f.calls.length,31);
+  assert.equal(f.sql.prepare("SELECT count FROM my_chat_api_control WHERE id='feature:image'").get().count,1);
+ } finally {Date.now=original;}
 });

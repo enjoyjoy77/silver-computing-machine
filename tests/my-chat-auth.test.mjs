@@ -55,7 +55,7 @@ test('form referrer policy preserves same-origin POST Origin without allowing nu
 
 test('direct HTML, assets and API require authentication',async()=>{
   const f=fixture();
-  for(const path of ['/my-chat/','/my-chat/index.html','/my-chat/app.js','/my-chat/documents.mjs','/my-chat/pdf.mjs','/my-chat/pdf.worker.mjs','/my-chat/style.css','/my-chat/session','/api/my-chat/','/api/my-chat/chat','/api/my-chat/speech']) {
+  for(const path of ['/my-chat/','/my-chat/index.html','/my-chat/app.js','/my-chat/history.js','/my-chat/documents.mjs','/my-chat/pdf.mjs','/my-chat/pdf.worker.mjs','/my-chat/style.css','/my-chat/session','/api/my-chat/','/api/my-chat/chat','/api/my-chat/speech']) {
     const r=await f.request(path); assert.equal(r.status,401,path);
     assert.match(r.headers.get('cache-control'),/no-store/);
     assert.doesNotMatch(await r.text(),/今日は、何を話そう|const \$=|chats=/);
@@ -64,7 +64,7 @@ test('direct HTML, assets and API require authentication',async()=>{
 
 test('PDF modules use authenticated same-origin paths with matching CSP and script MIME',async()=>{
   const f=fixture();const headers={Cookie:cookieFrom(await f.login())};
-  for(const asset of ['documents.mjs','pdf.mjs','pdf.worker.mjs']) {
+  for(const asset of ['history.js','documents.mjs','pdf.mjs','pdf.worker.mjs']) {
     const response=await f.request('/my-chat/'+asset,{headers});assert.equal(response.status,200);
     assert.match(response.headers.get('content-type'),/^text\/javascript/);
     const csp=response.headers.get('content-security-policy');assert.match(csp,/script-src 'self';/);assert.match(csp,/worker-src 'self';/);assert.doesNotMatch(csp,/unsafe-eval|script-src[^;]*https?:/);
