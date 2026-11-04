@@ -19,6 +19,9 @@
     if(knownExpires && knownExpires<=Date.now())lockScreen();
     if(!sessionReady())throw Error('ログイン状態を確認できるまで送信を停止しています。「接続を再確認」を押してください。');
   }
+  const acknowledgements=new Set();let disclosedScope='',detailsOpen=false,noticeDismissed=false;
+  const imageItems=()=>attachment?.kind==='images'?attachment.items:[];
+  const consentScope=()=>mode()==='chat'?(attachment?'attachment:'+attachment.kind+':'+imageItems().length+':'+selectedModel:''):mode()==='web'?'web:'+selectedModel:mode()==='edit'?'edit:'+imageItems().length:mode();
   const mode = () => $('#mode').value || 'chat';
   const synth = window.speechSynthesis;
   const validKey = key => /^sk-[A-Za-z0-9_-]{20,240}$/.test(key);
@@ -34,6 +37,8 @@
     $('#api-key').disabled=serverKeyReady;
     $('#apply-keys').disabled = serverKeyReady || !sessionReady() || busy || pending || !!recorder;
     $('#auth-retry').disabled = authState==='checking';
+    $('#history-retry').disabled=!sessionReady()||!historyDirty||historyBlocked;
+    $('#history-retry').hidden=!historyDirty;
     $('#auth-status').textContent = authState==='verified' ? '' : authState==='checking' ? 'ログイン状態を確認中です。送信は一時停止しています。' : '接続を確認できません。送信を停止しています。接続を再確認してください。';
     $('#auth-retry').hidden = authState==='verified';
     $('#finish-record').disabled = !recorder;
@@ -42,16 +47,21 @@
     $('#mode').disabled = busy || pending || !!recorder;
     $('#model').disabled = busy || pending || !!recorder;
     $('#attach').disabled = busy || pending || !!recorder;
-    const special = mode() !== 'chat' || !!attachment;
-    $('#consent-row').hidden = !special;
+    const scope=consentScope(),special=!!scope;
+    if(scope!==disclosedScope){disclosedScope=scope;detailsOpen=false;$('#send-consent').checked=false;}
+    if(acknowledgements.has(scope))$('#send-consent').checked=true;
+    $('#consent-details').hidden=!special||noticeDismissed;
+    $('#consent-details').textContent=acknowledgements.has(scope)?'確認済み・送信内容／料金':'送信内容・料金';
+    $('#consent-row').hidden=!special||noticeDismissed||(acknowledgements.has(scope)&&!detailsOpen);
+    $('#consent-details').setAttribute('aria-expanded',String(!$('#consent-row').hidden));
     $('#send-details').textContent = mode() === 'image' || mode() === 'edit'
-      ? '画像APIに指示' + (attachment ? 'と添付画像' : '') + 'を送信します。別途画像料金。1024px・下書き品質・1枚。全体で1日10回まで。'
+      ? 'OpenAIの画像APIに指示' + (mode()==='edit' ? 'と選択した参照画像（最大4枚）' : '') + 'を送信します。別途画像料金。1024px・下書き品質・1枚。全体でUTCの1日10回まで。'
       : mode() === 'web' ? 'この会話をOpenAIへ送り、公開Webを検索します。検索1回あたり$0.01＋文章料金。全体で1日30回まで。'
       : attachment ? '添付「' + attachment.name + '」を今回だけOpenAIへ送信します。内容に応じた入力料金が追加されます。アプリには保存しません。' : '';
   }
   const historyKey='my-chat.history.v1', historyLimit=4*1024*1024;
-  let historyLoaded=false, historyBlocked=false;
-  const historyStatus=text=>{$('#history-status').textContent=text;};
+  let historyLoaded=false, historyBlocked=false, historyDirty=false;
+  const historyStatus=text=>{$('#history-status').textContent=text;$('#history-status').className=historyDirty||historyBlocked?'save-warning':'save-ok';};
   function historySnapshot(raw){
     if(!raw || raw.version!==1 || !Array.isArray(raw.chats) || raw.chats.length>100)throw Error('history');
     let count=0;const ids=new Set();
@@ -73,14 +83,18 @@
   function restoreHistory(){
     if(historyLoaded||!sessionReady())return;historyLoaded=true;
     try{const raw=window.localStorage.getItem(historyKey);if(raw){if(raw.length*2>historyLimit)throw Error('size');chats=historySnapshot(JSON.parse(raw)).chats;sequence=Math.max(sequence,...chats.map(c=>c.id));active=chats[0]?.id||null;}
-      historyStatus('履歴はこのブラウザー内に保存します。');render();
+      historyStatus(chats.length?'保存済み':'');render();
     }catch{historyBlocked=true;historyStatus('履歴を読み込めません。保存済みデータは変更していません。ブラウザー設定を確認するか、履歴を削除してください。');}
   }
   function saveHistory(){
-    if(!sessionReady()||!historyLoaded||historyBlocked)return;
-    try{const data=JSON.stringify(historySnapshot({version:1,chats}));if(data.length*2>historyLimit)throw Error('size');window.localStorage.setItem(historyKey,data);historyStatus('このブラウザーに保存済み');}
-    catch{historyStatus('履歴を保存できませんでした（容量・保存設定・内容を確認）。以前の保存分は残っています。この会話はタブを閉じると失われる場合があります。');}
+    if(!historyDirty)return;
+    if(!sessionReady()){historyStatus('未保存の変更があります。認証の再確認後に保存を再試行します。閉じる前に保存済み表示を確認してください。');update();return;}
+    if(!historyLoaded||historyBlocked){historyStatus('未保存の変更があります。履歴の読込み・別タブの変更を確認できないため保存を停止しています。以前の保存分は残っています。必要な画像は画面からダウンロードしてください。');update();return;}
+    try{const data=JSON.stringify(historySnapshot({version:1,chats}));if(data.length*2>historyLimit)throw Error('size');window.localStorage.setItem(historyKey,data);historyDirty=false;historyStatus('保存済み');}
+    catch{historyStatus('履歴を保存できませんでした（容量・保存設定・内容を確認）。以前の保存分は残っています。未保存の変更はタブを閉じると失われます。画像は画面からダウンロードできます。');}
+    update();
   }
+  $('#history-retry').onclick=saveHistory;
   window.addEventListener('storage',e=>{if(e.key===historyKey||e.key===null){historyBlocked=true;historyStatus('別のタブで履歴が変更されました。上書きを防ぐため保存を停止しました。再読み込みしてください。');}});
   function appendAnswer(el, m) {
     const citations=[...(m.citations||[])].sort((a,b)=>a.start-b.start);let offset=0;
@@ -129,7 +143,7 @@
   }
   function clearAttachment() { attachmentController?.abort();attachmentController=null;attachment=null;attachmentLoading=false;attachmentGeneration++;$('#file').value='';$('#attachment-preview').replaceChildren();$('#send-consent').checked=false;update(); }
   function clearSpeech(){speechAudio?.pause();if(speechAudio)speechAudio.src='';speechAudio=null;if(speechURL)URL.revokeObjectURL(speechURL);speechURL=null;}
-  function cleanup() { sessionEpoch++;sessionController?.abort();sessionController=null;sessionRequest=null;authState='unknown';knownExpires=0;serverKeyReady=false;historyLoaded=false;historyBlocked=false;clearTimeout(authTimer);stop(); clearKeys(); clearAttachment(); chats = []; lastAnswer = ''; $('#prompt').value = ''; render(); }
+  function cleanup() { acknowledgements.clear();disclosedScope='';detailsOpen=false;noticeDismissed=false;sessionEpoch++;sessionController?.abort();sessionController=null;sessionRequest=null;authState='unknown';knownExpires=0;serverKeyReady=false;historyLoaded=false;historyBlocked=false;historyDirty=false;historyStatus('');clearTimeout(authTimer);stop(); clearKeys(); clearAttachment(); chats = []; lastAnswer = ''; $('#prompt').value = ''; render(); }
   async function api(path, body, key, type, signal) {
     requireSession();
     const response = await fetch('/api/my-chat/' + path, { method: 'POST', credentials: 'same-origin', cache: 'no-store', signal,
@@ -162,21 +176,23 @@
     if (!keyAvailable()) { $('#settings-dialog').showModal(); throw Error('設定で共通APIキーを入力してください。'); }
     if (!text.trim() || text.length > 4000) throw Error('文章は1〜4000文字にしてください。');
     if (/\bsk-[A-Za-z0-9_-]{12,}/.test(text)) throw Error('APIキーは会話に送らず、設定欄に入力してください。');
+    noticeDismissed=false;update();
     const selected=mode();
-    if ((selected !== 'chat' || attachment) && !$('#send-consent').checked) throw Error('送信内容と料金を確認し、チェックを入れてください。');
+    if (consentScope() && !acknowledgements.has(consentScope()) && !$('#send-consent').checked) throw Error('送信内容と料金を確認し、チェックを入れてください。');
     if (selected === 'web' && attachment) throw Error('添付ファイルを外してからWeb検索してください。');
     if (selected === 'image' && attachment) throw Error('新しく画像を作る場合は添付を外してください。編集する場合は「画像編集」を選んでください。');
-    if (selected === 'edit' && attachment?.kind !== 'image') throw Error('編集する画像を1枚添付してください。');
+    if (selected === 'edit' && !imageItems().length) throw Error('参照する画像を1〜4枚添付してください。');
     if ((selected === 'image'||selected === 'edit') && text.length > 2000) throw Error('画像の指示は2000文字以内にしてください。');
+    if(consentScope()&&$('#send-consent').checked)acknowledgements.add(consentScope());
     let chat = chats.find(c => c.id === active);
     if (!chat) { chat = { id: ++sequence, title: text.slice(0, 25), messages: [] }; chats.unshift(chat); active = chat.id; }
     const messages = conversationInput(chat, text); status(selected === 'image'||selected === 'edit' ? '画像を作っています（最大3分）…' : '回答を待っています…');
     const imageRequest=selected === 'image'||selected === 'edit';
-    const payload=imageRequest ? {prompt:text,consent:true,...(selected === 'edit' ? {image:attachment.data} : {})} : {model:selectedModel,messages,...(selected === 'web' ? {web:true,consent:true} : {}),...(attachment ? {attachment,consent:true} : {})};
+    const payload=imageRequest ? {prompt:text,consent:true,...(selected === 'edit' ? {images:imageItems().map(i=>i.data)} : {})} : {model:selectedModel,messages,...(selected === 'web' ? {web:true,consent:true} : {}),...(attachment ? {attachment:attachment.kind==='images'?{kind:'images',images:imageItems().map(i=>i.data)}:{kind:'text',text:attachment.text},consent:true} : {})};
     const data = await api(imageRequest?'image':'chat', JSON.stringify(payload), apiKey, 'application/json', controller.signal);
     if (stopped) return;
-    chat.messages.push({ role: 'user', content: text+(attachment?'\n[添付: '+attachment.name+']':'') }, { role: 'assistant', content: data.text, citations:data.citations, image:data.image });
-    clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text;$('#speech-consent').checked=false; render();saveHistory();
+    chat.messages.push({ role: 'user', content: text }, { role: 'assistant', content: data.text, citations:data.citations, image:data.image });
+    detailsOpen=false;noticeDismissed=true;clearAttachment();$('#send-consent').checked=false;$('#prompt').value = ''; lastAnswer = data.text;$('#speech-consent').checked=false; historyDirty=true;render();saveHistory();update();
     status(data.truncated ? '回答が長いため上限で終了しました。' : '回答しました。'); if (readAloud) speak();
   }
   async function operation(run) {
@@ -222,7 +238,7 @@
     } catch { if (current === generation) { stopRecording(); status('マイクを開けませんでした。許可を確認して録音し直してください。'); } }
   }
   $('#composer').onsubmit = e => { e.preventDefault(); if (!recorder && !pending) operation(() => send($('#prompt').value.trim())); };
-  $('#prompt').oninput = update;
+  $('#prompt').oninput = ()=>{noticeDismissed=false;update();};
   $('#prompt').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!$('#send').disabled) $('#composer').requestSubmit(); } };
   $('#new').onclick = () => { if (busy || recorder || pending) return; synth?.cancel(); active = null; clearAttachment();$('#prompt').value = ''; render(); closeMenu(); };
   $('.brand').onclick = e => { e.preventDefault(); $('#new').click(); };
@@ -236,48 +252,69 @@
     const key = $('#api-key').value.trim();
     if (!validKey(key)) { toast('キーの形式を確認してください。'); return; }
     apiKey = key;
-    $('#api-key').value = ''; update(); toast('このタブで使用します。まだAPIには送信していません。');
+    $('#api-key').value = ''; update(); $('#settings-dialog').close(); $('#prompt').focus(); status('このタブにAPIキーを設定しました。'); toast('このタブにAPIキーを設定しました（API側は未検証）。');
   };
-  $('#forget-keys').onclick = () => { stop(); clearKeys(); toast('キーを消去しました。'); };
-  $('#clear').onclick = () => { if(!sessionReady())return;stop();try{window.localStorage.removeItem(historyKey);}catch{historyStatus('履歴を削除できませんでした。ブラウザーの保存設定を確認してください。');return;}clearAttachment();chats=[];active=null;lastAnswer='';historyLoaded=true;historyBlocked=false;$('#prompt').value='';render();historyStatus('このブラウザーの履歴を削除しました。'); };
-  $('#mode').onchange = () => {$('#send-consent').checked=false;update();};
+  $('#forget-keys').onclick = () => { if(!window.confirm('このタブの一時APIキーを消去しますか？CloudflareのサーバーSecretと保存済み履歴は変更しません。'))return;stop(); clearKeys(); toast('このタブの一時キーを消去しました。サーバーSecretは変更していません。'); };
+  $('#clear').onclick = () => { if(!sessionReady())return;stop();try{window.localStorage.removeItem(historyKey);}catch{historyStatus('履歴を削除できませんでした。ブラウザーの保存設定を確認してください。');return;}clearAttachment();chats=[];active=null;lastAnswer='';historyLoaded=true;historyBlocked=false;historyDirty=false;$('#prompt').value='';render();historyStatus('このブラウザーの履歴を削除しました。'); };
+  $('#consent-details').onclick=()=>{detailsOpen=!detailsOpen;update();};
+  $('#send-consent').onchange=()=>{const scope=consentScope();if(!scope)return;if($('#send-consent').checked){acknowledgements.add(scope);detailsOpen=false;}else acknowledgements.delete(scope);update();};
+  $('#mode').onchange = () => {noticeDismissed=false;$('#send-consent').checked=false;update();};
   $('#model').onchange=()=>{
     const next=$('#model').value;
     if(busy||pending||recorder||!modelIds.includes(next)){$('#model').value=selectedModel;return;}
-    selectedModel=next;
+    selectedModel=next;update();
     try {window.localStorage.setItem(modelPreference,next);} catch { /* keep tab preference when storage is blocked */ }
     status('会話モデルを変更しました。次の回答から使用します。モデルごとに料金・利用権限が異なります。');
   };
+  const IMAGE_LIMITS={count:4,each:2*1024*1024,total:4*1024*1024,source:5*1024*1024,sourceTotal:20*1024*1024};
+  function checkedPng(data){
+    if(typeof data!=='string'||data.length>Math.ceil(IMAGE_LIMITS.each/3)*4+22||!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(data))throw Error('変換後の画像はPNG・各2MiB以内にしてください。');
+    const bin=atob(data.slice(22)),word=n=>bin.charCodeAt(n)*16777216+(bin.charCodeAt(n+1)<<16)+(bin.charCodeAt(n+2)<<8)+bin.charCodeAt(n+3);
+    if(bin.length<33||bin.length>IMAGE_LIMITS.each||bin.slice(0,8)!=='\x89PNG\r\n\x1a\n'||bin.slice(12,16)!=='IHDR'||!word(16)||!word(20)||word(16)>1024||word(20)>1024)throw Error('画像形式を確認してください。');
+    let pos=8,dataChunk=false,end=false;while(pos<bin.length){if(pos+12>bin.length)throw Error('画像形式を確認してください。');const size=word(pos),type=bin.slice(pos+4,pos+8);if(size>bin.length-pos-12||(pos===8&&size!==13))throw Error('画像形式を確認してください。');pos+=size+12;if(type==='IDAT')dataChunk=true;if(type==='IEND'){if(size!==0||pos!==bin.length)throw Error('画像形式を確認してください。');end=true;break;}}if(!dataChunk||!end)throw Error('画像形式を確認してください。');return bin.length;
+  }
+  function convertImage(file,signal){
+    return new Promise((resolve,reject)=>{
+      const url=URL.createObjectURL(file),image=new Image();let settled=false;
+      const finish=(error,data)=>{if(settled)return;settled=true;image.onload=null;image.onerror=null;signal.removeEventListener('abort',abort);URL.revokeObjectURL(url);error?reject(error):resolve(data);};
+      const abort=()=>finish(new DOMException('stopped','AbortError'));signal.addEventListener('abort',abort,{once:true});
+      if(signal.aborted){abort();return;}
+      image.onload=()=>{try{if(signal.aborted){abort();return;}if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>40000000)throw Error('元画像は4000万画素以内にしてください。');const scale=Math.min(1,1024/Math.max(image.naturalWidth,image.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/png');finish(null,{name:file.name.slice(0,100),data,bytes:checkedPng(data)});}catch(e){finish(e);}};
+      image.onerror=()=>finish(Error('画像を開けません。'));image.src=url;
+    });
+  }
+  function renderAttachment(){
+    const preview=$('#attachment-preview');preview.replaceChildren();if(!attachment)return;
+    if(attachment.kind==='images'){
+      const count=document.createElement('span');count.textContent=imageItems().length+'枚';preview.append(count);
+      imageItems().forEach((item,index)=>{const thumb=document.createElement('img');thumb.src=item.data;thumb.alt='参照画像'+(index+1);thumb.title=item.name;
+        const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','参照画像'+(index+1)+'を外す: '+item.name);remove.onclick=()=>{if(busy||attachmentLoading)return;attachment.items.splice(index,1);if(!attachment.items.length)attachment=null;noticeDismissed=false;renderAttachment();update();};preview.append(thumb,remove);
+      });
+    }else{const label=document.createElement('span');label.textContent='資料・'+attachment.text.length+'文字';label.title=attachment.name;const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','添付資料を外す: '+attachment.name);remove.onclick=()=>{if(!busy&&!attachmentLoading)clearAttachment();};preview.append(label,remove);}
+  }
   $('#attach').onclick = () => $('#file').click();
   $('#file').onchange = async () => {
-    const file=$('#file').files[0]; if (!file || busy) return;
-    clearAttachment();const ticket=attachmentGeneration;attachmentController=new AbortController();const fileSignal=attachmentController.signal;attachmentLoading=true;update();
-    try {
-      let next;
-      if (['image/png','image/jpeg','image/webp'].includes(file.type)) {
-        if (file.size>5*1024*1024) throw Error('元画像は5MB以内にしてください。');
-        const data=await new Promise((resolve,reject)=>{
-          const url=URL.createObjectURL(file),image=new Image();
-          image.onload=()=>{try {const scale=Math.min(1,1024/Math.max(image.naturalWidth,image.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL('image/png'));}catch {reject(Error('画像を変換できません。'));}finally {URL.revokeObjectURL(url);}};
-          image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('画像を開けません。'));};image.src=url;
-        });
-        if (data.length>2800000) throw Error('変換後の画像が2MBを超えます。小さな画像を選んでください。');
-        next={kind:'image',name:file.name.slice(0,100),data};
-      } else if (/\.(pdf|docx|xlsx|pptx)$/i.test(file.name)) {
-        const docs=window.MyChatDocuments || await import('./documents.mjs');
-        const text=await docs.extract(file,fileSignal);
-        next={kind:'text',name:file.name.slice(0,100)+'（文字抽出のみ）',text};
-      } else {
-        if (!/\.(txt|md|csv|json)$/i.test(file.name)||file.size>24000) throw Error('添付は画像、または24KB以内のTXT・MD・CSV・JSONです。PDF/DOCX/XLSX/PPTXは2MB以内です。旧Office形式は未対応です。');
-        const text=await file.text();if (!text.trim()||text.length>8000||text.includes('\0')) throw Error('テキストはUTF-8・8000文字以内にしてください。');
-        if (/\bsk-[A-Za-z0-9_-]{12,}/.test(text)) throw Error('APIキーを含むファイルは送信しないでください。');
-        next={kind:'text',name:file.name.slice(0,100),text};
+    const files=Array.from($('#file').files||[]);if(!files.length||busy)return;
+    attachmentController?.abort();const ticket=++attachmentGeneration;attachmentController=new AbortController();const fileSignal=attachmentController.signal;attachmentLoading=true;noticeDismissed=false;update();
+    try{
+      const isImage=file=>['image/png','image/jpeg','image/webp'].includes(file.type);let next;
+      if(files.some(isImage)){
+        if(!files.every(isImage))throw Error('画像と文書は別々に選んでください。');
+        const prior=imageItems();if(files.length+prior.length>IMAGE_LIMITS.count)throw Error('参照画像は合計4枚までです。不要な画像を外してください。');
+        if(files.some(f=>f.size>IMAGE_LIMITS.source)||files.reduce((n,f)=>n+f.size,0)>IMAGE_LIMITS.sourceTotal)throw Error('元画像は各5MiB・合計20MiB以内にしてください。');
+        const items=[...prior];let total=items.reduce((n,i)=>n+i.bytes,0);
+        for(const file of files){if(fileSignal.aborted)throw new DOMException('stopped','AbortError');const item=await convertImage(file,fileSignal);total+=item.bytes;if(total>IMAGE_LIMITS.total)throw Error('変換後の参照画像は合計4MiB以内にしてください。');items.push(item);}
+        next={kind:'images',items};
+      }else{
+        if(files.length!==1)throw Error('文書は1ファイルずつ選んでください。');const file=files[0];let text;
+        if(/\.(pdf|docx|xlsx|pptx)$/i.test(file.name)){const docs=window.MyChatDocuments||await import('./documents.mjs');text=await docs.extract(file,fileSignal);}
+        else{if(!/\.(txt|md|csv|json)$/i.test(file.name)||file.size>24000)throw Error('添付は画像、24KB以内のTXT・MD・CSV・JSON、2MB以内のPDF/DOCX/XLSX/PPTXです。旧Office形式は未対応です。');text=await file.text();}
+        if(!text.trim()||text.length>8000||text.includes('\0'))throw Error('テキストはUTF-8・8000文字以内にしてください。');if(/\bsk-[A-Za-z0-9_-]{12,}/.test(text))throw Error('APIキーを含むファイルは送信しないでください。');next={kind:'text',name:file.name.slice(0,100),text};
       }
-      if (ticket!==attachmentGeneration||locked) return;
-      attachment=next;$('#send-consent').checked=false;const label=document.createElement('span');label.textContent=next.name+(next.kind==='image'?'（最大1024pxに変換）':'（'+next.text.length+'文字）');
-      const remove=document.createElement('button');remove.type='button';remove.textContent='添付を外す';remove.onclick=()=>{if(!busy)clearAttachment();};$('#attachment-preview').append(label,remove);update();
-    } catch(e) {if(ticket===attachmentGeneration)status(e.message);}
-    finally {if(ticket===attachmentGeneration){attachmentLoading=false;update();}}
+      if(ticket!==attachmentGeneration||locked||fileSignal.aborted)return;
+      attachment=next;$('#send-consent').checked=false;renderAttachment();update();
+    }catch(e){if(ticket===attachmentGeneration&&e.name!=='AbortError')status(e.message);}
+    finally{if(ticket===attachmentGeneration){attachmentLoading=false;$('#file').value='';update();}}
   };
   $('#theme').onchange = e => document.body.classList.toggle('dark', e.target.value === 'dark');
   $('#voice').onclick = () => $('#voice-dialog').showModal();
@@ -298,7 +335,10 @@
   $('#stop').onclick = stop; $('#voice-stop').onclick = stop; $('#read-again').onclick = speak;
   document.querySelectorAll('.close').forEach(b => b.onclick = () => b.closest('dialog').close());
   $('#voice-dialog').addEventListener('close', () => { if (recorder || pending || busy) stop(); synth?.cancel();clearSpeech(); });
-  $('#logout').addEventListener('submit', cleanup);
+  $('#logout').addEventListener('submit', e=>{
+    const message='ログアウトしますか？保存済み履歴は残り、一時キーは消えます。サーバーキーは削除しません。'+(historyDirty?' 未保存の変更は失われます。':'');
+    if(!window.confirm(message)){e.preventDefault();return;}cleanup();
+  });
   window.addEventListener('pagehide', cleanup);
   document.addEventListener('visibilitychange', () => { if (document.hidden) { stopRecording(); synth?.cancel(); clearSpeech(); } else checkSession(); });
   function lockScreen() { if (locked) return; cleanup(); locked = true; document.body.replaceChildren(); location.replace('/my-chat/'); }
@@ -326,15 +366,17 @@
         if(deadline<=Date.now()){lockScreen();return;}
         knownExpires=knownExpires?Math.min(knownExpires,deadline):deadline;
         if(knownExpires<=Date.now()){lockScreen();return;}
-        serverKeyReady=serverKeyConfigured===true;authState='verified';armExpiry();update();restoreHistory();
+        serverKeyReady=serverKeyConfigured===true;authState='verified';armExpiry();update();restoreHistory();saveHistory();update();
       } catch {
         if(epoch!==sessionEpoch||locked)return;
         if(knownExpires && knownExpires<=Date.now()){lockScreen();return;}
-        authState='unknown';stop();if(!knownExpires)clearKeys();update();
+        authState='unknown';stop();if(!knownExpires)clearKeys();saveHistory();update();
       } finally {clearTimeout(timeout);if(epoch===sessionEpoch){sessionRequest=null;sessionController=null;}}
     })();
     return sessionRequest;
   }
   $('#auth-retry').onclick=checkSession;
+  function fitViewport(){const v=window.visualViewport;if(v&&v.scale===1)$('#app-main').style.height=Math.round(v.height)+'px';}
+  window.visualViewport?.addEventListener('resize',fitViewport);fitViewport();
   window.addEventListener('pageshow', checkSession); setInterval(checkSession, 60000); render();
 })();

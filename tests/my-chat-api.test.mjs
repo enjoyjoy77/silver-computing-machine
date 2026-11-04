@@ -65,7 +65,7 @@ function setup() {
     let args=[]; return { bind(...v) { args=v; return this; }, async first() { return sql.prepare(query).get(...args)||null; }, async run() { return sql.prepare(query).run(...args); }, execute() { const s=sql.prepare(query); return { results:s.columns().length?s.all(...args):(s.run(...args),[]) }; } };
   }, async batch(statements) { sql.exec('BEGIN'); try { const out=statements.map(s=>s.execute());sql.exec('COMMIT');return out; } catch(e) { sql.exec('ROLLBACK');throw e; } } };
   const calls=[];
-  const mock = async (url, options) => { if (options.redirect === 'error') throw new TypeError('Unsupported Workers redirect mode'); calls.push({url,options}); return Response.json(url.endsWith('transcriptions')?{text:'こんにちは'}:{output:[{type:'reasoning'},{type:'message',content:[{type:'output_text',text:'テストの返答'}]}]}); };
+  const mock = async (url, options) => { if (options.redirect === 'error') throw new TypeError('Unsupported Workers redirect mode'); calls.push({url,options}); return Response.json(url.includes('/images/')?{data:[{b64_json:png}]}:url.endsWith('transcriptions')?{text:'こんにちは'}:{output:[{type:'reasoning'},{type:'message',content:[{type:'output_text',text:'テストの返答'}]}]}); };
   function request({path='chat', body=JSON.stringify({messages:[{role:'user',content:'こんにちは'}]}), type='application/json', apiKey=key, method='POST', signal}={}) {
     return new Request(origin+'/api/my-chat/'+path,{method,headers:{'X-My-Chat-Key':apiKey,'Content-Type':type,Origin:origin},body:method==='GET'?undefined:body,signal});
   }
@@ -85,7 +85,7 @@ test('audio uses fixed transcription multipart with bounded file',async()=>{
 });
 test('bad keys, methods, paths, roles, sizes and media never call upstream',async()=>{
   const f=setup();
-  for(const [opts,code] of [[{apiKey:''},400],[{method:'GET'},405],[{path:'proxy'},404],[{body:'broken'},400],[{type:'text/plain'},415],[{body:JSON.stringify({messages:[{role:'system',content:'x'}]})},400],[{body:JSON.stringify({messages:[{role:'user',content:'x'.repeat(4001)}]})},400],[{body:'x'.repeat(3000001)},413],[{path:'transcribe',type:'audio/ogg',body:'x'},415],[{path:'transcribe',type:'audio/webm',body:new Uint8Array(2*1024*1024+1)},413]]) assert.equal((await f.run(opts)).status,code);
+  for(const [opts,code] of [[{apiKey:''},400],[{method:'GET'},405],[{path:'proxy'},404],[{body:'broken'},400],[{type:'text/plain'},415],[{body:JSON.stringify({messages:[{role:'system',content:'x'}]})},400],[{body:JSON.stringify({messages:[{role:'user',content:'x'.repeat(4001)}]})},400],[{body:'x'.repeat(6*1024*1024+1)},413],[{path:'transcribe',type:'audio/ogg',body:'x'},415],[{path:'transcribe',type:'audio/webm',body:new Uint8Array(2*1024*1024+1)},413]]) assert.equal((await f.run(opts)).status,code);
   assert.equal(f.calls.length,0);
 });
 test('atomic lock rejects parallel calls and releases after upstream completion',async()=>{
@@ -172,4 +172,29 @@ test('server secret is preferred, fixed upstream only, missing/invalid configura
  const req=new Request(origin+'/api/my-chat/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
  const missing=await handleMyChatApi(req,f.db,{id:'session'},()=>{throw Error('must not send');});assert.equal((await missing.json()).code,'SERVER_KEY_MISSING');
  f.sql.exec('DELETE FROM my_chat_sessions');assert.equal((await f.run({},undefined,secret)).status,401);assert.equal(f.calls.length,before);
+});
+
+test('up to four reference images propagate in order to vision and JSON edits; output/cost limits stay fixed',async()=>{
+ for(const n of [1,4]){const f=setup(),images=Array(n).fill(image);
+  const vision=await f.run({body:JSON.stringify({messages:[{role:'user',content:'compare'}],model:'gpt-6-luna',attachment:{kind:'images',images},consent:true})});assert.equal(vision.status,200);
+  let payload=JSON.parse(f.calls.at(-1).options.body);assert.equal(payload.input[0].content.length,n+1);assert.deepEqual(payload.input[0].content.slice(1),images.map(image_url=>({type:'input_image',image_url,detail:'low'})));assert.equal(payload.model,'gpt-6-luna');assert.equal(payload.max_output_tokens,1200);
+  const edit=await f.run({path:'image',body:JSON.stringify({prompt:'combine',images,consent:true,n:4,size:'4096x4096'})});assert.equal(edit.status,200);assert.equal(f.calls.at(-1).url,'https://api.openai.com/v1/images/edits');payload=JSON.parse(f.calls.at(-1).options.body);assert.deepEqual(payload.images,images.map(image_url=>({image_url})));assert.equal(payload.n,1);assert.equal(payload.quality,'low');assert.equal(payload.size,'1024x1024');assert.equal(payload.model,'gpt-image-2.5-flare');
+ }
+});
+function paddedPng(bytes){const original=Buffer.from(png,'base64'),chunk=Buffer.alloc(bytes-original.length);chunk.writeUInt32BE(chunk.length-12,0);chunk.write('tEXt',4);return 'data:image/png;base64,'+Buffer.concat([original.subarray(0,-12),chunk,original.subarray(-12)]).toString('base64');}
+test('reference image count, per-image and aggregate bytes are checked before quota or upstream',async()=>{
+ const f=setup();const tooBig=paddedPng(2*1024*1024+1),medium=paddedPng(1536*1024);
+ for(const images of [[],Array(5).fill(image),'bad',[image,null],[image,'https://example.com/a.png'],[image,image.slice(0,-12)],[tooBig],[medium,medium,medium]]){
+  for(const path of ['chat','image']){const body=path==='image'?{prompt:'edit',images,consent:true}:{messages:[{role:'user',content:'read'}],attachment:{kind:'images',images},consent:true};const r=await f.run({path,body:JSON.stringify(body)});assert.ok([400,413].includes(r.status));}
+ }
+ assert.equal(f.calls.length,0);assert.equal(f.sql.prepare('SELECT count(*) AS n FROM my_chat_api_control').get().n,0);
+ const exact=paddedPng(2*1024*1024);assert.equal((await f.run({path:'image',body:JSON.stringify({prompt:'edit',images:[exact,exact],consent:true})})).status,200);
+});
+test('multi-image consent, mixed image fields and search combinations fail closed',async()=>{
+ const f=setup();for(const opts of [
+ {path:'image',body:JSON.stringify({prompt:'x',images:[image]})},
+ {path:'image',body:JSON.stringify({prompt:'x',images:[image],image,consent:true})},
+ {body:JSON.stringify({messages:[{role:'user',content:'x'}],attachment:{kind:'images',images:[image]}})},
+ {body:JSON.stringify({messages:[{role:'user',content:'x'}],attachment:{kind:'images',images:[image]},web:true,consent:true})}
+ ])assert.equal((await f.run(opts)).status,400);assert.equal(f.calls.length,0);
 });

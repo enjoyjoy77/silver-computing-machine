@@ -41,8 +41,8 @@ try {
   const audio=await call('transcribe','fake-audio','audio/mp4');assert.equal(audio.status,200);assert.equal((await audio.json()).text,'音声テスト');
   const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
   assert.equal((await call('image',JSON.stringify({prompt:'cat',consent:true}))).status,200);
-  assert.equal((await call('image',JSON.stringify({prompt:'blue cat',image,consent:true}))).status,200);
-  assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'describe'}],attachment:{kind:'image',data:image},consent:true}))).status,200);
+  assert.equal((await call('image',JSON.stringify({prompt:'blue cat',images:[image,image,image,image],consent:true}))).status,200);
+  assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'describe'}],attachment:{kind:'images',images:[image,image,image,image]},consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'limited'}]}))).status,429);
   await db.prepare("DELETE FROM my_chat_api_control WHERE id LIKE 'minute:%'").run();
