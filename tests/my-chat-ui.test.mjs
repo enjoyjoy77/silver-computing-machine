@@ -302,9 +302,101 @@ test('browser validates every converted PNG and enforces decoded per-image and a
 test('real history module integration restores A/B and persists C in IndexedDB without altering legacy',async()=>{
  const legacy=JSON.stringify({version:1,chats:[{id:1,title:'A',messages:[{role:'user',content:'A'},{role:'assistant',content:'a'}]},{id:2,title:'B',messages:[{role:'user',content:'B'},{role:'assistant',content:'b'}]}]});
  const storage=new Map([['my-chat.history.v1',legacy]]),indexedDB=new IDBFactory();const f=fixture(undefined,undefined,storage,{realHistory:true,indexedDB});await f.keys();assert.equal(f.el('history').children.length,2);
- for(const button of f.el('history').children){button.click();assert.equal(f.el('messages').children[0].textContent,button.textContent);}
+ for(const button of f.el('history').children){button.click();assert.equal('OpenAI · '+f.el('messages').children[0].textContent,button.textContent);}
  f.el('new').click();f.el('prompt').value='C';f.el('composer').requestSubmit();
  for(let i=0;i<100&&(f.el('history').children.length<3||f.el('history-status').textContent!=='保存済み');i++)await new Promise(r=>setTimeout(r,2));
  assert.equal(f.el('history-status').textContent,'保存済み');assert.equal(storage.get('my-chat.history.v1'),legacy);f.windowEvents.pagehide();
- const restored=fixture(undefined,undefined,storage,{realHistory:true,indexedDB});await restored.windowEvents.pageshow();assert.equal(restored.el('history').children.length,3);assert.equal(restored.el('history').children[0].textContent,'C');assert.equal(storage.get('my-chat.history.v1'),legacy);
+ const restored=fixture(undefined,undefined,storage,{realHistory:true,indexedDB});await restored.windowEvents.pageshow();assert.equal(restored.el('history').children.length,3);assert.equal(restored.el('history').children[0].textContent,'OpenAI · C');assert.equal(storage.get('my-chat.history.v1'),legacy);
+});
+
+
+test('failed chat retains draft attachment and key; retry confirms, cancels and deduplicates without reload',async()=>{
+ let attempt=0,resolve;const f=fixture(()=>{attempt++;if(attempt===1)return Response.json({error:'upstream failed (UPSTREAM_HTTP_500)'},{status:502});return new Promise(r=>resolve=r);});await f.keys();
+ f.el('file').files=[{name:'synthetic.txt',size:4,text:async()=> 'test'}];await f.el('file').onchange();f.el('send-consent').checked=true;f.el('prompt').value='read';f.el('composer').requestSubmit();await tick();
+ assert.equal(f.calls.length,1);assert.equal(f.el('prompt').value,'read');assert.equal(f.el('send').textContent,'再試行');assert.match(f.el('status').textContent,/再読み込みせず/);
+ f.window.confirm=()=>false;f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,1);
+ f.window.confirm=()=>true;f.el('composer').requestSubmit();f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,2);assert.equal(f.calls[1].opts.headers['X-My-Chat-Key'],key);assert.equal(f.calls[1].opts.body,f.calls[0].opts.body);
+ resolve(Response.json({text:'recovered'}));await tick();assert.equal(f.el('prompt').value,'');assert.equal(f.el('send').textContent,'送信');assert.equal(f.redirects.length,0);
+});
+test('network errors, timeout and stop offer manual retry but never automatically resend',async()=>{
+ for(const mode of ['network','timeout','stop']){
+  const f=fixture((u,o)=>mode==='network'?Promise.reject(new TypeError('private network detail')):new Promise((r,j)=>o.signal.addEventListener('abort',()=>j(new DOMException('aborted','AbortError')))));await f.keys();f.el('prompt').value='hello';f.el('composer').requestSubmit();await tick();
+  if(mode==='timeout')f.timers.filter(t=>t.ms===200000).at(-1).f();if(mode==='stop')f.el('stop').click();await tick();
+  assert.equal(f.calls.length,1);assert.equal(f.el('prompt').value,'hello');assert.equal(f.el('send').textContent,'再試行');assert.match(f.el('status').textContent,/料金/);assert.ok(!f.el('status').textContent.includes('private network detail'));
+ }
+});
+test('local and confirmed server validation errors are not uncertain sends; revocation clears retry and key',async()=>{
+ const f=fixture(()=>Response.json({error:'invalid request'},{status:400}));await f.keys();f.el('prompt').value='x'.repeat(4001);f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,0);assert.equal(f.el('send').textContent,'送信');
+ f.el('prompt').value='hello';f.el('composer').requestSubmit();await tick();assert.equal(f.el('send').textContent,'送信');
+ const revoked=fixture(()=>Response.json({error:'expired'},{status:401}));await revoked.keys();revoked.el('prompt').value='hello';revoked.el('composer').requestSubmit();await tick();assert.deepEqual(revoked.redirects,['/my-chat/']);assert.equal(revoked.el('prompt').value,'');assert.equal(revoked.calls.length,1);
+});
+
+test('image retry retains selected images and ignores a late response after stop',async()=>{
+ let resolve;const f=fixture(()=>new Promise(r=>resolve=r));await f.keys();f.el('mode').value='edit';f.el('mode').onchange();f.el('file').files=[{name:'synthetic.png',size:20,type:'image/png'}];await f.el('file').onchange();f.el('send-consent').checked=true;f.el('prompt').value='edit';f.el('composer').requestSubmit();await tick();f.el('stop').click();resolve(Response.json({text:'late',image:'data:image/png;base64,invalid'}));await tick();assert.equal(f.el('prompt').value,'edit');assert.equal(f.el('send').textContent,'再試行');assert.equal(f.el('messages').children.length,0);assert.ok(f.el('attachment-preview').children.length>0);assert.equal(f.calls.length,1);
+});
+
+
+test('provider switch creates separate history and never sends OpenAI messages or key to Gemini',async()=>{
+ const f=fixture();await f.keys();f.el('prompt').value='private OpenAI context';f.el('composer').requestSubmit();await tick();
+ f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800,geminiKeyConfigured:true}));await f.windowEvents.pageshow();f.el('provider').value='gemini';f.el('provider').onchange();assert.equal(f.calls.length,1);
+ f.el('prompt').value='new Google question';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(f.calls[1].url,'/api/my-chat/gemini/chat');assert.equal(f.calls[1].opts.headers['X-My-Chat-Key'],undefined);const body=JSON.parse(f.calls[1].opts.body);assert.equal(body.model,'gemini-3.5-flash-lite');assert.equal(body.messages.length,1);assert.ok(!f.calls[1].opts.body.includes('private OpenAI context'));assert.equal(f.el('history').children.length,2);
+ const saved=JSON.parse(f.storage.get('my-chat.history.v1'));assert.equal(saved.chats[0].provider,'gemini');assert.equal(saved.chats[1].provider,'openai');
+ f.el('history').children[1].click();assert.equal(f.el('provider').value,'openai');f.el('prompt').value='follow up';f.el('composer').requestSubmit();await tick();assert.equal(f.calls[2].url,'/api/my-chat/chat');assert.equal(f.calls[2].opts.headers['X-My-Chat-Key'],key);assert.ok(!f.calls[2].opts.body.includes('Google question'));
+});
+test('Gemini missing config and unsupported audio/search fail without OpenAI fallback; draft switch is cancelable',async()=>{
+ const f=fixture();await f.keys();f.el('prompt').value='draft';f.window.confirm=()=>false;f.el('provider').value='gemini';f.el('provider').onchange();assert.equal(f.el('provider').value,'openai');assert.equal(f.el('prompt').value,'draft');
+ f.window.confirm=()=>true;f.el('provider').value='gemini';f.el('provider').onchange();f.el('prompt').value='hello';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(f.calls.length,0);assert.match(f.el('status').textContent,/設定待ち/);assert.equal(f.el('apply-keys').disabled,true);
+ f.el('record').onclick?.();f.el('api-read').onclick?.();await tick();assert.equal(f.calls.length,0);f.el('mode').value='web';f.el('mode').onchange();assert.equal(f.el('mode').value,'chat');assert.equal(f.calls.length,0);
+});
+test('Gemini image edit uses only Gemini, retains draft on failure and blocks provider switch while busy',async()=>{
+ let resolve;const f=fixture(()=>new Promise(r=>resolve=r));await f.keys();f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800,geminiKeyConfigured:true}));await f.windowEvents.pageshow();f.el('provider').value='gemini';f.el('provider').onchange();f.el('mode').value='edit';f.el('mode').onchange();f.el('file').files=[{name:'s.png',size:20,type:'image/png'}];await f.el('file').onchange();f.el('prompt').value='edit';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(f.calls[0].url,'/api/my-chat/gemini/image');assert.equal(f.calls[0].opts.headers['X-My-Chat-Key'],undefined);
+ f.el('provider').value='openai';f.el('provider').onchange();assert.equal(f.el('provider').value,'gemini');resolve(Response.json({error:'synthetic failure'},{status:502}));await tick();assert.equal(f.el('prompt').value,'edit');assert.equal(f.el('send').textContent,'再試行');assert.equal(f.calls.length,1);
+});
+
+test('restored Gemini conversation restores provider and cannot route to OpenAI by default',async()=>{
+ const storage=new Map([['my-chat.history.v1',JSON.stringify({version:1,chats:[{id:1,provider:'gemini',title:'Google saved',messages:[{role:'user',content:'Google context'},{role:'assistant',content:'Google answer'}]}]})]]);
+ const f=fixture(undefined,undefined,storage);f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800,geminiKeyConfigured:true}));await f.windowEvents.pageshow();assert.equal(f.el('provider').value,'gemini');f.el('prompt').value='continue';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(f.calls[0].url,'/api/my-chat/gemini/chat');assert.equal(f.calls[0].opts.headers['X-My-Chat-Key'],undefined);assert.equal(JSON.parse(f.calls[0].opts.body).messages[0].content,'Google context');
+});
+
+test('Gemini model selection propagates and stores only allowlisted nonsecret preference',async()=>{
+ const f=fixture();f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800,geminiKeyConfigured:true}));await f.windowEvents.pageshow();f.el('provider').value='gemini';f.el('provider').onchange();f.el('gemini-text-model').value='gemini-3.8-flash';f.el('gemini-text-model').onchange();f.el('prompt').value='hello';f.el('send-consent').checked=true;f.el('composer').requestSubmit();await tick();assert.equal(JSON.parse(f.calls[0].opts.body).model,'gemini-3.8-flash');assert.equal(f.storage.get('my-chat.gemini-model.v1'),'gemini-3.8-flash');
+ f.el('gemini-text-model').value='unknown';f.el('gemini-text-model').onchange();assert.equal(f.el('gemini-text-model').value,'gemini-3.8-flash');const restored=fixture(undefined,undefined,f.storage);assert.equal(restored.el('gemini-text-model').value,'gemini-3.8-flash');
+});
+
+
+const dragEvent=(files=[],extra={})=>({prevented:false,stopped:false,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;},dataTransfer:{types:['Files'],items:files.map(()=>({kind:'file'})),files,...extra}});
+const dropImage=()=>({name:'local.png',type:'image/png',size:100});
+test('local image drops use common validation on both providers without sending or navigating',async()=>{
+ for(const provider of ['openai','gemini']){
+  const f=fixture();await f.keys();if(provider==='gemini'){f.el('provider').value='gemini';f.el('provider').onchange();}
+  const e=dragEvent([dropImage(),dropImage()]);await f.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(e.stopped,true);assert.equal(f.el('attachment-preview').children[0].textContent,'2枚');assert.equal(f.calls.length,0);
+  f.el('file').files=[dropImage()];await f.el('file').onchange();assert.equal(f.el('attachment-preview').children[0].textContent,'3枚');assert.equal(f.calls.length,0);
+ }
+});
+test('nested drag enter and leave do not flicker; all URL/HTML drops prevent navigation without fetching',async()=>{
+ const f=fixture();await f.keys();const outer=dragEvent([dropImage()]),child=dragEvent([dropImage()]);f.documentEvents.dragenter(outer);f.documentEvents.dragenter(child);assert.equal(f.el('drop-hint').hidden,false);f.documentEvents.dragleave(child);assert.equal(f.el('drop-hint').hidden,false);f.documentEvents.dragleave(outer);assert.equal(f.el('drop-hint').hidden,true);
+ for(const type of ['text/uri-list','text/html','text/plain']){const e=dragEvent([], {types:[type],items:[{kind:'string'}],getData(){throw Error('must not inspect or fetch URL/HTML');}});f.documentEvents.dragover(e);assert.equal(e.prevented,true);assert.equal(e.dataTransfer.dropEffect,'none');await f.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(f.calls.length,0);assert.equal(f.el('attachment-preview').children.length,0);}
+ f.documentEvents.dragenter(outer);f.windowEvents.blur();assert.equal(f.el('drop-hint').hidden,true);
+});
+test('nonimage, mixed, excessive and oversized drops preserve existing image draft',async()=>{
+ const f=fixture();await f.keys();await f.documentEvents.drop(dragEvent([dropImage()]));
+ for(const files of [[{name:'x.txt',type:'text/plain',size:1}],[dropImage(),{name:'x.pdf',type:'application/pdf',size:1}],Array.from({length:4},dropImage),[{...dropImage(),size:5*1024*1024+1}],[{...dropImage(),type:'image/svg+xml'}]]){
+  const e=dragEvent(files);await f.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.calls.length,0);
+ }
+ const mixed=dragEvent([dropImage()],{types:['Files','text/html']});await f.documentEvents.drop(mixed);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
+});
+test('simultaneous drops serialize; stop and provider changes discard late conversion',async()=>{
+ const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();const first=f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,1);await f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,1);
+ f.el('stop').click();await first;assert.equal(f.el('attachment-preview').children.length,0);
+ const next=f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,2);f.el('provider').value='gemini';f.el('provider').onchange();await next;f.pendingImages[1].onload?.();await tick();assert.equal(f.el('provider').value,'gemini');assert.equal(f.el('attachment-preview').children.length,0);
+ const own=f.documentEvents.drop(dragEvent([dropImage()]));f.pendingImages[2].onload();await own;assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.calls.length,0);
+});
+test('unauthenticated, pending send and expired-session drops are prevented with no attachment commit',async()=>{
+ const initial=fixture();const e=dragEvent([dropImage()]);await initial.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(initial.pendingImages.length,0);
+ let resolve;const f=fixture(()=>new Promise(r=>resolve=r));await f.keys();f.el('prompt').value='sending';f.el('composer').requestSubmit();await tick();await f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,0);f.el('stop').click();resolve(Response.json({text:'late'}));await tick();await f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
+ const g=fixture(undefined,undefined,new Map(),{deferImages:true});await g.keys();const load=g.documentEvents.drop(dragEvent([dropImage()]));g.setSession(()=>new Response('{}',{status:401}));await g.windowEvents.pageshow();await load;g.pendingImages[0].onload?.();assert.equal(g.el('attachment-preview').children.length,0);assert.equal(g.calls.length,0);
+});
+
+test('settings cost disclosure follows the chosen provider and image help names current model',async()=>{
+ const f=fixture();await f.keys();assert.match(f.el('provider-cost').textContent,/OpenAI API/);f.el('provider').value='gemini';f.el('provider').onchange();assert.match(f.el('provider-cost').textContent,/Google Gemini API/);assert.ok(!f.el('provider-cost').textContent.includes('OpenAI'));f.el('provider').value='openai';f.el('provider').onchange();assert.match(f.el('provider-cost').textContent,/OpenAI API/);assert.match(html,/Gemini Nano Banana 2.1/);assert.ok(!html.includes('Gemini 3.1 Flash Image'));
 });

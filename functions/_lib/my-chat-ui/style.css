@@ -17,3 +17,8 @@
 .key-management{margin:24px 0;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.key-management summary{min-height:44px;display:list-item;cursor:pointer;padding:10px 0}.key-management p{font-size:12px;line-height:1.6}#voice-stop,#forget-keys{min-width:44px;min-height:44px}
 
 #attachment-preview{flex-wrap:wrap;max-height:108px;overflow:auto}#attachment-preview img{width:36px;height:36px}#attachment-preview span{flex-shrink:0}
+
+/* Keep provider selection usable without horizontal overflow on narrow screens. */
+.composer-tools{flex-wrap:wrap}.feature-bar{flex-wrap:wrap}#provider{max-width:100px;min-height:44px}#gemini-model{font-size:12px;overflow-wrap:anywhere}.composer-tools>div:last-child{margin-left:auto}
+
+#drop-hint{position:fixed;z-index:40;inset:20% 12px auto;margin:auto;max-width:480px;padding:18px;text-align:center;background:var(--bubble);border:2px dashed var(--accent);border-radius:12px;pointer-events:none;box-shadow:var(--shadow)}

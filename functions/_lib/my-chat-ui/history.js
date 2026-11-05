@@ -9,10 +9,11 @@
   function validate(raw){
     if(!raw||raw.version!==1||!Array.isArray(raw.chats))throw fail('FORMAT');if(raw.chats.length>100)throw fail('LIMIT');
     let count=0;const ids=new Set();
-    const text=(value,max)=>{if(typeof value!=='string'||value.length>max)throw fail('FORMAT');return value.replace(/\bsk-[A-Za-z0-9_-]{12,}/g,'[API key removed]');};
+    const text=(value,max)=>{if(typeof value!=='string'||value.length>max)throw fail('FORMAT');return value.replace(/(?:\bsk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{35})/g,'[API key removed]');};
     return {version:1,chats:raw.chats.map(c=>{
       if(!Number.isSafeInteger(c.id)||c.id<1||ids.has(c.id)||!Array.isArray(c.messages))throw fail('FORMAT');ids.add(c.id);
-      return {id:c.id,title:text(c.title,100),messages:c.messages.map(m=>{
+      if(c.provider!==undefined&&!['openai','gemini'].includes(c.provider))throw fail('FORMAT');
+      return {...(c.provider?{provider:c.provider}:{}),id:c.id,title:text(c.title,100),messages:c.messages.map(m=>{
         if(++count>2000)throw fail('LIMIT');if(!['user','assistant'].includes(m.role))throw fail('FORMAT');const out={role:m.role,content:text(m.content,100000)};
         if(m.image!==undefined){if(typeof m.image!=='string'||m.image.length>15000022||!/^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(m.image))throw fail('FORMAT');out.image=m.image;}
         if(m.citations!==undefined){if(!Array.isArray(m.citations)||m.citations.length>100)throw fail('FORMAT');out.citations=m.citations.map(c=>{
@@ -44,7 +45,7 @@
     const raw=()=>storage.getItem(LEGACY)??null;
     async function open(){
       if(database)return database;if(!indexedDB?.open)throw fail('UNAVAILABLE');
-      return new Promise((resolve,reject)=>{let done=false;const req=indexedDB.open(dbName,1),timer=setTimeout(()=>{done=true;reject(fail('OPEN_TIMEOUT'));},5000);
+      return new Promise((resolve,reject)=>{let done=false;const req=indexedDB.open(dbName,2),timer=setTimeout(()=>{done=true;reject(fail('OPEN_TIMEOUT'));},5000);
         req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('state'))db.createObjectStore('state');if(!db.objectStoreNames.contains('images'))db.createObjectStore('images',{keyPath:'id'});};
         req.onerror=()=>{clearTimeout(timer);if(!done){done=true;reject(req.error);}};req.onblocked=()=>{clearTimeout(timer);done=true;reject(fail('BLOCKED'));};
         req.onsuccess=()=>{clearTimeout(timer);if(done){req.result.close();return;}database=req.result;database.onversionchange=()=>{database.close();database=null;};done=true;resolve(database);};

@@ -1,5 +1,8 @@
 // Keys come from the encrypted runtime Secret or an optional temporary request header.
 // Never log request bodies, Authorization headers, or upstream error bodies.
+export const geminiKeyConfigured = key => typeof key==='string' && /^AIza[A-Za-z0-9_-]{35}$/.test(key);
+const GEMINI_MODEL='gemini-3.5-flash-lite';
+const GEMINI_MODELS=Object.freeze({'gemini-3.5-flash-lite':'MINIMAL','gemini-3.8-flash':'LOW'});
 const ROOT = 'https://api.openai.com/v1/';
 export const serverKeyConfigured = key => typeof key==='string' && /^sk-[A-Za-z0-9_-]{20,240}$/.test(key);
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, private', 'X-Content-Type-Options': 'nosniff' };
@@ -81,30 +84,37 @@ async function allowance(db, sid, now, feature = '') {
   return rows[0].results[0].count <= 6 && rows[1].results[0].count <= 100 && (!feature || rows[3].results[0].count <= 30);
 }
 
-export async function handleMyChatApi(request, db, current, upstreamFetch = fetch, serverKey) {
+export async function handleMyChatApi(request, db, current, upstreamFetch = fetch, serverKey, geminiKey) {
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
-  if (!['/api/my-chat/chat', '/api/my-chat/transcribe', '/api/my-chat/image', '/api/my-chat/speech'].includes(path)) return result(404, { error: 'このAPIはありません。' });
+  const gemini=['/api/my-chat/gemini/chat','/api/my-chat/gemini/image'].includes(path);
+  if (!['/api/my-chat/gemini/image','/api/my-chat/gemini/chat','/api/my-chat/chat', '/api/my-chat/transcribe', '/api/my-chat/image', '/api/my-chat/speech'].includes(path)) return result(404, { error: 'このAPIはありません。' });
   if (request.method !== 'POST') return result(405, { error: 'POSTで送信してください。' });
+  let key;
+  if(gemini){if(!geminiKeyConfigured(geminiKey))return result(503,{error:'Geminiのサーバーキーは未設定または設定不備です。設定完了まで送信できません。',code:'GEMINI_KEY_MISSING'});key=geminiKey;}else{
   const hasServerKey=serverKey!==undefined && serverKey!==null && serverKey!=='';
   if(hasServerKey && !serverKeyConfigured(serverKey)) return result(503,{error:'サーバーAPIキーの設定を確認してください。送信していません。',code:'SERVER_KEY_CONFIG'});
   if(!hasServerKey && !request.headers.has('X-My-Chat-Key')) return result(503,{error:'サーバーAPIキーが未設定です。CloudflareのSecret設定、または一時キーの入力が必要です。',code:'SERVER_KEY_MISSING'});
-  const key = hasServerKey ? serverKey : request.headers.get('X-My-Chat-Key') || '';
+  key = hasServerKey ? serverKey : request.headers.get('X-My-Chat-Key') || '';
   if (!/^sk-[A-Za-z0-9_-]{20,240}$/.test(key)) return result(400, { error: '設定でOpenAIのAPIキーを入力してください。' });
-  let body, endpoint, feature = '', headers = { Authorization: 'Bearer ' + key };
+  }
+  let targetModel=GEMINI_MODEL;
+  let body, endpoint, feature = '', headers = gemini ? {'x-goog-api-key':key} : { Authorization: 'Bearer ' + key };
   try {
     if (path.endsWith('/chat')) {
       if (!request.headers.get('content-type')?.startsWith('application/json')) return result(415, { error: 'JSONで送信してください。' });
       const bytes = await readBounded(request, LIMITS.imageBody);
       const data = JSON.parse(new TextDecoder().decode(bytes));
-      const model = data.model === undefined ? 'gpt-5.4-mini' : data.model;
-      if (typeof model !== 'string' || !Object.hasOwn(TEXT_MODELS,model)) return result(400,{error:'対応する会話モデルを選択してください。'});
+      const model = data.model === undefined ? (gemini?GEMINI_MODEL:'gpt-5.4-mini') : data.model;
+      if (typeof model !== 'string' || !(gemini?Object.hasOwn(GEMINI_MODELS,model):Object.hasOwn(TEXT_MODELS,model))) return result(400,{error:'対応する会話モデルを選択してください。'});
+      if(gemini)targetModel=model;
       if (bytes.length > 80000 && !['image','images'].includes(data.attachment?.kind)) return result(413,{error:'送信内容が大きすぎます。'});
+      if(gemini && data.web)return result(400,{error:'Gemini版ではWeb検索は未対応です。'});
       const messages = data.messages;
       if (!Array.isArray(messages) || !messages.length || messages.length > LIMITS.messages || messages.at(-1)?.role !== 'user' ||
           messages.some(m => !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || !m.content.trim() || m.content.length > LIMITS.text) ||
           messages.reduce((n, m) => n + m.content.length, 0) > LIMITS.context) return result(400, { error: '文章は1件4000文字、会話は合計16000文字以内で送信してください。' });
       const input = messages.map(m => ({ role:m.role, content:m.content }));
-      if (messages.some(m => /\bsk-[A-Za-z0-9_-]{12,}/.test(m.content)) || (typeof data.attachment?.text === 'string' && /\bsk-[A-Za-z0-9_-]{12,}/.test(data.attachment.text))) return result(400, {error:'APIキーを本文や添付に含めないでください。'});
+      if (messages.some(m => /(?:\bsk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{35})/.test(m.content)) || (typeof data.attachment?.text === 'string' && /(?:\bsk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{35})/.test(data.attachment.text))) return result(400, {error:'APIキーを本文や添付に含めないでください。'});
       if (data.web !== undefined && typeof data.web !== 'boolean') return result(400,{error:'検索の指定が正しくありません。'});
       if (data.attachment && data.web) return result(400,{error:'添付ファイルとWeb検索は別々に送信してください。'});
       if (data.attachment) {
@@ -122,23 +132,23 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
         if (data.consent !== true) return result(400,{error:'検索の追加料金と送信を確認してください。'});
         feature='web'; payload.tools=[{type:'web_search',search_context_size:'low'}]; payload.tool_choice='required'; payload.max_tool_calls=1;
       }
-      body = JSON.stringify(payload);
+      body = JSON.stringify(gemini ? {contents:input.map(m=>({role:m.role==='assistant'?'model':'user',parts:typeof m.content==='string'?[{text:m.content}]:m.content.map(p=>p.type==='input_text'?{text:p.text}:{inlineData:{mimeType:'image/png',data:p.image_url.slice(22)}})})),generationConfig:{maxOutputTokens:LIMITS.output,thinkingConfig:{thinkingLevel:GEMINI_MODELS[model]}}} : payload);
       headers['Content-Type'] = 'application/json'; endpoint = 'responses';
     } else if (path.endsWith('/image')) {
       if (!request.headers.get('content-type')?.startsWith('application/json')) return result(415,{error:'JSONで送信してください。'});
       const data=JSON.parse(new TextDecoder().decode(await readBounded(request,LIMITS.imageBody)));
       if (data.consent !== true || typeof data.prompt !== 'string' || !data.prompt.trim() || data.prompt.length > 2000) return result(400,{error:'2000文字以内の画像指示と、追加料金の確認が必要です。'});
       const payload={model:'gpt-image-2.5-flare',prompt:data.prompt,n:1,size:'1024x1024',quality:'low',output_format:'png',moderation:'auto'};
-      if (/\bsk-[A-Za-z0-9_-]{12,}/.test(data.prompt)) return result(400, {error:'APIキーを画像の指示に含めないでください。'});
+      if (/(?:\bsk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{35})/.test(data.prompt)) return result(400, {error:'APIキーを画像の指示に含めないでください。'});
       endpoint='images/generations';
       if(data.image!==undefined&&data.images!==undefined)return result(400,{error:'画像指定が重複しています。'});
       if (data.image !== undefined || data.images !== undefined) {payload.images=inputImages(data.images===undefined?[data.image]:data.images).map(image_url=>({image_url}));endpoint='images/edits';}
-      body=JSON.stringify(payload);headers['Content-Type']='application/json';feature='image';
+      body=JSON.stringify(gemini?{contents:[{role:'user',parts:[{text:data.prompt},...(payload.images||[]).map(i=>({inlineData:{mimeType:'image/png',data:i.image_url.slice(22)}}))]}],generationConfig:{candidateCount:1,responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:'1:1',imageSize:'1K'},thinkingConfig:{thinkingLevel:'MINIMAL'},maxOutputTokens:4096}}:payload);headers['Content-Type']='application/json';feature='image';
     } else if (path.endsWith('/speech')) {
       if (Date.now() >= Date.UTC(2027,0,6)) return result(410,{error:'この音声合成APIの提供期間は終了しました。端末の読み上げをご利用ください。'});
       if (!request.headers.get('content-type')?.startsWith('application/json')) return result(415,{error:'JSONで送信してください。'});
       const data=JSON.parse(new TextDecoder().decode(await readBounded(request,10000)));
-      if(data.consent!==true||typeof data.text!=='string'||!data.text.trim()||data.text.length>1000||/\bsk-[A-Za-z0-9_-]{12,}/.test(data.text)) return result(400,{error:'1000文字以内の読み上げと追加料金の確認が必要です。APIキーは含めないでください。'});
+      if(data.consent!==true||typeof data.text!=='string'||!data.text.trim()||data.text.length>1000||/(?:\bsk-[A-Za-z0-9_-]{12,}|AIza[A-Za-z0-9_-]{35})/.test(data.text)) return result(400,{error:'1000文字以内の読み上げと追加料金の確認が必要です。APIキーは含めないでください。'});
       body=JSON.stringify({model:'gpt-4o-mini-tts',voice:'coral',input:data.text,response_format:'mp3'});
       headers['Content-Type']='application/json';endpoint='audio/speech';feature='speech';
     } else {
@@ -169,15 +179,16 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
     if (!live || controller.signal.aborted) return result(401, { error: 'ログインし直してください。' });
     stage = 'upstream';
     // Workers supports manual/follow, not error. Never forward keys to redirects.
-    const response = await upstreamFetch(ROOT + endpoint, { method: 'POST', headers, body, redirect: 'manual', signal: controller.signal });
+    const response = await upstreamFetch(gemini ? 'https://generativelanguage.googleapis.com/v1beta/models/'+(feature==='image'?'gemini-nano-banana-2.1':targetModel)+':generateContent' : ROOT + endpoint, { method: 'POST', headers, body, redirect: 'manual', signal: controller.signal });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       return result(502, { error: '接続先から転送を要求されたため停止しました。自動再送はしていません。', code: 'UPSTREAM_REDIRECT' });
     }
     if (!response.ok) {
       await response.body?.cancel();
-      const error = response.status === 401 || response.status === 403 ? 'APIキー・利用権限を確認してください。' : response.status === 429 ? 'OpenAIの利用枠または混雑による制限です。残高や上限を確認してください。' : 'OpenAIへの接続に失敗しました。自動再送はしていません。';
-      return result(response.status === 429 ? 429 : 502, { error });
+      let error = response.status === 401 || response.status === 403 ? 'APIキー・利用権限を確認してください。' : response.status === 429 ? 'OpenAIの利用枠または混雑による制限です。残高や上限を確認してください。' : 'OpenAIへの接続に失敗しました。自動再送はしていません。';
+      if(gemini)error=error.replaceAll('OpenAI','Gemini');
+      return result(response.status === 429 ? 429 : 502, { error: error + '（UPSTREAM_HTTP_' + response.status + '）', code: 'UPSTREAM_HTTP', upstreamStatus: response.status });
     }
     stage = 'response';
     if (feature==='speech') {
@@ -188,14 +199,17 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
     }
     const data = JSON.parse(new TextDecoder().decode(await readBounded(response, feature === 'image' ? 16000000 : 1000000)));
     if (feature === 'image') {
-      const b64=data.data?.[0]?.b64_json;
+      let b64=data.data?.[0]?.b64_json;
+      if(gemini){const candidate=data.candidates?.[0],images=(candidate?.content?.parts||[]).filter(p=>p.thought!==true&&p.inlineData);if(candidate?.finishReason!=='STOP'||images.length!==1||images[0].inlineData.mimeType!=='image/png')return result(502,{error:'Geminiの画像を取得できませんでした。自動再送はしていません。',code:'GEMINI_IMAGE_RESPONSE'});b64=images[0].inlineData.data;}
       if (typeof b64 !== 'string' || b64.length > 15000000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || !b64.startsWith('iVBORw0KGgo')) return result(502,{error:'画像を読み取れませんでした。自動再送はしていません。'});
       return result(200,{image:imageData('data:image/png;base64,'+b64,11*1024*1024),text:'画像を生成しました。'});
     }
-    const parsed=endpoint === 'responses' ? responseText(data) : {text:data.text,citations:[]};
+    const candidate=gemini?data.candidates?.[0]:null;
+    if(gemini && (!candidate || !['STOP','MAX_TOKENS'].includes(candidate.finishReason)))return result(502,{error:'Geminiから回答を取得できませんでした。安全性制限または応答の中断の可能性があります。',code:'GEMINI_NO_ANSWER'});
+    const parsed=gemini?{text:(candidate.content?.parts||[]).filter(p=>p.thought!==true&&typeof p.text==='string').map(p=>p.text).join(''),citations:[]}:endpoint === 'responses' ? responseText(data) : {text:data.text,citations:[]};
     const {text,citations}=parsed;
     if (typeof text !== 'string' || !text.trim()) return result(502, { error: '回答を取得できませんでした。自動再送はしていません。' });
-    return result(200, { text: text.slice(0, endpoint === 'responses' ? 8000 : LIMITS.text), citations, truncated: data.status === 'incomplete' });
+    return result(200, { text: text.slice(0, endpoint === 'responses' ? 8000 : LIMITS.text), citations, truncated: gemini?candidate.finishReason==='MAX_TOKENS':data.status === 'incomplete' });
   } catch {
     if (controller.signal.aborted) return result(504, { error: '送信を停止したか、応答が時間切れになりました。処理済み分の料金が発生する場合があります。', code: 'REQUEST_ABORTED' });
     const errors = {
@@ -204,7 +218,7 @@ export async function handleMyChatApi(request, db, current, upstreamFetch = fetc
       response: ['OpenAIからの応答を読み取れませんでした。自動再送はしていません。（UPSTREAM_RESPONSE）', 'UPSTREAM_RESPONSE'],
     };
     const [error, code] = errors[stage];
-    return result(stage === 'response' ? 502 : 503, { error, code });
+    return result(stage === 'response' ? 502 : 503, { error:gemini?error.replaceAll('OpenAI','Gemini'):error, code });
   } finally {
     clearTimeout(timer); request.signal.removeEventListener('abort', abort);
     if (token !== null) { try { await db.prepare('DELETE FROM my_chat_api_control WHERE id = ? AND count = ?').bind('lock:' + current.id, token).run(); } catch { /* expires automatically */ } }

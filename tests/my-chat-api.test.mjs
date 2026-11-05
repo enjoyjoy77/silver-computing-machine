@@ -69,7 +69,7 @@ function setup() {
   function request({path='chat', body=JSON.stringify({messages:[{role:'user',content:'こんにちは'}]}), type='application/json', apiKey=key, method='POST', signal}={}) {
     return new Request(origin+'/api/my-chat/'+path,{method,headers:{'X-My-Chat-Key':apiKey,'Content-Type':type,Origin:origin},body:method==='GET'?undefined:body,signal});
   }
-  const run = (opts={},fetcher=mock,serverKey) => handleMyChatApi(request(opts),db,{id:'session'},fetcher,serverKey);
+  const run = (opts={},fetcher=mock,serverKey,geminiKey) => handleMyChatApi(request(opts),db,{id:'session'},fetcher,serverKey,geminiKey);
   return {sql,db,calls,run};
 }
 test('text uses fixed Responses model, store:false and output cap; ignores arbitrary destination',async()=>{
@@ -215,4 +215,48 @@ test('generation and edits share 30 daily attempts; 31st is blocked and UTC midn
   assert.equal((await f.run(opts(31))).status,200);assert.equal(f.calls.length,31);
   assert.equal(f.sql.prepare("SELECT count FROM my_chat_api_control WHERE id='feature:image'").get().count,1);
  } finally {Date.now=original;}
+});
+
+
+test('upstream HTTP diagnostics expose only status and a fixed code, never upstream body',async()=>{
+ for(const status of [400,401,403,429,500,503]){
+  const f=setup();let calls=0;const r=await f.run({},async()=>{calls++;return Response.json({error:'private upstream body '+key},{status});});const data=await r.json();assert.equal(data.code,'UPSTREAM_HTTP');assert.equal(data.upstreamStatus,status);assert.ok(data.error.includes('UPSTREAM_HTTP_'+status));assert.ok(!JSON.stringify(data).includes(key));assert.ok(!JSON.stringify(data).includes('private upstream body'));assert.equal(calls,1);
+ }
+});
+
+
+const googleKey='AIza'+'syntheticOnlyNeverARealKey'.padEnd(35,'x');
+const geminiAnswer=()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{thought:true,text:'private reasoning'},{text:'Gemini answer'}]}}]});
+test('Gemini fixed endpoint and key isolation with bounded text, images and documents',async()=>{
+ const f=setup();let calls=0;
+ for(const attachment of [undefined,{kind:'text',text:'local extracted text'},{kind:'images',images:[image,image]}]){
+  const r=await f.run({path:'gemini/chat',body:JSON.stringify({model:'gemini-3.5-flash-lite',messages:[{role:'user',content:'one'},{role:'assistant',content:'two'},{role:'user',content:'read'}],attachment,consent:true,url:'https://evil.example',generationConfig:{maxOutputTokens:999999}})},async(url,o)=>{
+   calls++;assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');assert.equal(o.headers['x-goog-api-key'],googleKey);assert.equal(o.headers.Authorization,undefined);assert.equal(o.redirect,'manual');assert.ok(!o.body.includes(key));const p=JSON.parse(o.body);assert.deepEqual(p.contents.map(c=>c.role),['user','model','user']);assert.equal(p.generationConfig.maxOutputTokens,1200);assert.equal(p.generationConfig.thinkingConfig.thinkingLevel,'MINIMAL');assert.equal(p.previous_interaction_id,undefined);if(attachment?.kind==='images')assert.equal(p.contents[2].parts[1].inlineData.data,png);return geminiAnswer();
+  },key,googleKey);assert.equal(r.status,200);assert.equal((await r.json()).text,'Gemini answer');
+ }
+ assert.equal(calls,3);
+ const r=await f.run({},async(url,o)=>{assert.ok(url.startsWith('https://api.openai.com/'));assert.equal(o.headers['x-goog-api-key'],undefined);assert.equal(o.headers.Authorization,'Bearer '+key);return Response.json({output:[{type:'message',content:[{type:'output_text',text:'OpenAI'}]}]});},key,googleKey);assert.equal(r.status,200);
+});
+test('Gemini missing secret, wrong model, unsupported features and secret-like content fail before provider',async()=>{
+ const f=setup(),run=(body={},secret=googleKey)=>f.run({path:'gemini/chat',body:JSON.stringify({messages:[{role:'user',content:'hello'}],...body})},()=>{throw Error('must not send');},key,secret);
+ assert.equal((await run({},'')).status,503);assert.equal((await run({},key)).status,503);
+ for(const body of [{model:'gpt-5.4-mini'},{model:'__proto__'},{web:true,consent:true},{messages:[{role:'user',content:googleKey}]},{attachment:{kind:'text',text:key},consent:true}])assert.equal((await run(body)).status,400);
+ assert.equal((await f.run({path:'gemini/speech'},()=>{throw Error('no send');},key,googleKey)).status,404);
+ assert.equal(f.sql.prepare('SELECT COUNT(*) AS n FROM my_chat_api_control').get().n,0);
+});
+test('Gemini image generation/editing fixed output and shared image quota',async()=>{
+ const f=setup();for(const images of [undefined,[image,image,image,image]]){
+ const r=await f.run({path:'gemini/image',body:JSON.stringify({prompt:'synthetic image',consent:true,images})},async(url,o)=>{assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent');const p=JSON.parse(o.body);assert.equal(p.contents[0].parts.length,images?5:1);assert.deepEqual(p.generationConfig.imageConfig,{aspectRatio:'1:1',imageSize:'1K'});assert.equal(p.generationConfig.candidateCount,1);assert.equal(p.generationConfig.thinkingConfig.thinkingLevel,'MINIMAL');assert.equal(p.generationConfig.maxOutputTokens,4096);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{inlineData:{mimeType:'image/png',data:png}}]}}]});},key,googleKey);assert.equal(r.status,200);assert.equal((await r.json()).image,image);}
+ f.sql.prepare("UPDATE my_chat_api_control SET count=30 WHERE id='feature:image'").run();assert.equal((await f.run({path:'gemini/image',body:JSON.stringify({prompt:'x',consent:true})},()=>{throw Error('quota must block');},key,googleKey)).status,429);
+});
+test('Gemini failure, redirect, blocked response, stop and revocation never fallback or repeat',async()=>{
+ for(const provider of [()=>new Response(null,{status:302,headers:{Location:'https://evil.example'}}),()=>Response.json({error:key},{status:500}),()=>Promise.reject(Error(googleKey)),()=>Response.json({promptFeedback:{blockReason:'SAFETY'}})]){
+  const f=setup();let n=0;const r=await f.run({path:'gemini/chat'},(...args)=>{n++;return provider(...args);},key,googleKey);assert.ok(r.status>=500);const body=await r.text();assert.ok(!body.includes(key));assert.ok(!body.includes(googleKey));assert.equal(n,1);
+ }
+ const f=setup(),controller=new AbortController();let n=0;const pending=f.run({path:'gemini/chat',signal:controller.signal},async(url,o)=>{n++;controller.abort();throw new DOMException('stop','AbortError');},key,googleKey);assert.equal((await pending).status,504);assert.equal(n,1);
+ f.sql.exec('DELETE FROM my_chat_sessions');assert.equal((await f.run({path:'gemini/chat'},()=>{throw Error('revoked');},key,googleKey)).status,401);
+});
+
+test('Gemini higher capability model uses explicit supported LOW thinking and fixed endpoint',async()=>{
+ const f=setup();const r=await f.run({path:'gemini/chat',body:JSON.stringify({model:'gemini-3.8-flash',messages:[{role:'user',content:'hello'}]})},async(url,o)=>{assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');const p=JSON.parse(o.body);assert.equal(p.generationConfig.thinkingConfig.thinkingLevel,'LOW');assert.equal(p.generationConfig.maxOutputTokens,1200);return geminiAnswer();},key,googleKey);assert.equal(r.status,200);
 });

@@ -1,6 +1,6 @@
 // Dedicated My Chat authentication. Provider calls run only after this session guard.
 import { assets } from './my-chat-assets.js';
-import { handleMyChatApi, serverKeyConfigured } from './my-chat-api.js';
+import { handleMyChatApi, serverKeyConfigured, geminiKeyConfigured } from './my-chat-api.js';
 
 const ORIGIN = 'https://silver-computing-machine-7ql.pages.dev';
 const COOKIE = '__Host-my_chat';
@@ -124,9 +124,9 @@ export async function handleMyChat({ request, env }) {
       if (!api && (path === '/my-chat' || path === '/my-chat/login') && (method === 'GET' || method === 'HEAD')) return response(method === 'HEAD' ? null : loginPage(), 401);
       return json(401, 'ログインしてください');
     }
-    if (api) return handleMyChatApi(request, db, current, fetch, env.MY_CHAT_OPENAI_API_KEY);
+    if (api) return handleMyChatApi(request, db, current, fetch, env.MY_CHAT_OPENAI_API_KEY, env.MY_CHAT_GEMINI_API_KEY);
     if (method !== 'GET' && method !== 'HEAD') return json(405, 'Method not allowed');
-    if (path === '/my-chat/session') return response(JSON.stringify({ expires: current.expires, serverKeyConfigured: serverKeyConfigured(env.MY_CHAT_OPENAI_API_KEY) }), 200, 'application/json');
+    if (path === '/my-chat/session') return response(JSON.stringify({ expires: current.expires, serverKeyConfigured: serverKeyConfigured(env.MY_CHAT_OPENAI_API_KEY), geminiKeyConfigured: geminiKeyConfigured(env.MY_CHAT_GEMINI_API_KEY) }), 200, 'application/json');
     if (path === '/my-chat' && url.pathname !== '/my-chat/') return response(null, 308, undefined, { Location: '/my-chat/' });
     const name = path === '/my-chat' ? 'index.html' : path.slice('/my-chat/'.length);
     const asset = assets[name];

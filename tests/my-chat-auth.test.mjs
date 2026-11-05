@@ -157,9 +157,9 @@ test('30 day retention is opt-in, signed, revocable and never extends existing 8
  for(const remember of ['yes','999'])assert.equal((await f.request('/my-chat/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/x-www-form-urlencoded','CF-Connecting-IP':'192.0.2.5'},body:new URLSearchParams({passphrase:f.pass,remember})})).status,400);
 });
 test('server credential status is boolean, authenticated, non-cacheable and never exposes the value',async()=>{
- const f=fixture();const secret='sk-'+'SyntheticServerOnlyForUnitTest'.repeat(2);f.env.MY_CHAT_OPENAI_API_KEY=secret;
+ const f=fixture();const secret='sk-'+'SyntheticServerOnlyForUnitTest'.repeat(2);f.env.MY_CHAT_OPENAI_API_KEY=secret;f.env.MY_CHAT_GEMINI_API_KEY='AIza'+'SyntheticGoogleOnly'.padEnd(35,'x');
  assert.equal((await f.request('/my-chat/session')).status,401);
  const headers={Cookie:cookieFrom(await f.login())};let r=await f.request('/my-chat/session',{headers});assert.match(r.headers.get('cache-control'),/no-store/);
- let data=await r.json();assert.equal(data.serverKeyConfigured,true);assert.deepEqual(Object.keys(data).sort(),['expires','serverKeyConfigured']);assert.ok(!JSON.stringify(data).includes(secret));
+ let data=await r.json();assert.equal(data.serverKeyConfigured,true);assert.equal(data.geminiKeyConfigured,true);assert.ok(!JSON.stringify(data).includes(f.env.MY_CHAT_GEMINI_API_KEY));assert.deepEqual(Object.keys(data).sort(),['expires','geminiKeyConfigured','serverKeyConfigured']);assert.ok(!JSON.stringify(data).includes(secret));
  delete f.env.MY_CHAT_OPENAI_API_KEY;data=await (await f.request('/my-chat/session',{headers})).json();assert.equal(data.serverKeyConfigured,false);
 });

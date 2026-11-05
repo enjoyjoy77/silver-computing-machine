@@ -15,7 +15,7 @@ const plain=x=>JSON.parse(JSON.stringify(x));
 const small='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
 const chat=(id,title,image)=>({id,title,messages:[{role:'user',content:title},{role:'assistant',content:'answer',...(image?{image}:{})}]});
 function fixture(legacy){const map=new Map(legacy===undefined?[]:[[LEGACY,legacy]]);const storage={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};const indexedDB=new IDBFactory();const create=()=>H.createStore({indexedDB,storage});return {map,storage,indexedDB,create};}
-const dbOpen=f=>new Promise((resolve,reject)=>{const r=f.indexedDB.open(NAME,1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+const dbOpen=f=>new Promise((resolve,reject)=>{const r=f.indexedDB.open(NAME,2);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
 const req=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
 async function state(f){const db=await dbOpen(f);try{return await req(db.transaction('state').objectStore('state').get('current'));}finally{db.close();}}
 const tick=()=>new Promise(r=>setImmediate(r));
@@ -88,4 +88,14 @@ test('migration read-back rejects dropped conversation metadata before committin
  const raw=JSON.stringify({version:1,chats:[chat(1,'A'),chat(2,'B')]}),f=fixture(raw),store=f.create(),put=IDBObjectStore.prototype.put;
  try{IDBObjectStore.prototype.put=function(value,...rest){if(this.name==='state'&&value?.phase==='pending')value={...value,chats:value.chats.slice(0,1)};return put.call(this,value,...rest);};await assert.rejects(store.load(),/VERIFY/);}finally{IDBObjectStore.prototype.put=put;}
  assert.equal((await state(f)).phase,'pending');assert.equal(f.map.get(LEGACY),raw);assert.equal(store.readLegacy().length,2);
+});
+
+
+test('provider metadata survives upgrade from database v1 and stale old clients cannot overwrite v2',async()=>{
+ const f=fixture(JSON.stringify({version:1,chats:[chat(1,'legacy',small)]})),oldWindow={};vm.runInNewContext(source.replace('indexedDB.open(dbName,2)','indexedDB.open(dbName,1)'),{window:oldWindow,crypto:webcrypto,TextEncoder,Blob,Uint8Array,atob,btoa,setTimeout,clearTimeout,DOMException});
+ const old=oldWindow.MyChatHistory.createStore({indexedDB:f.indexedDB,storage:f.storage});const a=await old.load({guard:()=>true});assert.equal(a.chats[0].provider,undefined);const legacy=f.map.get(LEGACY);
+ const current=f.create(),b=await current.load({guard:()=>true});const google={...chat(2,'Google',small),provider:'gemini'};await current.save([...b.chats,google],b,{guard:()=>true});
+ const read=await f.create().load({guard:()=>true});assert.equal(read.chats.length,2);assert.equal(read.chats[0].provider,undefined);assert.equal(read.chats[1].provider,'gemini');assert.equal(read.chats[1].messages[1].image,small);assert.equal(f.map.get(LEGACY),legacy);
+ await assert.rejects(old.load({guard:()=>true}));assert.equal((await current.load({guard:()=>true})).chats.length,2);
+ assert.throws(()=>H.validate({version:1,chats:[{...chat(3,'bad'),provider:'unknown'}]}));
 });

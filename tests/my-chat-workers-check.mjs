@@ -16,11 +16,12 @@ export default { async fetch(request, env) {
   return handleMyChatApi(request, db, {id:'synthetic-session'}, async (url, options) => {
     // Exercise workerd's actual Request validation, not Node's fetch implementation.
     const upstream = new Request(url, options);
+    if(url.startsWith('https://generativelanguage.googleapis.com/')){if(upstream.headers.has('Authorization')||!upstream.headers.has('x-goog-api-key'))throw Error('provider key isolation');return Response.json({candidates:[{finishReason:'STOP',content:{parts:url.includes('nano-banana-2.1')?[{inlineData:{mimeType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII='}}]:[{text:'Gemini mock'}]}}]});}
     if (upstream.redirect !== 'manual') throw new Error('redirect policy');
     if (url.endsWith('/speech')) return new Response(new Uint8Array([73,68,51,0]),{headers:{'Content-Type':'audio/mpeg'}});
     if (url.includes('/images/')) return Response.json({data:[{b64_json:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII='}]});
     return Response.json(url.endsWith('/transcriptions') ? {text:'音声テスト'} : {output:[{type:'message',content:[{type:'output_text',text:'文字テスト'}]}]});
-  });
+  },undefined,'AIza'+'syntheticLocalOnly'.padEnd(35,'x'));
 }};`;
 const mf = new Miniflare({ workers:[{ config:{name:'my-chat-local-test', compatibilityDate:'2026-10-30',
   manifest:{mainModule:'index.js',modules:{'index.js':{type:'esm',contents:script}}},
@@ -47,5 +48,7 @@ try {
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'limited'}]}))).status,429);
   await db.prepare("DELETE FROM my_chat_api_control WHERE id LIKE 'minute:%'").run();
   const speech=await call('speech',JSON.stringify({text:'hello',consent:true}));assert.equal(speech.status,200);assert.equal(speech.headers.get('Content-Type'),'audio/mpeg');assert.equal((await speech.arrayBuffer()).byteLength,4);
-  console.log('Local workerd: speech binary response, redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
+  assert.equal((await call('gemini/chat',JSON.stringify({messages:[{role:'user',content:'hello'}]}))).status,200);
+  assert.equal((await call('gemini/image',JSON.stringify({prompt:'synthetic',consent:true,images:[image]}))).status,200);
+  console.log('Local workerd: Gemini text/image/key isolation, speech binary response, redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
 } finally { await mf.dispose(); }
