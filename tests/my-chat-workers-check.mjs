@@ -45,7 +45,9 @@ try {
   assert.equal((await call('image',JSON.stringify({prompt:'blue cat',images:[image,image,image,image],consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'describe'}],attachment:{kind:'images',images:[image,image,image,image]},consent:true}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true}))).status,200);
+  for(let i=0;i<2;i++)assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'non-image count'}]}))).status,200);
   assert.equal((await call('chat',JSON.stringify({messages:[{role:'user',content:'limited'}]}))).status,429);
+  for(const path of ['image','gemini/image'])for(let i=0;i<101;i++)assert.equal((await call(path,JSON.stringify({prompt:'synthetic unlimited',consent:true}))).status,200);
   await db.prepare("DELETE FROM my_chat_api_control WHERE id LIKE 'minute:%'").run();
   const speech=await call('speech',JSON.stringify({text:'hello',consent:true}));assert.equal(speech.status,200);assert.equal(speech.headers.get('Content-Type'),'audio/mpeg');assert.equal((await speech.arrayBuffer()).byteLength,4);
   assert.equal((await call('gemini/chat',JSON.stringify({messages:[{role:'user',content:'hello'}]}))).status,200);

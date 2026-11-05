@@ -156,9 +156,9 @@ test('image generation/edit requests fix cost controls and require explicit cons
   for (const {body} of calls) {assert.equal(body.n,1);assert.equal(body.quality,'low');assert.equal(body.size,'1024x1024');assert.equal(body.model,'gpt-image-2.5-flare');assert.equal(body.moderation,'auto');}
   assert.equal(calls[1].body.images[0].image_url,image);
 });
-test('feature quotas enforce daily image/search sublimits without new schema',async()=>{
+test('search daily sublimit remains without new schema',async()=>{
   const f=setup();const bucket=Math.floor(Date.now()/86400000);
-  for (const [feature,count,opts] of [['image',30,{path:'image',body:JSON.stringify({prompt:'cat',consent:true})}],['web',30,{body:JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true})}]]) {
+  for (const [feature,count,opts] of [['web',30,{body:JSON.stringify({messages:[{role:'user',content:'search'}],web:true,consent:true})}]]) {
     f.sql.prepare('INSERT INTO my_chat_api_control VALUES (?,?,?)').run('feature:'+feature,bucket,count);
     assert.equal((await f.run(opts)).status,429);
   }
@@ -200,23 +200,19 @@ test('multi-image consent, mixed image fields and search combinations fail close
 });
 
 
-test('generation and edits share 30 daily attempts; 31st is blocked and UTC midnight resets',async()=>{
- const original=Date.now;let now=Date.UTC(2026,10,4,23,0);Date.now=()=>now;
- try {
-  const f=setup();f.sql.prepare('UPDATE my_chat_sessions SET expires=?').run(Math.floor(now/1000)+172800);
-  const opts=i=>({path:'image',body:JSON.stringify({prompt:'synthetic image',consent:true,...(i%2?{images:[image]}:{})})});
-  for(let i=0;i<30;i++) {
-   assert.equal((await f.run(opts(i))).status,200,`attempt ${i+1}`);now+=61000;
-  }
-  assert.equal(f.calls.length,30);
-  assert.equal(f.calls.filter(c=>c.url.endsWith('/edits')).length,15);
-  assert.equal((await f.run(opts(30))).status,429);assert.equal(f.calls.length,30);
-  now=Date.UTC(2026,10,5);
-  assert.equal((await f.run(opts(31))).status,200);assert.equal(f.calls.length,31);
-  assert.equal(f.sql.prepare("SELECT count FROM my_chat_api_control WHERE id='feature:image'").get().count,1);
- } finally {Date.now=original;}
+test('both image providers bypass old minute, global and image quotas without incrementing them',async()=>{
+ const f=setup(),now=Date.now(),bucket=Math.floor(now/86400000);
+ for(const [id,b] of [['minute:session',Math.floor(now/60000)],['day:global',bucket],['feature:image',bucket]])f.sql.prepare('INSERT INTO my_chat_api_control VALUES (?,?,?)').run(id,b,1000000);
+ const before=f.sql.prepare("SELECT * FROM my_chat_api_control ORDER BY id").all();
+ for(const path of ['image','gemini/image'])for(let i=0;i<105;i++){
+  const r=await f.run({path,body:JSON.stringify({prompt:'synthetic image',consent:true,...(i%2?{images:[image]}:{})})},()=>path==='image'?Response.json({data:[{b64_json:png}]}):Response.json({candidates:[{finishReason:'STOP',content:{parts:[{inlineData:{mimeType:'image/png',data:png}}]}}]}),key,googleKey);
+  assert.equal(r.status,200,`${path} attempt ${i+1}`);
+ }
+ assert.deepEqual(f.sql.prepare("SELECT * FROM my_chat_api_control ORDER BY id").all(),before);
+ assert.equal((await f.run()).status,429);
+ f.sql.exec('DELETE FROM my_chat_sessions');
+ for(const path of ['image','gemini/image'])assert.equal((await f.run({path,body:JSON.stringify({prompt:'x',consent:true})},()=>{throw Error('revoked');},key,googleKey)).status,401);
 });
-
 
 test('upstream HTTP diagnostics expose only status and a fixed code, never upstream body',async()=>{
  for(const status of [400,401,403,429,500,503]){
@@ -244,10 +240,9 @@ test('Gemini missing secret, wrong model, unsupported features and secret-like c
  assert.equal((await f.run({path:'gemini/speech'},()=>{throw Error('no send');},key,googleKey)).status,404);
  assert.equal(f.sql.prepare('SELECT COUNT(*) AS n FROM my_chat_api_control').get().n,0);
 });
-test('Gemini image generation/editing fixed output and shared image quota',async()=>{
+test('Gemini image generation/editing fixed output',async()=>{
  const f=setup();for(const images of [undefined,[image,image,image,image]]){
  const r=await f.run({path:'gemini/image',body:JSON.stringify({prompt:'synthetic image',consent:true,images})},async(url,o)=>{assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent');const p=JSON.parse(o.body);assert.equal(p.contents[0].parts.length,images?5:1);assert.deepEqual(p.generationConfig.imageConfig,{aspectRatio:'1:1',imageSize:'1K'});assert.equal(p.generationConfig.candidateCount,1);assert.equal(p.generationConfig.thinkingConfig.thinkingLevel,'MINIMAL');assert.equal(p.generationConfig.maxOutputTokens,4096);return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{inlineData:{mimeType:'image/png',data:png}}]}}]});},key,googleKey);assert.equal(r.status,200);assert.equal((await r.json()).image,image);}
- f.sql.prepare("UPDATE my_chat_api_control SET count=30 WHERE id='feature:image'").run();assert.equal((await f.run({path:'gemini/image',body:JSON.stringify({prompt:'x',consent:true})},()=>{throw Error('quota must block');},key,googleKey)).status,429);
 });
 test('Gemini failure, redirect, blocked response, stop and revocation never fallback or repeat',async()=>{
  for(const provider of [()=>new Response(null,{status:302,headers:{Location:'https://evil.example'}}),()=>Response.json({error:key},{status:500}),()=>Promise.reject(Error(googleKey)),()=>Response.json({promptFeedback:{blockReason:'SAFETY'}})]){
@@ -259,4 +254,22 @@ test('Gemini failure, redirect, blocked response, stop and revocation never fall
 
 test('Gemini higher capability model uses explicit supported LOW thinking and fixed endpoint',async()=>{
  const f=setup();const r=await f.run({path:'gemini/chat',body:JSON.stringify({model:'gemini-3.8-flash',messages:[{role:'user',content:'hello'}]})},async(url,o)=>{assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');const p=JSON.parse(o.body);assert.equal(p.generationConfig.thinkingConfig.thinkingLevel,'LOW');assert.equal(p.generationConfig.maxOutputTokens,1200);return geminiAnswer();},key,googleKey);assert.equal(r.status,200);
+});
+
+test('unlimited image requests retain validation, upstream limits and concurrent-send protection',async()=>{
+ for(const path of ['image','gemini/image']){
+  const f=setup();
+  for(const body of [{prompt:'x'},{prompt:'x',consent:true,images:Array(5).fill(image)},{prompt:'x',consent:true,images:['https://example.invalid/image.png']}])assert.equal((await f.run({path,body:JSON.stringify(body)},()=>{throw Error('invalid input');},key,googleKey)).status,400);
+  const opts={path,body:JSON.stringify({prompt:'x',consent:true})};
+  let entered,release;const started=new Promise(r=>entered=r);
+  const pending=f.run(opts,async()=>{entered();return new Promise(r=>release=()=>r(new Response(null,{status:429})));},key,googleKey);
+  await started;assert.equal((await f.run(opts,()=>{throw Error('parallel');},key,googleKey)).status,409);
+  release();const r=await pending;assert.equal(r.status,429);assert.equal((await r.json()).upstreamStatus,429);
+ }
+});
+test('image fee disclosures reflect unlimited site requests, including outfit generation',()=>{
+ const app=readFileSync(new URL('../functions/_lib/my-chat-ui/app.js',import.meta.url),'utf8');
+ const html=readFileSync(new URL('../functions/_lib/my-chat-ui/index.html',import.meta.url),'utf8');
+ assert.doesNotMatch(app+html,/画像(?:生成[／・]編集)?(?:の共通)?30回|画像生成／編集は1日30回|全体でUTCの1日30回/);
+ assert.match(app,/サイト独自の回数上限はありません/);assert.match(html,/画像生成／編集以外は1ログインにつき1分6回/);
 });

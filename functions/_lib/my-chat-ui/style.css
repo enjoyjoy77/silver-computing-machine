@@ -22,3 +22,5 @@
 .composer-tools{flex-wrap:wrap}.feature-bar{flex-wrap:wrap}#provider{max-width:100px;min-height:44px}#gemini-model{font-size:12px;overflow-wrap:anywhere}.composer-tools>div:last-child{margin-left:auto}
 
 #drop-hint{position:fixed;z-index:40;inset:20% 12px auto;margin:auto;max-width:480px;padding:18px;text-align:center;background:var(--bubble);border:2px dashed var(--accent);border-radius:12px;pointer-events:none;box-shadow:var(--shadow)}
+
+.outfit-panel{font-size:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:4px;padding:0 8px;max-height:50dvh;overflow:auto}.outfit-panel summary{min-height:44px;display:flex;align-items:center;cursor:pointer}.outfit-pickers{display:flex;gap:8px;flex-wrap:wrap}.outfit-pickers fieldset{flex:1;min-width:120px;margin:0;padding:4px;border:1px solid var(--line)}.outfit-preview img{width:64px;height:64px;object-fit:contain}.outfit-preview span{display:block}.outfit-panel button,.outfit-panel input[type=number]{min-height:44px;max-width:100%}.outfit-panel input[type=number]{width:100px}.outfit-panel .muted,#outfit-status{font-size:11px;line-height:1.4;margin:4px 0}
