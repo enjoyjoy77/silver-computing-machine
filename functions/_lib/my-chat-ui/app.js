@@ -120,7 +120,14 @@
   }
   $('#history-retry').onclick=saveHistory;
   window.addEventListener('storage',e=>{if(e.key===historyKey||e.key===null){historyBlocked=true;historyStatus(historyError({code:'LEGACY_CHANGED'}));update();}});
-  function appendAnswer(el, m) {
+  function imageDownloadName(chat,number,data){
+    // Stable non-secret fingerprint plus chat/ordinal; no history migration or image changes.
+    let a=2166136261,b=2246822507;
+    for(let i=0;i<data.length;i++){const c=data.charCodeAt(i);a=Math.imul(a^c,16777619);b=Math.imul(b^c,3266489909);}
+    const fingerprint=(a>>>0).toString(16).padStart(8,'0')+(b>>>0).toString(16).padStart(8,'0');
+    return 'my-chat-'+(chat.provider==='gemini'?'gemini':'openai')+'-c'+chat.id+'-'+String(number).padStart(4,'0')+'-'+fingerprint+'.png';
+  }
+  function appendAnswer(el, m, downloadName) {
     const citations=[...(m.citations||[])].sort((a,b)=>a.start-b.start);let offset=0;
     for (const c of citations) {
       if (!Number.isInteger(c.start)||!Number.isInteger(c.end)||c.start<offset||c.end>m.content.length||c.end<=c.start) continue;
@@ -132,7 +139,7 @@
     el.append(document.createTextNode(m.content.slice(offset)));
     if (typeof m.image === 'string' && m.image.length <= 15000022 && /^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/.test(m.image)) {
       const img=document.createElement('img');img.src=m.image;img.alt='生成した画像';el.append(img);
-      const link=document.createElement('a');link.href=m.image;link.download='my-chat-image.png';link.textContent='画像をダウンロード';el.append(link);
+      const link=document.createElement('a');link.href=m.image;link.download=downloadName;link.textContent='画像をダウンロード';el.append(link);
     }
   }
   function render() {
@@ -145,9 +152,10 @@
       b.onclick = () => { resetOutfit();active = c.id;provider=c.provider||'openai';$('#mode').value='chat';retryPending=false;clearAttachment();$('#prompt').value='';lastAnswer='';render(); closeMenu(); }; $('#history').append(b);
     }
     const chat = chats.find(c => c.id === active); $('#welcome').hidden = !!chat; $('#messages').replaceChildren();
+    let imageNumber=0;
     for (const m of chat?.messages || []) {
       const el = document.createElement('div'); el.className = 'message ' + m.role;
-      if (m.citations?.length || m.image) appendAnswer(el,m); else el.textContent = m.content;
+      if (m.citations?.length || m.image) appendAnswer(el,m,m.image?imageDownloadName(chat,++imageNumber,m.image):undefined); else el.textContent = m.content;
       $('#messages').append(el);
     }
     $('#conversation').scrollTop = $('#conversation').scrollHeight; update();
@@ -314,20 +322,22 @@
     try {window.localStorage.setItem(modelPreference,next);} catch { /* keep tab preference when storage is blocked */ }
     status('会話モデルを変更しました。次の回答から使用します。モデルごとに料金・利用権限が異なります。');
   };
-  const IMAGE_LIMITS={count:4,each:2*1024*1024,total:4*1024*1024,source:5*1024*1024,sourceTotal:20*1024*1024};
+  const IMAGE_LIMITS={count:4,each:2*1024*1024,total:4*1024*1024,convertedTarget:1024*1024};
   function checkedPng(data){
     if(typeof data!=='string'||data.length>Math.ceil(IMAGE_LIMITS.each/3)*4+22||!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(data))throw Error('変換後の画像はPNG・各2MiB以内にしてください。');
     const bin=atob(data.slice(22)),word=n=>bin.charCodeAt(n)*16777216+(bin.charCodeAt(n+1)<<16)+(bin.charCodeAt(n+2)<<8)+bin.charCodeAt(n+3);
     if(bin.length<33||bin.length>IMAGE_LIMITS.each||bin.slice(0,8)!=='\x89PNG\r\n\x1a\n'||bin.slice(12,16)!=='IHDR'||!word(16)||!word(20)||word(16)>1024||word(20)>1024)throw Error('画像形式を確認してください。');
     let pos=8,dataChunk=false,end=false;while(pos<bin.length){if(pos+12>bin.length)throw Error('画像形式を確認してください。');const size=word(pos),type=bin.slice(pos+4,pos+8);if(size>bin.length-pos-12||(pos===8&&size!==13))throw Error('画像形式を確認してください。');pos+=size+12;if(type==='IDAT')dataChunk=true;if(type==='IEND'){if(size!==0||pos!==bin.length)throw Error('画像形式を確認してください。');end=true;break;}}if(!dataChunk||!end)throw Error('画像形式を確認してください。');return bin.length;
   }
-  function convertImage(file,signal){
+  async function convertImage(file,signal){
+    await window.MyChatImages.inspect(file,signal);
     return new Promise((resolve,reject)=>{
-      const url=URL.createObjectURL(file),image=new Image();let settled=false;
-      const finish=(error,data)=>{if(settled)return;settled=true;image.onload=null;image.onerror=null;signal.removeEventListener('abort',abort);URL.revokeObjectURL(url);error?reject(error):resolve(data);};
+      const url=URL.createObjectURL(file),image=new Image();let settled=false,canvas=null,timer;
+      const finish=(error,data)=>{if(settled)return;settled=true;clearTimeout(timer);image.onload=null;image.onerror=null;image.src='';if(canvas){canvas.width=1;canvas.height=1;}signal.removeEventListener('abort',abort);URL.revokeObjectURL(url);error?reject(error):resolve(data);};
       const abort=()=>finish(new DOMException('stopped','AbortError'));signal.addEventListener('abort',abort,{once:true});
       if(signal.aborted){abort();return;}
-      image.onload=()=>{try{if(signal.aborted){abort();return;}if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>40000000)throw Error('元画像は4000万画素以内にしてください。');const scale=Math.min(1,1024/Math.max(image.naturalWidth,image.naturalHeight)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/png');finish(null,{name:file.name.slice(0,100),data,bytes:checkedPng(data)});}catch(e){finish(e);}};
+      timer=setTimeout(()=>finish(Error('画像の変換が時間切れになりました。小さく書き出し直すか、もう一度選択してください。')),30000);
+      image.onload=()=>{try{if(signal.aborted){abort();return;}if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>40000000)throw Error('元画像は4000万画素以内にしてください。');let scale=Math.min(1,1024/Math.max(image.naturalWidth,image.naturalHeight));canvas=document.createElement('canvas');for(let attempt=0;attempt<12;attempt++){canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);const data=canvas.toDataURL('image/png');if(data.length<=Math.ceil(IMAGE_LIMITS.convertedTarget/3)*4+22){const bytes=checkedPng(data);if(bytes<=IMAGE_LIMITS.convertedTarget){finish(null,{name:file.name.slice(0,100),data,bytes});return;}}scale*=0.75;}throw Error('送信用サイズまで画像を縮小できませんでした。画像を書き出し直してください。');}catch(e){finish(e);}};
       image.onerror=()=>finish(Error('画像を開けません。'));image.src=url;
     });
   }
@@ -354,7 +364,6 @@
       if(files.some(isImage)){
         if(!files.every(isImage))throw Error('画像と文書は別々に選んでください。');
         const prior=imageItems();if(files.length+prior.length>IMAGE_LIMITS.count)throw Error('参照画像は合計4枚までです。不要な画像を外してください。');
-        if(files.some(f=>f.size>IMAGE_LIMITS.source)||files.reduce((n,f)=>n+f.size,0)>IMAGE_LIMITS.sourceTotal)throw Error('元画像は各5MiB・合計20MiB以内にしてください。');
         const items=[...prior];let total=items.reduce((n,i)=>n+i.bytes,0);
         for(const file of files){if(fileSignal.aborted)throw new DOMException('stopped','AbortError');const item=await convertImage(file,fileSignal);total+=item.bytes;if(total>IMAGE_LIMITS.total)throw Error('変換後の参照画像は合計4MiB以内にしてください。');items.push(item);}
         next={kind:'images',items};
@@ -393,7 +402,7 @@
     for(const role of ['face','clothes']){$('#outfit-'+role+'-folder-button').disabled=blocked||!('webkitdirectory' in $('#outfit-'+role+'-folder'));$('#outfit-'+role+'-files-button').disabled=blocked;}
     $('#outfit-random').disabled=blocked||!outfit.face||!outfit.clothes;$('#outfit-generate').disabled=blocked||!outfit.face||!outfit.clothes;$('#outfit-height').disabled=blocked;
     $('#outfit-destination').textContent='送信先：'+(isGemini()?'Google Gemini':'OpenAI')+'。顔1枚＋服装1枚で画像を1枚生成。API料金が発生します。サイト独自の回数上限はなく、提供元の制限は適用されます。ポーズは自由です。';
-    $('#outfit-folder-help').textContent='webkitdirectory' in $('#outfit-face-folder')?'フォルダ内（サブフォルダを含む）の対応画像から選択。各候補は最大100枚・各5MiBまで。':'このブラウザーではフォルダ選択に未対応です。「画像を選ぶ（複数可）」を使ってください。';
+    $('#outfit-folder-help').textContent='webkitdirectory' in $('#outfit-face-folder')?'フォルダ内（サブフォルダを含む）の対応画像から選択。各候補は最大100枚。選んだ画像を端末内で縮小します。':'このブラウザーではフォルダ選択に未対応です。「画像を選ぶ（複数可）」を使ってください。';
   }
   function renderOutfit(){for(const role of ['face','clothes']){const target=$('#outfit-'+role+'-preview');target.replaceChildren();const selected=outfit[role];if(!selected)continue;const img=document.createElement('img');img.src=selected.item.data;img.alt=role==='face'?'1枚目：顔・人物の参照画像':'2枚目：服装の参照画像';const label=document.createElement('span');label.textContent=(role==='face'?'1枚目・顔':'2枚目・服装')+'（候補'+selected.files.length+'枚）';target.append(img,label);}$('#outfit-consent').checked=false;update();}
   async function pickOutfit(selections){
@@ -402,15 +411,15 @@
     try{const changes={};let excluded=0;
       for(const [role,files] of Object.entries(selections)){
         if(!['face','clothes'].includes(role))throw Error('画像の種類を確認してください。');
-        const candidates=files.filter(f=>['image/png','image/jpeg','image/webp'].includes(f.type)&&f.size>0&&f.size<=IMAGE_LIMITS.source);excluded+=files.length-candidates.length;
-        if(!candidates.length)throw Error('対応画像がありません。PNG・JPEG・WebP、各5MiB以内の画像を選んでください。');
+        const candidates=files.filter(f=>['image/png','image/jpeg','image/webp'].includes(f.type)&&f.size>0);excluded+=files.length-candidates.length;
+        if(!candidates.length)throw Error('対応画像がありません。PNG・JPEG・WebPの画像を選んでください。');
         if(candidates.length>100)throw Error('各フォルダ・画像候補は100枚以内にしてください。');
         const index=candidates.length===1?0:crypto.getRandomValues(new Uint32Array(1))[0]%candidates.length;
         const item=await convertImage(candidates[index],signal);changes[role]={files:candidates,item};
       }
       if(signal.aborted||ticket!==outfitGeneration||epoch!==sessionEpoch||owner!==provider)return;
       if(!sessionReady())throw Error('接続を再確認してから選び直してください。');
-      Object.assign(outfit,changes);renderOutfit();outfitStatus('選択した画像を確認してください。'+(excluded?'対応外・大きすぎるファイルは候補から除外しました。':''));
+      Object.assign(outfit,changes);renderOutfit();outfitStatus('選択した画像を確認してください。'+(excluded?'対応外・空のファイルは候補から除外しました。':''));
     }catch(e){if(ticket===outfitGeneration&&e.name!=='AbortError')outfitStatus(e.message);}
     finally{if(ticket===outfitGeneration){outfitLoading=false;outfitController=null;update();}}
   }

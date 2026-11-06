@@ -52,5 +52,12 @@ try {
   const speech=await call('speech',JSON.stringify({text:'hello',consent:true}));assert.equal(speech.status,200);assert.equal(speech.headers.get('Content-Type'),'audio/mpeg');assert.equal((await speech.arrayBuffer()).byteLength,4);
   assert.equal((await call('gemini/chat',JSON.stringify({messages:[{role:'user',content:'hello'}]}))).status,200);
   assert.equal((await call('gemini/image',JSON.stringify({prompt:'synthetic',consent:true,images:[image]}))).status,200);
+  if(process.env.MY_CHAT_IMAGE_FIXTURES){
+    const reduced='data:image/png;base64,'+readFileSync(process.env.MY_CHAT_IMAGE_FIXTURES+'/converted-576.png').toString('base64');
+    const body=JSON.stringify({prompt:'synthetic large-source conversion',consent:true,images:Array(4).fill(reduced)});
+    assert.ok(Buffer.byteLength(body)<6*1024*1024);
+    for(const path of ['image','gemini/image'])assert.equal((await call(path,body)).status,200);
+    console.log('Real PNG reduced fixtures: four-image payload accepted by workerd/D1 and both mocked providers.');
+  }
   console.log('Local workerd: Gemini text/image/key isolation, speech binary response, redirect regression, text/audio, images/edits, vision/search, D1 session SQL and quota passed. No upstream API used.');
 } finally { await mf.dispose(); }

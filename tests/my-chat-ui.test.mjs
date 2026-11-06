@@ -101,7 +101,7 @@ function fixture(fetcher,mediaRequest,storage=new Map(),options={}) {
   let sessionFetcher=()=>Response.json({expires:Math.floor(Date.now()/1000)+28800});
   class TestURL extends URL {static createObjectURL(value){objectURLs.push(value);return "blob:synthetic-audio";}static revokeObjectURL(url){revoked.push(url);}}
   class TestAudio {constructor(src){this.src=src;audios.push(this);}async play(){this.played=true;}pause(){this.paused=true;}}
-  const document={body:new Element(),hidden:false,querySelector(s){assert.ok(elements.has(s),'missing selector '+s);return elements.get(s);},querySelectorAll(){return [];},createElement(tag){const el=new Element();if(tag==='canvas'){el.getContext=()=>({drawImage(){}});el.toDataURL=()=> options.png || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';}return el;},createTextNode(text){const e=new Element();e.textContent=text;return e;},addEventListener(k,f){documentEvents[k]=f;}};
+  const document={body:new Element(),hidden:false,querySelector(s){assert.ok(elements.has(s),'missing selector '+s);return elements.get(s);},querySelectorAll(){return [];},createElement(tag){const el=new Element();if(tag==='canvas'){el.getContext=()=>({drawImage(){}});el.toDataURL=()=> (typeof options.png==='function'?options.png(el.width,el.height):options.png) || 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';}return el;},createTextNode(text){const e=new Element();e.textContent=text;return e;},addEventListener(k,f){documentEvents[k]=f;}};
   let stoppedTracks=0;
   const stream={getTracks:()=>[{stop(){stoppedTracks++;}}]};
   const recorders=[];
@@ -111,8 +111,9 @@ function fixture(fetcher,mediaRequest,storage=new Map(),options={}) {
     start(){this.state='recording';} stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['fake'],{type:'audio/mp4'})});this.onstop?.();});}
   }
   const window={indexedDB:options.indexedDB,confirm:()=>true,localStorage:{getItem:k=>storage.get(k),setItem(k,v){storageWrites.push([k,v]);storage.set(k,v);},removeItem(k){storage.delete(k);}},MediaRecorder:Recorder,SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},speechSynthesis:{cancel(){},speak(u){spoken.push(u.text);}},addEventListener(k,f){windowEvents[k]=f;}};
-  const pendingImages=[];class MockImage {naturalWidth=1;naturalHeight=1;set src(v){pendingImages.push(this);if(!options.deferImages)queueMicrotask(()=>this.onload?.());}}
+  const pendingImages=[];class MockImage {naturalWidth=options.width||1;naturalHeight=options.height||1;set src(v){if(!v)return;pendingImages.push(this);if(!options.deferImages)queueMicrotask(()=>this.onload?.());}}
   const context={crypto:options.randomIndex===undefined?crypto:{subtle:crypto.subtle,getRandomValues(words){words[0]=options.randomIndex;return words;}},TextEncoder,DOMException,atob,Image:MockImage,Date:TestDate,window,document,URL:TestURL,Audio:TestAudio,navigator:{mediaDevices:{getUserMedia:mediaRequest||(()=>Promise.resolve(stream))}},MediaRecorder:Recorder,SpeechSynthesisUtterance:window.SpeechSynthesisUtterance,Blob,AbortController,queueMicrotask,location:{replace(path){redirects.push(path);}},setTimeout(f,ms){timers.push({f,ms});return timers.length;},clearTimeout(){},setInterval(){},fetch:async(url,opts)=>{if(url==='/my-chat/session')return sessionFetcher(url,opts);calls.push({url,opts});return fetcher?fetcher(url,opts):Response.json(url.endsWith('transcribe')?{text:'話した内容'}:{text:'返答'});}};
+  window.MyChatImages={inspect:()=>{}};if(options.realImages)vm.runInNewContext(readFileSync(new URL('../functions/_lib/my-chat-ui/images.js',import.meta.url),'utf8'),context);
   vm.runInNewContext(historySource,context);
   const validate=window.MyChatHistory.validate;
   // UI-only persistence adapter. Real IndexedDB transaction/migration coverage is in my-chat-history.test.mjs.
@@ -283,12 +284,12 @@ test('multiple-image vision sends image array, individual removal updates consen
  const f=fixture();await f.keys();f.el('file').files=[{name:'a.png',size:100,type:'image/png'},{name:'b.png',size:100,type:'image/png'}];await f.el('file').onchange();assert.equal(f.el('attachment-preview').children[0].textContent,'2枚');f.el('send-consent').checked=true;f.el('send-consent').onchange();f.el('attachment-preview').children.at(-1).click();assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.el('consent-row').hidden,false);
  f.el('file').files=Array.from({length:4},()=>({name:'more.png',size:100,type:'image/png'}));await f.el('file').onchange();assert.match(f.el('status').textContent,/4枚/);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
  f.el('file').files=[{name:'a.txt',size:1,text:async()=> 'a'},{name:'b.txt',size:1,text:async()=> 'b'}];await f.el('file').onchange();assert.match(f.el('status').textContent,/1ファイル/);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
- f.el('file').files=[{name:'big.png',size:5*1024*1024+1,type:'image/png'}];await f.el('file').onchange();assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
- f.el('send-consent').checked=true;f.el('prompt').value='describe';f.el('composer').requestSubmit();await tick();assert.equal(JSON.parse(f.calls[0].opts.body).attachment.images.length,1);assert.equal(f.el('attachment-preview').children.length,0);
+ f.el('file').files=[{name:'big.png',size:5*1024*1024+1,type:'image/png'}];await f.el('file').onchange();assert.equal(f.el('attachment-preview').children[0].textContent,'2枚');
+ f.el('send-consent').checked=true;f.el('prompt').value='describe';f.el('composer').requestSubmit();await tick();assert.equal(JSON.parse(f.calls[0].opts.body).attachment.images.length,2);assert.equal(f.el('attachment-preview').children.length,0);
 });
 
 test('reference conversion is sequential and logout aborts remaining work without publishing late previews',async()=>{
- const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();f.el('file').files=Array.from({length:4},()=>({name:'reference.png',size:100,type:'image/png'}));const read=f.el('file').onchange();assert.equal(f.pendingImages.length,1);assert.equal(f.el('send').disabled,true);
+ const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();f.el('file').files=Array.from({length:4},()=>({name:'reference.png',size:100,type:'image/png'}));const read=f.el('file').onchange();await tick();assert.equal(f.pendingImages.length,1);assert.equal(f.el('send').disabled,true);
  f.pendingImages[0].onload();await tick();assert.equal(f.pendingImages.length,2);f.el('logout').events.submit();await read;f.pendingImages[1].onload?.();await tick();assert.equal(f.pendingImages.length,2);assert.equal(f.el('attachment-preview').children.length,0);assert.equal(f.calls.length,0);
 });
 test('browser validates every converted PNG and enforces decoded per-image and aggregate limits',async()=>{
@@ -380,16 +381,16 @@ test('nested drag enter and leave do not flicker; all URL/HTML drops prevent nav
 });
 test('nonimage, mixed, excessive and oversized drops preserve existing image draft',async()=>{
  const f=fixture();await f.keys();await f.documentEvents.drop(dragEvent([dropImage()]));
- for(const files of [[{name:'x.txt',type:'text/plain',size:1}],[dropImage(),{name:'x.pdf',type:'application/pdf',size:1}],Array.from({length:4},dropImage),[{...dropImage(),size:5*1024*1024+1}],[{...dropImage(),type:'image/svg+xml'}]]){
+ for(const files of [[{name:'x.txt',type:'text/plain',size:1}],[dropImage(),{name:'x.pdf',type:'application/pdf',size:1}],Array.from({length:4},dropImage),[{...dropImage(),type:'image/svg+xml'}]]){
   const e=dragEvent(files);await f.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.calls.length,0);
  }
  const mixed=dragEvent([dropImage()],{types:['Files','text/html']});await f.documentEvents.drop(mixed);assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');
 });
 test('simultaneous drops serialize; stop and provider changes discard late conversion',async()=>{
- const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();const first=f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,1);await f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,1);
+ const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();const first=f.documentEvents.drop(dragEvent([dropImage()]));await tick();assert.equal(f.pendingImages.length,1);await f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,1);
  f.el('stop').click();await first;assert.equal(f.el('attachment-preview').children.length,0);
- const next=f.documentEvents.drop(dragEvent([dropImage()]));assert.equal(f.pendingImages.length,2);f.el('provider').value='gemini';f.el('provider').onchange();await next;f.pendingImages[1].onload?.();await tick();assert.equal(f.el('provider').value,'gemini');assert.equal(f.el('attachment-preview').children.length,0);
- const own=f.documentEvents.drop(dragEvent([dropImage()]));f.pendingImages[2].onload();await own;assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.calls.length,0);
+ const next=f.documentEvents.drop(dragEvent([dropImage()]));await tick();assert.equal(f.pendingImages.length,2);f.el('provider').value='gemini';f.el('provider').onchange();await next;f.pendingImages[1].onload?.();await tick();assert.equal(f.el('provider').value,'gemini');assert.equal(f.el('attachment-preview').children.length,0);
+ const own=f.documentEvents.drop(dragEvent([dropImage()]));await tick();f.pendingImages[2].onload();await own;assert.equal(f.el('attachment-preview').children[0].textContent,'1枚');assert.equal(f.calls.length,0);
 });
 test('unauthenticated, pending send and expired-session drops are prevented with no attachment commit',async()=>{
  const initial=fixture();const e=dragEvent([dropImage()]);await initial.documentEvents.drop(e);assert.equal(e.prevented,true);assert.equal(initial.pendingImages.length,0);
@@ -412,7 +413,7 @@ test('outfit selection previews two roles, sends fixed ordered pair only after e
 });
 test('folder fallback, picker denial/cancel, empty/invalid/large selections retain old previews',async()=>{
  const f=fixture();await f.keys();assert.equal(f.el('outfit-face-folder-button').disabled,true);assert.match(f.el('outfit-folder-help').textContent,/未対応/);await outfitSelection(f,'face',[dropImage()]);const old=f.el('outfit-face-preview').children[0].src;
- for(const files of [[],[{name:'bad.svg',type:'image/svg+xml',size:2}],[{...dropImage(),size:5*1024*1024+1}],Array.from({length:101},dropImage)]){await outfitSelection(f,'face',files);assert.equal(f.el('outfit-face-preview').children[0].src,old);}
+ for(const files of [[],[{name:'bad.svg',type:'image/svg+xml',size:2}],Array.from({length:101},dropImage)]){await outfitSelection(f,'face',files);assert.equal(f.el('outfit-face-preview').children[0].src,old);}
  f.el('outfit-face-files').events.cancel();assert.match(f.el('outfit-status').textContent,/取り消し/);f.el('outfit-face-files').click=()=>{throw Error('denied');};f.el('outfit-face-files-button').click();assert.match(f.el('outfit-status').textContent,/権限/);
  const g=fixture(undefined,undefined,new Map(),{folderSupport:true});await g.keys();assert.equal(g.el('outfit-face-folder-button').disabled,false);g.el('outfit-face-folder').files=[dropImage(),{name:'readme.txt',type:'text/plain',size:3}];await g.el('outfit-face-folder').onchange();assert.match(g.el('outfit-status').textContent,/除外/);assert.match(g.el('outfit-face-preview').children[1].textContent,/候補1枚/);assert.equal(g.calls.length,0);
 });
@@ -422,7 +423,7 @@ test('height and explicit fee consent are required; random selection and reload 
  const reload=fixture(undefined,undefined,f.storage);await reload.keys();assert.equal(reload.el('outfit-face-preview').children.length,0);assert.equal(reload.el('outfit-clothes-preview').children.length,0);assert.ok(![...f.storage.values()].join('').includes('local.png'));
 });
 test('outfit conversion is canceled by stop/provider change/logout and does not race existing attachment loading',async()=>{
- for(const action of ['stop','provider','logout']){const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();const pending=outfitSelection(f,'face',[dropImage()]);assert.equal(f.pendingImages.length,1);
+ for(const action of ['stop','provider','logout']){const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();const pending=outfitSelection(f,'face',[dropImage()]);await tick();assert.equal(f.pendingImages.length,1);
  await outfitSelection(f,'clothes',[dropImage()]);assert.equal(f.pendingImages.length,1);
  if(action==='stop')f.el('stop').click();if(action==='provider'){f.el('provider').value='gemini';f.el('provider').onchange();}if(action==='logout')f.el('logout').events.submit();await pending;f.pendingImages[0].onload?.();await tick();assert.equal(f.el('outfit-face-preview').children.length,0);assert.equal(f.calls.length,0);}
 });
@@ -433,5 +434,46 @@ test('outfit generation preserves current draft on cancel and failed generation 
 
 test('outfit random candidate index is used, single file is deterministic, invalid pixels never attach',async()=>{
  const f=fixture(undefined,undefined,new Map(),{randomIndex:1});await f.keys();const first={...dropImage(),name:'first.png'},second={...dropImage(),name:'second.png'};await outfitSelection(f,'face',[first,second]);assert.equal(f.objectURLs[0],second);await outfitSelection(f,'clothes',[first]);assert.equal(f.objectURLs[1],first);await f.el('outfit-random').onclick();assert.equal(f.objectURLs[2],second);assert.equal(f.objectURLs[3],first);assert.equal(f.calls.length,0);
- const bad=fixture(undefined,undefined,new Map(),{deferImages:true});await bad.keys();const pending=outfitSelection(bad,'face',[dropImage()]);bad.pendingImages[0].naturalWidth=10000;bad.pendingImages[0].naturalHeight=10000;bad.pendingImages[0].onload();await pending;assert.equal(bad.el('outfit-face-preview').children.length,0);assert.match(bad.el('outfit-status').textContent,/4000万画素/);assert.equal(bad.calls.length,0);
+ const bad=fixture(undefined,undefined,new Map(),{deferImages:true});await bad.keys();const pending=outfitSelection(bad,'face',[dropImage()]);await tick();bad.pendingImages[0].naturalWidth=10000;bad.pendingImages[0].naturalHeight=10000;bad.pendingImages[0].onload();await pending;assert.equal(bad.el('outfit-face-preview').children.length,0);assert.match(bad.el('outfit-status').textContent,/4000万画素/);assert.equal(bad.calls.length,0);
+});
+
+test('actual 12MiB PNG files totaling 48MiB select, shrink and traverse both mocked provider handlers', {skip:!process.env.MY_CHAT_IMAGE_FIXTURES},async()=>{
+ const {DatabaseSync}=await import('node:sqlite');const {handleMyChatApi}=await import('../functions/_lib/my-chat-api.js');
+ const root=process.env.MY_CHAT_IMAGE_FIXTURES;
+ const original=readFileSync(root+'/large.png');assert.ok(original.length>5*1024*1024);assert.ok(original.length*4>20*1024*1024);
+ const converted=new Map([1024,768,576].map(n=>[n,'data:image/png;base64,'+readFileSync(root+'/converted-'+n+'.png').toString('base64')]));
+ const small='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
+ for(const provider of ['openai','gemini']){
+  const sql=new DatabaseSync(':memory:');for(const file of ['my-chat-schema.sql','my-chat-api-schema.sql'])sql.exec(readFileSync(new URL(file,import.meta.url),'utf8'));
+  sql.prepare('INSERT INTO my_chat_sessions VALUES (?,?)').run('session',Math.floor(Date.now()/1000)+1000);
+  const db={prepare(q){let args=[];return {bind(...v){args=v;return this;},async first(){return sql.prepare(q).get(...args)||null;},async run(){return sql.prepare(q).run(...args);}};}};
+  let upstream=0;const widths=[];
+  const f=fixture(async(url,o)=>{assert.ok(Buffer.byteLength(o.body)<6*1024*1024);const r=await handleMyChatApi(new Request('https://silver-computing-machine-7ql.pages.dev'+url,{...o,headers:{...o.headers,'Content-Type':'application/json'}}),db,{id:'session'},async(target,request)=>{
+    upstream++;assert.ok(Buffer.byteLength(request.body)<6*1024*1024);assert.equal(target.startsWith('https://generativelanguage.googleapis.com/'),provider==='gemini');
+    const payload=JSON.parse(request.body);const images=provider==='gemini'?payload.contents[0].parts.filter(p=>p.inlineData).map(p=>p.inlineData.data):payload.images.map(i=>i.image_url.slice(22));assert.equal(images.length,4);for(const encoded of images)assert.equal(encoded,converted.get(576).slice(22));
+    return Response.json(provider==='gemini'?{candidates:[{finishReason:'STOP',content:{parts:[{inlineData:{mimeType:'image/png',data:small}}]}}]}:{data:[{b64_json:small}]});
+   },key,'AIza'+'SyntheticTestOnly'.repeat(3).slice(0,35));assert.equal(r.status,200);return r;
+  },undefined,new Map(),{realImages:true,width:2048,height:2048,png:w=>{widths.push(w);return converted.get(w);}});
+  await f.keys();f.setSession(()=>Response.json({expires:Math.floor(Date.now()/1000)+28800,geminiKeyConfigured:true}));await f.windowEvents.pageshow();f.el('provider').value=provider;f.el('provider').onchange();
+  const files=Array.from({length:4},(_,i)=>new File([original],'synthetic-'+i+'.png',{type:'image/png'}));f.el('file').files=files;await f.el('file').onchange();assert.equal(f.el('attachment-preview').children[0].textContent,'4枚');assert.equal(f.calls.length,0);assert.deepEqual(widths,[1024,768,576,1024,768,576,1024,768,576,1024,768,576]);
+  f.el('mode').value='edit';f.el('mode').onchange();f.el('prompt').value='synthetic';f.el('send-consent').checked=true;f.el('composer').requestSubmit();for(let i=0;i<20&&!upstream;i++)await tick();await tick();assert.equal(upstream,1);
+  await outfitSelection(f,'face',[files[0]]);await outfitSelection(f,'clothes',[files[1]]);assert.ok(f.el('outfit-face-preview').children.length);assert.ok(f.el('outfit-clothes-preview').children.length);
+  sql.close();
+ }
+});
+test('decode timeout, corrupt data and aborted header reads preserve draft without sending',async()=>{
+ const f=fixture(undefined,undefined,new Map(),{deferImages:true});await f.keys();f.el('file').files=[dropImage()];const read=f.el('file').onchange();await tick();f.timers.find(t=>t.ms===30000).f();await read;assert.match(f.el('status').textContent,/時間切れ/);assert.equal(f.calls.length,0);assert.equal(f.el('attachment-preview').children.length,0);
+ const g=fixture(undefined,undefined,new Map(),{realImages:true});await g.keys();g.el('file').files=[new File(['bad'],'bad.png',{type:'image/png'})];await g.el('file').onchange();assert.match(g.el('status').textContent,/ヘッダー/);assert.equal(g.objectURLs.length,0);
+ let resolve;g.el('file').files=[{name:'late.png',type:'image/png',size:1,slice(){return {arrayBuffer:()=>new Promise(r=>resolve=r)};}}];const pending=g.el('file').onchange();g.el('logout').events.submit();resolve(new ArrayBuffer(30));await pending;assert.equal(g.objectURLs.length,0);assert.equal(g.calls.length,0);
+});
+
+test('download names number every image across messages, chats, providers and legacy reloads without changing bytes',async()=>{
+ const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4xkAAAAASUVORK5CYII=';
+ const storage=new Map([['my-chat.history.v1',JSON.stringify({version:1,chats:[{id:1,title:'old',messages:[{role:'assistant',content:'one',image},{role:'assistant',content:'two',image}]},{id:2,provider:'gemini',title:'other',messages:[{role:'assistant',content:'three',image}]}]})]]);
+ const links=f=>f.el('messages').children.flatMap(e=>e.children.filter(c=>c.download));
+ const f=fixture(()=>Response.json({text:'new',image}),undefined,storage);await f.keys();
+ const first=links(f).map(l=>l.download);assert.equal(first.length,2);assert.match(first[0],/^my-chat-openai-c1-0001-[a-f0-9]{16}\.png$/);assert.match(first[1],/-0002-/);assert.notEqual(first[0],first[1]);assert.ok(links(f).every(l=>l.href===image));
+ const again=fixture(undefined,undefined,storage);await again.keys();assert.deepEqual(links(again).map(l=>l.download),first);
+ f.el('history').children[1].click();const other=links(f)[0].download;assert.match(other,/gemini-c2-0001/);assert.ok(!first.includes(other));
+ f.el('history').children[0].click();f.el('prompt').value='new';f.el('composer').requestSubmit();await tick();assert.match(links(f).at(-1).download,/-0003-/);assert.deepEqual(links(f).slice(0,2).map(l=>l.download),first);
 });
