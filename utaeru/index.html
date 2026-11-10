@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌える？チェッカー</title>
+<style>
+:root{
+  --bg:#f6f4ef; --card:#fff; --ink:#1f1d1a; --sub:#6b665e; --line:#e2ddd3;
+  --acc:#c2502e; --acc2:#2e6fc2; --ok:#2f8a4c; --warn:#c48a12; --ng:#c2352e;
+  --chest:#c2502e; --fal:#e8b49f; --comf:#8a2e14; --song:#2e6fc2; --tess:#173f73;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16150f; --card:#211f19; --ink:#ece8df; --sub:#9a948a; --line:#36332b;
+    --fal:#6b3a28; --comf:#f08a63; --tess:#8fb8ef; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+header{padding:18px 16px 6px;max-width:760px;margin:auto}
+h1{font-size:20px;margin:0}
+header p{margin:4px 0 0;color:var(--sub);font-size:13px}
+nav{display:flex;gap:6px;max-width:760px;margin:10px auto 0;padding:0 16px}
+nav button{flex:1;padding:10px 4px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:14px;cursor:pointer}
+nav button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+main{max-width:760px;margin:auto;padding:12px 16px 60px}
+section{display:none} section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:16px;margin:0 0 6px}
+.hint{color:var(--sub);font-size:13px;margin:4px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button.b{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button.b:disabled{opacity:.45}
+select,input[type=number]{padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px}
+label.f{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line)}
+label.f:last-child{border-bottom:0}
+.modes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0 10px}
+.modes button{text-align:left;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-size:13px}
+.modes button b{display:block;font-size:14px}
+.modes button.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc) inset}
+.tuner{display:flex;align-items:baseline;gap:12px;margin:8px 0}
+.tuner .n{font-size:40px;font-weight:700;min-width:120px;font-variant-numeric:tabular-nums}
+.tuner .s{color:var(--sub)}
+.result{background:var(--bg);border-radius:10px;padding:10px;margin-top:8px;display:none}
+.result.on{display:block}
+.big{font-size:22px;font-weight:700}
+.msg{font-size:13px;color:var(--ng);margin-top:6px}
+canvas{width:100%;display:block;border-radius:10px;background:var(--bg)}
+.verdict{display:flex;align-items:center;gap:12px}
+.verdict .mark{font-size:44px;font-weight:800;line-height:1}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-top:8px}
+.stats div{background:var(--bg);border-radius:8px;padding:6px 8px;font-size:13px}
+.stats b{display:block;font-size:16px}
+.keys{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px}
+.keys button{min-width:46px;padding:6px 2px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-size:12px}
+.keys button .m{display:block;font-size:16px;font-weight:700}
+.keys button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--ink) inset}
+.k-ok .m{color:var(--ok)} .k-mid .m{color:var(--warn)} .k-ng .m{color:var(--ng)}
+ul.notes{margin:6px 0 0;padding-left:18px;font-size:14px}
+input[type=range]{width:100%}
+.small{font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+<header>
+  <h1>歌える？チェッカー</h1>
+  <p>自分の音域とMIDIの曲を重ねて、歌えるか、キーをいくつ動かせばいいかを出す。声を測るのは<a href="../koe-hakari/index.html" style="color:inherit">声はかり</a>。同じ端末で測った結果は自動で入る。</p>
+</header>
+<nav>
+  <button data-tab="song" class="on">曲を判定</button>
+  <button data-tab="profile">自分の音域</button>
+</nav>
+<main>
+<!-- ③ 曲 -->
+<section id="song" class="on">
+  <div class="card">
+    <h2>曲を読み込む</h2>
+    <p class="hint">メロディが入ったMIDIファイル（.mid）。伴奏も入ってたら、歌のトラックを選ぶ。</p>
+    <input type="file" id="midiFile" accept=".mid,.midi,audio/midi,audio/x-midi">
+    <div class="row" style="margin-top:8px;display:none" id="trackRow">
+      <select id="trackSel" style="max-width:100%"></select>
+    </div>
+    <div class="msg" id="midiMsg"></div>
+    <details style="margin-top:10px">
+      <summary class="small">MIDIがないとき：最高音と最低音だけで判定</summary>
+      <div class="row" style="margin-top:8px">
+        最低 <select id="m_low"></select> 最高 <select id="m_high"></select>
+        <button class="b" id="manualBtn">判定</button>
+      </div>
+    </details>
+  </div>
+
+  <div id="songOut" style="display:none">
+    <div class="card">
+      <div class="verdict">
+        <div class="mark" id="vMark"></div>
+        <div>
+          <div class="big" id="vTitle"></div>
+          <div class="small" id="vSub"></div>
+        </div>
+      </div>
+      <ul class="notes" id="vNotes"></ul>
+    </div>
+
+    <div class="card">
+      <h2>キー</h2>
+      <p class="hint">押すとそのキーで判定し直す。カラオケのキー変更はだいたい±7まで。</p>
+      <div class="keys" id="keys"></div>
+    </div>
+
+    <div class="card">
+      <canvas id="songCanvas" height="170"></canvas>
+      <p class="small" style="margin-top:6px">上が自分、下が曲。曲の太い帯は音が集まってる高さ（よく歌う辺り）、細い線は最低〜最高。灰色の山は音ごとの長さの合計。</p>
+    </div>
+
+    <div class="card">
+      <h2>曲の中身</h2>
+      <div class="stats" id="stats"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="b p" id="playBtn">メロディを鳴らす</button>
+        <button class="b" id="stopBtn">止める</button>
+        <button class="b" id="topBtn">最高音だけ鳴らす</button>
+      </div>
+      <p class="small">いま選んでるキーで鳴る。</p>
+    </div>
+  </div>
+</section>
+<!-- ② プロフィール -->
+<section id="profile">
+  <div class="card">
+    <h2>声はかりのコードを貼る</h2>
+    <p class="hint">「声はかり」で測ったあとに出るコード（UTAERU1:〜）をここに貼ると、下の音域に全部入る。</p>
+    <div class="row"><input type="text" id="codeIn" placeholder="UTAERU1:..." style="flex:1;min-width:0;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px"><button class="b p" id="codeBtn">読み込む</button></div>
+    <div class="small" id="codeMsg"></div>
+  </div>
+  <div class="card">
+    <h2>自分の音域</h2>
+    <p class="hint">上のコードを貼るか、知ってる値があれば手で入れてもいい。このブラウザに保存される。</p>
+    <label class="f">いちばん低い声 <select id="p_low"></select></label>
+    <label class="f">ラクに出る下限 <select id="p_cLow"></select></label>
+    <label class="f">ラクに出る上限 <select id="p_cHigh"></select></label>
+    <label class="f">地声の最高音 <select id="p_chestHigh"></select></label>
+    <label class="f">裏声の最高音 <select id="p_falHigh"></select></label>
+    <label class="f">ロングトーン（秒） <input type="number" id="p_sustain" min="0" max="120" step="0.1" style="width:90px"></label>
+  </div>
+  <div class="card">
+    <canvas id="profileCanvas" height="120"></canvas>
+    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。</p>
+  </div>
+</section>
+</main>
+<script>
+"use strict";
+/* ---------- 音名 ---------- */
+const NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+function sci(m){m=Math.round(m);return NAMES[(m%12+12)%12]+(Math.floor(m/12)-1);}
+// カラオケ式（hiA=A4、オクターブはAで切り替わる）
+function kara(m){m=Math.round(m);const pc=(m%12+12)%12;const n=NAMES[pc].replace("#","#");
+  const base=m-((pc-9+12)%12); // そのオクターブのA
+  const a=(base-21)/12; // A0=21 → 0
+  const tag=["lowlow","low","mid1","mid2","hi","hihi","hihihi"][a]||"";
+  return tag+n;}
+function nm(m){return m==null?"未設定":sci(m)+"（"+kara(m)+"）";}
+function hz2m(f){return 69+12*Math.log2(f/440);}
+function m2hz(m){return 440*Math.pow(2,(m-69)/12);}
+
+function wPct(items,q){ // items:[{m,w}]
+  const s=[...items].sort((a,b)=>a.m-b.m);const tot=s.reduce((a,b)=>a+b.w,0);let acc=0;
+  for(const it of s){acc+=it.w;if(acc>=tot*q)return it.m;}return s.length?s[s.length-1].m:null;}
+/* ---------- 保存 ---------- */
+const KEY="utaeru-profile-v1";
+let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null};
+try{const s=localStorage.getItem(KEY);if(s)Object.assign(P,JSON.parse(s));}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(P));}catch(e){}}
+
+/* ---------- タブ ---------- */
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll("main section").forEach(s=>s.classList.toggle("on",s.id===b.dataset.tab));
+  if(b.dataset.tab==="profile")drawProfile();
+  if(b.dataset.tab==="song"){if(song)render();}
+});
+
+/* ---------- プロフィール ---------- */
+const PF=["low","cLow","cHigh","chestHigh","falHigh"];
+function noteOptions(sel,lo=28,hi=96){sel.innerHTML='<option value="">未設定</option>';for(let m=lo;m<=hi;m++){const o=document.createElement("option");o.value=m;o.textContent=sci(m)+"  "+kara(m);sel.appendChild(o);}}
+PF.forEach(k=>{const s=document.getElementById("p_"+k);noteOptions(s);s.onchange=()=>{P[k]=s.value===""?null:+s.value;save();drawProfile();};});
+const sus=document.getElementById("p_sustain");
+document.getElementById("codeBtn").onclick=()=>{const v=document.getElementById("codeIn").value.trim();const cm=document.getElementById("codeMsg");
+  const m=v.match(/UTAERU1:([^\s]*)/);if(!m){cm.textContent="コードの形が違う。UTAERU1: から始まる文字列を丸ごと貼って。";return;}
+  const a=m[1].split(",");const keys=["low","cLow","cHigh","chestHigh","falHigh","sustain"];
+  keys.forEach((k,i)=>{const x=a[i];P[k]=(x===undefined||x==="")?null:+x;});save();fillProfile();if(song)render();
+  cm.textContent="入れた："+nm(P.low)+" 〜 "+nm(P.falHigh??P.chestHigh);};sus.onchange=()=>{P.sustain=sus.value===""?null:+sus.value;save();};
+function fillProfile(){PF.forEach(k=>document.getElementById("p_"+k).value=P[k]==null?"":P[k]);sus.value=P.sustain==null?"":P.sustain;drawProfile();}
+
+/* ---------- 描画 ---------- */
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function setupCanvas(c){const dpr=window.devicePixelRatio||1;const w=c.clientWidth||600,h=+c.getAttribute("height");c.width=w*dpr;c.height=h*dpr;c.style.height=h+"px";const g=c.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);return{g,w,h};}
+function axis(g,w,h,lo,hi,y0){
+  g.font="11px system-ui";g.fillStyle=css("--sub");g.strokeStyle=css("--line");g.lineWidth=1;
+  const X=m=>8+(w-16)*(m-lo)/(hi-lo);
+  for(let m=Math.ceil(lo);m<=hi;m++){if(m%12===0){g.beginPath();g.moveTo(X(m),6);g.lineTo(X(m),y0);g.stroke();g.fillText(sci(m),X(m)+2,y0+12);}}
+  return X;
+}
+function rangeLo(){const vals=[P.low,P.cLow].filter(v=>v!=null);if(song)vals.push(song.min+shift);return Math.min(48,...vals)-3;}
+function rangeHi(){const vals=[P.falHigh,P.chestHigh,P.cHigh].filter(v=>v!=null);if(song)vals.push(song.max+shift);return Math.max(72,...vals)+3;}
+function drawVoice(g,X,y,hgt){
+  const lo=P.low;const ch=P.chestHigh;const fh=P.falHigh;
+  if(lo!=null&&fh!=null&&fh>(ch??lo)){g.fillStyle=css("--fal");g.fillRect(X(ch??lo),y,X(fh+1)-X(ch??lo),hgt);}
+  if(lo!=null&&ch!=null){g.fillStyle=css("--chest");g.globalAlpha=.55;g.fillRect(X(lo),y,X(ch+1)-X(lo),hgt);g.globalAlpha=1;}
+  if(P.cLow!=null&&P.cHigh!=null){g.fillStyle=css("--comf");g.fillRect(X(P.cLow),y+hgt*0.2,X(P.cHigh+1)-X(P.cLow),hgt*0.6);}
+}
+function drawProfile(){
+  const c=document.getElementById("profileCanvas");const{g,w,h}=setupCanvas(c);g.clearRect(0,0,w,h);
+  const lo=rangeLo(),hi=rangeHi();const X=axis(g,w,h,lo,hi,h-18);
+  if(P.low==null&&P.chestHigh==null&&P.cLow==null){g.fillStyle=css("--sub");g.font="13px system-ui";g.fillText("まだ何も入ってない",14,40);return;}
+  drawVoice(g,X,24,46);
+  g.fillStyle=css("--ink");g.font="12px system-ui";
+  if(P.low!=null)g.fillText(sci(P.low),X(P.low),18);
+  if(P.chestHigh!=null)g.fillText(sci(P.chestHigh),X(P.chestHigh)-10,86);
+  if(P.falHigh!=null)g.fillText(sci(P.falHigh),X(P.falHigh)-10,18);
+}
+
+/* ---------- MIDI ---------- */
+function parseMidi(buf){
+  const d=new DataView(buf);let p=0;
+  const str=n=>{let s="";for(let i=0;i<n;i++)s+=String.fromCharCode(d.getUint8(p+i));p+=n;return s;};
+  const u32=()=>{const v=d.getUint32(p);p+=4;return v;},u16=()=>{const v=d.getUint16(p);p+=2;return v;},u8=()=>d.getUint8(p++);
+  const vlq=()=>{let v=0,b;do{b=u8();v=(v<<7)|(b&127);}while(b&128);return v;};
+  if(str(4)!=="MThd")throw new Error("MIDIじゃない");
+  const hl=u32();u16();const nt=u16();const div=u16();p+=hl-6;
+  if(div&0x8000)throw new Error("SMPTE形式は未対応");
+  const tracks=[],tempos=[];
+  for(let ti=0;ti<nt&&p<d.byteLength;ti++){
+    const id=str(4),len=u32(),end=p+len;if(id!=="MTrk"){p=end;continue;}
+    let tick=0,rs=0,name="";const on={},notes=[];
+    while(p<end){
+      tick+=vlq();let st=d.getUint8(p);
+      if(st&0x80){p++;rs=st<0xF0?st:rs;}else st=rs;
+      if(st===0xFF){const ty=u8(),l=vlq();
+        if(ty===0x51)tempos.push({tick,us:(d.getUint8(p)<<16)|(d.getUint8(p+1)<<8)|d.getUint8(p+2)});
+        if(ty===0x03||ty===0x04){const bytes=new Uint8Array(buf,p,l);try{name=new TextDecoder("shift_jis").decode(bytes);}catch(_){name=String.fromCharCode(...bytes);}}
+        p+=l;}
+      else if(st===0xF0||st===0xF7){p+=vlq();}
+      else{const ty=st&0xF0,ch=st&15;const a=u8();const b=(ty===0xC0||ty===0xD0)?0:u8();
+        const k=ch*128+a;
+        if(ty===0x90&&b>0){(on[k]=on[k]||[]).push(tick);}
+        else if(ty===0x80||(ty===0x90&&b===0)){if(on[k]&&on[k].length){notes.push({ch,m:a,s:on[k].shift(),e:tick});}}
+      }
+    }
+    p=end;tracks.push({name:name.replace(/\0/g,"").trim(),notes});
+  }
+  tempos.sort((a,b)=>a.tick-b.tick);if(!tempos.length||tempos[0].tick>0)tempos.unshift({tick:0,us:500000});
+  const sec=t=>{let s=0;for(let i=0;i<tempos.length;i++){const a=tempos[i],nx=tempos[i+1];const e=nx&&nx.tick<t?nx.tick:t;if(e<=a.tick)break;s+=(e-a.tick)*a.us/1e6/div;if(!nx||nx.tick>=t)break;}return s;};
+  // チャンネルごとにも分ける（フォーマット0対策）
+  const out=[];
+  tracks.forEach((tr,i)=>{const chs=[...new Set(tr.notes.map(n=>n.ch))];
+    chs.forEach(ch=>{const ns=tr.notes.filter(n=>n.ch===ch).map(n=>({m:n.m,s:sec(n.s),e:sec(n.e)})).filter(n=>n.e>n.s).sort((a,b)=>a.s-b.s);
+      if(ns.length)out.push({label:(tr.name||"トラック"+(i+1))+(chs.length>1?" ch"+(ch+1):"")+(ch===9?"（ドラム）":""),ch,notes:ns});});});
+  return out;
+}
+function poly(ns){let ov=0;for(let i=1;i<ns.length;i++)if(ns[i].s<ns[i-1].e-0.02)ov++;return ns.length?ov/ns.length:0;}
+function skyline(ns){ // 重なったら上の音を残す
+  const r=[];for(const n of ns){const last=r[r.length-1];
+    if(last&&n.s<last.e-0.02){if(n.m>last.m){last.e=n.s;if(last.e-last.s<0.03)r.pop();r.push({...n});}else continue;}
+    else r.push({...n});}
+  return r;}
+
+let tracks=[],song=null,shift=0;
+const trackSel=document.getElementById("trackSel");
+document.getElementById("midiFile").onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;const mm=document.getElementById("midiMsg");mm.textContent="";
+  try{
+    tracks=parseMidi(await f.arrayBuffer());
+    if(!tracks.length)throw new Error("音符が入ってない");
+    trackSel.innerHTML="";
+    let best=0,bs=-1;
+    tracks.forEach((t,i)=>{const o=document.createElement("option");o.value=i;const pl=poly(t.notes);
+      o.textContent=t.label+"　"+t.notes.length+"音"+(pl>0.2?"・和音あり":"");trackSel.appendChild(o);
+      let sc=t.notes.length*(1-pl)*(t.ch===9?0:1);if(/vo|vocal|melody|メロ|歌|ボーカル|ﾎﾞｰｶﾙ|lead/i.test(t.label))sc*=5;
+      if(sc>bs){bs=sc;best=i;}});
+    trackSel.value=best;document.getElementById("trackRow").style.display="flex";
+    loadTrack(best,f.name.replace(/\.midi?$/i,""));
+  }catch(err){mm.textContent="読めなかった："+err.message;}
+  e.target.value="";
+};
+trackSel.onchange=()=>loadTrack(+trackSel.value,song&&song.title);
+function loadTrack(i,title){
+  const t=tracks[i];let ns=t.notes;const pl=poly(ns);if(pl>0.05)ns=skyline(ns);
+  buildSong(ns,title,pl>0.05);
+}
+function buildSong(ns,title,sky){
+  const items=ns.map(n=>({m:n.m,w:n.e-n.s}));
+  const phrases=[];let cur=null;
+  for(const n of ns){if(cur&&n.s-cur.e<0.3){cur.e=Math.max(cur.e,n.e);}else{if(cur)phrases.push(cur);cur={s:n.s,e:n.e};}}
+  if(cur)phrases.push(cur);
+  song={title,notes:ns,sky,manual:false,
+    min:Math.min(...ns.map(n=>n.m)),max:Math.max(...ns.map(n=>n.m)),
+    p15:Math.round(wPct(items,0.15)),p85:Math.round(wPct(items,0.85)),med:Math.round(wPct(items,0.5)),
+    longNote:Math.max(...ns.map(n=>n.e-n.s)),longPhrase:Math.max(...phrases.map(p=>p.e-p.s)),
+    dur:ns[ns.length-1].e-ns[0].s,items};
+  shift=bestShift();render();
+}
+noteOptions(document.getElementById("m_low"),36,90);noteOptions(document.getElementById("m_high"),36,96);
+document.getElementById("manualBtn").onclick=()=>{
+  const lo=+document.getElementById("m_low").value,hi=+document.getElementById("m_high").value;
+  if(!lo||!hi||hi<lo){document.getElementById("midiMsg").textContent="最低と最高を両方選んで。";return;}
+  const mid=Math.round((lo+hi)/2);
+  song={title:"手入力",notes:[],manual:true,min:lo,max:hi,p15:Math.round(lo+(hi-lo)*0.3),p85:Math.round(lo+(hi-lo)*0.75),med:mid,longNote:null,longPhrase:null,items:[]};
+  document.getElementById("midiMsg").textContent="";shift=bestShift();render();
+};
+
+/* ---------- 判定 ---------- */
+function judge(k){
+  const S=song,mx=S.max+k,mn=S.min+k,hi=S.p85+k,lo=S.p15+k;
+  const top=P.falHigh!=null?Math.max(P.falHigh,P.chestHigh??0):P.chestHigh;
+  const r={k,issues:[],cost:0,level:"ok"};
+  if(P.low==null||P.chestHigh==null){r.level="none";return r;}
+  if(mx>top){r.issues.push("最高音 "+sci(mx)+" が届く上限 "+sci(top)+" より "+(mx-top)+" 半音上");r.cost+=20+4*(mx-top);r.level="ng";}
+  if(mn<P.low){r.issues.push("最低音 "+sci(mn)+" が出せる下限 "+sci(P.low)+" より "+(P.low-mn)+" 半音下");r.cost+=20+4*(P.low-mn);r.level="ng";}
+  if(r.level!=="ng"&&mx>P.chestHigh){r.issues.push("最高音 "+sci(mx)+" は地声だと届かない。裏声に切り替える箇所が出る");r.cost+=2*(mx-P.chestHigh)+2;r.level="mid";}
+  if(P.cHigh!=null&&hi>P.cHigh){r.issues.push("よく歌う高さが上寄り（"+sci(hi)+"）。ラクな上限 "+sci(P.cHigh)+" を超えてて、通して歌うと疲れる");r.cost+=2*(hi-P.cHigh);if(hi-P.cHigh>2&&r.level==="ok")r.level="mid";}
+  if(P.cLow!=null&&lo<P.cLow){r.issues.push("よく歌う高さが下寄り（"+sci(lo)+"）。声がこもって前に出にくい");r.cost+=1.5*(P.cLow-lo);if(P.cLow-lo>2&&r.level==="ok")r.level="mid";}
+  r.cost+=0.4*Math.abs(k);
+  return r;
+}
+function bestShift(){if(P.low==null||P.chestHigh==null)return 0;let b=0,bc=1e9;for(let k=-12;k<=12;k++){const c=judge(k).cost;if(c<bc-1e-9){bc=c;b=k;}}return b;}
+const MARK={ok:"◎",mid:"△",ng:"×",none:"?"};
+function render(){
+  if(!song)return;document.getElementById("songOut").style.display="block";
+  const j=judge(shift),j0=judge(0),best=bestShift();
+  const vm=document.getElementById("vMark");vm.textContent=MARK[j.level];
+  vm.style.color=j.level==="ok"?css("--ok"):j.level==="mid"?css("--warn"):j.level==="ng"?css("--ng"):css("--sub");
+  const ks=k=>k===0?"原曲キー":(k>0?"+"+k:k);
+  document.getElementById("vTitle").textContent=j.level==="none"?"先に「自分の音域」タブで音域を入れて":
+    (j.level==="ok"?"歌える":j.level==="mid"?"いけるけど、きつい所がある":"このキーだと無理")+"（"+ks(shift)+"）";
+  let sub=(song.title||"")+"　";
+  if(j.level!=="none"){
+    if(best===shift)sub+="このキーがいちばん合ってる。";
+    else sub+="いちばん合うのは "+ks(best)+"（"+MARK[judge(best).level]+"）。";
+    if(shift!==0)sub+=" 原曲キーだと "+MARK[j0.level]+"。";
+  }
+  document.getElementById("vSub").textContent=sub;
+  const ul=document.getElementById("vNotes");ul.innerHTML="";
+  const add=(t)=>{const li=document.createElement("li");li.textContent=t;ul.appendChild(li);};
+  j.issues.forEach(add);
+  if(j.level==="ok")add("音域は全部収まってる。");
+  if(song.longPhrase!=null&&P.sustain){
+    const r=song.longPhrase/P.sustain;
+    if(r>0.9)add("いちばん長いフレーズが "+song.longPhrase.toFixed(1)+"秒。ロングトーン "+P.sustain+"秒だとほぼ限界。途中で息継ぎを足す場所を決めておく");
+    else if(r>0.6)add("いちばん長いフレーズ "+song.longPhrase.toFixed(1)+"秒。息はぎりぎり足りる");
+  }
+  if(song.sky)add("和音が混ざってたので、上の音だけをメロディとして使った。伴奏トラックならトラックを選び直して。");
+  if(j.level!=="none")add("音域の数字が合ってても、換声点の通り方や喉の体力は別。最後は歌って確かめるしかない。");
+  // keys
+  const kd=document.getElementById("keys");kd.innerHTML="";
+  for(let k=-7;k<=7;k++){const jj=judge(k);const b=document.createElement("button");
+    b.className=(k===shift?"on ":"")+(jj.level==="ok"?"k-ok":jj.level==="mid"?"k-mid":jj.level==="ng"?"k-ng":"");
+    b.innerHTML='<span class="m">'+MARK[jj.level]+'</span>'+(k>0?"+"+k:k)+(k===best?"★":"");
+    b.onclick=()=>{shift=k;render();};kd.appendChild(b);}
+  // stats
+  const st=document.getElementById("stats");const S=song;
+  const cell=(a,b)=>'<div>'+a+'<b>'+b+'</b></div>';
+  let h=cell("最低音",sci(S.min+shift)+" "+kara(S.min+shift))+cell("最高音",sci(S.max+shift)+" "+kara(S.max+shift))+
+    cell("よく歌う高さ",sci(S.p15+shift)+"〜"+sci(S.p85+shift))+cell("音域の幅",(S.max-S.min)+" 半音");
+  if(!S.manual){
+    const hiT=P.chestHigh!=null?S.items.filter(it=>it.m+shift>=P.chestHigh-1).reduce((a,b)=>a+b.w,0):null;
+    h+=cell("最長の音",S.longNote.toFixed(1)+" 秒")+cell("最長フレーズ",S.longPhrase.toFixed(1)+" 秒");
+    if(hiT!=null)h+=cell("上限付近の時間",hiT.toFixed(1)+" 秒");
+  }
+  st.innerHTML=h;
+  document.getElementById("playBtn").disabled=S.manual;
+  drawSong();
+}
+function drawSong(){
+  const c=document.getElementById("songCanvas");const{g,w,h}=setupCanvas(c);g.clearRect(0,0,w,h);
+  const lo=rangeLo(),hi=rangeHi();const X=axis(g,w,h,lo,hi,h-18);
+  g.fillStyle=css("--sub");g.font="11px system-ui";g.fillText("自分",10,16);g.fillText("曲",10,92);
+  drawVoice(g,X,22,40);
+  const S=song,k=shift;
+  // histogram
+  if(!S.manual){const hist={};S.items.forEach(it=>hist[it.m]=(hist[it.m]||0)+it.w);const mx=Math.max(...Object.values(hist));
+    g.fillStyle=css("--line");for(const m in hist){const hh=40*hist[m]/mx;g.fillRect(X(+m+k),140-hh,Math.max(1,X(+m+k+1)-X(+m+k)-1),hh);}}
+  g.fillStyle=css("--song");g.fillRect(X(S.min+k),118,X(S.max+k+1)-X(S.min+k),4);
+  g.fillStyle=css("--tess");g.fillRect(X(S.p15+k),110,X(S.p85+k+1)-X(S.p15+k),20);
+  // guide lines
+  g.setLineDash([3,3]);g.strokeStyle=css("--ng");
+  [P.chestHigh,P.falHigh].forEach(v=>{if(v!=null){g.beginPath();g.moveTo(X(v+1),18);g.lineTo(X(v+1),h-18);g.stroke();}});
+  g.setLineDash([]);
+  g.fillStyle=css("--ink");g.font="12px system-ui";g.fillText(sci(S.max+k),Math.min(w-30,X(S.max+k)),106);g.fillText(sci(S.min+k),X(S.min+k),106);
+}
+
+/* ---------- 再生 ---------- */
+let actx=null,playing=[];
+function ac(){if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();if(actx.state==="suspended")actx.resume();return actx;}
+function stopAll(){playing.forEach(o=>{try{o.stop();}catch(e){}});playing=[];}
+function tone(ctx,m,t0,dur){const o=ctx.createOscillator(),gn=ctx.createGain();o.type="triangle";o.frequency.value=m2hz(m);
+  gn.gain.setValueAtTime(0,t0);gn.gain.linearRampToValueAtTime(0.25,t0+0.02);gn.gain.setValueAtTime(0.25,Math.max(t0+0.02,t0+dur-0.04));gn.gain.linearRampToValueAtTime(0,t0+dur);
+  o.connect(gn).connect(ctx.destination);o.start(t0);o.stop(t0+dur+0.02);playing.push(o);}
+document.getElementById("playBtn").onclick=()=>{try{if(!song||song.manual)return;stopAll();const ctx=ac();const t0=ctx.currentTime+0.1,base=song.notes[0].s;
+  song.notes.forEach(n=>tone(ctx,n.m+shift,t0+n.s-base,Math.max(0.05,n.e-n.s)));}catch(e){}};
+document.getElementById("stopBtn").onclick=stopAll;
+document.getElementById("topBtn").onclick=()=>{try{if(!song)return;stopAll();const ctx=ac();tone(ctx,song.max+shift,ctx.currentTime+0.05,1.5);}catch(e){}};
+
+window.addEventListener("resize",()=>{drawProfile();if(song)drawSong();});
+window.addEventListener("storage",e=>{if(e.key===KEY){try{Object.assign(P,JSON.parse(e.newValue));}catch(_){}fillProfile();if(song)render();}});
+fillProfile();
+</script>
+</body>
+</html>

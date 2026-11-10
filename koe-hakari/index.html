@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声はかり</title>
+<style>
+:root{
+  --bg:#f6f4ef; --card:#fff; --ink:#1f1d1a; --sub:#6b665e; --line:#e2ddd3;
+  --acc:#c2502e; --acc2:#2e6fc2; --ok:#2f8a4c; --warn:#c48a12; --ng:#c2352e;
+  --chest:#c2502e; --fal:#e8b49f; --comf:#8a2e14; --song:#2e6fc2; --tess:#173f73;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16150f; --card:#211f19; --ink:#ece8df; --sub:#9a948a; --line:#36332b;
+    --fal:#6b3a28; --comf:#f08a63; --tess:#8fb8ef; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+header{padding:18px 16px 6px;max-width:760px;margin:auto}
+h1{font-size:20px;margin:0}
+header p{margin:4px 0 0;color:var(--sub);font-size:13px}
+nav{display:flex;gap:6px;max-width:760px;margin:10px auto 0;padding:0 16px}
+nav button{flex:1;padding:10px 4px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:14px;cursor:pointer}
+nav button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+main{max-width:760px;margin:auto;padding:12px 16px 60px}
+section{display:none} section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:16px;margin:0 0 6px}
+.hint{color:var(--sub);font-size:13px;margin:4px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button.b{padding:9px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px;cursor:pointer}
+button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+button.b:disabled{opacity:.45}
+select,input[type=number]{padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px}
+label.f{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line)}
+label.f:last-child{border-bottom:0}
+.modes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:6px 0 10px}
+.modes button{text-align:left;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-size:13px}
+.modes button b{display:block;font-size:14px}
+.modes button.on{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc) inset}
+.tuner{display:flex;align-items:baseline;gap:12px;margin:8px 0}
+.tuner .n{font-size:40px;font-weight:700;min-width:120px;font-variant-numeric:tabular-nums}
+.tuner .s{color:var(--sub)}
+.result{background:var(--bg);border-radius:10px;padding:10px;margin-top:8px;display:none}
+.result.on{display:block}
+.big{font-size:22px;font-weight:700}
+.msg{font-size:13px;color:var(--ng);margin-top:6px}
+canvas{width:100%;display:block;border-radius:10px;background:var(--bg)}
+.verdict{display:flex;align-items:center;gap:12px}
+.verdict .mark{font-size:44px;font-weight:800;line-height:1}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-top:8px}
+.stats div{background:var(--bg);border-radius:8px;padding:6px 8px;font-size:13px}
+.stats b{display:block;font-size:16px}
+.keys{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px}
+.keys button{min-width:46px;padding:6px 2px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;font-size:12px}
+.keys button .m{display:block;font-size:16px;font-weight:700}
+.keys button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--ink) inset}
+.k-ok .m{color:var(--ok)} .k-mid .m{color:var(--warn)} .k-ng .m{color:var(--ng)}
+ul.notes{margin:6px 0 0;padding-left:18px;font-size:14px}
+input[type=range]{width:100%}
+.small{font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+<header>
+  <h1>声はかり</h1>
+  <p>マイクで自分の音域と息の長さを測る。結果はコードにして「歌える？チェッカー」に渡す。</p>
+</header>
+<nav>
+  <button data-tab="measure" class="on">声を測る</button>
+  <button data-tab="profile">結果とコード</button>
+</nav>
+<main>
+<!-- ① 測る -->
+<section id="measure" class="on">
+  <div class="card">
+    <h2>何を測る？</h2>
+    <div class="modes" id="modes">
+      <button data-m="low" class="on"><b>いちばん低い声</b>地声で下がれるところまで</button>
+      <button data-m="chestHigh"><b>地声の最高音</b>張って出せる上限</button>
+      <button data-m="falHigh"><b>裏声の最高音</b>かすれてもいいので上限</button>
+      <button data-m="comfort"><b>ふつうに歌う</b>好きな曲を1〜2分。ラクな音域を出す</button>
+      <button data-m="sustain"><b>ロングトーン</b>息を吸って「あー」を限界まで</button>
+    </div>
+    <p class="hint" id="modeHint"></p>
+  </div>
+
+  <div class="card">
+    <h2>マイクで測る</h2>
+    <p class="hint">音を1つずつ、0.3秒以上まっすぐ伸ばすと拾いやすい。スライドで一瞬だけ触った音は数えない。</p>
+    <div class="row">
+      <button class="b p" id="micBtn">録り始める</button>
+      <span class="small" id="micTime"></span>
+    </div>
+    <div class="tuner"><span class="n" id="liveNote">—</span><span class="s" id="liveHz"></span></div>
+    <div class="msg" id="micMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>録音ファイルで測る</h2>
+    <p class="hint">スマホのボイスメモで録ったものを読み込む。マイクの調子が悪いときはこっち。</p>
+    <input type="file" id="audioFile" accept="audio/*,video/*">
+    <div class="small" id="fileMsg"></div>
+  </div>
+
+  <div class="result" id="measureResult">
+    <div class="small" id="resLabel"></div>
+    <div class="big" id="resValue"></div>
+    <div class="small" id="resDetail"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="b p" id="applyBtn">この値を結果に入れる</button>
+    </div>
+  </div>
+</section>
+<!-- ② プロフィール -->
+<section id="profile">
+  <div class="card">
+    <h2>自分の音域</h2>
+    <p class="hint">①で測ると自動で入る。知ってる値があれば手で入れてもいい。このブラウザに保存される。</p>
+    <label class="f">いちばん低い声 <select id="p_low"></select></label>
+    <label class="f">ラクに出る下限 <select id="p_cLow"></select></label>
+    <label class="f">ラクに出る上限 <select id="p_cHigh"></select></label>
+    <label class="f">地声の最高音 <select id="p_chestHigh"></select></label>
+    <label class="f">裏声の最高音 <select id="p_falHigh"></select></label>
+    <label class="f">ロングトーン（秒） <input type="number" id="p_sustain" min="0" max="120" step="0.1" style="width:90px"></label>
+  </div>
+  <div class="card">
+    <canvas id="profileCanvas" height="120"></canvas>
+    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。</p>
+  </div>
+
+  <div class="card">
+    <h2>歌える？チェッカーに渡す</h2>
+    <p class="hint">このサイトの歌える？チェッカーなら、測った結果がそのまま引き継がれる。別の端末やClaude版のチェッカーに渡すときはこのコードを貼る。</p>
+    <div class="big" id="codeOut" style="font-size:15px;word-break:break-all;font-family:ui-monospace,monospace"></div>
+    <div class="row" style="margin-top:8px"><button class="b p" id="copyBtn">コピー</button>
+    <a class="b" href="../utaeru/index.html" style="text-decoration:none;padding:9px 14px;border-radius:10px;border:1px solid var(--line);color:var(--ink)">チェッカーを開く</a></div>
+  </div>
+</section>
+</main>
+<script>
+"use strict";
+/* ---------- 音名 ---------- */
+const NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+function sci(m){m=Math.round(m);return NAMES[(m%12+12)%12]+(Math.floor(m/12)-1);}
+// カラオケ式（hiA=A4、オクターブはAで切り替わる）
+function kara(m){m=Math.round(m);const pc=(m%12+12)%12;const n=NAMES[pc].replace("#","#");
+  const base=m-((pc-9+12)%12); // そのオクターブのA
+  const a=(base-21)/12; // A0=21 → 0
+  const tag=["lowlow","low","mid1","mid2","hi","hihi","hihihi"][a]||"";
+  return tag+n;}
+function nm(m){return m==null?"未設定":sci(m)+"（"+kara(m)+"）";}
+function hz2m(f){return 69+12*Math.log2(f/440);}
+function m2hz(m){return 440*Math.pow(2,(m-69)/12);}
+
+/* ---------- 保存 ---------- */
+const KEY="utaeru-profile-v1";
+let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null};
+try{const s=localStorage.getItem(KEY);if(s)Object.assign(P,JSON.parse(s));}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(P));}catch(e){}}
+
+/* ---------- タブ ---------- */
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll("main section").forEach(s=>s.classList.toggle("on",s.id===b.dataset.tab));
+  if(b.dataset.tab==="profile")drawProfile();
+  
+});
+
+/* ---------- 音程検出（YIN） ---------- */
+const SR=16000, WIN=1024, HOP=256, MINF=60, MAXF=1500;
+function yin(x){
+  const W=WIN>>1, tMin=Math.floor(SR/MAXF), tMax=Math.min(W-1,Math.ceil(SR/MINF));
+  const d=new Float32Array(tMax+2);
+  let rms=0;for(let i=0;i<WIN;i++)rms+=x[i]*x[i];rms=Math.sqrt(rms/WIN);
+  for(let t=1;t<=tMax+1;t++){let s=0;for(let i=0;i<W;i++){const v=x[i]-x[i+t];s+=v*v;}d[t]=s;}
+  let run=0;const c=new Float32Array(tMax+2);c[0]=1;
+  for(let t=1;t<=tMax+1;t++){run+=d[t];c[t]=run>0?d[t]*t/run:1;}
+  let tau=-1;
+  for(let t=tMin;t<=tMax;t++){if(c[t]<0.15){while(t+1<=tMax&&c[t+1]<c[t])t++;tau=t;break;}}
+  if(tau<0){let best=1;for(let t=tMin;t<=tMax;t++)if(c[t]<best){best=c[t];tau=t;}if(best>0.35)return{f:0,c:1-best,rms};}
+  let bt=tau;if(tau>1&&tau<tMax){const a=c[tau-1],b=c[tau],g=c[tau+1],den=a-2*b+g;if(den!==0)bt=tau+0.5*(a-g)/den;}
+  return{f:SR/bt,c:1-c[tau],rms};
+}
+function median(a){const s=[...a].sort((p,q)=>p-q);return s[s.length>>1];}
+// frames: {t,f,c,rms} → 有声フレームに絞って中央値フィルタ
+function cleanFrames(fr){
+  const rs=fr.map(f=>f.rms).sort((a,b)=>a-b);const p95=rs[Math.floor(rs.length*0.95)]||0;
+  const th=Math.max(0.004,p95*0.12);
+  const v=fr.map(f=>({t:f.t,m:(f.f>0&&f.c>0.75&&f.rms>th)?hz2m(f.f):null}));
+  for(let i=0;i<v.length;i++){if(v[i].m==null)continue;const w=[];for(let j=i-2;j<=i+2;j++)if(v[j]&&v[j].m!=null)w.push(v[j].m);v[i].mm=w.length>=3?median(w):null;}
+  return v.filter(x=>x.mm!=null).map(x=>({t:x.t,m:x.mm}));
+}
+// 0.25秒以上±0.6半音に収まった区間
+function stableSegs(v,minDur=0.25,tol=0.6,gap=0.07){
+  const segs=[];let cur=null;
+  for(const p of v){
+    if(cur&&p.t-cur.last<=gap&&Math.abs(p.m-cur.anchor)<tol){cur.ms.push(p.m);cur.last=p.t;if(cur.ms.length===5)cur.anchor=median(cur.ms);}
+    else{if(cur&&cur.last-cur.start>=minDur)segs.push({start:cur.start,dur:cur.last-cur.start,m:median(cur.ms)});cur={start:p.t,last:p.t,anchor:p.m,ms:[p.m]};}
+  }
+  if(cur&&cur.last-cur.start>=minDur)segs.push({start:cur.start,dur:cur.last-cur.start,m:median(cur.ms)});
+  return segs;
+}
+function longestRun(v,gap=0.2){let best=0,s=null,last=null;for(const p of v){if(s==null||p.t-last>gap){s=p.t;}last=p.t;best=Math.max(best,last-s);}return best;}
+function wPct(items,q){ // items:[{m,w}]
+  const s=[...items].sort((a,b)=>a.m-b.m);const tot=s.reduce((a,b)=>a+b.w,0);let acc=0;
+  for(const it of s){acc+=it.w;if(acc>=tot*q)return it.m;}return s.length?s[s.length-1].m:null;}
+
+/* ---------- 測定モード ---------- */
+const MODES={
+  low:{label:"いちばん低い声",hint:"地声で、ドレミを下っていく。出なくなったら止める。うなり声みたいなのは拾わないこともある。"},
+  chestHigh:{label:"地声の最高音",hint:"裏返らない範囲で上がっていく。張り上げて喉を痛めない程度で。"},
+  falHigh:{label:"裏声の最高音",hint:"裏声でどこまで上がれるか。細くてもいいので音程は伸ばす。"},
+  comfort:{label:"ラクに出る音域",hint:"好きな曲をふつうに1〜2分歌う。そこで長く使ってる音の、下1割と上1割を除いた範囲をラクな音域にする。"},
+  sustain:{label:"ロングトーン",hint:"思い切り吸って、ラクな高さで「あー」を一定の大きさで伸ばす。途切れたらそこまで。20秒くらいが平均の目安。"}
+};
+let mode="low", lastRes=null;
+const modeHint=document.getElementById("modeHint");
+document.querySelectorAll("#modes button").forEach(b=>b.onclick=()=>{
+  mode=b.dataset.m;document.querySelectorAll("#modes button").forEach(x=>x.classList.toggle("on",x===b));
+  modeHint.textContent=MODES[mode].hint;});
+modeHint.textContent=MODES[mode].hint;
+
+function analyze(frames){
+  const v=cleanFrames(frames);
+  const msg=document.getElementById("resDetail");
+  const box=document.getElementById("measureResult");box.classList.add("on");
+  document.getElementById("resLabel").textContent=MODES[mode].label;
+  lastRes=null;
+  if(v.length<10){document.getElementById("resValue").textContent="声が拾えなかった";msg.textContent="もう少し大きく、まっすぐ伸ばしてみて。";applyBtn.disabled=true;return;}
+  if(mode==="sustain"){
+    const s=longestRun(v);lastRes={sustain:Math.round(s*10)/10};
+    document.getElementById("resValue").textContent=s.toFixed(1)+" 秒";
+    msg.textContent=s<10?"短め。歌うと長いフレーズで息が足りなくなりやすい。":s<20?"ふつうよりやや短い。":"十分ある。";
+  }else if(mode==="comfort"){
+    const segs=stableSegs(v,0.12);
+    const items=segs.length>=5?segs.map(s=>({m:s.m,w:s.dur})):v.map(p=>({m:p.m,w:1}));
+    const lo=Math.round(wPct(items,0.1)),hi=Math.round(wPct(items,0.9));
+    lastRes={cLow:lo,cHigh:hi};
+    document.getElementById("resValue").textContent=sci(lo)+" 〜 "+sci(hi);
+    msg.textContent=kara(lo)+" 〜 "+kara(hi)+"。歌った時間 "+(v[v.length-1].t-v[0].t).toFixed(0)+"秒ぶんから計算。";
+  }else{
+    const segs=stableSegs(v);
+    if(!segs.length){document.getElementById("resValue").textContent="伸ばした音が見つからない";msg.textContent="1音を0.3秒以上、まっすぐ伸ばしてみて。";applyBtn.disabled=true;return;}
+    const pick=mode==="low"?segs.reduce((a,b)=>b.m<a.m?b:a):segs.reduce((a,b)=>b.m>a.m?b:a);
+    const m=Math.round(pick.m);lastRes={[mode]:m};
+    document.getElementById("resValue").textContent=nm(m);
+    msg.textContent="伸ばせた音 "+segs.length+"個のうち"+(mode==="low"?"いちばん低い":"いちばん高い")+"もの（"+pick.dur.toFixed(1)+"秒）。";
+  }
+  applyBtn.disabled=false;
+}
+const applyBtn=document.getElementById("applyBtn");
+applyBtn.onclick=()=>{if(!lastRes)return;Object.assign(P,lastRes);save();fillProfile();
+  applyBtn.textContent="入れた";setTimeout(()=>applyBtn.textContent="この値を結果に入れる",1200);};
+
+/* ---------- マイク ---------- */
+let micState=null;
+const micBtn=document.getElementById("micBtn"),liveNote=document.getElementById("liveNote"),liveHz=document.getElementById("liveHz"),micMsg=document.getElementById("micMsg"),micTime=document.getElementById("micTime");
+micBtn.onclick=async()=>{
+  if(micState){stopMic();return;}
+  micMsg.textContent="";
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error("nomedia");
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ctx.createMediaStreamSource(stream);const an=ctx.createAnalyser();an.fftSize=4096;src.connect(an);
+    const buf=new Float32Array(an.fftSize);const factor=ctx.sampleRate/SR;const x=new Float32Array(WIN);
+    micState={stream,ctx,an,frames:[],t0:performance.now(),timer:null};
+    micBtn.textContent="止めて結果を出す";
+    micState.timer=setInterval(()=>{
+      an.getFloatTimeDomainData(buf);
+      const start=buf.length-Math.ceil(WIN*factor)-1;
+      for(let i=0;i<WIN;i++){const p=start+i*factor,k=Math.floor(p),r=p-k;x[i]=buf[k]*(1-r)+buf[k+1]*r;}
+      const res=yin(x);const t=(performance.now()-micState.t0)/1000;
+      micState.frames.push({t,f:res.f,c:res.c,rms:res.rms});
+      micTime.textContent=t.toFixed(0)+"秒";
+      if(res.f>0&&res.c>0.8&&res.rms>0.01){const m=hz2m(res.f);liveNote.textContent=sci(m);const ct=Math.round((m-Math.round(m))*100);liveHz.textContent=kara(m)+"　"+res.f.toFixed(0)+"Hz　"+(ct>=0?"+":"")+ct;}
+      else{liveNote.textContent="—";liveHz.textContent="";}
+    },16);
+  }catch(e){
+    micMsg.textContent=(location.protocol==="file:"?"マイクが使えない。ブラウザによってはファイルを直接開いた状態だとマイクが禁止される（スマホは特に）。PCのChromeで開くか、録音ファイルを読み込んで。":"マイクが使えない。アドレスバーのマイク許可を確認して。ダメなら録音ファイルを読み込んで。");
+  }
+};
+function stopMic(){
+  const s=micState;micState=null;clearInterval(s.timer);s.stream.getTracks().forEach(t=>t.stop());try{s.ctx.close();}catch(e){}
+  micBtn.textContent="録り始める";liveNote.textContent="—";liveHz.textContent="";analyze(s.frames);
+}
+
+/* ---------- 録音ファイル ---------- */
+document.getElementById("audioFile").onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;const fm=document.getElementById("fileMsg");fm.textContent="読み込み中…";
+  try{
+    const ab=await f.arrayBuffer();
+    const tmp=new (window.AudioContext||window.webkitAudioContext)();
+    const dec=await new Promise((res,rej)=>{const p=tmp.decodeAudioData(ab,res,rej);if(p&&p.then)p.then(res,rej);});
+    try{tmp.close();}catch(_){}
+    const len=Math.ceil(dec.duration*SR);
+    const off=new OfflineAudioContext(1,len,SR);const s=off.createBufferSource();s.buffer=dec;s.connect(off.destination);s.start();
+    const rend=await off.startRendering();const data=rend.getChannelData(0);
+    fm.textContent="解析中…（"+dec.duration.toFixed(0)+"秒）";
+    await new Promise(r=>setTimeout(r,20));
+    const frames=[];
+    for(let i=0;i+WIN+(WIN>>1)<data.length;i+=HOP){const r=yin(data.subarray(i,i+WIN+(WIN>>1)));frames.push({t:i/SR,f:r.f,c:r.c,rms:r.rms});}
+    fm.textContent=f.name;analyze(frames);
+  }catch(err){fm.textContent="この形式は読めなかった。m4a/mp3/wavあたりで試して。";}
+  e.target.value="";
+};
+
+/* ---------- プロフィール ---------- */
+const PF=["low","cLow","cHigh","chestHigh","falHigh"];
+function noteOptions(sel,lo=28,hi=96){sel.innerHTML='<option value="">未設定</option>';for(let m=lo;m<=hi;m++){const o=document.createElement("option");o.value=m;o.textContent=sci(m)+"  "+kara(m);sel.appendChild(o);}}
+PF.forEach(k=>{const s=document.getElementById("p_"+k);noteOptions(s);s.onchange=()=>{P[k]=s.value===""?null:+s.value;save();drawProfile();};});
+const sus=document.getElementById("p_sustain");sus.onchange=()=>{P.sustain=sus.value===""?null:+sus.value;save();};
+function fillProfile(){PF.forEach(k=>document.getElementById("p_"+k).value=P[k]==null?"":P[k]);sus.value=P.sustain==null?"":P.sustain;drawProfile();}
+
+let song=null;
+function code(){return "UTAERU1:"+["low","cLow","cHigh","chestHigh","falHigh","sustain"].map(k=>P[k]==null?"":P[k]).join(",");}
+function showCode(){const el=document.getElementById("codeOut");if(el)el.textContent=code();}
+document.getElementById("copyBtn").onclick=async()=>{const b=document.getElementById("copyBtn");
+  try{await navigator.clipboard.writeText(code());b.textContent="コピーした";}
+  catch(e){const r=document.createRange();r.selectNodeContents(document.getElementById("codeOut"));const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="選択したので長押しでコピー";}
+  setTimeout(()=>b.textContent="コピー",1500);};
+/* ---------- 描画 ---------- */
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function setupCanvas(c){const dpr=window.devicePixelRatio||1;const w=c.clientWidth||600,h=+c.getAttribute("height");c.width=w*dpr;c.height=h*dpr;c.style.height=h+"px";const g=c.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);return{g,w,h};}
+function axis(g,w,h,lo,hi,y0){
+  g.font="11px system-ui";g.fillStyle=css("--sub");g.strokeStyle=css("--line");g.lineWidth=1;
+  const X=m=>8+(w-16)*(m-lo)/(hi-lo);
+  for(let m=Math.ceil(lo);m<=hi;m++){if(m%12===0){g.beginPath();g.moveTo(X(m),6);g.lineTo(X(m),y0);g.stroke();g.fillText(sci(m),X(m)+2,y0+12);}}
+  return X;
+}
+function rangeLo(){const vals=[P.low,P.cLow].filter(v=>v!=null);if(song)vals.push(song.min+shift);return Math.min(48,...vals)-3;}
+function rangeHi(){const vals=[P.falHigh,P.chestHigh,P.cHigh].filter(v=>v!=null);if(song)vals.push(song.max+shift);return Math.max(72,...vals)+3;}
+function drawVoice(g,X,y,hgt){
+  const lo=P.low;const ch=P.chestHigh;const fh=P.falHigh;
+  if(lo!=null&&fh!=null&&fh>(ch??lo)){g.fillStyle=css("--fal");g.fillRect(X(ch??lo),y,X(fh+1)-X(ch??lo),hgt);}
+  if(lo!=null&&ch!=null){g.fillStyle=css("--chest");g.globalAlpha=.55;g.fillRect(X(lo),y,X(ch+1)-X(lo),hgt);g.globalAlpha=1;}
+  if(P.cLow!=null&&P.cHigh!=null){g.fillStyle=css("--comf");g.fillRect(X(P.cLow),y+hgt*0.2,X(P.cHigh+1)-X(P.cLow),hgt*0.6);}
+}
+function drawProfile(){showCode();
+  const c=document.getElementById("profileCanvas");const{g,w,h}=setupCanvas(c);g.clearRect(0,0,w,h);
+  const lo=rangeLo(),hi=rangeHi();const X=axis(g,w,h,lo,hi,h-18);
+  if(P.low==null&&P.chestHigh==null&&P.cLow==null){g.fillStyle=css("--sub");g.font="13px system-ui";g.fillText("まだ何も入ってない",14,40);return;}
+  drawVoice(g,X,24,46);
+  g.fillStyle=css("--ink");g.font="12px system-ui";
+  if(P.low!=null)g.fillText(sci(P.low),X(P.low),18);
+  if(P.chestHigh!=null)g.fillText(sci(P.chestHigh),X(P.chestHigh)-10,86);
+  if(P.falHigh!=null)g.fillText(sci(P.falHigh),X(P.falHigh)-10,18);
+}
+
+window.addEventListener("resize",()=>drawProfile());
+fillProfile();
+</script>
+</body>
+</html>
