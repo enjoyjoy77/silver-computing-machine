@@ -84,6 +84,14 @@ textarea::placeholder{color:var(--muted)}
 .speedbar .unit{color:var(--muted);font-size:.85rem}
 .speedbar input[type=number]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.35rem .5rem;width:5.4rem}
 input[type=range]{accent-color:var(--pivot);width:100%;min-width:0;margin:0}
+.voicebar{display:grid;grid-template-columns:5.2em minmax(0,1fr);gap:.5rem .6rem;align-items:center;margin-top:.6rem;padding:.7rem .9rem;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.voicebar label{font-weight:700;white-space:nowrap}
+.voicebar select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.35rem .5rem;min-width:0;flex:1 1 auto}
+.voicebar .vrow{display:flex;gap:.6rem;align-items:center}
+.voicebar .vrow b{min-width:3.2rem;text-align:right}
+.voicebar small{grid-column:1/-1;color:var(--muted);font-size:.82rem}
+.voicebar .btn.quiet{padding:.3rem .8rem;font-size:.85rem;white-space:nowrap;flex:0 0 auto}
+.rev{color:var(--muted);font-size:.75rem;font-weight:400;margin-left:.5rem}
 details{margin-top:1.4rem;border-top:1px solid var(--line);padding-top:.8rem}
 summary{cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:.5rem}
 summary::-webkit-details-marker{display:none}
@@ -194,15 +202,17 @@ details[open] summary::before{transform:rotate(45deg)}
 <!-- ============ 入力 ============ -->
 <section id="setup" class="screen on">
   <div class="wrap">
-    <h1>戻れるRSVP 日本語</h1>
-    <p class="lead">文章を文節ごとに一つずつ流す。止まれる、戻れる、気になる語に印を付けられる。</p>
+    <h1>戻れるRSVP 日本語<span class="rev">rev3 (2026-11-13)</span></h1>
+    <p class="lead">文章を文節ごとに一つずつ流す。止まれる、戻れる、気になる語に印を付けられる。声に合わせて流すこともできる。</p>
     <p class="alt"><a href="../rsvp-en/index.html">英語版はこちら →</a></p>
     <textarea id="text" placeholder="ここに日本語の文章を貼り付け（記事、小説、なんでも）" spellcheck="false"></textarea>
     <div class="row">
       <button class="btn big" id="start">読む</button>
       <button class="btn quiet" id="paste">貼り付け</button>
+      <button class="btn quiet" id="openfile">ファイル</button>
       <button class="btn quiet" id="sample">サンプル</button>
       <button class="btn quiet" id="clear">消す</button>
+      <input type="file" id="file" accept=".txt,text/plain" hidden>
       <span class="spacer"></span>
       <span class="count" id="count"></span>
     </div>
@@ -212,6 +222,13 @@ details[open] summary::before{transform:rotate(45deg)}
       <input type="number" id="cpm" min="100" max="3000" step="25" value="500">
       <span class="unit">字/分</span>
       <small>1分あたりの文字数。黙読の平均は500〜600くらい。まずは400〜500から。読んでいる途中でも変えられる</small>
+    </div>
+    <div class="voicebar">
+      <label for="voice">声</label>
+      <div class="vrow"><select id="voice"><option value="off">声なし（目で読む）</option><option value="web">ブラウザの声</option></select><button class="btn quiet" id="vreload">声を探し直す</button></div>
+      <label for="vrate">声の速さ</label>
+      <div class="vrow"><input type="range" id="vrate" min="50" max="200" step="10" value="100" aria-label="声の速さ"><b id="vratelabel">×1.0</b></div>
+      <small id="vnote">声を選ぶと、読み上げに合わせて文節が流れる（速さは「声の速さ」で決まる）。</small>
     </div>
 
     <details id="settings">
@@ -235,6 +252,10 @@ details[open] summary::before{transform:rotate(45deg)}
       <div class="set">
         <label>到達速度（字/分）<small>「だんだん速く」がオンのときの最終速度</small></label>
         <input type="number" id="target" min="100" max="4000" step="25" value="800">
+      </div>
+      <div class="set">
+        <label>途中で切れた行をつなぐ<small>本をOCRした文章など、行の終わりで文が切れているときに。句点で終わらない20字以上の行を次の行とつなぐ</small></label>
+        <input type="checkbox" id="joinlines">
       </div>
       <div class="set">
         <label>文脈を常に見せる<small>オフなら一時停止中だけ、その文全体が下に出る</small></label>
@@ -280,7 +301,7 @@ details[open] summary::before{transform:rotate(45deg)}
   <div class="controls">
     <button class="ctl" id="back">◀ 文<small>戻る</small></button>
     <button class="ctl play" id="play">▶<small>再生</small></button>
-    <button class="ctl mark" id="mark">印<small>気になる</small></button>
+    <button class="ctl" id="fwd">文 ▶<small>進む</small></button>
   </div>
 </section>
 
@@ -311,10 +332,11 @@ const $=id=>document.getElementById(id);
 const KEY='rsvp_ja_v1';
 
 /* ---------- state ---------- */
-let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,folded:false,maxlen:8,text:'',bank:[]};
+let S={cpm:500,chunk:'1',pause:400,ramp:false,target:800,alwaysctx:false,folded:false,maxlen:8,text:'',bank:[],voice:'off',vrate:1,joinlines:true};
 let tokens=[],sentences=[],frames=[];
 let idx=0,playing=false,timer=null,elapsed=0,lastTick=0;
 let marks=new Set();
+let lastSavedSent=-1;
 
 /* ---------- storage ---------- */
 function load(){try{const r=localStorage.getItem(KEY);if(r){Object.assign(S,JSON.parse(r));}}catch(e){}S.chunk=String(S.chunk);}
@@ -510,7 +532,21 @@ window.__rsvpSegment=t=>segmentJa(t).map(c=>c.text);
 /* ---------- tokenize ---------- */
 function tokenize(text){
   tokens=[];sentences=[];
-  const paras=text.replace(/\r/g,'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  let lines=text.replace(/\r/g,'').split('\n').map(s=>s.trim())
+    .filter(s=>!/^【図のページ】|^（この画像をAIに読ませると/.test(s));   // 画面OCRツールが差し込む図の案内は読まない
+  if(S.joinlines){
+    // 本をOCRした文章は、見た目の行の終わりで文が切れている（類似と思考では5800行中4600行）。
+    // 句点などで終わらない20字以上の行は、次の行とつなぐ（短い行は見出しとみなしてつながない）
+    // 「…」で終わる行も、閉じかっこの前に句点が無ければ文の途中とみなす
+    const out=[];
+    for(const l of lines){
+      const prev=out.length?out[out.length-1]:'';
+      if(l&&prev.length>=20&&!/[。．！？!?…‥][」』）)]*$/.test(prev))out[out.length-1]=prev+(/[A-Za-z0-9]$/.test(prev)&&/^[A-Za-z0-9]/.test(l)?' ':'')+l;
+      else out.push(l);
+    }
+    lines=out;
+  }
+  const paras=lines.filter(Boolean);
   paras.forEach((p,pi)=>{
     const chunks=segmentJa(p);
     let sStart=tokens.length;
@@ -580,11 +616,11 @@ function showFrame(i){
   wordEl.style.fontSize=len>4?`clamp(1.2rem, ${(92/len).toFixed(1)}vw, 3.6rem)`:'';
   const anyMarked=f.tokens.some(t=>marks.has(t.i));
   wordEl.classList.toggle('marked',anyMarked);
-  $('mark').classList.toggle('on',anyMarked);
   $('bar').style.width=((i+1)/frames.length*100)+'%';
   $('pos').textContent=`文 ${f.sent+1} / ${sentences.length}`;
-  const w=cpmAt(i);$('curwpm').textContent=S.ramp?`${w} 字/分 ↗`:`${w} 字/分`;
-  $('wpmlabel').textContent=S.cpm;
+  if(f.sent!==lastSavedSent){lastSavedSent=f.sent;savePos(f.sent);}
+  if(voiceOn()){$('curwpm').textContent=`声 ×${S.vrate.toFixed(1)}`;$('wpmlabel').textContent='×'+S.vrate.toFixed(1);}
+  else{const w=cpmAt(i);$('curwpm').textContent=S.ramp?`${w} 字/分 ↗`:`${w} 字/分`;$('wpmlabel').textContent=S.cpm;}
   renderCtx();
 }
 function renderCtx(){
@@ -602,6 +638,153 @@ function renderCtx(){
 }
 function setHint(s){$('hint').textContent=s;}
 
+/* ---------- 声で読む ----------
+   1文ずつ声を作って鳴らし、その音声の進み具合（今何秒目か）に合わせて文節を出す。
+   文の中のどこで文節を切り替えるかは、文節ごとの「拍（モーラ）」の見積もりで割り振る。
+   声は2種類: ブラウザ内蔵の声 / 自分のPCの「声のサーバー」(起動.vbs。スズカ等の声を voices.json で足せる) */
+const VSERVER=(location.protocol==='http:'&&location.port==='18731')?'':'http://127.0.0.1:18731';
+const READABLE=/[0-9A-Za-z０-９Ａ-Ｚａ-ｚぁ-ゖァ-ヺ一-龯々]/;
+const V={audio:new Audio(),cache:new Map(),sent:-1,f0:0,cum:[],token:0,voices:[],timer:null,webChar:0,
+  client:Math.random().toString(36).slice(2),nav:0,ctl:new AbortController()};   // nav: 読む場所を飛ばすたびに+1。サーバーは古い番号の頼みを捨てる
+V.audio.preservesPitch=true;
+const voiceOn=()=>S.voice&&S.voice!=='off';
+function sentText(s){const sen=sentences[s];let t='';for(let i=sen.start;i<=sen.end;i++)t+=tokens[i].text;return t;}
+function mora(s){
+  let m=0;
+  for(const ch of s){
+    if(/[一-龯々〆ヵヶ]/.test(ch))m+=1.8;
+    else if(/[ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ]/.test(ch))m+=0.1;
+    else if(/[ぁ-ゖァ-ヺー]/.test(ch))m+=1;
+    else if(/[0-9０-９]/.test(ch))m+=1.5;
+    else if(/[A-Za-zＡ-Ｚａ-ｚ]/.test(ch))m+=0.8;
+    else if(/[、，,]/.test(ch))m+=1.5;
+  }
+  return m;
+}
+function sentFrames(s){const a=[];for(let i=sentStartFrame(s);i<frames.length&&frames[i].sent===s;i++)a.push(i);return a;}
+function setupSync(s){
+  const fs=sentFrames(s);V.f0=fs[0];
+  const w=fs.map(i=>Math.max(0.6,mora(frames[i].text)));
+  const tot=w.reduce((a,b)=>a+b,0)||1;let acc=0;
+  V.cum=w.map(x=>{const c=acc/tot;acc+=x;return c;});V.totalW=tot;
+}
+function syncTo(p){
+  let k=0;while(k+1<V.cum.length&&p>=V.cum[k+1])k++;
+  const ni=V.f0+k;if(ni!==idx){idx=ni;showFrame(idx);}
+}
+function vStop(){
+  V.token++;V.sent=-1;clearTimeout(V.timer);
+  V.nav++;vClearCache();   // 飛んだ先の前後は作り直す（古い頼みはサーバー側で捨てられる）
+  V.ctl.abort();V.ctl=new AbortController();   // ブラウザは同じ相手に6本までしか送らないので、待ち行列の古い頼みもここで消す
+  try{V.audio.pause();}catch(e){}
+  if(window.speechSynthesis)speechSynthesis.cancel();
+}
+function vClearCache(){V.cache.forEach(p=>p.then(u=>{if(u)URL.revokeObjectURL(u);}).catch(()=>{}));V.cache.clear();}
+function fetchSay(s){
+  if(s<0||s>=sentences.length)return Promise.resolve(null);
+  if(V.cache.has(s))return V.cache.get(s);
+  const text=sentText(s);
+  let p;
+  if(!READABLE.test(text))p=Promise.resolve(null);
+  else{
+    const opt={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({voice:+S.voice.slice(2),text,client:V.client,nav:V.nav}),signal:V.ctl.signal};
+    p=fetch(VSERVER+'/api/say',opt)
+    .catch(e=>{if(opt.signal.aborted)throw e;return new Promise(r=>setTimeout(r,800)).then(()=>fetch(VSERVER+'/api/say',opt));})   // 1回だけやり直す
+    .then(async r=>{
+      if(!r.ok){let m='声を作れませんでした（'+r.status+'）';try{m=(await r.json()).msg||m;}catch(e){}throw new Error(m);}
+      return URL.createObjectURL(await r.blob());
+    },()=>{throw new Error('声のサーバーにつながりません。「起動.vbs」で声のサーバーを動かしてから、もう一度▶');});
+  }
+  V.cache.set(s,p);
+  p.catch(()=>V.cache.delete(s));
+  for(const k of [...V.cache.keys()]){if(k<s-8||k>s+12){const q=V.cache.get(k);V.cache.delete(k);q.then(u=>{if(u)URL.revokeObjectURL(u);}).catch(()=>{});}}
+  return p;
+}
+async function vPlaySent(s){
+  const my=++V.token;clearTimeout(V.timer);
+  V.sent=s;setupSync(s);idx=V.f0;showFrame(idx);
+  if(S.voice==='web'){webSpeak(s,my);return;}
+  const slow=setTimeout(()=>{if(my===V.token)setHint('声を準備中…');},400);
+  let url;
+  try{url=await fetchSay(s);}catch(e){clearTimeout(slow);if(my!==V.token)return;pause();setHint(e.message);return;}
+  clearTimeout(slow);
+  if(my!==V.token||!playing)return;
+  setHint('');
+  fetchSay(s+1);fetchSay(s+2);fetchSay(s+3);
+  if(!url){silentSent(s,my);return;}
+  const a=V.audio;a.src=url;a.playbackRate=S.vrate;
+  a.onended=()=>{if(my===V.token&&playing)nextSent(s);};
+  a.play().then(()=>loopSync(my)).catch(e=>{if(my!==V.token)return;pause();setHint('音を鳴らせませんでした。もう一度▶を押してください');});
+}
+function loopSync(my){
+  const a=V.audio;
+  const step=()=>{
+    if(my!==V.token||!playing)return;
+    if(a.duration&&isFinite(a.duration))syncTo(a.currentTime/a.duration);
+    setTimeout(step,40);
+  };
+  step();
+}
+function silentSent(s,my){   // 読める文字が無い文（記号だけ等）は、目で読む時の速さで流す
+  const fs=sentFrames(s);let k=0;
+  const go=()=>{if(my!==V.token||!playing)return;if(k>=fs.length){nextSent(s);return;}idx=fs[k];showFrame(idx);V.timer=setTimeout(go,duration(frames[idx],idx));k++;};
+  go();
+}
+function webSpeak(s,my){
+  if(!window.speechSynthesis){pause();setHint('このブラウザには読み上げの声がありません');return;}
+  const text=sentText(s);
+  if(!READABLE.test(text)){silentSent(s,my);return;}
+  const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';u.rate=S.vrate;
+  const jv=speechSynthesis.getVoices().find(v=>/^ja/i.test(v.lang));if(jv)u.voice=jv;
+  V.webChar=0;let t0=0;
+  const est=V.totalW*0.13/S.vrate*1000;   // 1拍0.13秒の見積もり（境界の知らせが来ない声のため）
+  u.onstart=()=>{t0=performance.now();};
+  u.onboundary=e=>{if(my===V.token)V.webChar=e.charIndex;};
+  u.onend=()=>{if(my===V.token&&playing)nextSent(s);};
+  u.onerror=e=>{if(my!==V.token||e.error==='interrupted'||e.error==='canceled')return;pause();setHint('ブラウザの声で読めませんでした（'+e.error+'）');};
+  speechSynthesis.cancel();speechSynthesis.speak(u);
+  const step=()=>{
+    if(my!==V.token||!playing)return;
+    const byTime=t0?Math.min(0.97,(performance.now()-t0)/est):0;
+    syncTo(Math.max(byTime,V.webChar/text.length));
+    setTimeout(step,40);
+  };
+  step();
+}
+function nextSent(s){if(s+1>=sentences.length){finish();return;}vPlaySent(s+1);}
+function vResume(){
+  const s=frames[idx].sent;
+  if(S.voice!=='web'&&V.sent===s&&V.audio.src&&!V.audio.ended&&V.audio.currentTime>0){
+    const my=++V.token;V.audio.playbackRate=S.vrate;
+    V.audio.onended=()=>{if(my===V.token&&playing)nextSent(s);};
+    V.audio.play().then(()=>loopSync(my)).catch(()=>vPlaySent(s));
+    return;
+  }
+  vPlaySent(s);
+}
+async function loadVoices(){
+  const sel=$('voice');
+  [...sel.options].filter(o=>o.value.startsWith('s:')).forEach(o=>o.remove());
+  let note='声を選ぶと、読み上げに合わせて文節が流れる（速さは「声の速さ」で決まる）。';
+  try{
+    const ctl=new AbortController();setTimeout(()=>ctl.abort(),2500);
+    const r=await fetch(VSERVER+'/api/voices',{signal:ctl.signal,cache:'no-store'});
+    const d=await r.json();
+    if(!d.ok||!Array.isArray(d.voices))throw 0;
+    d.voices.forEach(v=>{const o=document.createElement('option');o.value='s:'+v.id;o.textContent=v.name;o.title=v.note||'';sel.appendChild(o);});
+    note+=' 声のサーバーとつながっている（'+d.voices.length+'種類）。';
+  }catch(e){
+    note+=' 声のサーバーは見つからない（スズカ等の声は、自分のPCで「起動.vbs」を動かすと出てくる）。';
+  }
+  if([...sel.options].some(o=>o.value===S.voice))sel.value=S.voice;
+  else if(S.voice.startsWith('s:'))note+=' 前に選んだ声は、サーバーを動かすと戻る。';
+  $('vnote').textContent=note;
+}
+const POSKEY='rsvp_ja_pos';
+function textKey(t){return t.length+':'+t.slice(0,40);}
+function savePos(s){try{localStorage.setItem(POSKEY,JSON.stringify({k:textKey(S.text),s}));}catch(e){}}
+function loadPos(){try{const p=JSON.parse(localStorage.getItem(POSKEY)||'null');if(p&&p.k===textKey(S.text))return p.s|0;}catch(e){}return 0;}
+
 /* ---------- playback ---------- */
 function tick(){
   if(!playing)return;
@@ -618,26 +801,42 @@ function play(){
   playing=true;lastTick=Date.now();
   $('play').innerHTML='❚❚<small>停止</small>';setHint('');
   renderCtx();
+  if(voiceOn()){vResume();return;}
   timer=setTimeout(()=>{tick();},idx===0?500:150);
 }
 function pause(){
   if(!playing)return;
   playing=false;clearTimeout(timer);elapsed+=Date.now()-lastTick;
+  V.token++;clearTimeout(V.timer);try{V.audio.pause();}catch(e){}
+  if(window.speechSynthesis)speechSynthesis.cancel();   // ブラウザの声は途中で止めて再開できないので、▶で文の頭から読み直す
   $('play').innerHTML='▶<small>再生</small>';setHint('一時停止中。下の文節をタップで印。右スワイプで1文戻る');
   renderCtx();
 }
 function toggle(){playing?pause():play();}
 function sentStartFrame(sent){for(let i=0;i<frames.length;i++)if(frames[i].sent===sent)return i;return 0;}
 function backSentence(){
-  const wasPlaying=playing;pause();
+  const wasPlaying=playing;pause();vStop();
   const cur=frames[idx].sent;const st=sentStartFrame(cur);
   idx=(idx>st)?st:sentStartFrame(Math.max(0,cur-1));
   showFrame(idx);if(wasPlaying)play();
 }
 function fwdSentence(){
-  const wasPlaying=playing;pause();
+  const wasPlaying=playing;pause();vStop();
   const cur=frames[idx].sent;
   if(cur+1<sentences.length){idx=sentStartFrame(cur+1);showFrame(idx);if(wasPlaying)play();}
+}
+function setVrate(v){
+  S.vrate=Math.min(2,Math.max(0.5,Math.round(v*10)/10));
+  V.audio.playbackRate=S.vrate;
+  $('vrate').value=Math.round(S.vrate*100);$('vratelabel').textContent='×'+S.vrate.toFixed(1);
+  if(voiceOn()){$('speed').value=Math.round(S.vrate*100);}
+  save();if($('reader').classList.contains('on'))showFrame(idx);
+}
+function speedUI(){   // 読む画面の速さバーを「字/分」か「声の速さ」に切り替える
+  const r=$('speed');
+  if(voiceOn()){r.min=50;r.max=200;r.step=10;r.value=Math.round(S.vrate*100);}
+  else{r.min=100;r.max=1500;r.step=25;r.value=S.cpm;}
+  $('wpmlabel').nextElementSibling.textContent=voiceOn()?'声':'字/分';
 }
 function setCpm(v){
   S.cpm=Math.min(3000,Math.max(100,Math.round(v)||500));
@@ -645,9 +844,10 @@ function setCpm(v){
   syncSpeed();save();
   if($('reader').classList.contains('on'))showFrame(idx);else setCount();
 }
-function bumpCpm(d){setCpm(S.cpm+d);}
+function bumpCpm(d){if(voiceOn()){setVrate(S.vrate+(d>0?0.1:-0.1));return;}setCpm(S.cpm+d);}
 function syncSpeed(){
-  $('cpm').value=S.cpm;$('cpmrange').value=S.cpm;$('speed').value=S.cpm;$('target').value=S.target;$('wpmlabel').textContent=S.cpm;
+  $('cpm').value=S.cpm;$('cpmrange').value=S.cpm;$('target').value=S.target;
+  if(!voiceOn()){$('speed').value=S.cpm;$('wpmlabel').textContent=S.cpm;}
 }
 function applyFold(){
   $('reader').classList.toggle('folded',!!S.folded);
@@ -667,10 +867,14 @@ function startReading(){
   const text=$('text').value.trim();
   if(!text){setCount('文章を貼り付けてから');return;}
   S.text=text;readSettings();save();
+  vStop();vClearCache();
   tokenize(text);buildFrames();
   if(!frames.length)return;
-  idx=0;marks=new Set();elapsed=0;playing=false;
-  show('reader');showFrame(0);setHint('タップで開始');
+  const resumeSent=Math.min(loadPos(),sentences.length-1);
+  idx=resumeSent>0?sentStartFrame(resumeSent):0;
+  marks=new Set();elapsed=0;playing=false;lastSavedSent=-1;
+  speedUI();show('reader');showFrame(idx);
+  setHint(idx>0?`前回の続き（文 ${resumeSent+1}）から。タップで開始 ／ ◀で前の文へ`:'タップで開始');
   $('play').innerHTML='▶<small>再生</small>';
 }
 function finish(){
@@ -704,11 +908,15 @@ function finish(){
 function readSettings(){
   S.cpm=+$('cpm').value||500;S.chunk=$('chunk').value||'1';S.pause=+$('pause').value||0;S.maxlen=+$('maxlen').value||8;
   S.ramp=$('ramp').checked;S.target=+$('target').value||S.cpm;S.alwaysctx=$('alwaysctx').checked;
+  S.voice=$('voice').value||'off';S.joinlines=$('joinlines').checked;S.vrate=(+$('vrate').value||100)/100;
   syncSpeed();
 }
 function writeSettings(){
   $('cpm').value=S.cpm;$('chunk').value=S.chunk;$('pause').value=S.pause;$('maxlen').value=String(S.maxlen||8);
   $('ramp').checked=S.ramp;$('target').value=S.target;$('alwaysctx').checked=S.alwaysctx;
+  if(S.voice==='off'||S.voice==='web')$('voice').value=S.voice;
+  $('joinlines').checked=S.joinlines!==false;
+  S.vrate=+S.vrate||1;$('vrate').value=Math.round(S.vrate*100);$('vratelabel').textContent='×'+S.vrate.toFixed(1);
   syncSpeed();applyFold();
   $('text').value=S.text||'';setCount();
 }
@@ -754,16 +962,27 @@ $('paste').addEventListener('click',async()=>{
 });
 $('clear').addEventListener('click',()=>{$('text').value='';setCount();});
 $('text').addEventListener('input',()=>{S.text=$('text').value;setCount();save();});
-['cpm','chunk','pause','ramp','target','alwaysctx','maxlen'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
+$('openfile').addEventListener('click',()=>$('file').click());
+$('file').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const buf=await f.arrayBuffer();let t;
+  try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf);}catch(err){t=new TextDecoder('shift_jis').decode(buf);}   // メモ帳の古い保存形式(Shift-JIS)も読む
+  t=t.replace(/^﻿/,'');
+  $('text').value=t;S.text=t;setCount();save();e.target.value='';
+});
+$('voice').addEventListener('change',()=>{readSettings();save();vClearCache();});
+$('vrate').addEventListener('input',e=>setVrate(+e.target.value/100));
+$('vreload').addEventListener('click',()=>{$('vnote').textContent='声のサーバーを探しています…';loadVoices();});
+['cpm','chunk','pause','ramp','target','alwaysctx','maxlen','joinlines'].forEach(id=>$(id).addEventListener('change',()=>{readSettings();save();setCount();}));
 $('copybank').addEventListener('click',e=>copyText(S.bank.join('\n'),e.currentTarget));
 $('clearbank').addEventListener('click',()=>{if(!S.bank.length)return;if(confirm('印を付けた語を全部消す？')){S.bank=[];save();renderBank();}});
 
 $('play').addEventListener('click',toggle);
 $('back').addEventListener('click',backSentence);
-$('mark').addEventListener('click',markCurrent);
+$('fwd').addEventListener('click',fwdSentence);   // rev3: 印ボタンをやめて「進む」に(行き過ぎた時に戻すため。印はキーのMと文のタップで付けられる)
 $('slower').addEventListener('click',()=>bumpCpm(-50));
 $('faster').addEventListener('click',()=>bumpCpm(50));
-$('speed').addEventListener('input',e=>setCpm(+e.target.value));
+$('speed').addEventListener('input',e=>{if(voiceOn())setVrate(+e.target.value/100);else setCpm(+e.target.value);});
 $('cpmrange').addEventListener('input',e=>setCpm(+e.target.value));
 $('fold').addEventListener('click',()=>{S.folded=!S.folded;save();applyFold();});
 /* Android などで全画面＋横向き固定ができる時だけボタンを出す（iPhone は本体を回す） */
@@ -779,8 +998,8 @@ $('fold').addEventListener('click',()=>{S.folded=!S.folded;save();applyFold();})
   });
   document.addEventListener('fullscreenchange',()=>{b.textContent=document.fullscreenElement?'⤡ 戻す':'⤢ 横画面';});
 })();
-$('quit').addEventListener('click',()=>{pause();show('setup');});
-$('again').addEventListener('click',()=>{idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
+$('quit').addEventListener('click',()=>{pause();vStop();show('setup');});
+$('again').addEventListener('click',()=>{vStop();idx=0;marks=new Set();elapsed=0;show('reader');showFrame(0);setHint('タップで開始');});
 $('tosetup').addEventListener('click',()=>show('setup'));
 $('copymarks').addEventListener('click',e=>{
   const ws=[...new Set([...marks].map(t=>cleanWord(tokens[t].text)).filter(Boolean))];
@@ -811,11 +1030,12 @@ document.addEventListener('keydown',e=>{
     case 'ArrowUp':bumpCpm(50);break;
     case 'ArrowDown':bumpCpm(-50);break;
     case '?':case 'm':case 'M':markCurrent();break;
-    case 'Escape':pause();show('setup');break;
+    case 'Escape':pause();vStop();show('setup');break;
   }
 });
-document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
-if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&!voiceOn())pause();});   // 声で読んでいる時は、別の窓に移っても読み続ける
+loadVoices();
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)&&!/^(127\.0\.0\.1|localhost)$/.test(location.hostname)){   // 自分のPCの声のサーバーから開いた時は古い版が残らないよう使わない
   window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{});});
 }
 })();
