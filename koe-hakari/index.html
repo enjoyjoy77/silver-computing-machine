@@ -63,7 +63,7 @@ input[type=range]{width:100%}
 </head>
 <body>
 <header>
-  <h1>声はかり</h1>
+  <h1>声はかり <span class="small" style="font-weight:400">rev2 2026-11-11</span></h1>
   <p>マイクで自分の音域と息の長さを測る。結果はコードにして「歌える？チェッカー」に渡す。</p>
 </header>
 <nav>
@@ -79,6 +79,7 @@ input[type=range]{width:100%}
       <button data-m="low" class="on"><b>いちばん低い声</b>地声で下がれるところまで</button>
       <button data-m="chestHigh"><b>地声の最高音</b>張って出せる上限</button>
       <button data-m="falHigh"><b>裏声の最高音</b>かすれてもいいので上限</button>
+      <button data-m="gap"><b>出ない高さ</b>サイレンみたいに上下して、声が飛ぶ所を探す</button>
       <button data-m="comfort"><b>ふつうに歌う</b>好きな曲を1〜2分。ラクな音域を出す</button>
       <button data-m="sustain"><b>ロングトーン</b>息を吸って「あー」を限界まで</button>
     </div>
@@ -122,11 +123,13 @@ input[type=range]{width:100%}
     <label class="f">ラクに出る上限 <select id="p_cHigh"></select></label>
     <label class="f">地声の最高音 <select id="p_chestHigh"></select></label>
     <label class="f">裏声の最高音 <select id="p_falHigh"></select></label>
+    <label class="f">出ない高さ（下） <select id="p_gapLow"></select></label>
+    <label class="f">出ない高さ（上） <select id="p_gapHigh"></select></label>
     <label class="f">ロングトーン（秒） <input type="number" id="p_sustain" min="0" max="120" step="0.1" style="width:90px"></label>
   </div>
   <div class="card">
     <canvas id="profileCanvas" height="120"></canvas>
-    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。</p>
+    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。黒い斜線が出ない高さ。</p>
   </div>
 
   <div class="card">
@@ -155,7 +158,7 @@ function m2hz(m){return 440*Math.pow(2,(m-69)/12);}
 
 /* ---------- 保存 ---------- */
 const KEY="utaeru-profile-v1";
-let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null};
+let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null,gapLow:null,gapHigh:null};
 try{const s=localStorage.getItem(KEY);if(s)Object.assign(P,JSON.parse(s));}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(P));}catch(e){}}
 
@@ -201,6 +204,31 @@ function stableSegs(v,minDur=0.25,tol=0.6,gap=0.07){
   if(cur&&cur.last-cur.start>=minDur)segs.push({start:cur.start,dur:cur.last-cur.start,m:median(cur.ms)});
   return segs;
 }
+// 出ない高さ: サイレンで上下したとき、声が飛び越えた(ほとんど通らなかった)半音の連なり
+function findGap(v){
+  const cov={},jumps={};
+  for(let i=0;i<v.length;i++){
+    const m=Math.round(v[i].m);const dt=i?Math.min(0.05,v[i].t-v[i-1].t):0.016;cov[m]=(cov[m]||0)+dt;
+    // 有声のまま、または一瞬途切れて(0.6秒以内)1.5半音以上とんだら、間の半音を「飛び越えた」と数える
+    if(i&&v[i].t-v[i-1].t<0.6){const a=v[i-1].m,b=v[i].m;
+      if(Math.abs(b-a)>=1.5){const lo=Math.ceil(Math.min(a,b)+0.5),hi=Math.floor(Math.max(a,b)-0.5);for(let k=lo;k<=hi;k++)jumps[k]=(jumps[k]||0)+1;}}
+  }
+  const items=Object.keys(cov).map(Number).map(m=>({m,w:cov[m]}));
+  const from=Math.round(wPct(items,0.03)),to=Math.round(wPct(items,0.97));
+  if(to-from<7)return{ok:false};
+  const inner=[];for(let m=from;m<=to;m++)if(cov[m])inner.push(cov[m]);
+  const med=median(inner);
+  const runs=[];let cur=null;
+  for(let m=from+1;m<to;m++){
+    if((cov[m]||0)<med*0.25){if(!cur)cur={lo:m,hi:m};else cur.hi=m;}
+    else if(cur){runs.push(cur);cur=null;}
+  }
+  if(cur)runs.push(cur);
+  runs.forEach(r=>{r.jumps=0;for(let m=r.lo;m<=r.hi;m++)r.jumps=Math.max(r.jumps,jumps[m]||0);});
+  const cand=runs.filter(r=>r.jumps>0).sort((a,b)=>(b.jumps-a.jumps)||((b.hi-b.lo)-(a.hi-a.lo)));
+  if(!cand.length)return{ok:true,from,to,lo:null};
+  return{ok:true,from,to,lo:cand[0].lo,hi:cand[0].hi,jumps:cand[0].jumps};
+}
 function longestRun(v,gap=0.2){let best=0,s=null,last=null;for(const p of v){if(s==null||p.t-last>gap){s=p.t;}last=p.t;best=Math.max(best,last-s);}return best;}
 function wPct(items,q){ // items:[{m,w}]
   const s=[...items].sort((a,b)=>a.m-b.m);const tot=s.reduce((a,b)=>a+b.w,0);let acc=0;
@@ -211,6 +239,7 @@ const MODES={
   low:{label:"いちばん低い声",hint:"地声で、ドレミを下っていく。出なくなったら止める。うなり声みたいなのは拾わないこともある。"},
   chestHigh:{label:"地声の最高音",hint:"裏返らない範囲で上がっていく。張り上げて喉を痛めない程度で。"},
   falHigh:{label:"裏声の最高音",hint:"裏声でどこまで上がれるか。細くてもいいので音程は伸ばす。"},
+  gap:{label:"出ない高さ（地声と裏声のすき間）",hint:"低い地声から「うー」で、なめらかに裏声の上のほうまで上がって、また下りてくる。サイレンのように2〜3往復。声がひっくり返ったり途切れたりしてOK（それを探している）。"},
   comfort:{label:"ラクに出る音域",hint:"好きな曲をふつうに1〜2分歌う。そこで長く使ってる音の、下1割と上1割を除いた範囲をラクな音域にする。"},
   sustain:{label:"ロングトーン",hint:"思い切り吸って、ラクな高さで「あー」を一定の大きさで伸ばす。途切れたらそこまで。20秒くらいが平均の目安。"}
 };
@@ -232,6 +261,15 @@ function analyze(frames){
     const s=longestRun(v);lastRes={sustain:Math.round(s*10)/10};
     document.getElementById("resValue").textContent=s.toFixed(1)+" 秒";
     msg.textContent=s<10?"短め。歌うと長いフレーズで息が足りなくなりやすい。":s<20?"ふつうよりやや短い。":"十分ある。";
+  }else if(mode==="gap"){
+    const g=findGap(v);
+    if(!g.ok){document.getElementById("resValue").textContent="上下の幅が足りない";msg.textContent="低い所から裏声の上のほうまで、もっと大きく上下してみて（1オクターブ半くらい）。";applyBtn.disabled=true;return;}
+    if(g.lo==null){lastRes={gapLow:null,gapHigh:null};
+      document.getElementById("resValue").textContent="切れ目は見つからなかった";
+      msg.textContent=kara(g.from)+"〜"+kara(g.to)+" まで、声が途切れずにつながっていた。";}
+    else{lastRes={gapLow:g.lo,gapHigh:g.hi};
+      document.getElementById("resValue").textContent=g.lo===g.hi?nm(g.lo):sci(g.lo)+" 〜 "+sci(g.hi)+"（"+kara(g.lo)+"〜"+kara(g.hi)+"）";
+      msg.textContent="ここで声が飛んでいた（"+g.jumps+"回飛び越えた）。何回かやって同じ所が出たら、そこが出ない高さ。";}
   }else if(mode==="comfort"){
     const segs=stableSegs(v,0.12);
     const items=segs.length>=5?segs.map(s=>({m:s.m,w:s.dur})):v.map(p=>({m:p.m,w:1}));
@@ -307,14 +345,15 @@ document.getElementById("audioFile").onchange=async e=>{
 };
 
 /* ---------- プロフィール ---------- */
-const PF=["low","cLow","cHigh","chestHigh","falHigh"];
+const PF=["low","cLow","cHigh","chestHigh","falHigh","gapLow","gapHigh"];
 function noteOptions(sel,lo=28,hi=96){sel.innerHTML='<option value="">未設定</option>';for(let m=lo;m<=hi;m++){const o=document.createElement("option");o.value=m;o.textContent=sci(m)+"  "+kara(m);sel.appendChild(o);}}
 PF.forEach(k=>{const s=document.getElementById("p_"+k);noteOptions(s);s.onchange=()=>{P[k]=s.value===""?null:+s.value;save();drawProfile();};});
 const sus=document.getElementById("p_sustain");sus.onchange=()=>{P.sustain=sus.value===""?null:+sus.value;save();};
 function fillProfile(){PF.forEach(k=>document.getElementById("p_"+k).value=P[k]==null?"":P[k]);sus.value=P.sustain==null?"":P.sustain;drawProfile();}
 
 let song=null;
-function code(){return "UTAERU1:"+["low","cLow","cHigh","chestHigh","falHigh","sustain"].map(k=>P[k]==null?"":P[k]).join(",");}
+// 7・8番目(出ない高さ)は rev2 で後ろに足した。古いチェッカーは6番目までしか読まないので壊れない
+function code(){return "UTAERU1:"+["low","cLow","cHigh","chestHigh","falHigh","sustain","gapLow","gapHigh"].map(k=>P[k]==null?"":P[k]).join(",");}
 function showCode(){const el=document.getElementById("codeOut");if(el)el.textContent=code();}
 document.getElementById("copyBtn").onclick=async()=>{const b=document.getElementById("copyBtn");
   try{await navigator.clipboard.writeText(code());b.textContent="コピーした";}
@@ -336,6 +375,12 @@ function drawVoice(g,X,y,hgt){
   if(lo!=null&&fh!=null&&fh>(ch??lo)){g.fillStyle=css("--fal");g.fillRect(X(ch??lo),y,X(fh+1)-X(ch??lo),hgt);}
   if(lo!=null&&ch!=null){g.fillStyle=css("--chest");g.globalAlpha=.55;g.fillRect(X(lo),y,X(ch+1)-X(lo),hgt);g.globalAlpha=1;}
   if(P.cLow!=null&&P.cHigh!=null){g.fillStyle=css("--comf");g.fillRect(X(P.cLow),y+hgt*0.2,X(P.cHigh+1)-X(P.cLow),hgt*0.6);}
+  drawGap(g,X,y,hgt);
+}
+function drawGap(g,X,y,hgt){
+  if(P.gapLow==null)return;const a=X(P.gapLow),b=X((P.gapHigh??P.gapLow)+1);
+  g.save();g.fillStyle=css("--bg");g.fillRect(a,y,b-a,hgt);g.beginPath();g.rect(a,y,b-a,hgt);g.clip();
+  g.strokeStyle=css("--ink");g.lineWidth=1.5;for(let x=a-hgt;x<b;x+=6){g.beginPath();g.moveTo(x,y+hgt);g.lineTo(x+hgt,y);g.stroke();}g.restore();
 }
 function drawProfile(){showCode();
   const c=document.getElementById("profileCanvas");const{g,w,h}=setupCanvas(c);g.clearRect(0,0,w,h);

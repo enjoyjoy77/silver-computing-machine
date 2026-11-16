@@ -63,7 +63,7 @@ input[type=range]{width:100%}
 </head>
 <body>
 <header>
-  <h1>歌える？チェッカー</h1>
+  <h1>歌える？チェッカー <span class="small" style="font-weight:400">rev2 2026-11-11</span></h1>
   <p>自分の音域とMIDIの曲を重ねて、歌えるか、キーをいくつ動かせばいいかを出す。声を測るのは<a href="../koe-hakari/index.html" style="color:inherit">声はかり</a>。同じ端末で測った結果は自動で入る。</p>
 </header>
 <nav>
@@ -141,11 +141,13 @@ input[type=range]{width:100%}
     <label class="f">ラクに出る上限 <select id="p_cHigh"></select></label>
     <label class="f">地声の最高音 <select id="p_chestHigh"></select></label>
     <label class="f">裏声の最高音 <select id="p_falHigh"></select></label>
+    <label class="f">出ない高さ（下） <select id="p_gapLow"></select></label>
+    <label class="f">出ない高さ（上） <select id="p_gapHigh"></select></label>
     <label class="f">ロングトーン（秒） <input type="number" id="p_sustain" min="0" max="120" step="0.1" style="width:90px"></label>
   </div>
   <div class="card">
     <canvas id="profileCanvas" height="120"></canvas>
-    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。</p>
+    <p class="small" style="margin-top:6px">濃い帯がラクな音域、赤が地声、薄い色が裏声で届く範囲。黒い斜線が出ない高さ。</p>
   </div>
 </section>
 </main>
@@ -169,7 +171,7 @@ function wPct(items,q){ // items:[{m,w}]
   for(const it of s){acc+=it.w;if(acc>=tot*q)return it.m;}return s.length?s[s.length-1].m:null;}
 /* ---------- 保存 ---------- */
 const KEY="utaeru-profile-v1";
-let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null};
+let P={low:null,cLow:null,cHigh:null,chestHigh:null,falHigh:null,sustain:null,gapLow:null,gapHigh:null};
 try{const s=localStorage.getItem(KEY);if(s)Object.assign(P,JSON.parse(s));}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(P));}catch(e){}}
 
@@ -182,13 +184,13 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 });
 
 /* ---------- プロフィール ---------- */
-const PF=["low","cLow","cHigh","chestHigh","falHigh"];
+const PF=["low","cLow","cHigh","chestHigh","falHigh","gapLow","gapHigh"];
 function noteOptions(sel,lo=28,hi=96){sel.innerHTML='<option value="">未設定</option>';for(let m=lo;m<=hi;m++){const o=document.createElement("option");o.value=m;o.textContent=sci(m)+"  "+kara(m);sel.appendChild(o);}}
 PF.forEach(k=>{const s=document.getElementById("p_"+k);noteOptions(s);s.onchange=()=>{P[k]=s.value===""?null:+s.value;save();drawProfile();};});
 const sus=document.getElementById("p_sustain");
 document.getElementById("codeBtn").onclick=()=>{const v=document.getElementById("codeIn").value.trim();const cm=document.getElementById("codeMsg");
   const m=v.match(/UTAERU1:([^\s]*)/);if(!m){cm.textContent="コードの形が違う。UTAERU1: から始まる文字列を丸ごと貼って。";return;}
-  const a=m[1].split(",");const keys=["low","cLow","cHigh","chestHigh","falHigh","sustain"];
+  const a=m[1].split(",");const keys=["low","cLow","cHigh","chestHigh","falHigh","sustain","gapLow","gapHigh"];
   keys.forEach((k,i)=>{const x=a[i];P[k]=(x===undefined||x==="")?null:+x;});save();fillProfile();if(song)render();
   cm.textContent="入れた："+nm(P.low)+" 〜 "+nm(P.falHigh??P.chestHigh);};sus.onchange=()=>{P.sustain=sus.value===""?null:+sus.value;save();};
 function fillProfile(){PF.forEach(k=>document.getElementById("p_"+k).value=P[k]==null?"":P[k]);sus.value=P.sustain==null?"":P.sustain;drawProfile();}
@@ -209,6 +211,12 @@ function drawVoice(g,X,y,hgt){
   if(lo!=null&&fh!=null&&fh>(ch??lo)){g.fillStyle=css("--fal");g.fillRect(X(ch??lo),y,X(fh+1)-X(ch??lo),hgt);}
   if(lo!=null&&ch!=null){g.fillStyle=css("--chest");g.globalAlpha=.55;g.fillRect(X(lo),y,X(ch+1)-X(lo),hgt);g.globalAlpha=1;}
   if(P.cLow!=null&&P.cHigh!=null){g.fillStyle=css("--comf");g.fillRect(X(P.cLow),y+hgt*0.2,X(P.cHigh+1)-X(P.cLow),hgt*0.6);}
+  drawGap(g,X,y,hgt);
+}
+function drawGap(g,X,y,hgt){
+  if(P.gapLow==null)return;const a=X(P.gapLow),b=X((P.gapHigh??P.gapLow)+1);
+  g.save();g.fillStyle=css("--bg");g.fillRect(a,y,b-a,hgt);g.beginPath();g.rect(a,y,b-a,hgt);g.clip();
+  g.strokeStyle=css("--ink");g.lineWidth=1.5;for(let x=a-hgt;x<b;x+=6){g.beginPath();g.moveTo(x,y+hgt);g.lineTo(x+hgt,y);g.stroke();}g.restore();
 }
 function drawProfile(){
   const c=document.getElementById("profileCanvas");const{g,w,h}=setupCanvas(c);g.clearRect(0,0,w,h);
@@ -321,6 +329,12 @@ function judge(k){
   if(r.level!=="ng"&&mx>P.chestHigh){r.issues.push("最高音 "+sci(mx)+" は地声だと届かない。裏声に切り替える箇所が出る");r.cost+=2*(mx-P.chestHigh)+2;r.level="mid";}
   if(P.cHigh!=null&&hi>P.cHigh){r.issues.push("よく歌う高さが上寄り（"+sci(hi)+"）。ラクな上限 "+sci(P.cHigh)+" を超えてて、通して歌うと疲れる");r.cost+=2*(hi-P.cHigh);if(hi-P.cHigh>2&&r.level==="ok")r.level="mid";}
   if(P.cLow!=null&&lo<P.cLow){r.issues.push("よく歌う高さが下寄り（"+sci(lo)+"）。声がこもって前に出にくい");r.cost+=1.5*(P.cLow-lo);if(P.cLow-lo>2&&r.level==="ok")r.level="mid";}
+  // 出ない高さ(地声と裏声のすき間)。そこに止まる音が合計0.3秒を超えたら△、1秒を超えたら×
+  if(P.gapLow!=null){const gl=P.gapLow,gh=P.gapHigh??P.gapLow;
+    if(S.manual){if(mx>=gl&&mn<=gh&&r.level==="ok"){r.issues.push("出ない高さ "+sci(gl)+(gh!==gl?"〜"+sci(gh):"")+" が曲の音域の中にある（手入力なので長さは分からない）");r.level="mid";r.cost+=3;}}
+    else{const t=S.items.filter(it=>it.m+k>=gl&&it.m+k<=gh).reduce((a,b)=>a+b.w,0);
+      if(t>0.3){r.issues.push("出ない高さ "+sci(gl)+(gh!==gl?"〜"+sci(gh):"")+" を合計"+t.toFixed(1)+"秒歌う");r.cost+=10+4*t;
+        if(t>1)r.level="ng";else if(r.level==="ok")r.level="mid";}}}
   r.cost+=0.4*Math.abs(k);
   return r;
 }
