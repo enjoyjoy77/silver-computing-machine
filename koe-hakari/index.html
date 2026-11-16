@@ -63,7 +63,7 @@ input[type=range]{width:100%}
 </head>
 <body>
 <header>
-  <h1>声はかり <span class="small" style="font-weight:400">rev2 2026-11-11</span></h1>
+  <h1>声はかり <span class="small" style="font-weight:400">rev3 2026-11-16</span></h1>
   <p>マイクで自分の音域と息の長さを測る。結果はコードにして「歌える？チェッカー」に渡す。</p>
 </header>
 <nav>
@@ -218,8 +218,11 @@ function findGap(v){
   if(to-from<7)return{ok:false};
   const inner=[];for(let m=from;m<=to;m++)if(cov[m])inner.push(cov[m]);
   const med=median(inner);
+  // 地声と裏声のすき間は音域の上のほうにある。いちばん下(出だしのうなり・ガラガラ声)で拾わないよう、
+  // 使った時間の下30%より上だけを探す(rev3。実測で lowG# の1音が出ない高さと出た)
+  const floor=Math.max(from+1,Math.round(wPct(items,0.3)));
   const runs=[];let cur=null;
-  for(let m=from+1;m<to;m++){
+  for(let m=floor;m<to;m++){
     if((cov[m]||0)<med*0.25){if(!cur)cur={lo:m,hi:m};else cur.hi=m;}
     else if(cur){runs.push(cur);cur=null;}
   }
@@ -361,7 +364,8 @@ document.getElementById("copyBtn").onclick=async()=>{const b=document.getElement
   setTimeout(()=>b.textContent="コピー",1500);};
 /* ---------- 描画 ---------- */
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
-function setupCanvas(c){const dpr=window.devicePixelRatio||1;const w=c.clientWidth||600,h=+c.getAttribute("height");c.width=w*dpr;c.height=h*dpr;c.style.height=h+"px";const g=c.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);return{g,w,h};}
+// 高さは最初の値を覚えておく(c.height を書くと height 属性も変わるので、拡大率が100%でないと描くたびに伸びていた)
+function setupCanvas(c){const dpr=window.devicePixelRatio||1;const w=c.clientWidth||600,h=+(c.dataset.h||(c.dataset.h=c.getAttribute("height")));c.width=w*dpr;c.height=h*dpr;c.style.height=h+"px";const g=c.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);return{g,w,h};}
 function axis(g,w,h,lo,hi,y0){
   g.font="11px system-ui";g.fillStyle=css("--sub");g.strokeStyle=css("--line");g.lineWidth=1;
   const X=m=>8+(w-16)*(m-lo)/(hi-lo);
