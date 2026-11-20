@@ -14,8 +14,8 @@ Open this directory on the existing HTTPS site in a WebXR-compatible Quest brows
 
 ## Desktop inspection and regression tests
 
-The original browser and diagnostic routes remain available. This VR route also offers a desktop cockpit view and explicitly labeled analog inspection sliders, plus the original AT buttons. The VR headset path bypasses the 2D mirror and held-scenery comparison modes. VR controls do not automatically fasten the belt, start the engine or release parking.
+The original browser and diagnostic routes remain available. This VR route also offers a desktop cockpit view and explicitly labeled analog inspection sliders, plus the original AT buttons. The VR headset path shows the rear-view mirror as a 3D mirror on the windshield (same rear camera as the 2D mirror, left-right reversed; turn it off with the 後方ミラー setting to save load). It still bypasses the held-scenery comparison modes. VR controls do not automatically fasten the belt, start the engine or release parking.
 
 Run `node tests/wheels-xr.cjs` from the repository root. Tests exercise actual bundled Three.js wheel matrices, both wheel sides, forward/reverse and left/right steering, and the actual VR adapter against a simulated XR runtime. They cover ray selection, rim/lever grabbing, AT interlocks, analog pedals and safety lifecycle. These do not certify real Quest rendering, controller ergonomics, frame pacing, binocular comfort or tracking behavior. No driving-training or motion-sickness-reduction claim is made.
 
-Build marker: `wheel-xr-at-20261026-1`.
+Build marker: `wheel-xr-at-20261120-mirror`.

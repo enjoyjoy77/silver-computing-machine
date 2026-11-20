@@ -66,11 +66,12 @@ console.log('PASS '+checks+' assertions');
  const left={handedness:'left',gamepad:gamepad(),gripSpace:{hand:'left'},targetRaySpace:{ray:'left'}};
  const right={handedness:'right',gamepad:gamepad(),gripSpace:{hand:'right'},targetRaySpace:{ray:'right'}};
  const session={visibilityState:'visible',inputSources:[left,right],addEventListener(n,f){listeners[n]=f;},async end(){listeners.end();}};
- let loop,renders=0;const renderer={xr:{setReferenceSpaceType(){},async setSession(){},getReferenceSpace(){return space;}},setAnimationLoop(f){loop=f;},render(){renders++;}};
+ let loop,renders=0,mirrorRenders=0,target=null;const renderer={xr:{enabled:false,setReferenceSpaceType(){},async setSession(){},getReferenceSpace(){return space;}},setAnimationLoop(f){loop=f;},
+  getRenderTarget(){return target;},setRenderTarget(t){target=t;},clear(){},render(scene,cam){renders++;if(target){mirrorRenders++;if(renderer.xr.enabled||cam!==c.rearCamera)throw new Error('mirror pass must use rear camera with XR disabled');}}};
  const document={createElement:element},navigator={xr:{async isSessionSupported(){return true;},async requestSession(){return session;}}};
  let button;$('view').before=b=>button=b;
  Object.assign(c,{world,camera,renderer,document,navigator,window:{addEventListener(){}},isSecureContext:true,$,state,performance:{now:()=>0},
-  stop(){state.v=0;state.running=false;state.parking=true;state.throttle=0;state.brake=0;},updateView(){},playerCar:{visible:true},graphicsError:'',last:0,lastHeld:0,dirty:false});
+  stop(){state.v=0;state.running=false;state.parking=true;state.throttle=0;state.brake=0;},updateView(){},playerCar:{visible:true},rearCamera:new T.PerspectiveCamera(),positionRearCamera(){},graphicsError:'',last:0,lastHeld:0,dirty:false});
  vm.runInContext(fs.readFileSync(path.join(root,'asahikawa-vr/xr.js'),'utf8')+';globalThis.api=installDrivingXR();',c);
  await Promise.resolve();await button.onclick();check(c.api.active,'XR active');
  const transform=p=>({transform:{position:p,orientation:{x:0,y:0,z:0,w:1}}});
@@ -82,6 +83,9 @@ console.log('PASS '+checks+' assertions');
  function choose(p){aim=p;press(4);}
  const targets={resume:{x:-.03,y:1.04,z:.95},belt:{x:-.72,y:.84,z:.23},engine:{x:-.68,y:1.02,z:.95},parking:{x:.08,y:.69,z:.1},D:{x:.32,y:.79,z:.45},R:{x:.14,y:.79,z:.45},P:{x:.05,y:.79,z:.45},N:{x:.23,y:.79,z:.45},wipers:{x:.05,y:1.16,z:.98},lights:{x:-.7,y:1.16,z:.98},signalLeft:{x:-.71,y:1.04,z:.70}};
  tick();check(!state.running&&!state.engine&&!state.belt&&state.parking,'entry does not bypass AT procedure');
+ const mirrorVR=world.getObjectByName('rear-mirror-vr');check(mirrorVR&&!mirrorVR.visible&&mirrorRenders===0,'VR mirror hidden when mirror setting is off');
+ $('mirrors').value='on';renderer.xr.enabled=true;tick();
+ check(mirrorVR.visible&&mirrorRenders===1&&target===null&&renderer.xr.enabled,'VR mirror renders rear camera to texture and restores XR state');
  choose(targets.resume);check(!state.running,'resume requires brake');
  left.gamepad.buttons[0].value=.6;choose(targets.resume);check(state.running,'brake plus cockpit resume');
  choose(targets.belt);check(state.belt,'ray select belt');

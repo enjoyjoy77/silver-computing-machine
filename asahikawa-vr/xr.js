@@ -58,6 +58,20 @@ function installDrivingXR(){
  const panel=document.createElement('canvas');panel.width=1024;panel.height=384;
  const tex=new THREE.CanvasTexture(panel),screen=new THREE.Mesh(new THREE.PlaneGeometry(.65,.245),new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide}));
  screen.position.set(-.38,1.265,1.01);screen.rotation.y=Math.PI;cockpit.add(screen);
+ // Rear-view mirror in VR: the same rear camera as the 2D mirror, rendered into a small texture and shown left-right reversed.
+ const mirrorTarget=new THREE.WebGLRenderTarget(480,160),rearMirrorVR=new THREE.Group();
+ rearMirrorVR.position.set(0,1.40,.86);rearMirrorVR.rotation.set(-.12,Math.atan2(-.38,-.71),0);cockpit.add(rearMirrorVR);
+ box([.29,.105,.02],[0,0,-.012],0x0b1116,rearMirrorVR);box([.02,.10,.02],[0,.10,-.03],0x0b1116,rearMirrorVR);rearMirrorVR.visible=false;
+ const mirrorGlass=new THREE.Mesh(new THREE.PlaneGeometry(.27,.09),new THREE.MeshBasicMaterial({map:mirrorTarget.texture,side:THREE.DoubleSide}));
+ mirrorGlass.scale.x=-1;rearMirrorVR.add(mirrorGlass);rearMirrorVR.name='rear-mirror-vr';
+ function renderVRMirror(){
+  rearMirrorVR.visible=!!session&&$('mirrors').value==='on';if(!rearMirrorVR.visible)return;
+  positionRearCamera(state);rearCamera.aspect=3;rearCamera.updateProjectionMatrix();
+  const xrOn=renderer.xr.enabled,previous=renderer.getRenderTarget(),carShown=playerCar.visible;
+  rearMirrorVR.visible=false;playerCar.visible=false;
+  try{renderer.xr.enabled=false;renderer.setRenderTarget(mirrorTarget);renderer.clear();renderer.render(world,rearCamera);}
+  finally{renderer.xr.enabled=xrOn;renderer.setRenderTarget(previous);playerCar.visible=carShown;rearMirrorVR.visible=true;}
+ }
  const rays={};for(const hand of ['left','right']){
   const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-2)]),new THREE.LineBasicMaterial({color:0x80e8d0}));
   origin.add(line);line.visible=false;rays[hand]=line;
@@ -76,7 +90,7 @@ function installDrivingXR(){
  function cleanup(){
   halt('VR終了：停止');session=null;lastXR=null;edges={};origin.remove(camera);camera.position.set(0,0,0);camera.rotation.set(0,0,0);
   for(const ray of Object.values(rays))ray.visible=false;
-  cockpit.visible=false;renderer.setAnimationLoop(null);last=null;dirty=true;button.textContent='Quest VRに入る（実機未検証）';button.disabled=false;
+  cockpit.visible=false;rearMirrorVR.visible=false;renderer.setAnimationLoop(null);last=null;dirty=true;button.textContent='Quest VRに入る（実機未検証）';button.disabled=false;
  }
  async function enter(){
   if(session){await session.end();return;}if(pending)return;pending=true;button.disabled=true;
@@ -171,7 +185,7 @@ function installDrivingXR(){
     if(state.blocked||state.t>=Number($('duration').value))halt(state.blocked||'試行終了');
    }
   }
-  updateView(state);playerCar.visible=false;cockpit.visible=true;positionRig();animateCockpit(now);
+  updateView(state);playerCar.visible=false;cockpit.visible=true;positionRig();animateCockpit(now);renderVRMirror();
   camera.position.set(0,0,0);camera.rotation.set(0,0,0);rig.updateMatrixWorld(true);renderer.render(world,camera);
  }
  function desktopView(s){
