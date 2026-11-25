@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ひだりみぎ</title>
+<style>
+  :root { --bg:#14181f; --fg:#e8ecf2; --sub:#9aa4b2; --card:#1e242e; --acc:#7fb8ff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; }
+  #rev { position:fixed; top:6px; right:10px; font-size:12px; color:var(--sub); z-index:9; }
+  .screen { display:none; min-height:100%; padding:28px 20px; max-width:560px; margin:0 auto; }
+  .screen.on { display:block; }
+  h1 { font-size:26px; margin:8px 0 4px; }
+  p { line-height:1.75; }
+  .sub { color:var(--sub); font-size:14px; }
+  .card { background:var(--card); border-radius:14px; padding:16px 18px; margin:14px 0; }
+  button { font:inherit; border:0; border-radius:12px; cursor:pointer; }
+  .big { display:block; width:100%; padding:16px; font-size:19px; background:var(--acc); color:#0b1320; margin:12px 0; }
+  .ghost { display:block; width:100%; padding:12px; font-size:16px; background:transparent; color:var(--sub); border:1px solid #333c4a; margin:8px 0; }
+  .scale { display:grid; grid-template-columns:repeat(11,1fr); gap:4px; margin:10px 0; }
+  .scale button { padding:12px 0; background:#2a3240; color:var(--fg); font-size:16px; }
+  .scale button.sel { background:var(--acc); color:#0b1320; }
+  .scaleLabel { display:flex; justify-content:space-between; font-size:12px; color:var(--sub); }
+  label.row { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:12px 0; }
+  input[type=range] { width:55%; }
+  .colors { display:flex; gap:10px; }
+  .colors button { width:34px; height:34px; border-radius:50%; border:3px solid transparent; }
+  .colors button.sel { border-color:#fff; }
+  /* 実行画面 */
+  #run { position:fixed; inset:0; display:none; background:#000; }
+  #run.on { display:block; }
+  #ball { position:absolute; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%; }
+  #runInfo { position:absolute; top:16px; left:0; right:0; text-align:center; color:#5d6673; font-size:15px; }
+  #stop { position:absolute; bottom:28px; left:50%; transform:translateX(-50%); padding:16px 48px;
+    font-size:20px; background:#3a2228; color:#ffd7dc; }
+  #rest { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; }
+  #rest.on { display:flex; }
+  #rest .msg { font-size:22px; color:#cfd6e0; line-height:1.8; }
+  #rest .cnt { font-size:15px; color:#6b7482; margin-top:10px; }
+  ol li { margin:8px 0; line-height:1.6; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td,th { padding:6px 4px; border-bottom:1px solid #2a3240; text-align:left; }
+</style>
+</head>
+<body>
+<div id="rev">rev1</div>
+
+<!-- はじめての注意 -->
+<section class="screen" id="sNotice">
+  <h1>ひだりみぎ</h1>
+  <p class="sub">左右に動く光と、左右交互の音で、気持ちを落ち着ける道具です。</p>
+  <div class="card">
+    <p><b>はじめに(一度だけ表示)</b></p>
+    <p>・これは治療ではありません。EMDRの治療は、資格のある人と一緒に行うものです。<br>
+    ・<b>つらい記憶を思い出すためには使わないでください。</b>安心できる場所・好きなもの・落ち着く景色を思い浮かべる用です。<br>
+    ・気分が悪くなったら、すぐ「やめる」を押してください。<br>
+    ・記録はこの端末の中だけに残り、どこにも送りません。</p>
+  </div>
+  <button class="big" id="btnAgree">わかった</button>
+</section>
+
+<!-- ホーム -->
+<section class="screen" id="sHome">
+  <h1>ひだりみぎ</h1>
+  <p class="sub">安心できる場所や、好きなものを思い浮かべながら、光を目で追います。</p>
+  <div class="card">
+    <p>いまの「しんどさ」は?</p>
+    <div class="scale" id="scaleBefore"></div>
+    <div class="scaleLabel"><span>0 = 平気</span><span>10 = とてもつらい</span></div>
+  </div>
+  <button class="big" id="btnStart">はじめる</button>
+  <button class="ghost" id="btnTrial">お試し(10秒だけ)</button>
+  <details class="card">
+    <summary>設定</summary>
+    <label class="row">速さ <input type="range" id="speed" min="0.4" max="1.6" step="0.1"><span id="speedV"></span></label>
+    <label class="row">動く幅 <input type="range" id="width" min="30" max="95" step="5"><span id="widthV"></span></label>
+    <label class="row">1回の長さ <input type="range" id="setSec" min="15" max="60" step="5"><span id="setSecV"></span></label>
+    <label class="row">くり返す回数 <input type="range" id="sets" min="1" max="8" step="1"><span id="setsV"></span></label>
+    <label class="row">左右の音(イヤホン) <input type="checkbox" id="sound"></label>
+    <div class="row" style="display:flex;justify-content:space-between;align-items:center">色 <div class="colors" id="colors"></div></div>
+  </details>
+  <details class="card">
+    <summary>これまでの記録</summary>
+    <div id="history"></div>
+    <p class="sub">ブラウザの履歴を消すと、この記録も消えます。</p>
+  </details>
+  <button class="ghost" id="btnShowNotice">はじめの注意をもう一度読む</button>
+</section>
+
+<!-- 終わり -->
+<section class="screen" id="sAfter">
+  <h1>おつかれさまでした</h1>
+  <div class="card">
+    <p>いまの「しんどさ」は?</p>
+    <div class="scale" id="scaleAfter"></div>
+    <div class="scaleLabel"><span>0 = 平気</span><span>10 = とてもつらい</span></div>
+  </div>
+  <p id="afterMsg" class="sub"></p>
+  <button class="big" id="btnDone">ホームへ</button>
+</section>
+
+<!-- 落ち着く手順 -->
+<section class="screen" id="sGround">
+  <h1>今日はここまでにしましょう</h1>
+  <p>しんどさが上がりました。目を動かすのはやめて、いまいる場所に注意を戻します。</p>
+  <div class="card">
+    <ol>
+      <li>見えるものを <b>5つ</b>、心の中で言う</li>
+      <li>触れているものを <b>4つ</b> 感じる(足の裏・服・椅子…)</li>
+      <li>聞こえる音を <b>3つ</b> 探す</li>
+      <li>においを <b>2つ</b> 探す</li>
+      <li>味を <b>1つ</b> 感じる(水を一口でもいい)</li>
+    </ol>
+  </div>
+  <p class="sub">つらさが続くときは、ひとりで抱えずに相談してください。<br>
+  こころの健康相談統一ダイヤル:0570-064-556(つながる時間は地域によって違います)</p>
+  <button class="big" id="btnGroundDone">落ち着いた・ホームへ</button>
+</section>
+
+<!-- 実行画面 -->
+<div id="run">
+  <div id="runInfo"></div>
+  <div id="ball"></div>
+  <div id="rest"><div class="msg">ひと息つきましょう<br>ゆっくり息を吐いて</div><div class="cnt" id="restCnt"></div></div>
+  <button id="stop">やめる</button>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var KEY = "hidarimigi_v1";
+  var COLORS = ["#7fb8ff","#8fe3b0","#ffd27f","#ff9ec4","#ffffff"];
+  var REST_SEC = 10;
+  var defaults = { agreed:false, speed:0.8, width:80, setSec:30, sets:4, sound:true, color:COLORS[0], history:[] };
+  var st;
+  try { st = Object.assign({}, defaults, JSON.parse(localStorage.getItem(KEY) || "{}")); }
+  catch (e) { st = Object.assign({}, defaults); alert("前回の設定を読み込めなかったので、最初の設定で始めます。"); }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("保存できませんでした", e); } }
+
+  var $ = function(id){ return document.getElementById(id); };
+  function show(id){ document.querySelectorAll(".screen").forEach(function(s){ s.classList.toggle("on", s.id === id); }); window.scrollTo(0,0); }
+
+  // しんどさの物差し
+  var before = null, after = null;
+  function makeScale(el, onPick){
+    for (var i=0;i<=10;i++){ (function(v){
+      var b = document.createElement("button"); b.textContent = v;
+      b.onclick = function(){ el.querySelectorAll("button").forEach(function(x){ x.classList.remove("sel"); }); b.classList.add("sel"); onPick(v); };
+      el.appendChild(b);
+    })(i); }
+  }
+  function clearScale(el){ el.querySelectorAll("button").forEach(function(x){ x.classList.remove("sel"); }); }
+  makeScale($("scaleBefore"), function(v){ before = v; });
+  makeScale($("scaleAfter"), function(v){ after = v; afterPicked(); });
+
+  // 設定
+  function bindRange(id, fmt){
+    var el = $(id), out = $(id+"V");
+    el.value = st[id]; out.textContent = fmt(st[id]);
+    el.oninput = function(){ st[id] = parseFloat(el.value); out.textContent = fmt(st[id]); save(); };
+  }
+  bindRange("speed", function(v){ return v.toFixed(1)+"往復/秒"; });
+  bindRange("width", function(v){ return v+"%"; });
+  bindRange("setSec", function(v){ return v+"秒"; });
+  bindRange("sets", function(v){ return v+"回"; });
+  $("sound").checked = st.sound; $("sound").onchange = function(){ st.sound = this.checked; save(); };
+  COLORS.forEach(function(c){
+    var b = document.createElement("button"); b.style.background = c; if (c === st.color) b.classList.add("sel");
+    b.onclick = function(){ st.color = c; save(); document.querySelectorAll("#colors button").forEach(function(x){ x.classList.remove("sel"); }); b.classList.add("sel"); };
+    $("colors").appendChild(b);
+  });
+
+  function renderHistory(){
+    var h = st.history;
+    if (!h.length) { $("history").innerHTML = '<p class="sub">まだありません。</p>'; return; }
+    var rows = h.slice(-20).reverse().map(function(r){
+      return "<tr><td>"+r.d+"</td><td>"+(r.b==null?"-":r.b)+" → "+(r.a==null?"-":r.a)+"</td><td>"+(r.stopped?"途中でやめた":"")+"</td></tr>";
+    }).join("");
+    $("history").innerHTML = "<table><tr><th>日時</th><th>しんどさ</th><th></th></tr>"+rows+"</table>";
+  }
+
+  // 音(左右交互)
+  var ac = null;
+  function beep(pan){
+    if (!st.sound) return;
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === "suspended") ac.resume();
+      var t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = "sine"; o.frequency.value = 440;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.18, t+0.02); g.gain.exponentialRampToValueAtTime(0.0001, t+0.25);
+      o.connect(g);
+      if (ac.createStereoPanner) { var p = ac.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(ac.destination); }
+      else { g.connect(ac.destination); }
+      o.start(t); o.stop(t+0.3);
+    } catch(e) { console.warn("音を出せませんでした", e); }
+  }
+
+  // 実行
+  var raf = 0, timer = 0, running = false, cur = null;
+  function startSession(trial){
+    if (ac === null && st.sound) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} }
+    cur = { trial:trial, setSec: trial ? 10 : st.setSec, sets: trial ? 1 : st.sets, setNo:0, stopped:false };
+    running = true;
+    $("run").classList.add("on");
+    $("ball").style.background = st.color;
+    $("ball").style.boxShadow = "0 0 24px "+st.color;
+    try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function(){}); } catch(e) {}
+    nextSet();
+  }
+  function nextSet(){
+    if (!running) return;
+    cur.setNo++;
+    $("rest").classList.remove("on"); $("ball").style.display = "block";
+    $("runInfo").textContent = cur.setNo+" / "+cur.sets+" 回目";
+    var t0 = performance.now(), lastSide = 0;
+    function frame(now){
+      if (!running) return;
+      var el = (now - t0)/1000;
+      if (el >= cur.setSec) { endSet(); return; }
+      var phase = el * st.speed * Math.PI * 2;
+      var x = -Math.cos(phase);           // -1(左) → +1(右) → -1
+      var half = st.width/2;
+      $("ball").style.left = (50 + x*half) + "%";
+      var side = x > 0.98 ? 1 : (x < -0.98 ? -1 : 0);
+      if (side !== 0 && side !== lastSide) { beep(side); lastSide = side; }
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame(frame);
+  }
+  function endSet(){
+    if (cur.setNo >= cur.sets) { finish(false); return; }
+    $("ball").style.display = "none"; $("rest").classList.add("on");
+    var left = REST_SEC;
+    $("restCnt").textContent = "あと"+left+"秒で次へ";
+    timer = setInterval(function(){
+      left--; $("restCnt").textContent = "あと"+left+"秒で次へ";
+      if (left <= 0) { clearInterval(timer); nextSet(); }
+    }, 1000);
+  }
+  function finish(stopped){
+    running = false; cancelAnimationFrame(raf); clearInterval(timer);
+    cur.stopped = stopped;
+    $("run").classList.remove("on"); $("rest").classList.remove("on");
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch(e) {}
+    after = null; clearScale($("scaleAfter"));
+    $("afterMsg").textContent = stopped ? "途中でやめました。それで大丈夫です。" : "";
+    show("sAfter");
+  }
+  function afterPicked(){
+    if (before !== null && after !== null) {
+      if (after > before) $("afterMsg").textContent = "しんどさが上がりました。「ホームへ」を押すと、落ち着く手順を出します。";
+      else if (after < before) $("afterMsg").textContent = before+" → "+after+"。少し楽になりました。";
+      else $("afterMsg").textContent = before+" → "+after+"。変わりませんでした。";
+    }
+  }
+
+  $("stop").onclick = function(){ finish(true); };
+  document.addEventListener("keydown", function(e){ if (running && (e.key === "Escape" || e.key === " ")) { e.preventDefault(); finish(true); } });
+
+  $("btnStart").onclick = function(){ startSession(false); };
+  $("btnTrial").onclick = function(){ startSession(true); };
+  $("btnDone").onclick = function(){
+    if (!cur.trial) {
+      var d = new Date(), pad = function(n){ return ("0"+n).slice(-2); };
+      st.history.push({ d: (d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes()), b: before, a: after, stopped: cur.stopped });
+      if (st.history.length > 200) st.history = st.history.slice(-200);
+      save(); renderHistory();
+    }
+    var worse = before !== null && after !== null && after > before;
+    before = null; clearScale($("scaleBefore"));
+    show(worse ? "sGround" : "sHome");
+  };
+  $("btnGroundDone").onclick = function(){ show("sHome"); };
+  $("btnAgree").onclick = function(){ st.agreed = true; save(); show("sHome"); };
+  $("btnShowNotice").onclick = function(){ show("sNotice"); };
+
+  renderHistory();
+  show(st.agreed ? "sHome" : "sNotice");
+})();
+</script>
+</body>
+</html>
