@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>いきのはな</title>
+<style>
+  :root { --bg:#0e1116; --fg:#e8ecf2; --sub:#8f99a8; --card:#1a1f28; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; overflow:hidden; }
+  #rev { position:fixed; top:6px; right:10px; font-size:12px; color:var(--sub); z-index:9; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+  #word { position:fixed; left:0; right:0; bottom:22%; text-align:center; font-size:26px; letter-spacing:.2em; color:#dfe6ee; opacity:0; transition:opacity .6s; pointer-events:none; }
+  #left { position:fixed; left:0; right:0; top:18px; text-align:center; font-size:14px; color:#5d6673; }
+  #stop { position:fixed; bottom:28px; left:50%; transform:translateX(-50%); padding:14px 44px; font-size:18px;
+    border:0; border-radius:12px; background:#262c37; color:#c9d1dc; display:none; cursor:pointer; font-family:inherit; }
+  /* 設定パネル */
+  #panel { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); width:min(92vw,460px);
+    background:rgba(26,31,40,.92); border-radius:16px; padding:16px 18px; }
+  #panel h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--sub); font-size:13px; margin:0 0 10px; }
+  .pats { display:flex; gap:6px; margin:8px 0; }
+  .pats button, .cols button { font:inherit; border:0; cursor:pointer; }
+  .pats button { flex:1; padding:10px 4px; border-radius:10px; background:#2a3240; color:var(--fg); font-size:14px; }
+  .pats button.sel { background:#9fd8e8; color:#0b1320; }
+  label.row { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:10px 0; font-size:15px; }
+  input[type=range] { flex:1; }
+  .val { width:5.5em; text-align:right; color:var(--sub); font-size:14px; }
+  .cols { display:flex; gap:10px; }
+  .cols button { width:30px; height:30px; border-radius:50%; border:3px solid transparent; }
+  .cols button.sel { border-color:#fff; }
+  #go { display:block; width:100%; margin-top:12px; padding:15px; font:inherit; font-size:19px; border:0; border-radius:12px; background:#9fd8e8; color:#0b1320; cursor:pointer; }
+  #done { position:fixed; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; text-align:center; }
+  #done.on { display:flex; }
+  #done p { font-size:22px; line-height:1.8; margin:0 0 16px; }
+  #done button { font:inherit; font-size:17px; padding:12px 36px; border:0; border-radius:12px; background:#262c37; color:#c9d1dc; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="rev">rev1</div>
+<canvas id="cv"></canvas>
+<div id="left"></div>
+<div id="word"></div>
+<button id="stop">やめる</button>
+
+<div id="panel">
+  <h1>いきのはな</h1>
+  <p class="sub">花が開くときに吸って、閉じるときに吐きます。</p>
+  <div class="pats" id="pats">
+    <button data-p="even">ふつう</button>
+    <button data-p="long">吐くを長く</button>
+    <button data-p="sigh">ため息呼吸</button>
+  </div>
+  <p class="sub" id="patDesc"></p>
+  <label class="row">速さ <input type="range" id="rate" min="4" max="10" step="0.5"><span class="val" id="rateV"></span></label>
+  <label class="row">長さ <input type="range" id="mins" min="1" max="5" step="1"><span class="val" id="minsV"></span></label>
+  <div class="row" style="display:flex;justify-content:space-between;align-items:center;font-size:15px">色 <div class="cols" id="cols"></div></div>
+  <button id="go">はじめる</button>
+</div>
+
+<div id="done"><p id="doneMsg"></p><button id="back">もどる</button></div>
+
+<script>
+(function(){
+  "use strict";
+  var KEY = "ikinohana_v1";
+  var PALETTES = [
+    ["#7fd6c8","#8fb8ff"],   // 水
+    ["#ffb48a","#ff8fb1"],   // 夕
+    ["#c6a8ff","#8fb8ff"],   // 夜
+    ["#b8e07a","#7fd6c8"]    // 若葉
+  ];
+  var DESC = {
+    even: "吸うと吐くが同じ長さ。いちばん基本(1分に6回が目安)",
+    long: "吐くほうを少し長く(吸う4:吐く6)。楽に感じる人が多い",
+    sigh: "鼻で吸って、もう一度少し吸い足して、口から長く吐く"
+  };
+  var st = { pat:"even", rate:7, mins:3, pal:0 };
+  try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved) for (var k in st) if (k in saved) st[k] = saved[k]; }
+  catch (e) { console.warn("前回の設定を読めませんでした", e); }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("設定を保存できませんでした", e); } }
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  // ---- 呼吸の段取り(1回分を [長さ秒, 始まりの大きさ, 終わりの大きさ, 言葉] の並びで) ----
+  var MIN = 0.32, MAX = 1.0;
+  function steps(){
+    var cyc = 60 / st.rate;
+    if (st.pat === "long") return [[cyc*0.4, MIN, MAX, "吸って"], [cyc*0.6, MAX, MIN, "吐いて"]];
+    if (st.pat === "sigh") return [[cyc*2/9, MIN, 0.82, "吸って"], [cyc*1/9, 0.82, MAX, "もう少し"], [cyc*6/9, MAX, MIN, "吐いて"]];
+    return [[cyc*0.5, MIN, MAX, "吸って"], [cyc*0.5, MAX, MIN, "吐いて"]];
+  }
+  function ease(t){ return 0.5 - 0.5*Math.cos(Math.PI*t); }
+
+  // ---- 描画 ----
+  var cv = $("cv"), cx = cv.getContext("2d"), W = 0, H = 0, DPR = 1;
+  function resize(){
+    DPR = window.devicePixelRatio || 1; W = window.innerWidth; H = window.innerHeight;
+    cv.width = W*DPR; cv.height = H*DPR; cx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener("resize", resize); resize();
+
+  function draw(s){            // s = 花の開き具合(MIN〜MAX)
+    cx.clearRect(0,0,W,H);
+    var R = Math.min(W,H) * 0.20;           // 花びら1枚の半径(開ききったとき)
+    var x0 = W/2, y0 = H*0.44;
+    var open = (s - MIN) / (MAX - MIN);      // 0〜1
+    var r = R * (0.55 + 0.45*open);
+    var d = R * s;                           // 中心からの距離
+    var rot = open * Math.PI/3;              // 開くと少しひねる
+    var c = PALETTES[st.pal] || PALETTES[0];
+    cx.globalCompositeOperation = "lighter";
+    for (var i=0;i<6;i++){
+      var a = rot + i*Math.PI/3;
+      var px = x0 + Math.cos(a)*d, py = y0 + Math.sin(a)*d;
+      var g = cx.createRadialGradient(px,py,0,px,py,r);
+      var col = i%2 ? c[1] : c[0];
+      g.addColorStop(0, hexA(col, 0.10)); g.addColorStop(0.75, hexA(col, 0.30)); g.addColorStop(1, hexA(col, 0.03));
+      cx.fillStyle = g; cx.beginPath(); cx.arc(px,py,r,0,Math.PI*2); cx.fill();
+    }
+    cx.globalCompositeOperation = "source-over";
+  }
+  function hexA(h,a){ var n=parseInt(h.slice(1),16); return "rgba("+(n>>16&255)+","+(n>>8&255)+","+(n&255)+","+a+")"; }
+
+  // ---- 待機中: ゆっくり小さく揺れる ----
+  var mode = "idle", raf = 0, t0 = 0, endAt = 0, plan = [], breaths = 0, wake = null;
+  function loop(now){
+    if (mode === "idle") {
+      draw(MIN + 0.08 + 0.05*Math.sin(now/1400));
+    } else if (mode === "run") {
+      var el = (now - t0)/1000;
+      var cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0);
+      var n = Math.floor(el / cyc), t = el - n*cyc;
+      breaths = n;
+      // 終わりの時刻は start() で「吐き終わり」にそろえてある
+      if (now >= endAt) { breaths = Math.round((endAt - t0)/1000/cyc); finish(true); return; }
+      var i = 0; while (i < plan.length-1 && t >= plan[i][0]) { t -= plan[i][0]; i++; }
+      var p = plan[i], k = Math.min(1, t / p[0]);
+      draw(p[1] + (p[2]-p[1])*ease(k));
+      if ($("word").textContent !== p[3]) $("word").textContent = p[3];
+      var rest = Math.max(0, Math.ceil((endAt - now)/1000));
+      $("left").textContent = "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2);
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function start(){
+    plan = steps(); breaths = 0;
+    var cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0);
+    t0 = performance.now(); endAt = t0 + Math.ceil(st.mins*60/cyc)*cyc*1000;   // 吐き終わりで止まるよう、1回分の倍数に切り上げ
+    mode = "run";
+    $("panel").style.display = "none"; $("stop").style.display = "block";
+    $("word").style.opacity = 1;
+    try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){ wake = w; }).catch(function(){}); } catch(e) {}
+  }
+  function finish(completed){
+    mode = "idle";
+    $("stop").style.display = "none"; $("word").style.opacity = 0; $("word").textContent = ""; $("left").textContent = "";
+    try { if (wake) { wake.release(); wake = null; } } catch(e) {}
+    $("doneMsg").innerHTML = completed ? "おつかれさまでした<br>" + breaths + " 回 呼吸しました" : "途中でやめました<br>" + breaths + " 回 呼吸しました";
+    $("done").classList.add("on");
+    raf = requestAnimationFrame(loop);
+  }
+
+  // ---- 設定の画面 ----
+  function refreshPat(){
+    document.querySelectorAll("#pats button").forEach(function(b){ b.classList.toggle("sel", b.dataset.p === st.pat); });
+    var sp = steps();
+    $("rateV").textContent = st.rate + "回/分";
+    $("patDesc").textContent = DESC[st.pat] + "(" + sp.map(function(x){ return x[3]+x[0].toFixed(1)+"秒"; }).join("→") + ")";
+  }
+  document.querySelectorAll("#pats button").forEach(function(b){ b.onclick = function(){ st.pat = b.dataset.p; save(); refreshPat(); }; });
+  $("rate").value = st.rate; $("rate").oninput = function(){ st.rate = parseFloat(this.value); save(); refreshPat(); };
+  $("mins").value = st.mins; $("minsV").textContent = st.mins + "分";
+  $("mins").oninput = function(){ st.mins = parseInt(this.value,10); $("minsV").textContent = st.mins + "分"; save(); };
+  PALETTES.forEach(function(p, i){
+    var b = document.createElement("button");
+    b.style.background = "linear-gradient(135deg," + p[0] + "," + p[1] + ")";
+    if (i === st.pal) b.classList.add("sel");
+    b.onclick = function(){ st.pal = i; save(); document.querySelectorAll("#cols button").forEach(function(x){ x.classList.remove("sel"); }); b.classList.add("sel"); };
+    $("cols").appendChild(b);
+  });
+  refreshPat();
+
+  $("go").onclick = start;
+  $("stop").onclick = function(){ finish(false); };
+  document.addEventListener("keydown", function(e){ if (mode === "run" && e.key === "Escape") finish(false); });
+  $("back").onclick = function(){ $("done").classList.remove("on"); $("panel").style.display = "block"; };
+
+  raf = requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
