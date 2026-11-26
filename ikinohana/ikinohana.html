@@ -30,6 +30,8 @@
   .tabs button, .pats button { flex:1; font:inherit; border:0; cursor:pointer; border-radius:10px; padding:9px 4px; background:#2a3240; color:var(--fg); font-size:14px; }
   .tabs button.sel { background:#e8ecf2; color:#0b1320; }
   .pats button.sel { background:#9fd8e8; color:#0b1320; }
+  label.chk { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:14px; cursor:pointer; }
+  label.chk input { width:18px; height:18px; }
   label.row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; font-size:14px; }
   input[type=range] { flex:1; min-width:60px; }
   .val { min-width:4.8em; text-align:right; color:var(--sub); font-size:13px; }
@@ -42,7 +44,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev3</div>
+<div id="rev">rev4</div>
 <canvas id="cv"></canvas>
 <div id="left"></div>
 <div id="word"></div>
@@ -72,6 +74,8 @@
 
   <p class="sub" id="patDesc"></p>
   <label class="row">時間 <input type="range" id="mins" min="1" max="10" step="1"><span class="val" id="minsV"></span></label>
+  <label class="chk"><input type="checkbox" id="showTimer"> 残り時間を表示する</label>
+  <label class="chk"><input type="checkbox" id="showResult"> 終わったあと結果を表示する</label>
   <button id="go">はじめる</button>
   <button id="mini">小さい窓で開く</button>
 </div>
@@ -87,7 +91,7 @@
     long: "吐くほうを少し長く。楽に感じる人が多い",
     sigh: "鼻で吸って、少し吸い足して、口から長く吐く"
   };
-  var st = { mode:"relax", pat:"even", rate:7, side:4, mins:3 };
+  var st = { mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true };
   try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved) for (var k in st) if (k in saved) st[k] = saved[k]; }
   catch (e) { console.warn("前回の設定を読めませんでした", e); }
   function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("設定を保存できませんでした", e); } }
@@ -164,7 +168,7 @@
         if (p[3]) lastWord = p[3];
         if ($("word").textContent !== lastWord) $("word").textContent = lastWord;
         var rest = Math.max(0, Math.ceil((endAt - now)/1000));
-        $("left").textContent = "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2);
+        $("left").textContent = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
       }
     }
     requestAnimationFrame(loop);
@@ -192,8 +196,12 @@
     mode = "idle"; clearTimeout(calmTimer); document.body.classList.remove("calm");
     $("ctl").style.display = "none"; $("word").style.opacity = 0; $("left").textContent = "";
     try { if (wake) { wake.release(); wake = null; } } catch(e) {}
-    $("doneMsg").innerHTML = (completed ? "おつかれさまでした" : "途中でやめました") + "<br>" + breaths + " 回 呼吸しました";
-    $("done").classList.add("on");
+    if (st.showResult) {
+      $("doneMsg").innerHTML = (completed ? "おつかれさまでした" : "途中でやめました") + "<br>" + breaths + " 回 呼吸しました";
+      $("done").classList.add("on");
+    } else {
+      $("panel").style.display = "block";
+    }
   }
 
   // ---- 設定の画面 ----
@@ -215,6 +223,7 @@
   document.querySelectorAll("#pats button").forEach(function(b){ b.onclick = function(){ st.pat = b.dataset.p; save(); refresh(); }; });
   function bind(id, parse){ var el = $(id); el.value = st[id]; el.oninput = function(){ st[id] = parse(el.value); save(); refresh(); }; }
   bind("rate", parseFloat); bind("side", function(v){ return parseInt(v,10); }); bind("mins", function(v){ return parseInt(v,10); });
+  ["showTimer","showResult"].forEach(function(id){ var el = $(id); el.checked = !!st[id]; el.onchange = function(){ st[id] = el.checked; save(); }; });
   refresh();
 
   // 小さい窓: ふつうのブラウザ窓は一定より細くできないので、別の小窓で開く
