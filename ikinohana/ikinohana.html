@@ -59,7 +59,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev10</div>
+<div id="rev">rev11</div>
 <canvas id="cv"></canvas>
 <div id="left"></div>
 <div id="word"></div>
@@ -100,6 +100,8 @@
   <label class="chk"><input type="checkbox" id="showTimer"> 残り時間を表示する</label>
   <label class="chk"><input type="checkbox" id="showResult"> 終わったあと結果を表示する</label>
   <label class="chk"><input type="checkbox" id="blink"> まばたきの合図(息を止めるところで一瞬つぶれる)</label>
+  <label class="chk"><input type="checkbox" id="lr"> 左右に動く光(ひだりみぎ)</label>
+  <label class="chk" id="lrSndRow"><input type="checkbox" id="lrSnd"> 光が端に来たとき、その側から小さな音</label>
   <button id="go">はじめる</button>
   <button id="mini">小さい窓で開く</button>
 </div>
@@ -115,7 +117,7 @@
     long: "吐くほうを少し長く。楽に感じる人が多い",
     sigh: "鼻で吸って、少し吸い足して、口から長く吐く"
   };
-  var st = { flower:"light", mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true, blink:true };
+  var st = { flower:"light", mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true, blink:true, lr:false, lrSnd:true };
   try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved) for (var k in st) if (k in saved) st[k] = saved[k]; }
   catch (e) { console.warn("前回の設定を読めませんでした", e); }
   function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("設定を保存できませんでした", e); } }
@@ -140,7 +142,7 @@
   // ---- 描画 ----
   var cv = $("cv"), cx = cv.getContext("2d"), W = 0, H = 0, DPR = 1;
   function resize(){
-    DPR = window.devicePixelRatio || 1; W = window.innerWidth; H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 1.5); W = window.innerWidth; H = window.innerHeight;   // 高解像度の画面で重くならないよう1.5倍まで
     cv.width = W*DPR; cv.height = H*DPR; cx.setTransform(DPR,0,0,DPR,0,0);
   }
   window.addEventListener("resize", resize); resize();
@@ -648,8 +650,37 @@
     cx.fillStyle = g; cx.beginPath(); cx.arc(x0, y0, r, 0, Math.PI*2); cx.fill();
   }
 
+  // ---- ひだりみぎ(EMDRの左右刺激だけ): 花の下を小さな光が左右に往復。端で、その側から小さな音 ----
+  // 速さは ひだりみぎ と同じ 0.8往復/秒。一時停止中は止まる(呼吸の経過時間で動かすため)
+  var LR_SPEED = 0.8, ac = null, lrLast = null;
+  function drawLR(el){
+    var ph = el*LR_SPEED*Math.PI*2, x = W/2 + Math.sin(ph)*W*0.38, y = H*0.78, r = Math.max(5, Math.min(W,H)*0.022);
+    var g = cx.createRadialGradient(x, y, 0, x, y, r*2.2);
+    g.addColorStop(0, "rgba(232,240,250,0.95)"); g.addColorStop(0.45, "rgba(200,220,240,0.55)"); g.addColorStop(1, "rgba(200,220,240,0)");
+    cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r*2.2, 0, Math.PI*2); cx.fill();
+    var side = Math.floor(ph/Math.PI + 0.5);          // 端に着くたびに1つ増える
+    if (lrLast !== null && side !== lrLast && st.lrSnd) beep(Math.sin(ph) > 0 ? 0.9 : -0.9);
+    lrLast = side;
+  }
+  function beep(pan){
+    try {
+      if (!ac) return;
+      var t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = "sine"; o.frequency.value = 440;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.10, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g);
+      if (ac.createStereoPanner){ var p = ac.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(ac.destination); } else g.connect(ac.destination);
+      o.start(t); o.stop(t + 0.2);
+    } catch(e) { console.warn("音を出せませんでした", e); }
+  }
+
   var mode = "idle", t0 = 0, endAt = 0, plan = [], cyc = 1, breaths = 0, wake = null, lastS = MIN, pausedAt = 0, lastWord = "";
+  var lastDraw = 0;
   function loop(now){
+    requestAnimationFrame(loop);
+    var fps = mode === "run" ? 30 : 12;
+    if (now - lastDraw < 1000/fps - 2) return;
+    lastDraw = now;
     if (mode === "idle") {
       draw(MIN + 0.08 + 0.05*Math.sin(now/1400), now);
     } else if (mode === "pause") {
@@ -669,10 +700,11 @@
         else if (p[3]) lastWord = p[3];
         if ($("word").textContent !== lastWord) $("word").textContent = lastWord;
         var rest = Math.max(0, Math.ceil((endAt - now)/1000));
-        $("left").textContent = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
+        var lt = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
+        if ($("left").textContent !== lt) $("left").textContent = lt;
+        if (st.lr) drawLR(el);
       }
     }
-    requestAnimationFrame(loop);
   }
 
   // ---- 操作がないとき表示を消す ----
@@ -685,7 +717,8 @@
   ["mousemove","mousedown","touchstart","keydown"].forEach(function(ev){ document.addEventListener(ev, poke, {passive:true}); });
 
   function start(){
-    plan = steps(); cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0); breaths = 0;
+    plan = steps(); cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0); breaths = 0; lrLast = null;
+    if (st.lr && st.lrSnd) { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); } catch(e) { ac = null; console.warn("音の準備ができませんでした", e); } }
     t0 = performance.now(); endAt = t0 + Math.ceil(st.mins*60/cyc)*cyc*1000;   // 1回分の倍数に切り上げ(吐き終わりで止まる)
     mode = "run";
     $("panel").style.display = "none"; $("ctl").style.display = "flex"; $("pause").textContent = "⏸️"; $("pause").title = "一時停止(スペース)";
@@ -726,7 +759,9 @@
   document.querySelectorAll("#pats button").forEach(function(b){ b.onclick = function(){ st.pat = b.dataset.p; save(); refresh(); }; });
   function bind(id, parse){ var el = $(id); el.value = st[id]; el.oninput = function(){ st[id] = parse(el.value); save(); refresh(); }; }
   bind("rate", parseFloat); bind("side", function(v){ return parseInt(v,10); }); bind("mins", function(v){ return parseInt(v,10); });
-  ["showTimer","showResult","blink"].forEach(function(id){ var el = $(id); el.checked = !!st[id]; el.onchange = function(){ st[id] = el.checked; save(); }; });
+  ["showTimer","showResult","blink","lr","lrSnd"].forEach(function(id){ var el = $(id); el.checked = !!st[id]; el.onchange = function(){ st[id] = el.checked; save(); lrRow(); }; });
+  function lrRow(){ $("lrSndRow").style.display = st.lr ? "flex" : "none"; }
+  lrRow();
   refresh();
 
   // 小さい窓: ふつうのブラウザ窓は一定より細くできないので、別の小窓で開く
@@ -758,6 +793,7 @@
   });
   $("back").onclick = function(){ $("done").classList.remove("on"); $("panel").style.display = "block"; };
 
+  window.__iki = { draw:function(f, s, now){ st.flower = f; draw(s, now); }, size:function(){ return [W, H, DPR]; } };   // 確認用
   requestAnimationFrame(loop);
 })();
 </script>
