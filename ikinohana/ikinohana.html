@@ -11,12 +11,14 @@
     font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; overflow:hidden; }
   #rev { position:fixed; top:4px; right:8px; font-size:11px; color:var(--sub); z-index:9; }
   canvas { position:fixed; inset:0; width:100%; height:100%; }
-  #word { position:fixed; left:0; right:0; bottom:20%; text-align:center; font-size:clamp(16px,5vmin,26px);
+  #word { position:fixed; left:0; right:0; bottom:9%; text-align:center; font-size:clamp(16px,5vmin,26px);
     letter-spacing:.2em; color:#e6ecf3; opacity:0; transition:opacity .6s; pointer-events:none; }
   #left { position:fixed; left:0; right:0; top:10px; text-align:center; font-size:13px; color:#6b7482; }
-  #ctl { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); display:none; gap:8px; }
-  #ctl button { padding:7px 16px; font-size:14px; white-space:nowrap;
-    border:0; border-radius:10px; background:rgba(40,46,58,.85); color:#c9d1dc; cursor:pointer; font-family:inherit; }
+  /* 右下のすみ。花と重ならない位置に、うすく */
+  #ctl { position:fixed; right:12px; bottom:12px; display:none; gap:6px; opacity:.55; }
+  #ctl:hover { opacity:.9; }
+  #ctl button { width:38px; height:38px; padding:0; font-size:18px; line-height:38px;
+    border:0; border-radius:50%; background:rgba(255,255,255,.08); cursor:pointer; }
   /* 呼吸中、しばらく操作がなければ文字とボタンを消す */
   #rev, #left, #ctl { transition:opacity .8s; }
   body.calm #rev, body.calm #left, body.calm #ctl { opacity:0; pointer-events:none; }
@@ -37,6 +39,17 @@
   .val { min-width:4.8em; text-align:right; color:var(--sub); font-size:13px; }
   #go { display:block; width:100%; margin-top:10px; padding:13px; font:inherit; font-size:18px; border:0; border-radius:12px; background:#9fd8e8; color:#0b1320; cursor:pointer; }
   #mini { display:block; width:100%; margin-top:8px; padding:8px; font:inherit; font-size:13px; border:1px solid #333c4a; border-radius:10px; background:transparent; color:var(--sub); cursor:pointer; }
+  /* とても小さい窓 */
+  @media (max-width:300px), (max-height:300px) {
+    #panel { padding:8px 10px; border-radius:10px; }
+    #panel h1 { font-size:15px; }
+    .tabs button, .pats button { font-size:12px; padding:6px 2px; }
+    label.row, label.chk, .sub { font-size:12px; }
+    #go { padding:8px; font-size:15px; }
+    #ctl { right:6px; bottom:6px; }
+    #ctl button { width:28px; height:28px; font-size:13px; line-height:28px; }
+    #left { top:4px; font-size:11px; }
+  }
   #done { position:fixed; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; text-align:center; padding:10px; }
   #done.on { display:flex; }
   #done p { font-size:clamp(15px,5vmin,22px); line-height:1.8; margin:0 0 12px; text-shadow:0 0 12px #000; }
@@ -44,11 +57,11 @@
 </style>
 </head>
 <body>
-<div id="rev">rev4</div>
+<div id="rev">rev6</div>
 <canvas id="cv"></canvas>
 <div id="left"></div>
 <div id="word"></div>
-<div id="ctl"><button id="pause">一時停止</button><button id="stop">やめる</button></div>
+<div id="ctl"><button id="pause" title="一時停止(スペース)">⏸️</button><button id="stop" title="やめる(Esc)">⏹️</button></div>
 
 <div id="panel">
   <h1>マインドフルネス</h1>
@@ -124,11 +137,11 @@
   // 色: 時間とともに色相が一周(約80秒)。花びらごとに少しずつずらして、いろんな色が並ぶ
   function draw(s, now){
     cx.clearRect(0,0,W,H);
-    var R = Math.min(W,H) * 0.21;
-    var x0 = W/2, y0 = H*0.45;
+    var R = Math.min(W,H) * 0.19;
+    var x0 = W/2, y0 = H*0.43;
     var open = (s - MIN) / (MAX - MIN);
-    var r = R * (0.55 + 0.45*open);
-    var d = R * s;
+    var r = R * (0.40 + 0.60*open);
+    var d = R * open;                            // 閉じきると花びらが中心に重なる(最後まで収束)
     var rot = open * Math.PI/3 + now/60000;      // 開くとひねる+ごくゆっくり回る
     var base = (now/1000 * 4.5) % 360;
     cx.globalCompositeOperation = "lighter";
@@ -137,16 +150,21 @@
       var px = x0 + Math.cos(a)*d, py = y0 + Math.sin(a)*d;
       var h1 = (base + i*42) % 360, h2 = (h1 + 50) % 360;
       var g = cx.createRadialGradient(px,py,0,px,py,r);
-      g.addColorStop(0,   "hsla("+h2+",85%,72%,0.10)");
-      g.addColorStop(0.7, "hsla("+h1+",80%,64%,0.30)");
-      g.addColorStop(1,   "hsla("+h1+",80%,60%,0.02)");
+      var fa = 0.40 + 0.60*open;                   // 集まったとき白くとびすぎないよう、花びらはうすく
+      g.addColorStop(0,   "hsla("+h2+",85%,72%,"+(0.10*fa)+")");
+      g.addColorStop(0.7, "hsla("+h1+",80%,64%,"+(0.30*fa)+")");
+      g.addColorStop(1,   "hsla("+h1+",80%,60%,"+(0.02*fa)+")");
       cx.fillStyle = g; cx.beginPath(); cx.arc(px,py,r,0,Math.PI*2); cx.fill();
     }
-    // 中心のやわらかい光
-    var cg = cx.createRadialGradient(x0,y0,0,x0,y0,R*0.6);
-    cg.addColorStop(0, "hsla("+((base+180)%360)+",90%,85%,"+(0.10+0.12*open)+")");
-    cg.addColorStop(1, "hsla("+((base+180)%360)+",90%,85%,0)");
-    cx.fillStyle = cg; cx.beginPath(); cx.arc(x0,y0,R*0.6,0,Math.PI*2); cx.fill();
+    // 中心の光: 花びらが集まるほど強く
+    var shut = Math.pow(1 - open, 1.5);
+    var cr = R * 0.6;
+    var cg = cx.createRadialGradient(x0,y0,0,x0,y0,cr);
+    var hc = (base + 105) % 360;                   // 花びらの色の真ん中あたり
+    cg.addColorStop(0,   "hsla("+hc+",90%,85%,"+(0.05+0.45*shut)+")");
+    cg.addColorStop(0.5, "hsla("+hc+",85%,70%,"+(0.02+0.18*shut)+")");
+    cg.addColorStop(1,   "hsla("+hc+",85%,70%,0)");
+    cx.fillStyle = cg; cx.beginPath(); cx.arc(x0,y0,cr,0,Math.PI*2); cx.fill();
     cx.globalCompositeOperation = "source-over";
   }
 
@@ -165,7 +183,8 @@
         var p = plan[i], k = Math.min(1, t/p[0]);
         lastS = p[1] + (p[2]-p[1])*ease(k);
         draw(lastS, now);
-        if (p[3]) lastWord = p[3];
+        if (breaths >= 3) lastWord = "";          // 3回呼吸したら言葉は出さない
+        else if (p[3]) lastWord = p[3];
         if ($("word").textContent !== lastWord) $("word").textContent = lastWord;
         var rest = Math.max(0, Math.ceil((endAt - now)/1000));
         $("left").textContent = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
@@ -187,7 +206,7 @@
     plan = steps(); cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0); breaths = 0;
     t0 = performance.now(); endAt = t0 + Math.ceil(st.mins*60/cyc)*cyc*1000;   // 1回分の倍数に切り上げ(吐き終わりで止まる)
     mode = "run";
-    $("panel").style.display = "none"; $("ctl").style.display = "flex"; $("pause").textContent = "一時停止";
+    $("panel").style.display = "none"; $("ctl").style.display = "flex"; $("pause").textContent = "⏸️"; $("pause").title = "一時停止(スペース)";
     lastWord = ""; $("word").textContent = ""; $("word").style.opacity = 1;
     poke();
     try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){ wake = w; }).catch(function(){}); } catch(e) {}
@@ -230,7 +249,7 @@
   var touch = ("ontouchstart" in window) && window.matchMedia("(pointer: coarse)").matches;
   if (touch || window.name === "ikinohana_mini") $("mini").style.display = "none";
   $("mini").onclick = function(){
-    var w = window.open(location.href, "ikinohana_mini", "popup,width=280,height=380");
+    var w = window.open(location.href, "ikinohana_mini", "popup,width=220,height=260");
     if (!w) alert("小さい窓を開けませんでした。ブラウザがポップアップを止めているかもしれません。アドレスバー右の表示から許可してください。");
   };
 
@@ -240,10 +259,10 @@
     var now = performance.now();
     if (mode === "run") {
       mode = "pause"; pausedAt = now; clearTimeout(calmTimer); document.body.classList.remove("calm");
-      $("pause").textContent = "つづける"; $("word").textContent = "一時停止中";
+      $("pause").textContent = "▶️"; $("pause").title = "つづける(スペース)"; $("word").textContent = "一時停止中";
     } else if (mode === "pause") {
       var d = now - pausedAt; t0 += d; endAt += d;
-      mode = "run"; $("pause").textContent = "一時停止"; $("word").textContent = lastWord; poke();
+      mode = "run"; $("pause").textContent = "⏸️"; $("pause").title = "一時停止(スペース)"; $("word").textContent = lastWord; poke();
     }
   }
   $("pause").onclick = togglePause;
