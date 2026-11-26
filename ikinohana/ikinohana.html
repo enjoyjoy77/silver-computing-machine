@@ -59,7 +59,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev11</div>
+<div id="rev">rev12</div>
 <canvas id="cv"></canvas>
 <div id="left"></div>
 <div id="word"></div>
@@ -100,8 +100,11 @@
   <label class="chk"><input type="checkbox" id="showTimer"> 残り時間を表示する</label>
   <label class="chk"><input type="checkbox" id="showResult"> 終わったあと結果を表示する</label>
   <label class="chk"><input type="checkbox" id="blink"> まばたきの合図(息を止めるところで一瞬つぶれる)</label>
-  <label class="chk"><input type="checkbox" id="lr"> 左右に動く光(ひだりみぎ)</label>
-  <label class="chk" id="lrSndRow"><input type="checkbox" id="lrSnd"> 光が端に来たとき、その側から小さな音</label>
+  <label class="chk"><input type="checkbox" id="lr"> 花が左右に往復する(ひだりみぎ)</label>
+  <div id="lrBox">
+    <label class="row">左右の速さ <input type="range" id="lrSpeed" min="0.3" max="1.6" step="0.1"><span class="val" id="lrSpeedV"></span></label>
+    <label class="chk"><input type="checkbox" id="lrSnd"> 端に来たとき、その側から小さな音</label>
+  </div>
   <button id="go">はじめる</button>
   <button id="mini">小さい窓で開く</button>
 </div>
@@ -117,7 +120,7 @@
     long: "吐くほうを少し長く。楽に感じる人が多い",
     sigh: "鼻で吸って、少し吸い足して、口から長く吐く"
   };
-  var st = { flower:"light", mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true, blink:true, lr:false, lrSnd:true };
+  var st = { flower:"light", mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true, blink:true, lr:false, lrSnd:true, lrSpeed:0.8 };
   try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved) for (var k in st) if (k in saved) st[k] = saved[k]; }
   catch (e) { console.warn("前回の設定を読めませんでした", e); }
   function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("設定を保存できませんでした", e); } }
@@ -157,9 +160,11 @@
     if (dt < BL_CLOSE + BL_HOLD) return 0;
     return 0.5 - 0.5*Math.cos(Math.PI * (dt - BL_CLOSE - BL_HOLD)/BL_OPEN);
   }
+  var lrX = 0;   // ひだりみぎ: 花を横にずらす量(画素)
   function draw(s, now, bl){
     cx.setTransform(DPR,0,0,DPR,0,0);
     cx.clearRect(0,0,W,H);
+    if (lrX) cx.translate(lrX, 0);
     if (bl !== undefined && bl < 1) {
       var cy0 = H*0.42, f = 0.10 + 0.90*bl;
       cx.translate(0, cy0); cx.scale(1, f); cx.translate(0, -cy0);
@@ -232,7 +237,7 @@
     // 背景のうすい光
     var halo = cx.createRadialGradient(ox, oy-0.45*S, 0, ox, oy-0.45*S, 1.6*S);
     halo.addColorStop(0, "rgba(255,190,215,0.10)"); halo.addColorStop(1, "rgba(255,190,215,0)");
-    cx.fillStyle = halo; cx.fillRect(0,0,W,H);
+    cx.fillStyle = halo; cx.fillRect(-W,0,3*W,H);
 
     // 茎
     var st0 = P(0,0,0), st1 = P(0.05,-1.05,0.1);
@@ -489,7 +494,7 @@
     // 頭のまわりのうすい光(玉がそろっているほど)
     var hg = cx.createRadialGradient(ox, oy, 0, ox, oy, 1.4*S);
     hg.addColorStop(0, "rgba(235,240,255," + (0.10*open) + ")"); hg.addColorStop(1, "rgba(235,240,255,0)");
-    cx.fillStyle = hg; cx.fillRect(0,0,W,H);
+    cx.fillStyle = hg; cx.fillRect(-W,0,3*W,H);
     // 茎
     var s0 = P(0,-0.1,0), s1 = P(0.04,-1.75,0);
     cx.strokeStyle = "#5c8a50"; cx.lineWidth = Math.max(2, 0.035*S); cx.lineCap = "round";
@@ -564,7 +569,7 @@
     // 水の中の光と、ただよう粒
     var bg = cx.createRadialGradient(W/2, H*0.4, 0, W/2, H*0.4, Math.max(W,H)*0.7);
     bg.addColorStop(0, "hsla(" + hue + ",60%,30%,0.22)"); bg.addColorStop(1, "hsla(" + hue + ",60%,10%,0)");
-    cx.fillStyle = bg; cx.fillRect(0,0,W,H);
+    cx.fillStyle = bg; cx.fillRect(-W,0,3*W,H);
     cx.fillStyle = "rgba(200,225,255,0.18)";
     for (var i=0;i<34;i++){
       var px = hash01(i)*W + Math.sin(t*0.3 + i)*6, py = ((hash01(i+99)*H - t*(4 + 8*hash01(i+7))) % H + H) % H;
@@ -650,14 +655,14 @@
     cx.fillStyle = g; cx.beginPath(); cx.arc(x0, y0, r, 0, Math.PI*2); cx.fill();
   }
 
-  // ---- ひだりみぎ(EMDRの左右刺激だけ): 花の下を小さな光が左右に往復。端で、その側から小さな音 ----
-  // 速さは ひだりみぎ と同じ 0.8往復/秒。一時停止中は止まる(呼吸の経過時間で動かすため)
-  var LR_SPEED = 0.8, ac = null, lrLast = null;
-  function drawLR(el){
-    var ph = el*LR_SPEED*Math.PI*2, x = W/2 + Math.sin(ph)*W*0.38, y = H*0.78, r = Math.max(5, Math.min(W,H)*0.022);
-    var g = cx.createRadialGradient(x, y, 0, x, y, r*2.2);
-    g.addColorStop(0, "rgba(232,240,250,0.95)"); g.addColorStop(0.45, "rgba(200,220,240,0.55)"); g.addColorStop(1, "rgba(200,220,240,0)");
-    cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r*2.2, 0, Math.PI*2); cx.fill();
+  // ---- ひだりみぎ(EMDRの左右刺激だけ): 呼吸で開いたり閉じたりする花そのものが、左右にも往復する ----
+  // 光を別に増やさない(目がうるさくなるため)。速さは st.lrSpeed(往復/秒)。端で、その側から小さな音
+  // 一時停止中はその位置で止まる(呼吸の経過時間で動かすため)
+  var ac = null, lrLast = null;
+  function moveLR(el){
+    var ph = el*st.lrSpeed*Math.PI*2;
+    var amp = Math.max(0, Math.min(W*0.30, W/2 - Math.min(W,H)*0.26));   // 花が画面からはみ出さない幅
+    lrX = Math.sin(ph)*amp;
     var side = Math.floor(ph/Math.PI + 0.5);          // 端に着くたびに1つ増える
     if (lrLast !== null && side !== lrLast && st.lrSnd) beep(Math.sin(ph) > 0 ? 0.9 : -0.9);
     lrLast = side;
@@ -695,6 +700,7 @@
         lastS = p[1] + (p[2]-p[1])*ease(k);
         var bl = 1;
         if (st.blink && p[1] === p[2] && p[0] >= 0.4) bl = blinkOpen(t - (p[0] - BL_LEN)/2);   // 止める区間の真ん中で
+        lrX = 0; if (st.lr) moveLR(el);
         draw(lastS, now, bl);
         if (breaths >= 3) lastWord = "";          // 3回呼吸したら言葉は出さない
         else if (p[3]) lastWord = p[3];
@@ -702,7 +708,6 @@
         var rest = Math.max(0, Math.ceil((endAt - now)/1000));
         var lt = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
         if ($("left").textContent !== lt) $("left").textContent = lt;
-        if (st.lr) drawLR(el);
       }
     }
   }
@@ -727,7 +732,7 @@
     try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){ wake = w; }).catch(function(){}); } catch(e) {}
   }
   function finish(completed){
-    mode = "idle"; clearTimeout(calmTimer); document.body.classList.remove("calm");
+    mode = "idle"; lrX = 0; clearTimeout(calmTimer); document.body.classList.remove("calm");
     $("ctl").style.display = "none"; $("word").style.opacity = 0; $("left").textContent = "";
     try { if (wake) { wake.release(); wake = null; } } catch(e) {}
     if (st.showResult) {
@@ -749,6 +754,7 @@
     $("rateV").textContent = st.rate + "回/分";
     $("sideV").textContent = st.side + "秒";
     $("minsV").textContent = st.mins + "分";
+    $("lrSpeedV").textContent = st.lrSpeed.toFixed(1) + "往復/秒";
     var sp = steps().filter(function(x){ return x[3]; });
     var flow = sp.map(function(x){ return x[3] + fmt(x[0]); }).join("→");
     $("patDesc").textContent = (st.mode === "relax" ? DESC[st.pat] + "\n" : "") + flow;
@@ -758,9 +764,9 @@
   document.querySelectorAll("#tabs button").forEach(function(b){ b.onclick = function(){ st.mode = b.dataset.m; save(); refresh(); }; });
   document.querySelectorAll("#pats button").forEach(function(b){ b.onclick = function(){ st.pat = b.dataset.p; save(); refresh(); }; });
   function bind(id, parse){ var el = $(id); el.value = st[id]; el.oninput = function(){ st[id] = parse(el.value); save(); refresh(); }; }
-  bind("rate", parseFloat); bind("side", function(v){ return parseInt(v,10); }); bind("mins", function(v){ return parseInt(v,10); });
+  bind("rate", parseFloat); bind("lrSpeed", parseFloat); bind("side", function(v){ return parseInt(v,10); }); bind("mins", function(v){ return parseInt(v,10); });
   ["showTimer","showResult","blink","lr","lrSnd"].forEach(function(id){ var el = $(id); el.checked = !!st[id]; el.onchange = function(){ st[id] = el.checked; save(); lrRow(); }; });
-  function lrRow(){ $("lrSndRow").style.display = st.lr ? "flex" : "none"; }
+  function lrRow(){ $("lrBox").style.display = st.lr ? "block" : "none"; }
   lrRow();
   refresh();
 
