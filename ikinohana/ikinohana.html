@@ -59,7 +59,7 @@
 </style>
 </head>
 <body>
-<div id="rev">rev13</div>
+<div id="rev">rev14</div>
 <canvas id="cv"></canvas>
 <div id="left"></div>
 <div id="word"></div>
@@ -661,98 +661,213 @@
     cx.fillStyle = g; cx.beginPath(); cx.arc(x0, y0, r, 0, Math.PI*2); cx.fill();
   }
 
-  // サクラ: 真上から見た5枚の花びら(先に切れこみ)。閉じる=ねじれた小さなつぼみ / 開く=満開。おしべも伸びる
+  // サクラ(ソメイヨシノ): 5枚の花びらを立体で作り、斜め上から見る(ハスと同じやり方)
+  // 閉じる=ふっくらした濃いめのピンクのつぼみ / 開く=ほぼ平らに開いた白っぽい花。先に浅い切れこみ。長いおしべが30本
   function drawSakura(s, now){
     cx.clearRect(0,0,W,H);
     var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
-    var R = Math.min(W,H) * 0.19, x0 = W/2, y0 = H*0.43;
-    var L = R * (0.42 + 0.68*open), hw = L*0.40;
-    var rot = now/50000 + c*0.9;                       // 閉じるほどねじれる
-    var halo = cx.createRadialGradient(x0, y0, 0, x0, y0, R*2);
-    halo.addColorStop(0, "rgba(255,200,220," + (0.05 + 0.07*open) + ")"); halo.addColorStop(1, "rgba(255,200,220,0)");
-    cx.fillStyle = halo; cx.fillRect(-W,0,3*W,H);
-    for (var i=0;i<5;i++){
-      var a = rot + i*Math.PI*2/5;
-      cx.save(); cx.translate(x0, y0); cx.rotate(a);
-      cx.translate(L*0.06*open, 0);
-      var g = cx.createLinearGradient(0, 0, L, 0);
-      g.addColorStop(0, "hsla(338,65%,70%,0.95)"); g.addColorStop(0.4, "hsla(345,75%,86%,0.93)"); g.addColorStop(1, "hsla(350,85%,95%,0.92)");
-      cx.fillStyle = g;
-      cx.beginPath(); cx.moveTo(0, 0);
-      cx.bezierCurveTo(L*0.30, -L*0.10, L*0.70, -hw, L*0.97, -hw*0.55);
-      cx.quadraticCurveTo(L*1.02, -hw*0.15, L*0.86, 0);          // 先の切れこみ
-      cx.quadraticCurveTo(L*1.02, hw*0.15, L*0.97, hw*0.55);
-      cx.bezierCurveTo(L*0.70, hw, L*0.30, L*0.10, 0, 0);
-      cx.fill();
-      cx.strokeStyle = "hsla(340,60%,75%,0.35)"; cx.lineWidth = 0.8; cx.stroke();
+    var R = Math.min(W,H) * 0.19, S = R * 1.25, t = now/1000;
+    var ox = W/2, oy = H*0.45;
+    var ce = Math.cos(0.85), se = Math.sin(0.85);              // 見下ろす角度(ハスより上から)
+    var drift = now/45000;
+    function P(x,y,z){ return [ox + x*S, oy - y*ce*S + z*se*S, z*ce + y*se]; }
+
+    // 散る花びら(うしろでゆっくり舞う)
+    for (var i=0;i<12;i++){
+      var fx = ((hash01(i+600)*W*1.3 + t*(8 + 10*hash01(i+601))) % (W*1.3)) - W*0.15;
+      var fy = ((hash01(i+602)*H + t*(14 + 12*hash01(i+603))) % (H*1.1)) - H*0.05;
+      var fr = Math.min(W,H)*(0.008 + 0.007*hash01(i+604)), fa = t*(0.6 + hash01(i+605)) + i;
+      cx.save(); cx.translate(fx + Math.sin(t*0.8 + i)*12, fy); cx.rotate(fa); cx.scale(1, 0.45 + 0.4*Math.abs(Math.sin(fa*0.7)));
+      cx.fillStyle = "rgba(255,185,210,0.38)";
+      cx.beginPath(); cx.ellipse(0, 0, fr*1.3, fr, 0, 0, Math.PI*2); cx.fill();
       cx.restore();
     }
-    // 真ん中とおしべ(開くほど長く)
-    cx.fillStyle = "hsla(340,55%,55%,0.9)";
-    cx.beginPath(); cx.arc(x0, y0, L*0.10, 0, Math.PI*2); cx.fill();
-    var sl = L*(0.10 + 0.32*open);
-    for (var k=0;k<22;k++){
-      var b = k*2.39996 + rot*0.5, ll = sl*(0.75 + 0.25*hash01(k+40));
-      var ex = x0 + Math.cos(b)*ll, ey = y0 + Math.sin(b)*ll;
-      cx.strokeStyle = "rgba(255,235,240,0.55)"; cx.lineWidth = 0.7;
-      cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(ex, ey); cx.stroke();
-      cx.fillStyle = "rgba(240,200,110,0.9)";
-      cx.beginPath(); cx.arc(ex, ey, Math.max(1, L*0.018), 0, Math.PI*2); cx.fill();
+    var halo = cx.createRadialGradient(ox, oy, 0, ox, oy, 1.8*S);
+    halo.addColorStop(0, "rgba(255,205,222," + (0.05 + 0.06*open) + ")"); halo.addColorStop(1, "rgba(255,205,222,0)");
+    cx.fillStyle = halo; cx.fillRect(-W,0,3*W,H);
+
+    // 花びら: 倒れ角 tilt(0=まっすぐ上、π/2=水平)。根元を中心から少し離して、外へ倒す
+    var tilt = 0.22 + 1.08*Math.pow(open, 0.85);
+    var len = 0.62 + 0.16*open, hm = 0.36;                   // 長さ・幅の半分(長さに対する割合)
+    var petals = [];
+    for (var k=0;k<5;k++){
+      var phi = k*2*Math.PI/5 + drift;
+      var rx = Math.sin(phi), rz = Math.cos(phi), tx = Math.cos(phi), tz = -Math.sin(phi);
+      var dx = rx*Math.sin(tilt), dy = Math.cos(tilt), dz = rz*Math.sin(tilt);
+      var nx = -rx*Math.cos(tilt), ny = Math.sin(tilt), nz = -rz*Math.cos(tilt);
+      var cup = 0.10 + 0.28*c, bend = 0.10*c - 0.04*open;     // 横のくぼみ・縦の反り(閉じるとつつむ)
+      var rb = 0.035;
+      var out2 = [];                                          // (u, v) の輪郭
+      var N = 14, u, v, j;
+      for (j=0;j<=N;j++){ u = 0.80*j/N; out2.push([u, -hm*Math.pow(Math.sin(Math.PI/2*u/0.80), 0.75)]); }
+      for (j=1;j<N*2;j++){
+        v = -hm + 2*hm*j/(N*2);
+        u = 0.80 + 0.20*Math.sqrt(Math.max(0, 1 - (v/hm)*(v/hm))) - 0.085*(0.25 + 0.75*open)*Math.exp(-Math.pow(v/(0.11*hm), 2));   // つぼみでは切れこみを目立たせない
+        out2.push([u, v]);
+      }
+      for (j=N;j>=0;j--){ u = 0.80*j/N; out2.push([u, hm*Math.pow(Math.sin(Math.PI/2*u/0.80), 0.75)]); }
+      var to3 = function(u, v){
+        var off = cup*(v*v)/(hm*hm)*0.5*len + bend*u*u*len;    // ふちほど内側へ持ち上がる
+        return [rx*rb + dx*u*len + tx*v*len + nx*off, dy*u*len + ny*off, rz*rb + dz*u*len + tz*v*len + nz*off];
+      };
+      var pts3 = out2.map(function(q){ return to3(q[0], q[1]); });
+      var mid = to3(0.55, 0), base = to3(0, 0), tip = to3(0.95, 0);
+      var facing = ny*se + nz*ce;
+      petals.push({ pts:pts3, depth: mid[2]*ce + mid[1]*se, base:base, tip:tip, inner: facing > 0, to3:to3 });
     }
+    petals.sort(function(a,b){ return a.depth - b.depth; });
+
+    function center(){
+      // がくの奥(花の中心のくぼみ): 黄緑→咲き進むと赤みが出る
+      var cc = P(0, 0.02, 0), cr = 0.075*S;
+      var g = cx.createRadialGradient(cc[0], cc[1], 0, cc[0], cc[1], cr);
+      g.addColorStop(0, "rgba(214,214,120,0.95)"); g.addColorStop(0.7, "rgba(214,120,120,0.85)"); g.addColorStop(1, "rgba(214,120,140,0)");
+      cx.fillStyle = g; cx.beginPath(); cx.ellipse(cc[0], cc[1], cr, cr*ce, 0, 0, Math.PI*2); cx.fill();
+      // おしべ30本: 根元から外へ反りながら伸びる
+      var sl = 0.12 + 0.30*open;
+      cx.lineCap = "round";
+      for (var q=0;q<30;q++){
+        var ang = q*2.39996 + drift, ll = sl*(0.80 + 0.20*hash01(q+700)), el = 0.30 + 0.75*open*(0.7 + 0.3*hash01(q+701));
+        var ax = Math.sin(ang), az = Math.cos(ang);
+        var p0 = P(ax*0.02, 0.03, az*0.02);
+        var pm = P(ax*ll*0.45*Math.sin(el), 0.03 + ll*0.55*Math.cos(el*0.6), az*ll*0.45*Math.sin(el));
+        var p1 = P(ax*ll*Math.sin(el), 0.03 + ll*Math.cos(el), az*ll*Math.sin(el));
+        cx.strokeStyle = "rgba(255,236,242,0.75)"; cx.lineWidth = Math.max(0.6, S*0.004);
+        cx.beginPath(); cx.moveTo(p0[0], p0[1]); cx.quadraticCurveTo(pm[0], pm[1], p1[0], p1[1]); cx.stroke();
+        cx.fillStyle = "rgba(236,190,95,0.95)";
+        cx.beginPath(); cx.arc(p1[0], p1[1], Math.max(1, S*0.011), 0, Math.PI*2); cx.fill();
+      }
+      // めしべ1本
+      var m0 = P(0, 0.03, 0), m1 = P(0.01, 0.03 + (0.10 + 0.24*open), 0.01);
+      cx.strokeStyle = "rgba(205,225,170,0.85)"; cx.lineWidth = Math.max(0.8, S*0.006);
+      cx.beginPath(); cx.moveTo(m0[0], m0[1]); cx.lineTo(m1[0], m1[1]); cx.stroke();
+    }
+    function petal(it){
+      var pts = it.pts.map(function(q){ return P(q[0], q[1], q[2]); });
+      var b0 = P.apply(null, it.base), t0 = P.apply(null, it.tip);
+      var g = cx.createLinearGradient(b0[0], b0[1], t0[0], t0[1]);
+      // 咲くほど白っぽく、根元はほんのりピンク。つぼみは濃いめ。外側(裏)は少しピンクが強い
+      var l1 = 80 + 10*open, l2 = 88 + 8*open, sat = it.inner ? 70 : 62;
+      g.addColorStop(0, "hsl(343," + sat + "%," + (l1 - (it.inner ? 0 : 5)) + "%)");
+      g.addColorStop(0.55, "hsl(347," + sat + "%," + (l2 - (it.inner ? 0 : 5)) + "%)");
+      g.addColorStop(1, "hsl(350,75%," + Math.min(97, l2 + 3) + "%)");
+      cx.beginPath(); cx.moveTo(pts[0][0], pts[0][1]);
+      for (var i=1;i<pts.length;i++) cx.lineTo(pts[i][0], pts[i][1]);
+      cx.closePath();
+      cx.globalAlpha = 0.97; cx.fillStyle = g; cx.fill(); cx.globalAlpha = 1;
+      if (it.depth < 0) { cx.fillStyle = "rgba(40,10,30," + Math.min(0.22, -it.depth*0.3) + ")"; cx.fill(); }
+      cx.strokeStyle = "rgba(225,150,175,0.30)"; cx.lineWidth = 0.7; cx.stroke();
+      // 細い筋(根元から扇形に)
+      cx.strokeStyle = "rgba(215,130,160,0.14)"; cx.lineWidth = 0.6;
+      [-0.6, -0.3, 0, 0.3, 0.6].forEach(function(f){
+        cx.beginPath();
+        for (var j=0;j<=8;j++){
+          var u = 0.05 + 0.75*j/8, q = P.apply(null, it.to3(u, f*0.36*Math.sin(Math.PI/2*u/0.8)));
+          if (j === 0) cx.moveTo(q[0], q[1]); else cx.lineTo(q[0], q[1]);
+        }
+        cx.stroke();
+      });
+    }
+    var done = false;
+    petals.forEach(function(it){
+      if (!done && it.depth >= -0.02 && open > 0.25) { center(); done = true; }
+      petal(it);
+    });
+    if (!done && open > 0.25) center();
+
     var shut = Math.pow(c, 1.5);
     if (shut > 0.02) {
+      var sc = P(0, 0.25, 0);
       cx.globalCompositeOperation = "lighter";
-      var gg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*0.8);
-      gg.addColorStop(0, "rgba(255,225,235," + (0.30*shut) + ")"); gg.addColorStop(1, "rgba(255,225,235,0)");
-      cx.fillStyle = gg; cx.beginPath(); cx.arc(x0, y0, R*0.8, 0, Math.PI*2); cx.fill();
+      var gg = cx.createRadialGradient(sc[0], sc[1], 0, sc[0], sc[1], 0.75*S);
+      gg.addColorStop(0, "rgba(255,225,235," + (0.28*shut) + ")"); gg.addColorStop(1, "rgba(255,225,235,0)");
+      cx.fillStyle = gg; cx.beginPath(); cx.arc(sc[0], sc[1], 0.75*S, 0, Math.PI*2); cx.fill();
       cx.globalCompositeOperation = "source-over";
     }
   }
 
-  // ゆき(雪の結晶): 吸う=6本の枝が伸び、小枝が順に生える / 吐く=小さな六角形にもどる
+  // ゆき(雪の結晶・樹枝状六花): 吸う=6本の枝が伸び、小枝が根元から順に生える / 吐く=小さな六角形の板にもどる
+  // 線ではなく、うすい氷の板として描く(すけた面+明るいふち+真ん中の稜線)。ゆっくり回り、少しかたむく
   function drawYuki(s, now){
     cx.clearRect(0,0,W,H);
     var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
     var R = Math.min(W,H) * 0.19, x0 = W/2, y0 = H*0.43, t = now/1000;
-    var A = R * (0.30 + 0.95*open), rot = now/60000;
-    // 降ってくる小さな雪
-    cx.fillStyle = "rgba(220,235,255,0.25)";
-    for (var i=0;i<40;i++){
+    var A = R * (0.28 + 1.0*open), rot = now/60000, wob = 0.82 + 0.18*Math.cos(now/9000);
+    var w = R * (0.050 + 0.010*open);                          // 枝の太さの半分
+    // 降ってくる雪(ぼけた丸)
+    for (var i=0;i<36;i++){
       var px = (hash01(i)*W + Math.sin(t*0.4 + i)*10), py = ((hash01(i+77)*H + t*(10 + 14*hash01(i+5))) % H);
-      cx.beginPath(); cx.arc(px, py, 0.6 + 1.3*hash01(i+11), 0, Math.PI*2); cx.fill();
+      var pr = 0.8 + 2.2*hash01(i+11);
+      cx.fillStyle = "rgba(220,235,255," + (0.10 + 0.12*hash01(i+12)) + ")";
+      cx.beginPath(); cx.arc(px, py, pr, 0, Math.PI*2); cx.fill();
     }
-    function arm(pass){
-      for (var k=0;k<6;k++){
-        var a = rot + k*Math.PI/3, ca = Math.cos(a), sa = Math.sin(a);
-        cx.beginPath();
-        cx.moveTo(x0, y0); cx.lineTo(x0 + ca*A, y0 + sa*A);
-        [0.38, 0.62, 0.84].forEach(function(f, j){
-          var grow = Math.max(0, Math.min(1, (open - j*0.22) / 0.45));   // 小枝は根元から順に生える
-          if (grow <= 0) return;
-          var bl = A*0.30*(1 - f*0.55)*grow, bx = x0 + ca*A*f, by = y0 + sa*A*f;
-          [-1, 1].forEach(function(sg){
-            var b = a + sg*Math.PI/3;
-            cx.moveTo(bx, by); cx.lineTo(bx + Math.cos(b)*bl, by + Math.sin(b)*bl);
-          });
-        });
-        cx.stroke();
-      }
+    var bg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*2.2);
+    bg.addColorStop(0, "rgba(150,190,240,0.10)"); bg.addColorStop(1, "rgba(150,190,240,0)");
+    cx.fillStyle = bg; cx.fillRect(-W,0,3*W,H);
+
+    cx.save(); cx.translate(x0, y0); cx.scale(1, wob); cx.rotate(rot);
+    // 板(先のとがった細長い六角形)を集める: [根元x, 根元y, 向き, 長さ, 太さの半分]
+    var planks = [];
+    for (var k=0;k<6;k++){
+      var a = k*Math.PI/3, ca = Math.cos(a), sa = Math.sin(a);
+      planks.push([0, 0, a, A, w]);
+      [0.30, 0.50, 0.68, 0.84].forEach(function(f, j){
+        var grow = Math.max(0, Math.min(1, (open - 0.15 - j*0.17) / 0.35));
+        if (grow <= 0) return;
+        var bl = A*0.34*(1 - f*0.62)*grow, bx = ca*A*f, by = sa*A*f;
+        [-1, 1].forEach(function(sg){ planks.push([bx, by, a + sg*Math.PI/3, bl, w*0.62]); });
+      });
     }
-    cx.lineCap = "round";
+    function plankPath(p){
+      var ca = Math.cos(p[2]), sa = Math.sin(p[2]), L = p[3], hw = Math.min(p[4], L*0.35);
+      var q = [[0,-hw],[L-hw*1.7,-hw],[L,0],[L-hw*1.7,hw],[0,hw]];
+      cx.moveTo(p[0] + q[0][0]*ca - q[0][1]*sa, p[1] + q[0][0]*sa + q[0][1]*ca);
+      for (var j=1;j<q.length;j++) cx.lineTo(p[0] + q[j][0]*ca - q[j][1]*sa, p[1] + q[j][0]*sa + q[j][1]*ca);
+      cx.closePath();
+    }
+    function hexPath(r, off){
+      for (var h=0;h<6;h++){ var ha = (off||0) + h*Math.PI/3; cx[h ? "lineTo" : "moveTo"](Math.cos(ha)*r, Math.sin(ha)*r); }
+      cx.closePath();
+    }
+    var hr = Math.max(R*0.16, A*0.17);
     cx.globalCompositeOperation = "lighter";
-    cx.strokeStyle = "rgba(150,200,255,0.10)"; cx.lineWidth = Math.max(4, R*0.07); arm();
-    cx.strokeStyle = "rgba(225,240,255,0.80)"; cx.lineWidth = Math.max(1.2, R*0.016); arm();
-    // 真ん中の六角形
-    var hr = Math.max(R*0.10, A*0.13);
-    cx.strokeStyle = "rgba(225,240,255,0.7)"; cx.lineWidth = Math.max(1, R*0.012);
+    // 1) まわりのほのかな光
+    cx.strokeStyle = "rgba(140,190,255,0.07)"; cx.lineWidth = w*2.6; cx.lineJoin = "round";
+    cx.beginPath(); planks.forEach(plankPath); cx.stroke();
+    // 2) すけた氷の面
+    var fg = cx.createRadialGradient(0, 0, 0, 0, 0, A*1.05);
+    fg.addColorStop(0, "rgba(200,225,255,0.26)"); fg.addColorStop(1, "rgba(170,205,250,0.12)");
+    cx.fillStyle = fg;
+    planks.forEach(function(p){ cx.beginPath(); plankPath(p); cx.fill(); });
+    cx.beginPath(); hexPath(hr); cx.fill();
+    // 3) 明るいふち
+    cx.strokeStyle = "rgba(235,245,255,0.55)"; cx.lineWidth = Math.max(0.8, R*0.007); cx.lineJoin = "miter";
+    cx.beginPath(); planks.forEach(plankPath); cx.stroke();
+    cx.beginPath(); hexPath(hr); hexPath(hr*0.55, 0); cx.stroke();
+    // 4) 真ん中の稜線(光の当たる筋)
+    cx.strokeStyle = "rgba(255,255,255,0.55)"; cx.lineWidth = Math.max(0.6, R*0.005);
     cx.beginPath();
-    for (var h=0;h<=6;h++){ var ha = rot + Math.PI/6 + h*Math.PI/3; cx[h ? "lineTo" : "moveTo"](x0 + Math.cos(ha)*hr, y0 + Math.sin(ha)*hr); }
+    planks.forEach(function(p){
+      var ca = Math.cos(p[2]), sa = Math.sin(p[2]);
+      cx.moveTo(p[0], p[1]); cx.lineTo(p[0] + ca*p[3]*0.97, p[1] + sa*p[3]*0.97);
+    });
     cx.stroke();
+    // 5) 枝先のきらめき(ゆっくり明滅)
+    for (k=0;k<6;k++){
+      var tw = Math.max(0, Math.sin(t*1.3 + k*2.1));
+      if (tw < 0.3) continue;
+      var aa = k*Math.PI/3, sx = Math.cos(aa)*A, sy = Math.sin(aa)*A, gr = w*3*tw;
+      var sg = cx.createRadialGradient(sx, sy, 0, sx, sy, gr);
+      sg.addColorStop(0, "rgba(255,255,255," + (0.45*tw) + ")"); sg.addColorStop(1, "rgba(255,255,255,0)");
+      cx.fillStyle = sg; cx.beginPath(); cx.arc(sx, sy, gr, 0, Math.PI*2); cx.fill();
+    }
+    // 6) 小さく戻ると、真ん中がほのかに光る
     var shut = Math.pow(c, 1.5);
-    var gg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*0.7);
-    gg.addColorStop(0, "rgba(210,232,255," + (0.06 + 0.30*shut) + ")"); gg.addColorStop(1, "rgba(210,232,255,0)");
-    cx.fillStyle = gg; cx.beginPath(); cx.arc(x0, y0, R*0.7, 0, Math.PI*2); cx.fill();
+    var gg = cx.createRadialGradient(0, 0, 0, 0, 0, R*0.7);
+    gg.addColorStop(0, "rgba(210,232,255," + (0.04 + 0.26*shut) + ")"); gg.addColorStop(1, "rgba(210,232,255,0)");
+    cx.fillStyle = gg; cx.beginPath(); cx.arc(0, 0, R*0.7, 0, Math.PI*2); cx.fill();
     cx.globalCompositeOperation = "source-over";
+    cx.restore();
   }
 
   // ほたる: 吸う=光の粒が広がっていく / 吐く=真ん中に集まって、ひとつのやわらかい光になる
