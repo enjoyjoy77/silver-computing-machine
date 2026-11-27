@@ -1,1 +1,943 @@
-﻿GitHub側は先に進んでいませんでした。
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>マインドフルネス</title>
+<style>
+  :root { --bg:#0b0d12; --fg:#e8ecf2; --sub:#8f99a8; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif; overflow:hidden; }
+  #rev { position:fixed; top:4px; right:8px; font-size:11px; color:var(--sub); z-index:9; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; }
+  #word { position:fixed; left:0; right:0; bottom:9%; text-align:center; font-size:clamp(16px,5vmin,26px);
+    letter-spacing:.2em; color:#e6ecf3; opacity:0; transition:opacity .6s; pointer-events:none; }
+  #left { position:fixed; left:0; right:0; top:10px; text-align:center; font-size:13px; color:#6b7482; }
+  /* 右下のすみ。花と重ならない位置に、うすく */
+  #ctl { position:fixed; right:12px; bottom:12px; display:none; gap:6px; opacity:.55; }
+  #ctl:hover { opacity:.9; }
+  #ctl button { width:38px; height:38px; padding:0; font-size:18px; line-height:38px;
+    border:0; border-radius:50%; background:rgba(255,255,255,.08); cursor:pointer; }
+  /* 呼吸中、しばらく操作がなければ文字とボタンを消す */
+  #rev, #left, #ctl { transition:opacity .8s; }
+  body.calm #rev, body.calm #left, body.calm #ctl { opacity:0; pointer-events:none; }
+  body.calm { cursor:none; }
+  /* 設定パネル */
+  #panel { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(94vw,440px); max-height:94vh; overflow:auto;
+    background:rgba(22,26,34,.9); border-radius:14px; padding:14px 16px; }
+  #panel h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--sub); font-size:13px; margin:4px 0 8px; line-height:1.5; }
+  .tabs, .pats { display:flex; gap:6px; margin:8px 0; }
+  #flowers { flex-wrap:wrap; }
+  #flowers button { flex:1 1 28%; }
+  .tabs button, .pats button { flex:1; font:inherit; border:0; cursor:pointer; border-radius:10px; padding:9px 4px; background:#2a3240; color:var(--fg); font-size:14px; }
+  .tabs button.sel { background:#e8ecf2; color:#0b1320; }
+  .pats button.sel { background:#9fd8e8; color:#0b1320; }
+  label.chk { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:14px; cursor:pointer; }
+  label.chk input { width:18px; height:18px; }
+  label.row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; font-size:14px; }
+  input[type=range] { flex:1; min-width:60px; }
+  .val { min-width:4.8em; text-align:right; color:var(--sub); font-size:13px; }
+  #go { display:block; width:100%; margin-top:10px; padding:13px; font:inherit; font-size:18px; border:0; border-radius:12px; background:#9fd8e8; color:#0b1320; cursor:pointer; }
+  #mini { display:block; width:100%; margin-top:8px; padding:8px; font:inherit; font-size:13px; border:1px solid #333c4a; border-radius:10px; background:transparent; color:var(--sub); cursor:pointer; }
+  /* とても小さい窓 */
+  @media (max-width:300px), (max-height:300px) {
+    #panel { padding:8px 10px; border-radius:10px; }
+    #panel h1 { font-size:15px; }
+    .tabs button, .pats button { font-size:12px; padding:6px 2px; }
+    label.row, label.chk, .sub { font-size:12px; }
+    #go { padding:8px; font-size:15px; }
+    #ctl { right:6px; bottom:6px; }
+    #ctl button { width:28px; height:28px; font-size:13px; line-height:28px; }
+    #left { top:4px; font-size:11px; }
+  }
+  #done { position:fixed; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; text-align:center; padding:10px; }
+  #done.on { display:flex; }
+  #done p { font-size:clamp(15px,5vmin,22px); line-height:1.8; margin:0 0 12px; text-shadow:0 0 12px #000; }
+  #done button { font:inherit; font-size:15px; padding:9px 26px; border:0; border-radius:10px; background:rgba(40,46,58,.9); color:#c9d1dc; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="rev">rev13</div>
+<canvas id="cv"></canvas>
+<div id="left"></div>
+<div id="word"></div>
+<div id="ctl"><button id="pause" title="一時停止(スペース)">⏸️</button><button id="stop" title="やめる(Esc)">⏹️</button></div>
+
+<div id="panel">
+  <h1>マインドフルネス</h1>
+  <div class="pats" id="flowers">
+    <button data-f="light">ひかり</button>
+    <button data-f="lotus">ハス</button>
+    <button data-f="asagao">アサガオ</button>
+    <button data-f="tanpopo">タンポポ</button>
+    <button data-f="kurage">クラゲ</button>
+    <button data-f="sakura">サクラ</button>
+    <button data-f="yuki">ゆき</button>
+    <button data-f="hotaru">ほたる</button>
+    <button data-f="maru">まる</button>
+  </div>
+  <div class="tabs" id="tabs">
+    <button data-m="relax">リラックス</button>
+    <button data-m="train">トレーニング</button>
+  </div>
+
+  <div id="relaxBox">
+    <div class="pats" id="pats">
+      <button data-p="even">ふつう</button>
+      <button data-p="long">吐くを長く</button>
+      <button data-p="sigh">ため息呼吸</button>
+    </div>
+    <label class="row">速さ <input type="range" id="rate" min="4" max="10" step="0.5"><span class="val" id="rateV"></span></label>
+  </div>
+
+  <div id="trainBox">
+    <p class="sub">箱呼吸:吸う→止める→吐く→止める を同じ長さで。慣れたら1辺を長くしていく。<br>
+    ※水の中・運転中・立ちくらみしやすい時はしない。苦しくなったらすぐやめる</p>
+    <label class="row">1辺の長さ <input type="range" id="side" min="3" max="10" step="1"><span class="val" id="sideV"></span></label>
+  </div>
+
+  <p class="sub" id="patDesc"></p>
+  <label class="row">時間 <input type="range" id="mins" min="1" max="10" step="1"><span class="val" id="minsV"></span></label>
+  <label class="chk"><input type="checkbox" id="showTimer"> 残り時間を表示する</label>
+  <label class="chk"><input type="checkbox" id="showResult"> 終わったあと結果を表示する</label>
+  <label class="chk"><input type="checkbox" id="blink"> まばたきの合図(息を止めるところで一瞬つぶれる)</label>
+  <label class="chk"><input type="checkbox" id="lr"> 花が左右に往復する(ひだりみぎ)</label>
+  <div id="lrBox">
+    <label class="row">左右の速さ <input type="range" id="lrSpeed" min="0.3" max="1.6" step="0.1"><span class="val" id="lrSpeedV"></span></label>
+    <label class="chk"><input type="checkbox" id="lrSnd"> 端に来たとき、その側から小さな音</label>
+  </div>
+  <button id="go">はじめる</button>
+  <button id="mini">小さい窓で開く</button>
+</div>
+
+<div id="done"><p id="doneMsg"></p><button id="back">もどる</button></div>
+
+<script>
+(function(){
+  "use strict";
+  var KEY = "ikinohana_v2";
+  var DESC = {
+    even: "吸うと吐くが同じ長さ。いちばん基本",
+    long: "吐くほうを少し長く。楽に感じる人が多い",
+    sigh: "鼻で吸って、少し吸い足して、口から長く吐く"
+  };
+  var st = { flower:"light", mode:"relax", pat:"even", rate:7, side:4, mins:3, showTimer:false, showResult:true, blink:true, lr:false, lrSnd:true, lrSpeed:0.8 };
+  try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved) for (var k in st) if (k in saved) st[k] = saved[k]; }
+  catch (e) { console.warn("前回の設定を読めませんでした", e); }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch(e) { console.warn("設定を保存できませんでした", e); } }
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  // ---- 呼吸の段取り: [秒, 始まりの開き, 終わりの開き, 言葉] ----
+  var MIN = 0.32, MAX = 1.0;
+  function steps(){
+    if (st.mode === "train") {
+      var n = st.side;
+      return [[n, MIN, MAX, "吸って"], [n, MAX, MAX, "止めて"], [n, MAX, MIN, "吐いて"], [n, MIN, MIN, "止めて"]];
+    }
+    var c = 60 / st.rate;
+    // 吸ったあとに少し止める(12%)。吐いたあとにも短い間(6%)
+    if (st.pat === "long") return [[c*0.34, MIN, MAX, "吸って"], [c*0.12, MAX, MAX, "とめて"], [c*0.48, MAX, MIN, "吐いて"], [c*0.06, MIN, MIN, ""]];
+    if (st.pat === "sigh") return [[c*0.24, MIN, 0.82, "吸って"], [c*0.12, 0.82, MAX, "もう少し"], [c*0.10, MAX, MAX, "とめて"], [c*0.48, MAX, MIN, "吐いて"], [c*0.06, MIN, MIN, ""]];
+    return [[c*0.41, MIN, MAX, "吸って"], [c*0.12, MAX, MAX, "とめて"], [c*0.41, MAX, MIN, "吐いて"], [c*0.06, MIN, MIN, ""]];
+  }
+  function ease(t){ return 0.5 - 0.5*Math.cos(Math.PI*t); }
+
+  // ---- 描画 ----
+  var cv = $("cv"), cx = cv.getContext("2d"), W = 0, H = 0, DPR = 1;
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 1.5); W = window.innerWidth; H = window.innerHeight;   // 高解像度の画面で重くならないよう1.5倍まで
+    cv.width = W*DPR; cv.height = H*DPR; cx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener("resize", resize); resize();
+
+  // 色: 時間とともに色相が一周(約80秒)。花びらごとに少しずつずらして、いろんな色が並ぶ
+  // まばたきの合図: 息を止めるところ(開き具合が変わらない区間)の真ん中で、絵全体が上下から一瞬つぶれて戻る
+  // 閉じる0.10秒 → 閉じたまま0.05秒 → 開く0.17秒(本物のまばたきと同じく、閉じるほうが速い)
+  var BL_CLOSE = 0.10, BL_HOLD = 0.05, BL_OPEN = 0.17, BL_LEN = BL_CLOSE + BL_HOLD + BL_OPEN;
+  function blinkOpen(dt){
+    if (dt < 0 || dt >= BL_LEN) return 1;
+    if (dt < BL_CLOSE) return 1 - Math.sin(Math.PI/2 * dt/BL_CLOSE);
+    if (dt < BL_CLOSE + BL_HOLD) return 0;
+    return 0.5 - 0.5*Math.cos(Math.PI * (dt - BL_CLOSE - BL_HOLD)/BL_OPEN);
+  }
+  var lrX = 0;   // ひだりみぎ: 花を横にずらす量(画素)
+  function draw(s, now, bl){
+    cx.setTransform(DPR,0,0,DPR,0,0);
+    cx.clearRect(0,0,W,H);
+    if (lrX) cx.translate(lrX, 0);
+    if (bl !== undefined && bl < 1) {
+      var cy0 = H*0.42, f = 0.10 + 0.90*bl;
+      cx.translate(0, cy0); cx.scale(1, f); cx.translate(0, -cy0);
+    }
+    drawFlower(s, now);
+    cx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  function drawFlower(s, now){
+    if (st.flower === "maru") drawMaru(s, now);
+    else if (st.flower === "lotus") drawLotus(s, now);
+    else if (st.flower === "asagao") drawAsagao(s, now);
+    else if (st.flower === "tanpopo") drawTanpopo(s, now);
+    else if (st.flower === "kurage") drawKurage(s, now);
+    else if (st.flower === "sakura") drawSakura(s, now);
+    else if (st.flower === "yuki") drawYuki(s, now);
+    else if (st.flower === "hotaru") drawHotaru(s, now);
+    else drawLight(s, now);
+  }
+  function drawLight(s, now){
+    cx.clearRect(0,0,W,H);
+    var R = Math.min(W,H) * 0.19;
+    var x0 = W/2, y0 = H*0.43;
+    var open = (s - MIN) / (MAX - MIN);
+    var r = R * (0.40 + 0.60*open);
+    var d = R * open;                            // 閉じきると花びらが中心に重なる(最後まで収束)
+    var rot = open * Math.PI/3 + now/60000;      // 開くとひねる+ごくゆっくり回る
+    var base = (now/1000 * 4.5) % 360;
+    cx.globalCompositeOperation = "lighter";
+    for (var i=0;i<6;i++){
+      var a = rot + i*Math.PI/3;
+      var px = x0 + Math.cos(a)*d, py = y0 + Math.sin(a)*d;
+      var h1 = (base + i*42) % 360, h2 = (h1 + 50) % 360;
+      var g = cx.createRadialGradient(px,py,0,px,py,r);
+      var fa = 0.40 + 0.60*open;                   // 集まったとき白くとびすぎないよう、花びらはうすく
+      g.addColorStop(0,   "hsla("+h2+",85%,72%,"+(0.10*fa)+")");
+      g.addColorStop(0.7, "hsla("+h1+",80%,64%,"+(0.30*fa)+")");
+      g.addColorStop(1,   "hsla("+h1+",80%,60%,"+(0.02*fa)+")");
+      cx.fillStyle = g; cx.beginPath(); cx.arc(px,py,r,0,Math.PI*2); cx.fill();
+    }
+    // 中心の光: 花びらが集まるほど強く
+    var shut = Math.pow(1 - open, 1.5);
+    var cr = R * 0.6;
+    var cg = cx.createRadialGradient(x0,y0,0,x0,y0,cr);
+    var hc = (base + 105) % 360;                   // 花びらの色の真ん中あたり
+    cg.addColorStop(0,   "hsla("+hc+",90%,85%,"+(0.05+0.45*shut)+")");
+    cg.addColorStop(0.5, "hsla("+hc+",85%,70%,"+(0.02+0.18*shut)+")");
+    cg.addColorStop(1,   "hsla("+hc+",85%,70%,0)");
+    cx.fillStyle = cg; cx.beginPath(); cx.arc(x0,y0,cr,0,Math.PI*2); cx.fill();
+    cx.globalCompositeOperation = "source-over";
+  }
+
+  // ---- ハス(資料: CLAUDEdata\構想\ハス_描画資料.md) ----
+  // 花びらは根元を軸に外へ倒れる立体。斜め上から見下ろして描く。
+  // 閉じる=しずく形のつぼみ / 開く=2日目の満開(外側ほど大きく倒れ、内側は立ったお椀形)
+  // [枚数, 長さ, 幅, 閉じたときの傾き, 開いたときの傾き(ラジアン), 種類]
+  var LOTUS_RINGS = [
+    [5, 0.42, 0.34, 0.45, 1.50, "sepal"],    // いちばん外の小さい緑っぽい花びら
+    [8, 1.00, 0.62, 0.08, 1.05, "petal"],    // 外側の大きい花びら(幅広・先は丸め)
+    [7, 0.97, 0.60, 0.05, 0.78, "petal"],
+    [6, 0.90, 0.56, 0.03, 0.50, "petal"]     // 内側(立ち気味のお椀形)
+  ];
+  var CAM_E = 0.60;                          // 見下ろす角度
+  var CE = Math.cos(CAM_E), SE = Math.sin(CAM_E);
+
+  function drawLotus(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN)));
+    var R = Math.min(W,H) * 0.19, S = R * 1.15;
+    var ox = W/2, oy = H*0.43 + 0.42*S;      // 花の根元の画面位置
+    function P(x,y,z){ return [ox + x*S, oy - y*CE*S + z*SE*S, z*CE + y*SE]; }
+    var drift = now/40000;
+
+    // 背景のうすい光
+    var halo = cx.createRadialGradient(ox, oy-0.45*S, 0, ox, oy-0.45*S, 1.6*S);
+    halo.addColorStop(0, "rgba(255,190,215,0.10)"); halo.addColorStop(1, "rgba(255,190,215,0)");
+    cx.fillStyle = halo; cx.fillRect(-W,0,3*W,H);
+
+    // 茎
+    var st0 = P(0,0,0), st1 = P(0.05,-1.05,0.1);
+    cx.strokeStyle = "#4f7d4c"; cx.lineWidth = Math.max(2, 0.045*S); cx.lineCap = "round";
+    cx.beginPath(); cx.moveTo(st0[0], st0[1]); cx.quadraticCurveTo(st0[0]+0.06*S, (st0[1]+st1[1])/2, st1[0], st1[1]); cx.stroke();
+
+    var items = [];
+    LOTUS_RINGS.forEach(function(rg, ri){
+      var n = rg[0], tilt = rg[3] + (rg[4]-rg[3])*open;
+      for (var k=0;k<n;k++){
+        var phi = k*2*Math.PI/n + ri*2.39996 + drift;   // 段ごとに黄金角ずらす
+        items.push(makePetal(phi, rg[1], rg[2], tilt, rg[5], open, ri));
+      }
+    });
+    items.sort(function(a,b){ return a.depth - b.depth; });
+    var centerDone = false;
+    items.forEach(function(it){
+      if (!centerDone && it.depth >= 0) { drawLotusCenter(P, open, drift); centerDone = true; }
+      drawPetal(it, P);
+    });
+    if (!centerDone) drawLotusCenter(P, open, drift);
+
+    // 閉じきると、つぼみの中がぽっと光る
+    var shut = Math.pow(1 - open, 1.5);
+    if (shut > 0.01) {
+      var c = P(0, 0.5, 0);
+      var g = cx.createRadialGradient(c[0], c[1], 0, c[0], c[1], 0.75*S);
+      g.addColorStop(0, "rgba(255,230,240,"+(0.36*shut)+")");
+      g.addColorStop(0.5, "rgba(255,170,205,"+(0.18*shut)+")");
+      g.addColorStop(1, "rgba(255,170,205,0)");
+      cx.globalCompositeOperation = "lighter";
+      cx.fillStyle = g; cx.beginPath(); cx.arc(c[0], c[1], 0.75*S, 0, Math.PI*2); cx.fill();
+      cx.globalCompositeOperation = "source-over";
+    }
+  }
+
+  function makePetal(phi, len, wid, tilt, kind, open, ri){
+    var rx = Math.sin(phi), rz = Math.cos(phi);          // 外向き
+    var tx = Math.cos(phi), tz = -Math.sin(phi);         // 横向き
+    var dx = rx*Math.sin(tilt), dy = Math.cos(tilt), dz = rz*Math.sin(tilt);     // 花びらの向き
+    var nx = -rx*Math.cos(tilt), ny = Math.sin(tilt), nz = -rz*Math.cos(tilt);   // 内側(くぼみ)の向き
+    var rb = kind === "sepal" ? 0.16 : 0.10 + ri*0.01;
+    var bulge = (0.16 - 0.11*open) * len, curl = (0.15 - 0.03*open) * len;          // 閉じると先が寄って、つぼみの先がとがる
+    var cup = kind === "sepal" ? 0.3 : 0.55;
+    var N = 18, left = [], right = [], spine = [];
+    for (var i=0;i<=N;i++){
+      var u = i/N;
+      var off = curl*u*u - bulge*Math.sin(Math.PI*u);
+      var sx = rx*rb + dx*u*len + nx*off, sy = dy*u*len + ny*off, sz = rz*rb + dz*u*len + nz*off;
+      var half = 0.5*wid*len*1.7*Math.pow(u,0.5)*Math.pow(1-u,0.3);   // 先の丸い卵形
+      var cw = half*Math.cos(cup), cn = half*Math.sin(cup);
+      left.push([sx - tx*cw + nx*cn, sy + ny*cn, sz - tz*cw + nz*cn]);
+      right.push([sx + tx*cw + nx*cn, sy + ny*cn, sz + tz*cw + nz*cn]);
+      spine.push([sx, sy, sz]);
+    }
+    var m = spine[Math.round(N*0.55)];
+    var facing = ny*SE + nz*CE;                           // くぼみ側がこちらを向いているか
+    return { left:left, right:right, spine:spine, kind:kind, inner: facing > 0,
+             depth: m[2]*CE + m[1]*SE, tx:tx, tz:tz, nx:nx, ny:ny, nz:nz };
+  }
+
+  function drawPetal(it, P){
+    var pts = it.left.concat(it.right.slice().reverse()).map(function(q){ return P(q[0],q[1],q[2]); });
+    var b = P.apply(null, it.spine[0]), t = P.apply(null, it.spine[it.spine.length-1]);
+    var g = cx.createLinearGradient(b[0], b[1], t[0], t[1]);
+    if (it.kind === "sepal") {
+      g.addColorStop(0, "#8fb383"); g.addColorStop(1, "#c9a6a3");
+    } else if (it.inner) {
+      g.addColorStop(0, "#fff8ee"); g.addColorStop(0.45, "#fde6ea"); g.addColorStop(1, "#ef8fb3");
+    } else {
+      g.addColorStop(0, "#f3e4dd"); g.addColorStop(0.5, "#f2bfd0"); g.addColorStop(1, "#dc6997");
+    }
+    cx.beginPath(); cx.moveTo(pts[0][0], pts[0][1]);
+    for (var i=1;i<pts.length;i++) cx.lineTo(pts[i][0], pts[i][1]);
+    cx.closePath();
+    cx.globalAlpha = 0.96; cx.fillStyle = g; cx.fill(); cx.globalAlpha = 1;
+    // 奥の花びらは少し暗く
+    if (it.depth < 0) { cx.fillStyle = "rgba(20,8,20," + Math.min(0.28, -it.depth*0.35) + ")"; cx.fill(); }
+    cx.strokeStyle = "rgba(255,255,255,0.22)"; cx.lineWidth = 0.8; cx.stroke();
+    // 縦の筋
+    if (it.kind === "petal") {
+      cx.strokeStyle = it.inner ? "rgba(214,110,150,0.13)" : "rgba(170,60,110,0.15)"; cx.lineWidth = 0.7;
+      [-0.45, 0, 0.45].forEach(function(v){
+        cx.beginPath();
+        for (var i=1;i<it.spine.length-1;i++){
+          var L = it.left[i], Rr = it.right[i], w = (v+1)/2;
+          var q = P(L[0]+(Rr[0]-L[0])*w, L[1]+(Rr[1]-L[1])*w, L[2]+(Rr[2]-L[2])*w);
+          if (i===1) cx.moveTo(q[0],q[1]); else cx.lineTo(q[0],q[1]);
+        }
+        cx.stroke();
+      });
+    }
+  }
+
+  // 花托(上が平らな逆円すい・めしべの点)と、そのまわりの黄色いおしべ
+  function drawLotusCenter(P, open, drift){
+    var hr = 0.30, rr = 0.20, i, a;
+    cx.lineCap = "round";
+    for (i=0;i<70;i++){
+      a = i*2*Math.PI/70 + drift;
+      var rx = Math.sin(a), rz = Math.cos(a), tl = 0.25 + 0.85*open, sl = 0.26;
+      var p0 = P(rx*rr*0.95, hr-0.05, rz*rr*0.95);
+      var p1 = P(rx*(rr + sl*Math.sin(tl)), hr - 0.05 + sl*Math.cos(tl), rz*(rr + sl*Math.sin(tl)));
+      cx.strokeStyle = "rgba(244,206,92,0.9)"; cx.lineWidth = 1;
+      cx.beginPath(); cx.moveTo(p0[0],p0[1]); cx.lineTo(p1[0],p1[1]); cx.stroke();
+      cx.fillStyle = "rgba(250,224,120,0.95)"; cx.beginPath(); cx.arc(p1[0],p1[1],1.2,0,Math.PI*2); cx.fill();
+    }
+    var top = [];
+    for (i=0;i<24;i++){ a = i*2*Math.PI/24; top.push(P(Math.sin(a)*rr, hr, Math.cos(a)*rr)); }
+    var c = P(0, hr, 0);
+    var rpx = Math.max(1, top[6][0] - c[0]);            // 花托の半径(画面上のpx)
+    var g = cx.createRadialGradient(c[0], c[1], 0, c[0], c[1], rpx*1.15);
+    g.addColorStop(0, "#eef08e"); g.addColorStop(1, "#b9c45a");
+    cx.fillStyle = g; cx.beginPath(); cx.moveTo(top[0][0], top[0][1]);
+    for (i=1;i<top.length;i++) cx.lineTo(top[i][0], top[i][1]);
+    cx.closePath(); cx.fill();
+    cx.fillStyle = "rgba(140,140,50,0.75)";
+    var dots = [[0,0]];
+    for (i=0;i<6;i++) dots.push([0.45, i*Math.PI/3]);
+    for (i=0;i<11;i++) dots.push([0.78, i*2*Math.PI/11 + 0.3]);
+    dots.forEach(function(d){
+      var q = P(Math.sin(d[1]+drift)*rr*d[0], hr+0.001, Math.cos(d[1]+drift)*rr*d[0]);
+      cx.beginPath(); cx.arc(q[0], q[1], Math.max(1.2, rpx*0.07), 0, Math.PI*2); cx.fill();
+    });
+  }
+
+  // ---- アサガオ(資料: CLAUDEdata\構想\アサガオ_描画資料.md) ----
+  // 5枚がくっついたじょうご形の1枚の面を、細かい四角に分けて奥から順に塗る。
+  // 閉じる=曜の間が内へ折れ、らせんにねじれた細いつぼみ / 開く=ねじれがほどけ、じょうご形に広がる
+  var MG_A = 0.62;                            // 花の向き(真上から手前へ倒す角度)
+  var MG_NT = 60, MG_NS = 12;
+  var MG_CE = Math.cos(0.38), MG_SE = Math.sin(0.38);   // 見下ろす角度
+  function hsl(h, sa, l){ return "hsl(" + h.toFixed(1) + "," + sa.toFixed(1) + "%," + Math.max(0, Math.min(100, l)).toFixed(1) + "%)"; }
+
+  function drawAsagao(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN)));
+    var R = Math.min(W,H) * 0.19, S = R * 1.05;
+    var ox = W/2, oy = H*0.43 + 0.40*S;
+    function P(x,y,z){ return [ox + x*S, oy - y*MG_CE*S + z*MG_SE*S, z*MG_CE + y*MG_SE]; }
+    var Ay = Math.cos(MG_A), Az = Math.sin(MG_A), U2y = -Math.sin(MG_A), U2z = Math.cos(MG_A);
+    var drift = now/50000;
+    var hue = 270 + 45*Math.sin(now/25000);   // 青〜紫〜赤紫をゆっくり行き来
+
+    // 茎とがく
+    var b0 = P(0,0,0), b1 = P(-0.15,-1.05,0.05);
+    cx.strokeStyle = "#4f7d4c"; cx.lineWidth = Math.max(2, 0.04*S); cx.lineCap = "round";
+    cx.beginPath(); cx.moveTo(b0[0], b0[1]); cx.quadraticCurveTo(b0[0]+0.12*S, (b0[1]+b1[1])/2, b1[0], b1[1]); cx.stroke();
+    cx.fillStyle = "#5f9157";
+    for (var k=0;k<5;k++){
+      var a = k*2*Math.PI/5 + drift + 0.6, sp = 0.45;
+      var dx = Math.cos(a)*Math.sin(sp), dl = Math.sin(a)*Math.sin(sp), da = Math.cos(sp);
+      var tipx = dx*0.26, tipy = (Ay*da + U2y*dl)*0.26, tipz = (Az*da + U2z*dl)*0.26;
+      var q0 = P(Math.cos(a+0.5)*0.05, U2y*Math.sin(a+0.5)*0.05, U2z*Math.sin(a+0.5)*0.05);
+      var q1 = P(Math.cos(a-0.5)*0.05, U2y*Math.sin(a-0.5)*0.05, U2z*Math.sin(a-0.5)*0.05);
+      var qt = P(tipx, tipy, tipz);
+      cx.beginPath(); cx.moveTo(q0[0],q0[1]); cx.lineTo(qt[0],qt[1]); cx.lineTo(q1[0],q1[1]); cx.closePath(); cx.fill();
+    }
+
+    // 面の点を作る
+    var G = [], i, j;
+    for (j=0;j<=MG_NS;j++){
+      var t = j/MG_NS, row = [];
+      var ho = 0.80*t - 0.20*Math.pow(t,4), hc = 1.25*t;    // 開くと縁は平らに(反り返らない)
+      var ro = 0.07 + 0.93*Math.pow(t,2.2), rc = 0.04 + 0.17*Math.sin(Math.PI*t)*(1 - 0.3*t);
+      var h = hc + (ho-hc)*open, r0 = rc + (ro-rc)*open;
+      var tw = (1-open)*3.6*t;                // 閉じるとらせんにねじれる
+      for (i=0;i<=MG_NT;i++){
+        var th = i/MG_NT*2*Math.PI, k5 = Math.cos(5*th);
+        var pleat = 1 - (1-open)*0.55*(1-k5)/2*Math.min(1, t*2);   // 曜の間が内へ折れる
+        var lobe = 1 + 0.05*open*Math.pow(t,3)*k5;                  // 縁は曜の先がわずかに出た丸い五角形
+        var rho = r0*pleat*lobe, aa = th + tw + drift;
+        row.push([Math.cos(aa)*rho, Ay*h + U2y*Math.sin(aa)*rho, Az*h + U2z*Math.sin(aa)*rho, k5, h]);
+      }
+      G.push(row);
+    }
+
+    // 四角に分けて、奥から塗る
+    var quads = [], Vy = MG_SE, Vz = MG_CE, Lx = -0.35, Ly = 0.8, Lz = 0.48;
+    for (j=0;j<MG_NS;j++) for (i=0;i<MG_NT;i++){
+      var p00 = G[j][i], p10 = G[j][i+1], p01 = G[j+1][i], p11 = G[j+1][i+1];
+      var cxp = (p00[0]+p10[0]+p01[0]+p11[0])/4, cyp = (p00[1]+p10[1]+p01[1]+p11[1])/4, czp = (p00[2]+p10[2]+p01[2]+p11[2])/4;
+      var ex = p10[0]-p00[0], ey = p10[1]-p00[1], ez = p10[2]-p00[2];
+      var fx = p01[0]-p00[0], fy = p01[1]-p00[1], fz = p01[2]-p00[2];
+      var nx = ey*fz - ez*fy, ny = ez*fx - ex*fz, nz = ex*fy - ey*fx;
+      var nl = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1; nx/=nl; ny/=nl; nz/=nl;
+      var hh = (p00[4]+p01[4])/2;               // 軸からの外向きにそろえる
+      var ox2 = cxp, oy2 = cyp - Ay*hh, oz2 = czp - Az*hh;
+      if (nx*ox2 + ny*oy2 + nz*oz2 < 0) { nx=-nx; ny=-ny; nz=-nz; }
+      var ext = (ny*Vy + nz*Vz) > 0;            // 外側の面が見えているか
+      var shade = 0.78 + 0.22*Math.abs(nx*Lx + ny*Ly + nz*Lz);
+      quads.push({ pts:[p00,p10,p11,p01], depth: czp*MG_CE + cyp*MG_SE, ext:ext, t:(j+0.5)/MG_NS,
+                   yo: Math.pow(Math.max(0,(p00[3]+p10[3])/2), 14), shade:shade });
+    }
+    quads.sort(function(a,b){ return a.depth - b.depth; });
+    cx.lineWidth = 0.7; cx.lineJoin = "round";
+    quads.forEach(function(q){
+      var c;
+      if (q.ext) {
+        // 外側: うすい色に、曜の筋が濃く出る。根元は白っぽい緑
+        var lx = 80 - 30*q.yo, sx = 38 + 35*q.yo;
+        if (q.t < 0.3) { lx = 86; sx = 25; }
+        c = hsl(hue, sx, lx*q.shade);
+      } else {
+        // 内側: のどの奥は白、そこから花の色。曜は明るい星形
+        var w = Math.max(0, Math.min(1, (0.48 - q.t)/0.3));
+        var L = 52 + 42*w + 16*q.yo*(1-w) + (q.t > 0.92 ? 5 : 0);
+        var sa = 72*(1-w) - 25*q.yo;
+        c = hsl(hue, Math.max(8, sa), L*q.shade);
+      }
+      var a0 = P(q.pts[0][0],q.pts[0][1],q.pts[0][2]), a1 = P(q.pts[1][0],q.pts[1][1],q.pts[1][2]),
+          a2 = P(q.pts[2][0],q.pts[2][1],q.pts[2][2]), a3 = P(q.pts[3][0],q.pts[3][1],q.pts[3][2]);
+      cx.fillStyle = c; cx.strokeStyle = c;
+      cx.beginPath(); cx.moveTo(a0[0],a0[1]); cx.lineTo(a1[0],a1[1]); cx.lineTo(a2[0],a2[1]); cx.lineTo(a3[0],a3[1]); cx.closePath();
+      cx.fill(); cx.stroke();
+    });
+
+    // 光: 開くとのどの奥がほのかに、閉じきるとつぼみがぽっと光る
+    cx.globalCompositeOperation = "lighter";
+    var shut = Math.pow(1 - open, 1.5);
+    var gc = P(0, Ay*(0.25 + 0.3*(1-open)), Az*(0.25 + 0.3*(1-open)));
+    var gr = (0.35 + 0.35*shut)*S;
+    var g = cx.createRadialGradient(gc[0], gc[1], 0, gc[0], gc[1], gr);
+    g.addColorStop(0, "rgba(255,255,255," + (0.22*open + 0.32*shut) + ")");
+    g.addColorStop(1, "rgba(200,200,255,0)");
+    cx.fillStyle = g; cx.beginPath(); cx.arc(gc[0], gc[1], gr, 0, Math.PI*2); cx.fill();
+    cx.globalCompositeOperation = "source-over";
+  }
+
+  // ---- タンポポの綿毛・クラゲ(資料: CLAUDEdata\構想\タンポポ・クラゲ_描画資料.md) ----
+  function hash01(i){ var x = Math.sin(i*127.1 + 311.7)*43758.5453; return x - Math.floor(x); }
+
+  // タンポポ: 吐くと種が外へ・風下へ飛んで薄れ、吸うと戻って玉にそろう
+  var TP_N = 90, TP_SEEDS = null;
+  function tpSeeds(){
+    if (TP_SEEDS) return TP_SEEDS;
+    TP_SEEDS = [];
+    for (var i=0;i<TP_N;i++){
+      var y = 1 - 2*(i+0.5)/TP_N;
+      if (y < -0.86) continue;                 // 茎のつけ根は空ける
+      var r = Math.sqrt(1-y*y), ph = i*2.39996;
+      TP_SEEDS.push({ v:[Math.cos(ph)*r, y, Math.sin(ph)*r], k: hash01(i), k2: hash01(i+500) });
+    }
+    return TP_SEEDS;
+  }
+  function drawTanpopo(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), d = 1 - open;
+    var R = Math.min(W,H) * 0.19, S = R * 1.15;
+    var ox = W/2, oy = H*0.40;
+    var ce = Math.cos(0.25), se = Math.sin(0.25), rot = now/30000, cr = Math.cos(rot), sr = Math.sin(rot);
+    function P(x,y,z){ var X = x*cr - z*sr, Z = x*sr + z*cr; return [ox + X*S, oy - y*ce*S + Z*se*S, Z*ce + y*se]; }
+
+    // 頭のまわりのうすい光(玉がそろっているほど)
+    var hg = cx.createRadialGradient(ox, oy, 0, ox, oy, 1.4*S);
+    hg.addColorStop(0, "rgba(235,240,255," + (0.10*open) + ")"); hg.addColorStop(1, "rgba(235,240,255,0)");
+    cx.fillStyle = hg; cx.fillRect(-W,0,3*W,H);
+    // 茎
+    var s0 = P(0,-0.1,0), s1 = P(0.04,-1.75,0);
+    cx.strokeStyle = "#5c8a50"; cx.lineWidth = Math.max(2, 0.035*S); cx.lineCap = "round";
+    cx.beginPath(); cx.moveTo(s0[0], s0[1]); cx.quadraticCurveTo(s0[0]-0.05*S, (s0[1]+s1[1])/2, s1[0], s1[1]); cx.stroke();
+
+    var list = tpSeeds().map(function(sd){
+      var v = sd.v;
+      // 種ごとに飛び出す時をずらす
+      var di = Math.max(0, Math.min(1, (d - sd.k*0.35) / 0.65));
+      di = di*di*(3 - 2*di);
+      var fly = 1.7*di, wind = Math.pow(di, 1.4)*(0.8 + 0.8*sd.k2);
+      var off = [v[0]*fly + wind*1.3, v[1]*fly + wind*0.55 + 0.25*Math.sin(now/900 + sd.k*9)*di, v[2]*fly];
+      var c = P(v[0]*0.82 + off[0], v[1]*0.82 + off[1], v[2]*0.82 + off[2]);
+      return { sd:sd, di:di, off:off, depth:c[2] };
+    });
+    list.sort(function(a,b){ return a.depth - b.depth; });
+    var centerDone = false;
+    function center(){
+      var c = P(0,0,0), g = cx.createRadialGradient(c[0]-0.03*S, c[1]-0.03*S, 0, c[0], c[1], 0.13*S);
+      g.addColorStop(0, "#d9cfa4"); g.addColorStop(1, "#8f7f52");
+      cx.fillStyle = g; cx.beginPath(); cx.arc(c[0], c[1], 0.12*S, 0, Math.PI*2); cx.fill();
+      // 吐ききると、残った芯がぽっと光る
+      var shut = Math.pow(d, 2);
+      if (shut > 0.02) {
+        cx.globalCompositeOperation = "lighter";
+        var gg = cx.createRadialGradient(c[0], c[1], 0, c[0], c[1], 0.5*S);
+        gg.addColorStop(0, "rgba(255,245,210," + (0.35*shut) + ")"); gg.addColorStop(1, "rgba(255,245,210,0)");
+        cx.fillStyle = gg; cx.beginPath(); cx.arc(c[0], c[1], 0.5*S, 0, Math.PI*2); cx.fill();
+        cx.globalCompositeOperation = "source-over";
+      }
+    }
+    list.forEach(function(it){
+      if (!centerDone && it.depth >= 0) { center(); centerDone = true; }
+      var v = it.sd.v, o = it.off, a = Math.max(0, 1 - Math.pow(it.di, 1.3)*0.97);
+      if (a < 0.02) return;
+      var lite = 0.55 + 0.45*Math.max(0, Math.min(1, (it.depth + 1)/2));   // 奥はうすく
+      // 種(痩果)とくちばし
+      var pa = P(v[0]*0.16 + o[0], v[1]*0.16 + o[1], v[2]*0.16 + o[2]);
+      var pc = P(v[0]*0.82 + o[0], v[1]*0.82 + o[1], v[2]*0.82 + o[2]);
+      cx.strokeStyle = "rgba(230,232,236," + (0.35*a*lite) + ")"; cx.lineWidth = 0.6;
+      cx.beginPath(); cx.moveTo(pa[0], pa[1]); cx.lineTo(pc[0], pc[1]); cx.stroke();
+      cx.fillStyle = "rgba(120,90,60," + (0.8*a) + ")";
+      cx.beginPath(); cx.arc(pa[0], pa[1], Math.max(0.8, 0.012*S), 0, Math.PI*2); cx.fill();
+      // 冠毛: 柄の先に傘のように放射状
+      var ux = -v[2], uy = 0, uz = v[0], ul = Math.sqrt(ux*ux+uz*uz) || 1; ux/=ul; uz/=ul;
+      if (ul < 0.01) { ux = 1; uz = 0; }
+      var wx = v[1]*uz - v[2]*uy, wy = v[2]*ux - v[0]*uz, wz = v[0]*uy - v[1]*ux;
+      cx.strokeStyle = "rgba(255,255,255," + (0.55*a*lite) + ")"; cx.lineWidth = 0.6;
+      cx.beginPath();
+      for (var b=0;b<12;b++){
+        var an = b*Math.PI/6 + it.sd.k*6, rr = 0.17;
+        var ex = v[0]*0.86 + (ux*Math.cos(an) + wx*Math.sin(an))*rr + o[0];
+        var ey = v[1]*0.86 + (uy*Math.cos(an) + wy*Math.sin(an))*rr + o[1];
+        var ez = v[2]*0.86 + (uz*Math.cos(an) + wz*Math.sin(an))*rr + o[2];
+        var pe = P(ex, ey, ez);
+        cx.moveTo(pc[0], pc[1]); cx.lineTo(pe[0], pe[1]);
+      }
+      cx.stroke();
+    });
+    if (!centerDone) center();
+  }
+
+  // クラゲ(ミズクラゲ): 吸う=傘がゆるんで広がる / 吐く=縮んで少し上へ進む
+  function drawKurage(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
+    var R = Math.min(W,H) * 0.19, S = R * 1.15;
+    var ox = W/2 + Math.sin(now/7000)*0.06*S, y = H*0.36 - 0.10*S*c;
+    var hue = 205 + 15*Math.sin(now/20000);
+    var hw = S*(0.95 - 0.25*c), hh = S*(0.48 + 0.20*c), ry = hw*0.30, t = now/1000;
+
+    // 水の中の光と、ただよう粒
+    var bg = cx.createRadialGradient(W/2, H*0.4, 0, W/2, H*0.4, Math.max(W,H)*0.7);
+    bg.addColorStop(0, "hsla(" + hue + ",60%,30%,0.22)"); bg.addColorStop(1, "hsla(" + hue + ",60%,10%,0)");
+    cx.fillStyle = bg; cx.fillRect(-W,0,3*W,H);
+    cx.fillStyle = "rgba(200,225,255,0.18)";
+    for (var i=0;i<34;i++){
+      var px = hash01(i)*W + Math.sin(t*0.3 + i)*6, py = ((hash01(i+99)*H - t*(4 + 8*hash01(i+7))) % H + H) % H;
+      cx.beginPath(); cx.arc(px, py, 0.6 + 1.2*hash01(i+3), 0, Math.PI*2); cx.fill();
+    }
+
+    function tentacles(front){
+      for (var k=0;k<48;k++){
+        var a = k/48*Math.PI*2, sn = Math.sin(a);
+        if ((sn >= 0) !== front) continue;
+        var x = ox + Math.cos(a)*hw, yy = y + sn*ry, L = S*(0.55 + 0.25*open);
+        cx.strokeStyle = "hsla(" + hue + ",50%,88%," + (front ? 0.30 : 0.18) + ")"; cx.lineWidth = 0.7;
+        cx.beginPath(); cx.moveTo(x, yy);
+        for (var j=1;j<=10;j++){
+          var f = j/10;
+          x += Math.cos(a)*S*0.012*open*(1-f) + Math.sin(t*1.6 + a*3 - j*0.55)*S*0.012*f;
+          yy += L/10;
+          cx.lineTo(x, yy);
+        }
+        cx.stroke();
+      }
+    }
+    // 口腕(4本のひだのある帯)
+    function arms(){
+      for (var k=0;k<4;k++){
+        var bx = ox + (k-1.5)*hw*0.09, by = y + ry*0.2, L = S*(0.85 - 0.1*c);
+        cx.strokeStyle = "hsla(" + (hue+60) + ",40%,85%,0.16)"; cx.lineWidth = Math.max(2, S*0.045);
+        cx.beginPath(); cx.moveTo(bx, by);
+        for (var j=1;j<=12;j++){
+          var f = j/12;
+          cx.lineTo(bx + (k-1.5)*S*0.05*f + Math.sin(t*1.1 + k*1.7 - j*0.5)*S*0.035*f, by + L*f);
+        }
+        cx.stroke();
+      }
+    }
+
+    tentacles(false);
+    arms();
+    // 生殖腺: 傘ごしに透ける4つの馬てい形(四つ葉)
+    var gy = y - hh*0.45;
+    for (var k=0;k<4;k++){
+      var th = Math.PI/4 + k*Math.PI/2 + now/40000;
+      var gx = ox + Math.cos(th)*hw*0.30, gyy = gy + Math.sin(th)*hw*0.30*0.35;
+      cx.strokeStyle = "hsla(" + (hue+90) + ",55%,78%,0.55)"; cx.lineWidth = Math.max(1.5, hw*0.06);
+      cx.beginPath();
+      cx.ellipse(gx, gyy, hw*0.17, hw*0.17*0.4, 0, th + Math.PI + 0.5, th + Math.PI + 2*Math.PI - 0.5);
+      cx.stroke();
+    }
+    // 傘
+    var g = cx.createRadialGradient(ox, y - hh*0.75, 0, ox, y - hh*0.4, hw*1.1);
+    g.addColorStop(0, "hsla(" + hue + ",70%,95%,0.30)");
+    g.addColorStop(0.6, "hsla(" + hue + ",60%,85%,0.16)");
+    g.addColorStop(1, "hsla(" + hue + ",60%,80%,0.08)");
+    cx.fillStyle = g;
+    cx.beginPath(); cx.moveTo(ox - hw, y);
+    cx.bezierCurveTo(ox - hw, y - hh*0.75, ox - hw*0.55, y - hh, ox, y - hh);      // 丸いドーム
+    cx.bezierCurveTo(ox + hw*0.55, y - hh, ox + hw, y - hh*0.75, ox + hw, y);
+    cx.ellipse(ox, y, hw, ry, 0, 0, Math.PI);
+    cx.closePath(); cx.fill();
+    cx.strokeStyle = "hsla(" + hue + ",70%,92%,0.35)"; cx.lineWidth = 1.2; cx.stroke();
+    // ふち(手前側を明るく)
+    cx.strokeStyle = "hsla(" + hue + ",80%,95%,0.45)"; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.ellipse(ox, y, hw, ry, 0, 0, Math.PI); cx.stroke();
+    tentacles(true);
+    // 縮みきると、傘の中がほのかに光る
+    var shut = Math.pow(c, 1.5);
+    if (shut > 0.02) {
+      cx.globalCompositeOperation = "lighter";
+      var gg = cx.createRadialGradient(ox, y - hh*0.5, 0, ox, y - hh*0.5, hw);
+      gg.addColorStop(0, "hsla(" + hue + ",80%,90%," + (0.25*shut) + ")"); gg.addColorStop(1, "hsla(" + hue + ",80%,90%,0)");
+      cx.fillStyle = gg; cx.beginPath(); cx.arc(ox, y - hh*0.5, hw, 0, Math.PI*2); cx.fill();
+      cx.globalCompositeOperation = "source-over";
+    }
+  }
+
+  // まる: 職場用の「うっすら呼吸」と同じ、うすいグレー青の丸1つ
+  function drawMaru(s, now){
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN)));
+    var R = Math.min(W,H) * 0.19, r = R * (0.45 + 0.85*open);
+    var x0 = W/2, y0 = H*0.42;
+    var g = cx.createRadialGradient(x0, y0, 0, x0, y0, r);
+    g.addColorStop(0, "rgba(159,179,200,0.95)"); g.addColorStop(0.85, "rgba(143,163,184,0.9)"); g.addColorStop(1, "rgba(143,163,184,0)");
+    cx.fillStyle = g; cx.beginPath(); cx.arc(x0, y0, r, 0, Math.PI*2); cx.fill();
+  }
+
+  // サクラ: 真上から見た5枚の花びら(先に切れこみ)。閉じる=ねじれた小さなつぼみ / 開く=満開。おしべも伸びる
+  function drawSakura(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
+    var R = Math.min(W,H) * 0.19, x0 = W/2, y0 = H*0.43;
+    var L = R * (0.42 + 0.68*open), hw = L*0.40;
+    var rot = now/50000 + c*0.9;                       // 閉じるほどねじれる
+    var halo = cx.createRadialGradient(x0, y0, 0, x0, y0, R*2);
+    halo.addColorStop(0, "rgba(255,200,220," + (0.05 + 0.07*open) + ")"); halo.addColorStop(1, "rgba(255,200,220,0)");
+    cx.fillStyle = halo; cx.fillRect(-W,0,3*W,H);
+    for (var i=0;i<5;i++){
+      var a = rot + i*Math.PI*2/5;
+      cx.save(); cx.translate(x0, y0); cx.rotate(a);
+      cx.translate(L*0.06*open, 0);
+      var g = cx.createLinearGradient(0, 0, L, 0);
+      g.addColorStop(0, "hsla(338,65%,70%,0.95)"); g.addColorStop(0.4, "hsla(345,75%,86%,0.93)"); g.addColorStop(1, "hsla(350,85%,95%,0.92)");
+      cx.fillStyle = g;
+      cx.beginPath(); cx.moveTo(0, 0);
+      cx.bezierCurveTo(L*0.30, -L*0.10, L*0.70, -hw, L*0.97, -hw*0.55);
+      cx.quadraticCurveTo(L*1.02, -hw*0.15, L*0.86, 0);          // 先の切れこみ
+      cx.quadraticCurveTo(L*1.02, hw*0.15, L*0.97, hw*0.55);
+      cx.bezierCurveTo(L*0.70, hw, L*0.30, L*0.10, 0, 0);
+      cx.fill();
+      cx.strokeStyle = "hsla(340,60%,75%,0.35)"; cx.lineWidth = 0.8; cx.stroke();
+      cx.restore();
+    }
+    // 真ん中とおしべ(開くほど長く)
+    cx.fillStyle = "hsla(340,55%,55%,0.9)";
+    cx.beginPath(); cx.arc(x0, y0, L*0.10, 0, Math.PI*2); cx.fill();
+    var sl = L*(0.10 + 0.32*open);
+    for (var k=0;k<22;k++){
+      var b = k*2.39996 + rot*0.5, ll = sl*(0.75 + 0.25*hash01(k+40));
+      var ex = x0 + Math.cos(b)*ll, ey = y0 + Math.sin(b)*ll;
+      cx.strokeStyle = "rgba(255,235,240,0.55)"; cx.lineWidth = 0.7;
+      cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(ex, ey); cx.stroke();
+      cx.fillStyle = "rgba(240,200,110,0.9)";
+      cx.beginPath(); cx.arc(ex, ey, Math.max(1, L*0.018), 0, Math.PI*2); cx.fill();
+    }
+    var shut = Math.pow(c, 1.5);
+    if (shut > 0.02) {
+      cx.globalCompositeOperation = "lighter";
+      var gg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*0.8);
+      gg.addColorStop(0, "rgba(255,225,235," + (0.30*shut) + ")"); gg.addColorStop(1, "rgba(255,225,235,0)");
+      cx.fillStyle = gg; cx.beginPath(); cx.arc(x0, y0, R*0.8, 0, Math.PI*2); cx.fill();
+      cx.globalCompositeOperation = "source-over";
+    }
+  }
+
+  // ゆき(雪の結晶): 吸う=6本の枝が伸び、小枝が順に生える / 吐く=小さな六角形にもどる
+  function drawYuki(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
+    var R = Math.min(W,H) * 0.19, x0 = W/2, y0 = H*0.43, t = now/1000;
+    var A = R * (0.30 + 0.95*open), rot = now/60000;
+    // 降ってくる小さな雪
+    cx.fillStyle = "rgba(220,235,255,0.25)";
+    for (var i=0;i<40;i++){
+      var px = (hash01(i)*W + Math.sin(t*0.4 + i)*10), py = ((hash01(i+77)*H + t*(10 + 14*hash01(i+5))) % H);
+      cx.beginPath(); cx.arc(px, py, 0.6 + 1.3*hash01(i+11), 0, Math.PI*2); cx.fill();
+    }
+    function arm(pass){
+      for (var k=0;k<6;k++){
+        var a = rot + k*Math.PI/3, ca = Math.cos(a), sa = Math.sin(a);
+        cx.beginPath();
+        cx.moveTo(x0, y0); cx.lineTo(x0 + ca*A, y0 + sa*A);
+        [0.38, 0.62, 0.84].forEach(function(f, j){
+          var grow = Math.max(0, Math.min(1, (open - j*0.22) / 0.45));   // 小枝は根元から順に生える
+          if (grow <= 0) return;
+          var bl = A*0.30*(1 - f*0.55)*grow, bx = x0 + ca*A*f, by = y0 + sa*A*f;
+          [-1, 1].forEach(function(sg){
+            var b = a + sg*Math.PI/3;
+            cx.moveTo(bx, by); cx.lineTo(bx + Math.cos(b)*bl, by + Math.sin(b)*bl);
+          });
+        });
+        cx.stroke();
+      }
+    }
+    cx.lineCap = "round";
+    cx.globalCompositeOperation = "lighter";
+    cx.strokeStyle = "rgba(150,200,255,0.10)"; cx.lineWidth = Math.max(4, R*0.07); arm();
+    cx.strokeStyle = "rgba(225,240,255,0.80)"; cx.lineWidth = Math.max(1.2, R*0.016); arm();
+    // 真ん中の六角形
+    var hr = Math.max(R*0.10, A*0.13);
+    cx.strokeStyle = "rgba(225,240,255,0.7)"; cx.lineWidth = Math.max(1, R*0.012);
+    cx.beginPath();
+    for (var h=0;h<=6;h++){ var ha = rot + Math.PI/6 + h*Math.PI/3; cx[h ? "lineTo" : "moveTo"](x0 + Math.cos(ha)*hr, y0 + Math.sin(ha)*hr); }
+    cx.stroke();
+    var shut = Math.pow(c, 1.5);
+    var gg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*0.7);
+    gg.addColorStop(0, "rgba(210,232,255," + (0.06 + 0.30*shut) + ")"); gg.addColorStop(1, "rgba(210,232,255,0)");
+    cx.fillStyle = gg; cx.beginPath(); cx.arc(x0, y0, R*0.7, 0, Math.PI*2); cx.fill();
+    cx.globalCompositeOperation = "source-over";
+  }
+
+  // ほたる: 吸う=光の粒が広がっていく / 吐く=真ん中に集まって、ひとつのやわらかい光になる
+  function drawHotaru(s, now){
+    cx.clearRect(0,0,W,H);
+    var open = Math.max(0, Math.min(1, (s - MIN) / (MAX - MIN))), c = 1 - open;
+    var R = Math.min(W,H) * 0.19, x0 = W/2, y0 = H*0.43, t = now/1000;
+    // 下のほうに草のかげ
+    cx.strokeStyle = "rgba(60,90,70,0.35)"; cx.lineWidth = 1.2;
+    cx.beginPath();
+    for (var g=0; g<36; g++){
+      var gx = hash01(g+300)*W*1.2 - W*0.1, gh = H*(0.08 + 0.12*hash01(g+301));
+      cx.moveTo(gx, H); cx.quadraticCurveTo(gx + 6, H - gh*0.6, gx + 14*(hash01(g+302)-0.3) + Math.sin(t*0.5+g)*3, H - gh);
+    }
+    cx.stroke();
+    cx.globalCompositeOperation = "lighter";
+    var fa = 0.45 + 0.55*open;                         // 集まったとき白くとびすぎないよう
+    for (var i=0;i<26;i++){
+      var a = hash01(i)*Math.PI*2 + t*0.05*(hash01(i+9)-0.5), rk = 0.35 + 0.65*hash01(i+31);
+      var rad = R*(0.10 + 1.45*open*rk);
+      var px = x0 + Math.cos(a)*rad + Math.sin(t*0.7 + i*1.3)*R*0.06*open;
+      var py = y0 + Math.sin(a)*rad*0.8 + Math.cos(t*0.6 + i*2.1)*R*0.06*open;
+      var fl = 0.55 + 0.45*Math.sin(t*1.1 + i*7.3);    // ゆっくり明滅
+      var gr = R*0.16, gp = cx.createRadialGradient(px, py, 0, px, py, gr);
+      gp.addColorStop(0, "hsla(72,95%,75%," + (0.80*fl*fa) + ")");
+      gp.addColorStop(0.25, "hsla(78,90%,60%," + (0.24*fl*fa) + ")");
+      gp.addColorStop(1, "hsla(80,90%,55%,0)");
+      cx.fillStyle = gp; cx.beginPath(); cx.arc(px, py, gr, 0, Math.PI*2); cx.fill();
+    }
+    var shut = Math.pow(c, 1.5);
+    if (shut > 0.02) {
+      var gg = cx.createRadialGradient(x0, y0, 0, x0, y0, R*0.75);
+      gg.addColorStop(0, "hsla(70,90%,80%," + (0.22*shut) + ")"); gg.addColorStop(1, "hsla(70,90%,70%,0)");
+      cx.fillStyle = gg; cx.beginPath(); cx.arc(x0, y0, R*0.75, 0, Math.PI*2); cx.fill();
+    }
+    cx.globalCompositeOperation = "source-over";
+  }
+
+  // ---- ひだりみぎ(EMDRの左右刺激だけ): 呼吸で開いたり閉じたりする花そのものが、左右にも往復する ----
+  // 光を別に増やさない(目がうるさくなるため)。速さは st.lrSpeed(往復/秒)。端で、その側から小さな音
+  // 一時停止中はその位置で止まる(呼吸の経過時間で動かすため)
+  var ac = null, lrLast = null;
+  function moveLR(el){
+    var ph = el*st.lrSpeed*Math.PI*2;
+    var amp = Math.max(0, Math.min(W*0.30, W/2 - Math.min(W,H)*0.26));   // 花が画面からはみ出さない幅
+    lrX = Math.sin(ph)*amp;
+    var side = Math.floor(ph/Math.PI + 0.5);          // 端に着くたびに1つ増える
+    if (lrLast !== null && side !== lrLast && st.lrSnd) beep(Math.sin(ph) > 0 ? 0.9 : -0.9);
+    lrLast = side;
+  }
+  function beep(pan){
+    try {
+      if (!ac) return;
+      var t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      o.type = "sine"; o.frequency.value = 440;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.10, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g);
+      if (ac.createStereoPanner){ var p = ac.createStereoPanner(); p.pan.value = pan; g.connect(p); p.connect(ac.destination); } else g.connect(ac.destination);
+      o.start(t); o.stop(t + 0.2);
+    } catch(e) { console.warn("音を出せませんでした", e); }
+  }
+
+  var mode = "idle", t0 = 0, endAt = 0, plan = [], cyc = 1, breaths = 0, wake = null, lastS = MIN, pausedAt = 0, lastWord = "";
+  var lastDraw = 0;
+  function loop(now){
+    requestAnimationFrame(loop);
+    var fps = mode === "run" ? 30 : 12;
+    if (now - lastDraw < 1000/fps - 2) return;
+    lastDraw = now;
+    if (mode === "idle") {
+      draw(MIN + 0.08 + 0.05*Math.sin(now/1400), now);
+    } else if (mode === "pause") {
+      draw(lastS, now);                       // 花はその場で止める(色だけゆっくり変わる)
+    } else {
+      if (now >= endAt) { breaths = Math.round((endAt - t0)/1000/cyc); finish(true); }
+      else {
+        var el = (now - t0)/1000, n = Math.floor(el/cyc), t = el - n*cyc;
+        breaths = n;
+        var i = 0; while (i < plan.length-1 && t >= plan[i][0]) { t -= plan[i][0]; i++; }
+        var p = plan[i], k = Math.min(1, t/p[0]);
+        lastS = p[1] + (p[2]-p[1])*ease(k);
+        var bl = 1;
+        if (st.blink && p[1] === p[2] && p[0] >= 0.4) bl = blinkOpen(t - (p[0] - BL_LEN)/2);   // 止める区間の真ん中で
+        lrX = 0; if (st.lr) moveLR(el);
+        draw(lastS, now, bl);
+        if (breaths >= 3) lastWord = "";          // 3回呼吸したら言葉は出さない
+        else if (p[3]) lastWord = p[3];
+        if ($("word").textContent !== lastWord) $("word").textContent = lastWord;
+        var rest = Math.max(0, Math.ceil((endAt - now)/1000));
+        var lt = st.showTimer ? "のこり " + Math.floor(rest/60) + ":" + ("0"+rest%60).slice(-2) : "";
+        if ($("left").textContent !== lt) $("left").textContent = lt;
+      }
+    }
+  }
+
+  // ---- 操作がないとき表示を消す ----
+  var calmTimer = 0;
+  function poke(){
+    document.body.classList.remove("calm");
+    clearTimeout(calmTimer);
+    if (mode === "run") calmTimer = setTimeout(function(){ document.body.classList.add("calm"); }, 2500);
+  }
+  ["mousemove","mousedown","touchstart","keydown"].forEach(function(ev){ document.addEventListener(ev, poke, {passive:true}); });
+
+  function start(){
+    plan = steps(); cyc = plan.reduce(function(a,b){ return a+b[0]; }, 0); breaths = 0; lrLast = null;
+    if (st.lr && st.lrSnd) { try { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); } catch(e) { ac = null; console.warn("音の準備ができませんでした", e); } }
+    t0 = performance.now(); endAt = t0 + Math.ceil(st.mins*60/cyc)*cyc*1000;   // 1回分の倍数に切り上げ(吐き終わりで止まる)
+    mode = "run";
+    $("panel").style.display = "none"; $("ctl").style.display = "flex"; $("pause").textContent = "⏸️"; $("pause").title = "一時停止(スペース)";
+    lastWord = ""; $("word").textContent = ""; $("word").style.opacity = 1;
+    poke();
+    try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){ wake = w; }).catch(function(){}); } catch(e) {}
+  }
+  function finish(completed){
+    mode = "idle"; lrX = 0; clearTimeout(calmTimer); document.body.classList.remove("calm");
+    $("ctl").style.display = "none"; $("word").style.opacity = 0; $("left").textContent = "";
+    try { if (wake) { wake.release(); wake = null; } } catch(e) {}
+    if (st.showResult) {
+      $("doneMsg").innerHTML = (completed ? "おつかれさまでした" : "途中でやめました") + "<br>" + breaths + " 回 呼吸しました";
+      $("done").classList.add("on");
+    } else {
+      $("panel").style.display = "block";
+    }
+  }
+
+  // ---- 設定の画面 ----
+  function fmt(x){ return (Math.round(x*10)/10) + "秒"; }
+  function refresh(){
+    document.querySelectorAll("#flowers button").forEach(function(b){ b.classList.toggle("sel", b.dataset.f === st.flower); });
+    document.querySelectorAll("#tabs button").forEach(function(b){ b.classList.toggle("sel", b.dataset.m === st.mode); });
+    document.querySelectorAll("#pats button").forEach(function(b){ b.classList.toggle("sel", b.dataset.p === st.pat); });
+    $("relaxBox").style.display = st.mode === "relax" ? "block" : "none";
+    $("trainBox").style.display = st.mode === "train" ? "block" : "none";
+    $("rateV").textContent = st.rate + "回/分";
+    $("sideV").textContent = st.side + "秒";
+    $("minsV").textContent = st.mins + "分";
+    $("lrSpeedV").textContent = st.lrSpeed.toFixed(1) + "往復/秒";
+    var sp = steps().filter(function(x){ return x[3]; });
+    var flow = sp.map(function(x){ return x[3] + fmt(x[0]); }).join("→");
+    $("patDesc").textContent = (st.mode === "relax" ? DESC[st.pat] + "\n" : "") + flow;
+    $("patDesc").style.whiteSpace = "pre-line";
+  }
+  document.querySelectorAll("#flowers button").forEach(function(b){ b.onclick = function(){ st.flower = b.dataset.f; save(); refresh(); }; });
+  document.querySelectorAll("#tabs button").forEach(function(b){ b.onclick = function(){ st.mode = b.dataset.m; save(); refresh(); }; });
+  document.querySelectorAll("#pats button").forEach(function(b){ b.onclick = function(){ st.pat = b.dataset.p; save(); refresh(); }; });
+  function bind(id, parse){ var el = $(id); el.value = st[id]; el.oninput = function(){ st[id] = parse(el.value); save(); refresh(); }; }
+  bind("rate", parseFloat); bind("lrSpeed", parseFloat); bind("side", function(v){ return parseInt(v,10); }); bind("mins", function(v){ return parseInt(v,10); });
+  ["showTimer","showResult","blink","lr","lrSnd"].forEach(function(id){ var el = $(id); el.checked = !!st[id]; el.onchange = function(){ st[id] = el.checked; save(); lrRow(); }; });
+  function lrRow(){ $("lrBox").style.display = st.lr ? "block" : "none"; }
+  lrRow();
+  refresh();
+
+  // 小さい窓: ふつうのブラウザ窓は一定より細くできないので、別の小窓で開く
+  var touch = ("ontouchstart" in window) && window.matchMedia("(pointer: coarse)").matches;
+  if (touch || window.name === "ikinohana_mini") $("mini").style.display = "none";
+  $("mini").onclick = function(){
+    var w = window.open(location.href, "ikinohana_mini", "popup,width=220,height=260");
+    if (!w) alert("小さい窓を開けませんでした。ブラウザがポップアップを止めているかもしれません。アドレスバー右の表示から許可してください。");
+  };
+
+  $("go").onclick = start;
+  // 一時停止: 止めていた時間のぶん、始まりと終わりの時刻を後ろへずらす
+  function togglePause(){
+    var now = performance.now();
+    if (mode === "run") {
+      mode = "pause"; pausedAt = now; clearTimeout(calmTimer); document.body.classList.remove("calm");
+      $("pause").textContent = "▶️"; $("pause").title = "つづける(スペース)"; $("word").textContent = "一時停止中";
+    } else if (mode === "pause") {
+      var d = now - pausedAt; t0 += d; endAt += d;
+      mode = "run"; $("pause").textContent = "⏸️"; $("pause").title = "一時停止(スペース)"; $("word").textContent = lastWord; poke();
+    }
+  }
+  $("pause").onclick = togglePause;
+  $("stop").onclick = function(){ finish(false); };
+  document.addEventListener("keydown", function(e){
+    if (mode === "idle") return;
+    if (e.key === "Escape") finish(false);
+    else if (e.key === " ") { e.preventDefault(); togglePause(); }
+  });
+  $("back").onclick = function(){ $("done").classList.remove("on"); $("panel").style.display = "block"; };
+
+  window.__iki = { draw:function(f, s, now){ st.flower = f; draw(s, now); }, size:function(){ return [W, H, DPR]; } };   // 確認用
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
