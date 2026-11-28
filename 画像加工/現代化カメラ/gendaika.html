@@ -49,7 +49,7 @@ summary { cursor: pointer; }
 <div id="app">
   <div class="head">
     <h1>現代化カメラ</h1>
-    <span class="rev">rev2 (2026-11-28)</span>
+    <span class="rev">rev3 (2026-11-28)</span>
   </div>
   <div class="hint">生成AI不使用・端末内画像処理</div>
 
@@ -427,9 +427,27 @@ summary { cursor: pointer; }
       $("status").textContent = img.width + " × " + img.height + " px";
       update();
     } catch (error) {
-      $("status").textContent = "読み込めません。JPEG・PNGをお試しください。";
+      if (current !== token) return;
+      // 小さい文字だけだと「何も起きない」に見えるので、黒い枠の中に大きく出す
+      const ext = (file.name.match(/\.([^.]+)$/) || ["", "?"])[1].toLowerCase();
+      let msg = "「" + file.name + "」を開けませんでした。";
+      if (ext === "heic" || ext === "heif") {
+        msg += "\n\nこれはiPhoneの写真の形式(HEIC)で、このブラウザでは開けません。"
+             + "\nパソコンの「ペイント」で開いて「名前を付けて保存」→「JPEG画像」で保存してから入れてください。"
+             + "\n(iPhoneのSafariで開けば、そのまま使えます)";
+      } else {
+        msg += "\n\nこの形式(." + ext + ")は、このブラウザでは開けません。JPG か PNG で試してください。";
+      }
+      $("empty").textContent = msg;
+      $("empty").style.whiteSpace = "pre-line";
+      $("empty").hidden = false;
+      canvas.hidden = true;
+      $("filename").textContent = file.name;
+      $("status").textContent = "開けませんでした(." + ext + ")";
     } finally {
       URL.revokeObjectURL(url);
+      // 同じ写真を選び直しても反応するように
+      $("file").value = "";
     }
   };
 
