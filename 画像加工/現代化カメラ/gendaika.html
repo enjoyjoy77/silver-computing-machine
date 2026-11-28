@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>現代化カメラ</title>
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px;
+  font-family: system-ui, sans-serif; line-height: 1.6;
+}
+#app { max-width: 800px; margin: auto; }
+.head { display: flex; justify-content: space-between; align-items: baseline; }
+h1 { font-size: 24px; margin: 0; }
+.rev { font-size: 12px; opacity: .6; }
+.hint { font-size: 12px; opacity: .7; }
+.panel {
+  border: 1px solid #8885; border-radius: 12px;
+  padding: 14px; margin: 12px 0;
+}
+button, .pick {
+  font: inherit; padding: 10px 16px;
+  border: 1px solid #8887; border-radius: 8px;
+  cursor: pointer; background: transparent; color: inherit;
+}
+.primary { background: #17664d; border-color: #17664d; color: white; }
+button:disabled { opacity: .4; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.preview {
+  background: #191c1e; border-radius: 10px; min-height: 200px;
+  display: grid; place-items: center; overflow: hidden;
+}
+canvas {
+  display: block; width: 100%; height: auto;
+  max-height: 70vh; object-fit: contain;
+}
+.empty { color: #ccc; padding: 32px; text-align: center; }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin: 14px 0; }
+input[type="range"] { grid-column: 1 / 3; width: 100%; accent-color: #238366; }
+.active { box-shadow: inset 0 0 0 2px #238366; }
+[hidden] { display: none !important; }
+summary { cursor: pointer; }
+</style>
+</head>
+
+<body>
+<div id="app">
+  <div class="head">
+    <h1>現代化カメラ</h1>
+    <span class="rev">rev2 (2026-11-28)</span>
+  </div>
+  <div class="hint">生成AI不使用・端末内画像処理</div>
+
+  <div class="panel toolbar">
+    <label class="pick primary" for="file">写真を選ぶ</label>
+    <input id="file" type="file" accept="image/*" hidden>
+    <span id="filename" class="hint">読み込むと自動補正します</span>
+  </div>
+
+  <div class="preview">
+    <div id="empty" class="empty">古い写真を選択してください</div>
+    <canvas id="canvas" hidden></canvas>
+  </div>
+
+  <div class="toolbar" style="margin-top:12px">
+    <button id="before" disabled>元の写真</button>
+    <button id="after" class="active" disabled>現代化</button>
+  </div>
+
+  <div class="panel">
+    <label class="slider">
+      現代化の強さ
+      <output id="strengthVal">70%</output>
+      <input id="strength" type="range" min="0" max="100" value="70">
+    </label>
+
+    <details>
+      <summary>細かい調整</summary>
+
+      <label class="slider">
+        色かぶり・退色
+        <output id="colorVal">80%</output>
+        <input id="color" type="range" min="0" max="100" value="80">
+      </label>
+
+      <label class="slider">
+        明暗・発色
+        <output id="toneVal">65%</output>
+        <input id="tone" type="range" min="0" max="100" value="65">
+      </label>
+
+      <label class="slider">
+        粒子・鮮明さ
+        <output id="detailVal">45%</output>
+        <input id="detail" type="range" min="0" max="100" value="45">
+      </label>
+
+      <label class="slider">
+        周辺の暗さ(四隅を明るく)
+        <output id="vignetteVal">80%</output>
+        <input id="vignette" type="range" min="0" max="100" value="80">
+      </label>
+    </details>
+
+    <div class="toolbar">
+      <button id="reset">標準に戻す</button>
+      <button id="save" class="primary" disabled>補正画像を保存</button>
+    </div>
+  </div>
+
+  <p id="status" class="hint" role="status"></p>
+  <p class="hint">
+    写真は外部サーバーに送信されません。
+    顔や物体の再生成は行いません。
+    元の写真は上書きされません。
+  </p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const clamp = (v, min = 0, max = 255) => Math.max(min, Math.min(max, v));
+  const lum = (r, g, b) => .2126 * r + .7152 * g + .0722 * b;
+
+  const canvas = $("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const controls = ["strength", "color", "tone", "detail", "vignette"];
+  const defaults = [70, 80, 65, 45, 80];
+
+  // 画面の処理はこの大きさに縮めて行う。保存はもっと大きいので、
+  // 「鮮明さ」の近所の距離をこの比で広げて、画面と同じ効き方にする
+  const PREVIEW_MAX = 1100;
+
+  let source = null;
+  let preview = null;
+  let corrected = null;
+  let showBefore = false;
+  let filename = "photo";
+  let raf = 0;
+  let token = 0;
+
+  // 色かぶりの推定
+  function estimateColor(data) {
+    let r = 0, g = 0, b = 0, n = 0;
+    const step = Math.max(1, Math.floor(data.length / 4 / 50000));
+
+    for (let i = 0; i < data.length; i += 4 * step) {
+      if (data[i + 3] < 128) continue;
+      const R = data[i], G = data[i + 1], B = data[i + 2];
+      const y = lum(R, G, B);
+      const sat = (Math.max(R, G, B) - Math.min(R, G, B)) / (y + 20);
+
+      if (y > 65 && y < 240 && sat < .38) {
+        const weight = 1 - sat / .42;
+        r += R * weight; g += G * weight; b += B * weight;
+        n += weight;
+      }
+    }
+
+    if (n < 20) return [1, 1, 1];
+    const avg = (r + g + b) / 3;
+    return [r, g, b].map(v => clamp(avg / (v || avg || 1), .72, 1.38));
+  }
+
+  // 周辺の暗さの推定: 真ん中と四隅の明るさの比(1 = 差なし)
+  function estimateVignette(data, w, h) {
+    let cs = 0, cn = 0, os = 0, on = 0;
+    const step = Math.max(1, Math.floor(w * h / 60000));
+
+    for (let k = 0; k < w * h; k += step) {
+      const i = k * 4;
+      if (data[i + 3] < 128) continue;
+      const x = k % w, y = (k / w) | 0;
+      const dx = (x - w / 2) / (w / 2), dy = (y - h / 2) / (h / 2);
+      const d2 = (dx * dx + dy * dy) / 2;
+      const l = lum(data[i], data[i + 1], data[i + 2]);
+      if (d2 < .12) { cs += l; cn++; }
+      else if (d2 > .6) { os += l; on++; }
+    }
+
+    if (cn < 50 || on < 50 || os < 1) return 1;
+    // 写っている物で端が暗いだけのこともあるので、上限を低めに抑える
+    return clamp((cs / cn) / (os / on), 1, 1.5);
+  }
+
+  // 現代化画像処理
+  function process(image, strength, color, tone, detail, vignette) {
+    const w = image.width, h = image.height;
+    const a = image.data;
+    const output = new ImageData(w, h);
+    const p = output.data;
+
+    if (strength === 0) { p.set(a); return output; }
+
+    // ホワイトバランス補正
+    const gains = estimateColor(a).map(v => 1 + (v - 1) * strength * color);
+
+    // 周辺の暗さ: 四隅で (1 + vk) 倍、真ん中は1倍
+    const ratio = estimateVignette(a, w, h);
+    // 四隅の平均(半径の2乗≒0.75)で元の明るさに戻る係数が 1/0.75。
+    // 「現代化の強さ」70%(標準)で、このつまみの割合どおりに効く
+    const vk = (ratio - 1) / .75 * vignette * Math.min(1, strength / .7);
+    const cx = w / 2, cy = h / 2;
+    const vgain = (x, y) => {
+      if (vk <= 0) return 1;
+      const dx = (x - cx) / cx, dy = (y - cy) / cy;
+      return 1 + vk * (dx * dx + dy * dy) / 2;
+    };
+
+    // 明暗の分布を調べる
+    const hist = new Uint32Array(256);
+    let count = 0;
+    const step = Math.max(1, Math.floor(w * h / 70000));
+
+    for (let k = 0; k < w * h; k += step) {
+      const i = k * 4;
+      if (a[i + 3] < 128) continue;
+      const vg = vgain(k % w, (k / w) | 0);
+      const y = lum(a[i] * gains[0], a[i + 1] * gains[1], a[i + 2] * gains[2]) * vg;
+      hist[Math.round(clamp(y))]++;
+      count++;
+    }
+
+    function quantile(f) {
+      let n = 0;
+      for (let j = 0; j < 256; j++) {
+        n += hist[j];
+        if (n >= count * f) return j;
+      }
+      return 255;
+    }
+
+    const lo = count ? Math.min(quantile(.025), 65) : 0;
+    const hi = count ? Math.max(quantile(.975), 170) : 255;
+    const amount = strength * tone * .75;
+    const sat = 1 + strength * tone * .16;
+
+    // 色・明暗・彩度・周辺の補正
+    for (let y0 = 0; y0 < h; y0++) {
+      for (let x0 = 0; x0 < w; x0++) {
+        const i = (y0 * w + x0) * 4;
+        const vg = vgain(x0, y0);
+        const r = a[i] * gains[0] * vg;
+        const g = a[i + 1] * gains[1] * vg;
+        const b = a[i + 2] * gains[2] * vg;
+        const y = lum(r, g, b);
+        const z = y + (clamp((y - lo) * 255 / Math.max(hi - lo, 1)) - y) * amount;
+
+        p[i] = clamp(z + (r - y) * sat);
+        p[i + 1] = clamp(z + (g - y) * sat);
+        p[i + 2] = clamp(z + (b - y) * sat);
+        p[i + 3] = a[i + 3];
+      }
+    }
+
+    // 粒子軽減・輪郭補正(元の近傍画素のみを利用する)
+    // 近所の距離 rr は画像の大きさに比例させる(画面と保存で効き方をそろえる)
+    const rr = Math.max(1, Math.round(Math.max(w, h) / PREVIEW_MAX));
+
+    if (detail * strength > .001 && w > 2 * rr && h > 2 * rr) {
+      const base = new Uint8ClampedArray(p);
+      const power = strength * detail;
+      const offs = [-4 * rr, 4 * rr, -w * 4 * rr, w * 4 * rr];
+
+      // 1画素ごとのざらつきで「輪郭」と誤判定して粒子を強めてしまうので、
+      // 比べる相手は少しならした版 s にする(ならす幅も画像の大きさに比例)
+      const s = boxBlur(base, w, h, Math.max(1, rr >> 1));
+
+      for (let y = rr; y < h - rr; y++) {
+        for (let x = rr; x < w - rr; x++) {
+          const i = (y * w + x) * 4;
+          if (base[i + 3] !== 255) continue;
+
+          // 輪郭かどうかは、ならした版 s で「周りとの差」を見て決める
+          let ar = 0, ag = 0, ab = 0;
+          for (const o of offs) {
+            ar += s[i + o]; ag += s[i + o + 1]; ab += s[i + o + 2];
+          }
+          const dr = s[i] - ar / 4, dg = s[i + 1] - ag / 4, db = s[i + 2] - ab / 4;
+
+          if (Math.abs(lum(dr, dg, db)) >= 5) {
+            // 輪郭: ならした版の差だけ強める(1画素のざらつきは強めない)
+            const k = .4 * power * 2;
+            p[i] = clamp(base[i] + dr * k);
+            p[i + 1] = clamp(base[i + 1] + dg * k);
+            p[i + 2] = clamp(base[i + 2] + db * k);
+            continue;
+          }
+
+          // 平らな所: 明るさの近い近所(元の画素)へ寄せて粒子を減らす。
+          // 明るさが大きく違う近所は混ぜないので、境目はにじまない
+          const l = lum(base[i], base[i + 1], base[i + 2]);
+          let sr = 0, sg = 0, sb = 0, n = 0;
+
+          for (const o of offs) {
+            const j = i + o;
+            if (base[j + 3] !== 255) continue;
+            const diff = Math.abs(l - lum(base[j], base[j + 1], base[j + 2]));
+            const weight = Math.max(0, 1 - diff / 28);
+            sr += base[j] * weight;
+            sg += base[j + 1] * weight;
+            sb += base[j + 2] * weight;
+            n += weight;
+          }
+
+          if (n > .1) {
+            const k = .45 * power;
+            p[i] = clamp(base[i] + (sr / n - base[i]) * k);
+            p[i + 1] = clamp(base[i + 1] + (sg / n - base[i + 1]) * k);
+            p[i + 2] = clamp(base[i + 2] + (sb / n - base[i + 2]) * k);
+          }
+        }
+      }
+    }
+
+    return output;
+  }
+
+  // 四角い範囲の平均でならす(横→縦の2回。端は内側の画素で埋める)
+  function boxBlur(src, w, h, br) {
+    const tmp = new Float32Array(w * h * 3);
+    const out = new Uint8ClampedArray(src.length);
+    const size = 2 * br + 1;
+
+    for (let y = 0; y < h; y++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let x = -br; x <= br; x++) {
+          sum += src[(y * w + clamp(x, 0, w - 1)) * 4 + c];
+        }
+        for (let x = 0; x < w; x++) {
+          tmp[(y * w + x) * 3 + c] = sum / size;
+          sum += src[(y * w + Math.min(x + br + 1, w - 1)) * 4 + c]
+               - src[(y * w + Math.max(x - br, 0)) * 4 + c];
+        }
+      }
+    }
+
+    for (let x = 0; x < w; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let y = -br; y <= br; y++) {
+          sum += tmp[(clamp(y, 0, h - 1) * w + x) * 3 + c];
+        }
+        for (let y = 0; y < h; y++) {
+          out[(y * w + x) * 4 + c] = sum / size;
+          sum += tmp[(Math.min(y + br + 1, h - 1) * w + x) * 3 + c]
+               - tmp[(Math.max(y - br, 0) * w + x) * 3 + c];
+        }
+      }
+    }
+
+    for (let i = 3; i < src.length; i += 4) out[i] = src[i];
+    return out;
+  }
+
+  // 設定値の取得
+  function values() {
+    return controls.map(id => Number($(id).value) / 100);
+  }
+
+  // 画像の読み取り
+  function raster(img, max) {
+    const scale = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.width * scale));
+    c.height = Math.max(1, Math.round(img.height * scale));
+    const context = c.getContext("2d");
+    context.drawImage(img, 0, 0, c.width, c.height);
+    return context.getImageData(0, 0, c.width, c.height);
+  }
+
+  // プレビュー表示
+  function display() {
+    if (!preview) return;
+    const image = showBefore ? preview : corrected || preview;
+    canvas.width = image.width;
+    canvas.height = image.height;
+    ctx.putImageData(image, 0, 0);
+    $("before").classList.toggle("active", showBefore);
+    $("after").classList.toggle("active", !showBefore);
+  }
+
+  function update() {
+    for (const id of controls) {
+      $(id + "Val").textContent = $(id).value + "%";
+    }
+    if (!preview) return;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      corrected = process(preview, ...values());
+      display();
+    });
+  }
+
+  // 写真の選択
+  $("file").onchange = async () => {
+    const file = $("file").files[0];
+    if (!file) return;
+
+    const current = ++token;
+    const url = URL.createObjectURL(file);
+    $("status").textContent = "読み込み中";
+
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      if (current !== token) return;
+
+      source = img;
+      filename = file.name.replace(/\.[^.]+$/, "");
+      preview = raster(img, PREVIEW_MAX);
+      corrected = null;
+      showBefore = false;
+
+      $("filename").textContent = file.name;
+      $("empty").hidden = true;
+      canvas.hidden = false;
+      for (const id of ["before", "after", "save"]) $(id).disabled = false;
+
+      $("status").textContent = img.width + " × " + img.height + " px";
+      update();
+    } catch (error) {
+      $("status").textContent = "読み込めません。JPEG・PNGをお試しください。";
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // 操作ボタン
+  for (const id of controls) {
+    $(id).oninput = () => { showBefore = false; update(); };
+  }
+
+  $("before").onclick = () => { showBefore = true; display(); };
+  $("after").onclick = () => { showBefore = false; display(); };
+
+  $("reset").onclick = () => {
+    defaults.forEach((v, i) => { $(controls[i]).value = v; });
+    showBefore = false;
+    update();
+  };
+
+  // PNG画像として保存
+  $("save").onclick = async () => {
+    if (!source) return;
+    const img = source;
+    const settings = values();
+    const name = filename;
+
+    $("save").disabled = true;
+    $("status").textContent = "保存用画像を処理中(大きい写真は10秒ほどかかります)";
+
+    try {
+      await new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const original = raster(img, 4096);
+      const result = process(original, ...settings);
+
+      const c = document.createElement("canvas");
+      c.width = result.width;
+      c.height = result.height;
+      c.getContext("2d").putImageData(result, 0, 0);
+
+      const blob = await new Promise(resolve => c.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Save failed");
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name + "_modern.png";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+      $("status").textContent = "保存画像:" + result.width + " × " + result.height + " px";
+    } catch (error) {
+      $("status").textContent =
+        "保存できませんでした。写真が大きすぎる可能性があります。ほかのタブを閉じてもう一度お試しください。";
+    } finally {
+      $("save").disabled = false;
+    }
+  };
+})();
+</script>
+</body>
+</html>
