@@ -49,13 +49,13 @@ summary { cursor: pointer; }
 <div id="app">
   <div class="head">
     <h1>現代化カメラ</h1>
-    <span class="rev">rev4 (2026-11-28)</span>
+    <span class="rev">rev5 (2026-11-28)</span>
   </div>
   <div class="hint">生成AI不使用・端末内画像処理</div>
 
   <div class="panel toolbar">
     <label class="pick primary" for="file">写真を選ぶ</label>
-    <input id="file" type="file" accept="image/*" hidden>
+    <input id="file" type="file" accept="image/*,.heic,.heif,.tif,.tiff" hidden>
     <span id="filename" class="hint">読み込むと自動補正します</span>
   </div>
 
@@ -428,15 +428,259 @@ summary { cursor: pointer; }
     return heicLib;
   }
 
+  // ---- TIFF(スキャナの取り込みでよく使う形式)を自前で読む ----
+  // 対応: 無圧縮 / LZW / PackBits / Deflate、8・16ビット、白黒2値・グレー・RGB(+透明)・パレット・CMYK、
+  //       ストリップとタイル、予測子2。1ページ目だけ読む。JPEG圧縮のTIFFは非対応(理由つきで止まる)
+  class TiffError extends Error {}
+
+  function lzwDecode(src, outLen) {
+    const out = new Uint8Array(outLen);
+    let op = 0, bitPos = 0;
+    const nbits = src.length * 8;
+    const read = len => {
+      if (bitPos + len > nbits) return 257;
+      let v = 0;
+      for (let k = 0; k < len; k++, bitPos++) {
+        v = (v << 1) | ((src[bitPos >> 3] >> (7 - (bitPos & 7))) & 1);
+      }
+      return v;
+    };
+    let dict = [], codeLen = 9, prev = null;
+    const reset = () => {
+      dict = [];
+      for (let k = 0; k < 256; k++) dict.push(Uint8Array.of(k));
+      dict.push(null, null);
+      codeLen = 9;
+      prev = null;
+    };
+    reset();
+    while (op < outLen) {
+      const code = read(codeLen);
+      if (code === 257) break;
+      if (code === 256) { reset(); continue; }
+      let entry;
+      if (code < dict.length) entry = dict[code];
+      else if (prev) { entry = new Uint8Array(prev.length + 1); entry.set(prev); entry[prev.length] = prev[0]; }
+      else break;
+      const n = Math.min(entry.length, outLen - op);
+      out.set(n === entry.length ? entry : entry.subarray(0, n), op);
+      op += n;
+      if (prev) {
+        const e = new Uint8Array(prev.length + 1);
+        e.set(prev); e[prev.length] = entry[0];
+        dict.push(e);
+      }
+      prev = entry;
+      if (dict.length + 1 >= (1 << codeLen) && codeLen < 12) codeLen++;
+    }
+    return out;
+  }
+
+  function packBitsDecode(src, outLen) {
+    const out = new Uint8Array(outLen);
+    let ip = 0, op = 0;
+    while (ip < src.length && op < outLen) {
+      const n = (src[ip++] << 24) >> 24;
+      if (n >= 0) {
+        for (let k = 0; k <= n && op < outLen; k++) out[op++] = src[ip++];
+      } else if (n !== -128) {
+        const v = src[ip++];
+        for (let k = 0; k < 1 - n && op < outLen; k++) out[op++] = v;
+      }
+    }
+    return out;
+  }
+
+  async function inflate(src) {
+    const stream = new Blob([src]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function decodeTiff(buf) {
+    const dv = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    const le = dv.getUint16(0) === 0x4949;
+    const u16 = o => dv.getUint16(o, le);
+    const u32 = o => dv.getUint32(o, le);
+    if (u16(2) === 43) throw new TiffError("BigTIFFという大きな形式のTIFFには対応していません。");
+
+    // 1ページ目の項目表を読む
+    const SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 16: 8 };
+    const tags = {};
+    const ifd = u32(4);
+    const count = u16(ifd);
+    for (let k = 0; k < count; k++) {
+      const e = ifd + 2 + k * 12;
+      const tag = u16(e), type = u16(e + 2), n = u32(e + 4);
+      const size = (SIZE[type] || 1) * n;
+      const at = size <= 4 ? e + 8 : u32(e + 8);
+      const vals = [];
+      for (let j = 0; j < n; j++) {
+        if (type === 3 || type === 8) vals.push(u16(at + j * 2));
+        else if (type === 4 || type === 9) vals.push(u32(at + j * 4));
+        else vals.push(bytes[at + j]);
+      }
+      tags[tag] = vals;
+    }
+    const get = (t, d) => tags[t] ? tags[t][0] : d;
+
+    const w = get(256), h = get(257);
+    if (!w || !h) throw new TiffError("画像の大きさが読み取れませんでした。");
+    const bps = get(258, 1);
+    const comp = get(259, 1);
+    const photo = get(262, 1);
+    const spp = get(277, 1);
+    const planar = get(284, 1);
+    const predictor = get(317, 1);
+    if (comp === 6 || comp === 7) throw new TiffError("中身がJPEG圧縮のTIFFには対応していません。");
+    if (![1, 5, 8, 32946, 32773].includes(comp)) throw new TiffError("この圧縮方式(" + comp + ")のTIFFには対応していません。");
+    if (![1, 8, 16].includes(bps)) throw new TiffError(bps + "ビットのTIFFには対応していません。");
+    if (planar !== 1 && spp > 1) throw new TiffError("色ごとに分かれて保存されたTIFFには対応していません。");
+
+    const rowBytes = Math.ceil(w * spp * bps / 8);
+    const raw = new Uint8Array(rowBytes * h);
+
+    async function unpack(off, len, outLen) {
+      const src = bytes.subarray(off, off + len);
+      if (comp === 1) return src;
+      if (comp === 5) return lzwDecode(src, outLen);
+      if (comp === 32773) return packBitsDecode(src, outLen);
+      return inflate(src);
+    }
+
+    // 予測子2: 左隣との差で保存されているのを元に戻す
+    function unpredict(data, rb, rows, pxPerRow) {
+      if (predictor !== 2) return;
+      for (let r = 0; r < rows; r++) {
+        const o = r * rb;
+        if (bps === 8) {
+          for (let k = spp; k < pxPerRow * spp; k++) data[o + k] = (data[o + k] + data[o + k - spp]) & 255;
+        } else if (bps === 16) {
+          const v = new DataView(data.buffer, data.byteOffset + o, rb);
+          for (let k = spp; k < pxPerRow * spp; k++) {
+            v.setUint16(k * 2, (v.getUint16(k * 2, le) + v.getUint16((k - spp) * 2, le)) & 65535, le);
+          }
+        }
+      }
+    }
+
+    if (tags[324]) {
+      // タイル
+      const tw = get(322), th = get(323);
+      const offs = tags[324], lens = tags[325];
+      const tRow = Math.ceil(tw * spp * bps / 8);
+      const across = Math.ceil(w / tw);
+      for (let t = 0; t < offs.length; t++) {
+        const data = new Uint8Array(await unpack(offs[t], lens[t], tRow * th));
+        unpredict(data, tRow, th, tw);
+        const tx = (t % across) * tw, ty = Math.floor(t / across) * th;
+        const xb = Math.floor(tx * spp * bps / 8);
+        const copy = Math.min(tRow, rowBytes - xb);
+        for (let r = 0; r < th && ty + r < h; r++) {
+          raw.set(data.subarray(r * tRow, r * tRow + copy), (ty + r) * rowBytes + xb);
+        }
+      }
+    } else {
+      // ストリップ
+      const offs = tags[273], lens = tags[279];
+      if (!offs) throw new TiffError("画像のデータの場所が読み取れませんでした。");
+      const rps = Math.min(get(278, h), h);
+      for (let s = 0; s < offs.length; s++) {
+        const rows = Math.min(rps, h - s * rps);
+        if (rows <= 0) break;
+        const len = lens ? lens[s] : rowBytes * rows;
+        const data = new Uint8Array(await unpack(offs[s], len, rowBytes * rows));
+        unpredict(data, rowBytes, rows, w);
+        raw.set(data.subarray(0, Math.min(data.length, rowBytes * rows)), s * rps * rowBytes);
+      }
+    }
+
+    // RGBAに直す
+    const img = new ImageData(w, h);
+    const p = img.data;
+    const rv = new DataView(raw.buffer);
+    const sample = (y, x, c) => {
+      const k = x * spp + c;
+      if (bps === 8) return raw[y * rowBytes + k];
+      if (bps === 16) return rv.getUint16(y * rowBytes + k * 2, le) >> 8;
+      return ((raw[y * rowBytes + (k >> 3)] >> (7 - (k & 7))) & 1) * 255;
+    };
+    const map = tags[320];
+    const hasAlpha = photo === 2 && spp >= 4;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        let r, g, b, a = 255;
+        if (photo === 2) {
+          r = sample(y, x, 0); g = sample(y, x, 1); b = sample(y, x, 2);
+          if (hasAlpha) a = sample(y, x, 3);
+        } else if (photo === 3 && map) {
+          const k = x * spp;
+          const idx = bps === 8 ? raw[y * rowBytes + k]
+                    : bps === 16 ? rv.getUint16(y * rowBytes + k * 2, le)
+                    : (raw[y * rowBytes + (k >> 3)] >> (7 - (k & 7))) & 1;
+          const n = map.length / 3;
+          r = map[idx] >> 8; g = map[n + idx] >> 8; b = map[2 * n + idx] >> 8;
+        } else if (photo === 5 && spp >= 4) {
+          const c = sample(y, x, 0), m = sample(y, x, 1), ye = sample(y, x, 2), kk = sample(y, x, 3);
+          r = (255 - c) * (255 - kk) / 255;
+          g = (255 - m) * (255 - kk) / 255;
+          b = (255 - ye) * (255 - kk) / 255;
+        } else if (photo === 0 || photo === 1) {
+          let v = sample(y, x, 0);
+          if (photo === 0) v = 255 - v;
+          r = g = b = v;
+          if (spp >= 2) a = sample(y, x, 1);
+        } else {
+          throw new TiffError("この色の持ち方(" + photo + ")のTIFFには対応していません。");
+        }
+        p[i] = r; p[i + 1] = g; p[i + 2] = b; p[i + 3] = a;
+      }
+    }
+
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").putImageData(img, 0, 0);
+    return c;
+  }
+
+  // 読めなかった理由(画面に出す文)
+  let failReason = "";
   let heicState = "";  // "nolib" = 部品が無い / "failed" = 部品はあるが変換できなかった
+  const RAW_EXT = ["dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "raf", "pef", "srw"];
 
   async function openPhoto(file, ext) {
     heicState = "";
+    failReason = "";
     try {
       return await decodeBlob(file);
     } catch (error) {
-      if (ext !== "heic" && ext !== "heif") throw error;
+      // ブラウザが読めない形式。下で中身の先頭を見て判断する
     }
+
+    if (RAW_EXT.includes(ext)) {
+      failReason = "カメラの生データ(RAW)の形式は読めません。カメラ付属のソフトや「フォト」で JPEG に書き出してから入れてください。";
+      throw new Error("raw");
+    }
+
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const isTiff = (head[0] === 0x49 && head[1] === 0x49 && head[2] === 42) ||
+                   (head[0] === 0x4d && head[1] === 0x4d && head[3] === 42);
+    if (isTiff) {
+      $("status").textContent = "TIFFを読み込み中…(大きい画像は数秒かかります)";
+      try {
+        return await decodeTiff(await file.arrayBuffer());
+      } catch (error) {
+        failReason = "TIFFの画像ですが、" + (error instanceof TiffError
+          ? error.message : "読み込みの途中で失敗しました(壊れているか、特殊な形式の可能性があります)。");
+        throw error;
+      }
+    }
+
+    const brand = String.fromCharCode(...head.subarray(4, 12));
+    const isHeic = ext === "heic" || ext === "heif" || /^ftyp(heic|heix|hevc|mif1|msf1)/.test(brand);
+    if (!isHeic) throw new Error("unknown");
+
     $("status").textContent = "iPhoneの写真(HEIC)を変換中…(数秒かかります)";
     const lib = await loadHeicLib();
     if (!lib) { heicState = "nolib"; throw new Error("no heic2any"); }
@@ -488,8 +732,12 @@ summary { cursor: pointer; }
       } else if (heicState === "failed") {
         msg += "\n\niPhoneの写真の形式(HEIC)を変換しようとしましたが、失敗しました。"
              + "写真が壊れているか、特殊な形式の可能性があります。" + paint;
+      } else if (failReason) {
+        // RAWはペイントでも開けないことが多いので、ペイントの案内は付けない
+        msg += "\n\n" + failReason + (RAW_EXT.includes(ext) ? "" : paint);
       } else {
-        msg += "\n\nこの形式(." + ext + ")は、このブラウザでは開けません。JPG か PNG で試してください。";
+        msg += "\n\nこの形式(." + ext + ")は読めません。"
+             + "\n読める形式: JPG・PNG・WebP・GIF・BMP・AVIF・HEIC(iPhone)・TIFF(スキャナ)" + paint;
       }
       $("empty").textContent = msg;
       $("empty").style.whiteSpace = "pre-line";
