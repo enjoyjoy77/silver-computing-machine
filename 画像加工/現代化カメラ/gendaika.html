@@ -49,7 +49,7 @@ summary { cursor: pointer; }
 <div id="app">
   <div class="head">
     <h1>現代化カメラ</h1>
-    <span class="rev">rev3 (2026-11-28)</span>
+    <span class="rev">rev4 (2026-11-28)</span>
   </div>
   <div class="hint">生成AI不使用・端末内画像処理</div>
 
@@ -398,19 +398,69 @@ summary { cursor: pointer; }
     });
   }
 
+  // 画像ファイルを開く(ブラウザが読める形式だけ)
+  async function decodeBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // iPhoneの写真(HEIC)を読む部品 heic2any。重いので、HEICを選んだときだけ読み込む。
+  // 部品は ツールボックス\libs\heic2any.min.js に置く(無ければ null)
+  let heicLib = null;
+  function loadHeicLib() {
+    if (window.heic2any) return Promise.resolve(window.heic2any);
+    if (!heicLib) {
+      heicLib = new Promise(resolve => {
+        const s = document.createElement("script");
+        s.src = "../../libs/heic2any.min.js";
+        s.onload = () => resolve(window.heic2any || null);
+        s.onerror = () => { heicLib = null; resolve(null); };
+        document.head.appendChild(s);
+      });
+    }
+    return heicLib;
+  }
+
+  let heicState = "";  // "nolib" = 部品が無い / "failed" = 部品はあるが変換できなかった
+
+  async function openPhoto(file, ext) {
+    heicState = "";
+    try {
+      return await decodeBlob(file);
+    } catch (error) {
+      if (ext !== "heic" && ext !== "heif") throw error;
+    }
+    $("status").textContent = "iPhoneの写真(HEIC)を変換中…(数秒かかります)";
+    const lib = await loadHeicLib();
+    if (!lib) { heicState = "nolib"; throw new Error("no heic2any"); }
+    try {
+      let jpeg = await lib({ blob: file, toType: "image/jpeg", quality: .95 });
+      if (Array.isArray(jpeg)) jpeg = jpeg[0];  // 連写などで複数入っていたら1枚目
+      return await decodeBlob(jpeg);
+    } catch (error) {
+      heicState = "failed";
+      throw error;
+    }
+  }
+
   // 写真の選択
   $("file").onchange = async () => {
     const file = $("file").files[0];
     if (!file) return;
 
     const current = ++token;
-    const url = URL.createObjectURL(file);
+    const ext = (file.name.match(/\.([^.]+)$/) || ["", "?"])[1].toLowerCase();
     $("status").textContent = "読み込み中";
 
     try {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
+      const img = await openPhoto(file, ext);
       if (current !== token) return;
 
       source = img;
@@ -429,12 +479,15 @@ summary { cursor: pointer; }
     } catch (error) {
       if (current !== token) return;
       // 小さい文字だけだと「何も起きない」に見えるので、黒い枠の中に大きく出す
-      const ext = (file.name.match(/\.([^.]+)$/) || ["", "?"])[1].toLowerCase();
       let msg = "「" + file.name + "」を開けませんでした。";
-      if (ext === "heic" || ext === "heif") {
-        msg += "\n\nこれはiPhoneの写真の形式(HEIC)で、このブラウザでは開けません。"
-             + "\nパソコンの「ペイント」で開いて「名前を付けて保存」→「JPEG画像」で保存してから入れてください。"
+      const paint = "\nパソコンの「ペイント」で開いて「名前を付けて保存」→「JPEG画像」で保存してから入れてください。";
+      if (heicState === "nolib") {
+        msg += "\n\nこれはiPhoneの写真の形式(HEIC)です。HEICを読む部品(heic2any.min.js)が"
+             + "ツールボックスの libs フォルダに入っていないため開けません。" + paint
              + "\n(iPhoneのSafariで開けば、そのまま使えます)";
+      } else if (heicState === "failed") {
+        msg += "\n\niPhoneの写真の形式(HEIC)を変換しようとしましたが、失敗しました。"
+             + "写真が壊れているか、特殊な形式の可能性があります。" + paint;
       } else {
         msg += "\n\nこの形式(." + ext + ")は、このブラウザでは開けません。JPG か PNG で試してください。";
       }
@@ -445,7 +498,6 @@ summary { cursor: pointer; }
       $("filename").textContent = file.name;
       $("status").textContent = "開けませんでした(." + ext + ")";
     } finally {
-      URL.revokeObjectURL(url);
       // 同じ写真を選び直しても反応するように
       $("file").value = "";
     }
